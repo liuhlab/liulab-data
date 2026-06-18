@@ -8,7 +8,7 @@ cheap and network traffic happens only for the fields you read.
 Two families share most of the plumbing:
 
 * **GEO records** (``GSE``/``GSM``/``GPL``) live in the Entrez ``gds`` database
-  (:class:`_GdsRecord`). They expose ``geo_url`` and a ``suppl/`` directory.
+  (:class:`_GdsRecord`). They expose a ``url`` and a ``suppl/`` directory.
 * **SRA records** (``SRX``/``SRR``) live in the Entrez ``sra`` database
   (:class:`_SraRecord`), whose summary carries the experiment/run XML.
 
@@ -168,8 +168,8 @@ class _GdsRecord(_Record):
         return str(self._summary.get("taxon", ""))
 
     @property
-    def geo_url(self) -> str:
-        """The GEO accession-display URL for this record."""
+    def url(self) -> str:
+        """The GEO accession-display web URL for this record."""
         return f"https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc={self.accession}"
 
     @property

@@ -42,8 +42,9 @@ and this project adheres to [Calendar Versioning](https://calver.org/) using
     `Sample.series`→`Series`, `Sample.platform`→`Platform`, `Sample.experiments`→
     `[Experiment]`, `Experiment.runs`→`[Run]`, `Run.experiment`→`Experiment`. Linked
     instances share the parent's Entrez client.
-  - GEO records expose `geo_url` (acc.cgi) and `supplementary_http_url` (derived from the
-    accession, no request); SRA records expose `url` (SRA web page).
+  - Every record exposes a `url` (GEO acc.cgi page for `GSE`/`GSM`/`GPL`, SRA web page for
+    `SRX`/`SRR`); GEO records also expose `supplementary_http_url` (derived from the
+    accession, no request).
   - `Series.bioproject_ids` (`PRJNA…`, plain strings) via `gds`→`bioproject` elink.
   - `supplementary_files` lists a record's `suppl/` directory lazily over HTTP via the new
     `labdata.geo._web` seam (single mockable `list_directory`; 404 → empty). Replaces the

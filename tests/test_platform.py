@@ -23,7 +23,7 @@ def test_metadata() -> None:
 
 def test_urls() -> None:
     p = Platform(g.GPL)
-    assert p.geo_url == "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GPL16791"
+    assert p.url == "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GPL16791"
     assert (
         p.supplementary_http_url
         == "https://ftp.ncbi.nlm.nih.gov/geo/platforms/GPL16nnn/GPL16791/suppl/"

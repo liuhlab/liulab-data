@@ -40,7 +40,7 @@ def test_no_record_raises() -> None:
 
 def test_urls() -> None:
     s = Series(g.GSE)
-    assert s.geo_url == "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE131907"
+    assert s.url == "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE131907"
     assert (
         s.supplementary_http_url
         == "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE131nnn/GSE131907/suppl/"

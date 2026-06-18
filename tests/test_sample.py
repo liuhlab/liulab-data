@@ -39,7 +39,7 @@ def test_experiments_are_instances() -> None:
 
 def test_urls() -> None:
     s = Sample(g.GSM1)
-    assert s.geo_url == "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM3827114"
+    assert s.url == "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM3827114"
     assert (
         s.supplementary_http_url
         == "https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM3827nnn/GSM3827114/suppl/"
