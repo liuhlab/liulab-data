@@ -1,0 +1,36 @@
+# Pre-commit hooks for liulab-data.
+#
+# Install once per clone:  pixi run -- pre-commit install
+# Run on all files:        pixi run -- pre-commit run --all-files
+#
+# Ruff is installed by pre-commit in its own ephemeral env (pinned below).
+# Pyright runs through pixi so it sees the project's resolved env.
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=500]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.16
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: pyright
+        name: pyright (via pixi)
+        entry: pixi run --no-progress typecheck
+        language: system
+        types: [python]
+        pass_filenames: false
+        require_serial: true

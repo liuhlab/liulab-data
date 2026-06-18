@@ -1,0 +1,52 @@
+# pixi
+.pixi/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+.eggs/
+build/
+dist/
+wheels/
+
+# venvs (in case anyone strays from pixi)
+.venv/
+venv/
+env/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.tox/
+.hypothesis/
+
+# Type checkers
+.pyright/
+.mypy_cache/
+.ruff_cache/
+
+# Docs build
+site/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+*.swp
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Claude Code local settings (project-wide settings.json may be committed)
+.claude/settings.local.json
+
+# playground contains manual test code
+playground/

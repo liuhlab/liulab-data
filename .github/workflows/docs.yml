@@ -1,0 +1,56 @@
+name: Docs
+
+# Builds the MkDocs site and deploys it to GitHub Pages on every push to main.
+#
+# Setup (one-off, by a maintainer):
+#   1. Settings → Pages → Build and deployment → Source: "GitHub Actions".
+#   2. (Private repo + GitHub Pro/Team only) Settings → Pages → Visibility:
+#      "Public" if docs should be world-readable, "Private" to restrict to
+#      people with repo access.
+#   3. First push to main triggers this workflow; the URL appears in the
+#      deployment's environment summary and at Settings → Pages.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment, but don't cancel an in-progress one
+# (Pages deploys aren't safe to interrupt mid-flight).
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # mkdocs revision dates / hatch-vcs version need history
+      - uses: prefix-dev/setup-pixi@v0.8.14
+        with:
+          environments: docs
+          locked: true
+      - name: mkdocs build --strict
+        run: pixi run -e docs mkdocs build --strict
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

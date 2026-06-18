@@ -1,0 +1,179 @@
+[project]
+name = "liulab-data"
+description = "Data curation, download, and organization utilities for the Liu Lab."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+authors = [{ name = "Liu Lab" }]
+keywords = ["bioinformatics", "data-curation", "geo", "ncbi", "entrez"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Typing :: Typed",
+]
+dynamic = ["version"]
+dependencies = [
+    "biopython>=1.83",
+    "typer>=0.12",
+]
+
+[project.urls]
+Homepage = "https://github.com/lhqing/liulab-data"
+Issues = "https://github.com/lhqing/liulab-data/issues"
+Changelog = "https://github.com/lhqing/liulab-data/blob/main/CHANGELOG.md"
+
+[project.scripts]
+labdata = "labdata.cli:app"
+
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+fallback-version = "0.0.0+dev"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/labdata"]
+
+# -------- pixi --------
+
+[tool.pixi.workspace]
+channels = ["conda-forge", "bioconda"]
+platforms = ["osx-arm64", "linux-64"]
+
+# Editable install of this package into every env
+[tool.pixi.pypi-dependencies]
+liulab-data = { path = ".", editable = true }
+
+# Runtime deps (conda-forge)
+[tool.pixi.dependencies]
+biopython = ">=1.83"
+typer = ">=0.12"
+
+# Python version features
+[tool.pixi.feature.py312.dependencies]
+python = "3.12.*"
+[tool.pixi.feature.py313.dependencies]
+python = "3.13.*"
+
+# Test feature
+[tool.pixi.feature.test.dependencies]
+pytest = "*"
+pytest-cov = "*"
+hypothesis = "*"
+
+# Dev tooling feature
+[tool.pixi.feature.dev.dependencies]
+ruff = "*"
+pyright = "*"
+pre-commit = "*"
+python-build = "*"
+hatch-vcs = "*"
+
+# Docs feature
+[tool.pixi.feature.docs.dependencies]
+mkdocs-material = "*"
+mkdocstrings-python = "*"
+ruff = "*"   # used by mkdocstrings to format rendered signatures
+
+[tool.pixi.environments]
+default    = { features = ["py313", "dev", "test", "docs"], solve-group = "default" }
+test-py312 = { features = ["py312", "test"], solve-group = "py312" }
+test-py313 = { features = ["py313", "test"], solve-group = "py313" }
+docs       = { features = ["py313", "docs"], solve-group = "default" }
+
+[tool.pixi.tasks]
+lint      = "ruff check ."
+fmt       = "ruff format ."
+fmt-check = "ruff format --check ."
+typecheck = "pyright"
+test      = "pytest"
+test-cov  = "pytest --cov=labdata --cov-report=term-missing"
+check     = { depends-on = ["lint", "fmt-check", "typecheck", "test"] }
+build     = "python -m build"
+docs      = "mkdocs serve"
+
+# -------- tool config --------
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "SIM",  # flake8-simplify
+    "PT",   # flake8-pytest-style
+    "PTH",  # flake8-use-pathlib
+    "N",    # pep8-naming
+    "D",    # pydocstyle (numpy convention configured below)
+    "RUF",  # ruff-specific
+]
+ignore = [
+    "E501",  # line too long — formatter handles it
+    "D203",  # one-blank-line-before-class (incompatible with D211)
+    "D213",  # multi-line-summary-second-line (incompatible with D212)
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.ruff.lint.flake8-bugbear]
+# Typer uses call expressions (Option/Argument) as parameter defaults by design.
+extend-immutable-calls = ["typer.Argument", "typer.Option"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "D",     # tests don't need full docstrings
+    "S101",  # asserts are the whole point
+]
+"**/__init__.py" = [
+    "D104",  # docstring on package init is optional
+]
+
+[tool.pyright]
+include = ["src", "tests"]
+exclude = ["**/__pycache__", "**/.pixi"]
+venvPath = ".pixi/envs"
+venv = "default"
+pythonVersion = "3.12"
+typeCheckingMode = "basic"
+useLibraryCodeForTypes = true
+reportMissingTypeStubs = "none"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["-ra", "--strict-markers", "--strict-config", "-m", "not network"]
+xfail_strict = true
+filterwarnings = ["error"]
+markers = [
+    "network: hits the live NCBI E-utilities (deselected by default; run with `-m network`)",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["src/labdata"]
+
+[tool.coverage.report]
+show_missing = true
+exclude_also = [
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    '\.\.\.',
+]
