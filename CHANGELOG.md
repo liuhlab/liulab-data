@@ -37,6 +37,13 @@ and this project adheres to [Calendar Versioning](https://calver.org/) using
   resolves the `gds` UID, title/summary/organism, the linked `pubmed_id`, its `samples`
   (GSM accessions), and its `experiments` (SRA `SRX` accessions via `gds`→`sra` elink).
   Results are cached; construction does no network I/O.
+  - `platforms` (GPL accessions) and `supplementary_file_types` come free from the `gds`
+    summary already fetched. Note: E-utilities exposes only supplementary-file *types*
+    (extensions), not individual file names/URLs, and does not expose the GEO "overall
+    design" text — both live in the SOFT/MINiML record, out of scope here.
+  - `bioproject_ids` (`PRJNA…`) via `gds`→`bioproject` elink plus a BioProject summary.
+- `EntrezClient.esummary` now handles both esummary response shapes — the classic
+  `DocSum` list (`gds`/`sra`) and the v2.0 `DocumentSummarySet` (`bioproject`).
 - CLI: `labdata version` and `labdata ncbi configure` (store NCBI credentials).
 - MkDocs Material docs *pipeline* (`mkdocs.yml`, stub `docs/{index,reference}.md`) — page
   content is intentionally deferred until the GEO part is finalized.

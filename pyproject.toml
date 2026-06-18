@@ -77,6 +77,7 @@ pyright = "*"
 pre-commit = "*"
 python-build = "*"
 hatch-vcs = "*"
+ipykernel = "*"   # lets the pixi env back a Jupyter kernel (notebook dev)
 
 # Docs feature
 [tool.pixi.feature.docs.dependencies]

@@ -60,10 +60,25 @@ def test_esummary_returns_first_docsum(patch_entrez) -> None:
     }
 
 
+def test_esummary_document_summary_set(patch_entrez) -> None:
+    # bioproject and other v2.0 databases nest summaries under DocumentSummarySet.
+    record = {"DocumentSummarySet": {"DocumentSummary": [{"Project_Acc": "PRJNA545296"}]}}
+    patch_entrez("esummary", record)
+    assert EntrezClient(CREDS).esummary(db="bioproject", uid="545296") == {
+        "Project_Acc": "PRJNA545296"
+    }
+
+
 def test_esummary_empty_raises(patch_entrez) -> None:
     patch_entrez("esummary", [])
     with pytest.raises(EntrezError, match="empty esummary"):
         EntrezClient(CREDS).esummary(db="gds", uid="1")
+
+
+def test_esummary_empty_document_summary_set_raises(patch_entrez) -> None:
+    patch_entrez("esummary", {"DocumentSummarySet": {"DocumentSummary": []}})
+    with pytest.raises(EntrezError, match="empty esummary"):
+        EntrezClient(CREDS).esummary(db="bioproject", uid="1")
 
 
 def test_elink_collects_linked_uids(patch_entrez) -> None:

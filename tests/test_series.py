@@ -11,11 +11,14 @@ from tests._fakes import FakeEntrezClient
 GSE = "GSE131907"
 UID = "200131907"
 SRA_UID = "5921017"
+BP_UID = "545296"
 
 _SUMMARY = {
     "title": "Single-cell landscape of lung adenocarcinoma",
     "summary": "An scRNA-seq atlas ...",
     "taxon": "Homo sapiens",
+    "GPL": "16791",
+    "suppFile": "RDS, TXT, XLSX",
     "PubMedIds": ["32385277"],
     "Samples": [
         {"Accession": "GSM3828672", "Title": "P0006"},
@@ -30,8 +33,12 @@ def _build(make_client: Callable[..., FakeEntrezClient], **over: object) -> Fake
         "esummary": {
             ("gds", UID): _SUMMARY,
             ("sra", SRA_UID): {"ExpXml": '<Experiment acc="SRX5921017"/>'},
+            ("bioproject", BP_UID): {"Project_Acc": "PRJNA545296"},
         },
-        "elink": {("gds", "sra", UID): [SRA_UID]},
+        "elink": {
+            ("gds", "sra", UID): [SRA_UID],
+            ("gds", "bioproject", UID): [BP_UID],
+        },
     }
     cfg.update(over)
     return make_client(**cfg)
@@ -77,6 +84,44 @@ def test_pubmed_id_absent(make_client: Callable[..., FakeEntrezClient]) -> None:
 
 def test_samples(make_client: Callable[..., FakeEntrezClient]) -> None:
     assert Series(GSE, client=_build(make_client)).samples == ["GSM3828672", "GSM3828673"]
+
+
+def test_platforms(make_client: Callable[..., FakeEntrezClient]) -> None:
+    assert Series(GSE, client=_build(make_client)).platforms == ["GPL16791"]
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("16791", ["GPL16791"]),
+        ("GPL16791", ["GPL16791"]),
+        ("16791 24676", ["GPL16791", "GPL24676"]),
+        ("16791;24676", ["GPL16791", "GPL24676"]),
+        ("", []),
+    ],
+)
+def test_platforms_normalization(
+    make_client: Callable[..., FakeEntrezClient], raw: str, expected: list[str]
+) -> None:
+    summary = {**_SUMMARY, "GPL": raw}
+    s = Series(GSE, client=_build(make_client, esummary={("gds", UID): summary}))
+    assert s.platforms == expected
+
+
+def test_supplementary_file_types(make_client: Callable[..., FakeEntrezClient]) -> None:
+    assert Series(GSE, client=_build(make_client)).supplementary_file_types == [
+        "RDS",
+        "TXT",
+        "XLSX",
+    ]
+
+
+def test_bioproject_ids(make_client: Callable[..., FakeEntrezClient]) -> None:
+    assert Series(GSE, client=_build(make_client)).bioproject_ids == ["PRJNA545296"]
+
+
+def test_bioproject_ids_empty_when_unlinked(make_client: Callable[..., FakeEntrezClient]) -> None:
+    assert Series(GSE, client=_build(make_client, elink={})).bioproject_ids == []
 
 
 def test_experiments(make_client: Callable[..., FakeEntrezClient]) -> None:

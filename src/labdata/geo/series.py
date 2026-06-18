@@ -108,6 +108,65 @@ class Series:
         return str(self._summary.get("taxon", ""))
 
     @cached_property
+    def platforms(self) -> list[str]:
+        """The platform (``GPL``) accessions this Series uses.
+
+        Read directly from the ``gds`` summary (no extra request). The summary
+        stores bare platform numbers; they are normalized to ``GPL…`` form.
+
+        Returns
+        -------
+        list of str
+            Platform accessions, e.g. ``["GPL16791"]``.
+        """
+        raw = str(self._summary.get("GPL", ""))
+        tokens = (tok for tok in re.split(r"[;,\s]+", raw) if tok)
+        return [tok.upper() if tok.upper().startswith("GPL") else f"GPL{tok}" for tok in tokens]
+
+    @cached_property
+    def supplementary_file_types(self) -> list[str]:
+        """The supplementary-file *types* GEO lists for this Series.
+
+        Read directly from the ``gds`` summary (no extra request).
+
+        Returns
+        -------
+        list of str
+            File-type tokens, e.g. ``["RDS", "TXT", "XLSX"]``.
+
+        Notes
+        -----
+        E-utilities exposes only the file *types* (extensions), not individual
+        file names or URLs. The full supplementary-file list lives in the GEO
+        SOFT/MINiML record or the series FTP directory, neither of which is an
+        E-utilities endpoint, so it is intentionally not provided here.
+        """
+        raw = str(self._summary.get("suppFile", ""))
+        return [tok.strip() for tok in raw.split(",") if tok.strip()]
+
+    @cached_property
+    def bioproject_ids(self) -> list[str]:
+        """The BioProject accessions (``PRJNA…``) linked to this Series.
+
+        Resolved by linking the ``gds`` record to BioProject (``elink``) and
+        reading each linked project's ``Project_Acc`` from its summary.
+
+        Returns
+        -------
+        list of str
+            Unique BioProject accessions; empty when the Series links to none.
+        """
+        uids = self.client.elink(dbfrom="gds", db="bioproject", uid=self.uid)
+        found: dict[str, None] = {}
+        for bp_uid in uids:
+            accession = str(
+                self.client.esummary(db="bioproject", uid=bp_uid).get("Project_Acc", "")
+            )
+            if accession:
+                found.setdefault(accession, None)
+        return list(found)
+
+    @cached_property
     def pubmed_id(self) -> str | None:
         """The PubMed ID of the associated publication, if any.
 

@@ -25,3 +25,6 @@ def test_live_series_resolves() -> None:
     assert s.pubmed_id is not None
     assert all(acc.startswith("GSM") for acc in s.samples)
     assert all(acc[1:].startswith("RX") for acc in s.experiments)
+    assert all(acc.startswith("GPL") for acc in s.platforms)
+    assert all(acc.startswith("PRJ") for acc in s.bioproject_ids)
+    assert s.supplementary_file_types  # at least one file-type token

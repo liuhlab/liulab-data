@@ -22,6 +22,21 @@ from labdata.ncbi.config import NcbiCredentials, load_credentials
 _entrez: Any = Entrez
 
 
+def _docsums(record: Any) -> list[Any]:
+    """Normalize an esummary parse to a list of document summaries.
+
+    Classic esummary (``gds``, ``sra``) parses to a list of summaries; the v2.0
+    ``DocumentSummarySet`` format (e.g. ``bioproject``) nests them one level
+    down under ``DocumentSummarySet -> DocumentSummary``.
+    """
+    if isinstance(record, dict):
+        summary_set = record.get("DocumentSummarySet")
+        if summary_set is not None:
+            return list(summary_set.get("DocumentSummary", []))
+        return [record]
+    return list(record)
+
+
 class EntrezClient:
     """Authenticated entry point to NCBI E-utilities.
 
@@ -68,10 +83,14 @@ class EntrezClient:
     def esummary(self, db: str, uid: str) -> dict[str, Any]:
         """Fetch the document summary for a single UID.
 
+        Handles both esummary response shapes: the classic ``DocSum`` list used
+        by ``gds``/``sra`` and the v2.0 ``DocumentSummarySet`` used by databases
+        such as ``bioproject``.
+
         Parameters
         ----------
         db : str
-            Entrez database (e.g. ``"gds"`` or ``"sra"``).
+            Entrez database (e.g. ``"gds"``, ``"sra"``, or ``"bioproject"``).
         uid : str
             The UID whose summary to fetch.
 
@@ -86,9 +105,10 @@ class EntrezClient:
             If NCBI returns no summary for the UID.
         """
         record = self._read(_entrez.esummary(db=db, id=str(uid)))
-        if not record:
+        docsums = _docsums(record)
+        if not docsums:
             raise EntrezError(f"empty esummary for {db} uid {uid!r}")
-        return dict(record[0])
+        return dict(docsums[0])
 
     def elink(self, dbfrom: str, db: str, uid: str) -> list[str]:
         """Return UIDs in ``db`` linked from ``uid`` in ``dbfrom``.
