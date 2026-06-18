@@ -4,7 +4,7 @@
     options:
       show_root_heading: false
 
-::: labdata.geo.series
+::: labdata.geo.records
 
 ::: labdata.ncbi.entrez
 

@@ -32,18 +32,27 @@ and this project adheres to [Calendar Versioning](https://calver.org/) using
     when nothing is configured and prompting is impossible.
   - `EntrezClient`, a thin, mockable wrapper over `Bio.Entrez` exposing typed
     `esearch`/`esummary`/`elink` helpers — the single network seam for the package.
-- `labdata.geo.Series` — a lazy handle on a GEO Series (`GSE000000`). Validates the
-  accession at construction (`AccessionError` otherwise) and, on first property access,
-  resolves the `gds` UID, title/summary/organism, the linked `pubmed_id`, its `samples`
-  (GSM accessions), and its `experiments` (SRA `SRX` accessions via `gds`→`sra` elink).
-  Results are cached; construction does no network I/O.
-  - `platforms` (GPL accessions) and `supplementary_file_types` come free from the `gds`
-    summary already fetched. Note: E-utilities exposes only supplementary-file *types*
-    (extensions), not individual file names/URLs, and does not expose the GEO "overall
-    design" text — both live in the SOFT/MINiML record, out of scope here.
-  - `bioproject_ids` (`PRJNA…`) via `gds`→`bioproject` elink plus a BioProject summary.
-- `EntrezClient.esummary` now handles both esummary response shapes — the classic
-  `DocSum` list (`gds`/`sra`) and the v2.0 `DocumentSummarySet` (`bioproject`).
+- `labdata.geo` — a lazy GEO/SRA object model in `labdata/geo/records.py`, exported at
+  the top level: `Series` (GSE), `Sample` (GSM), `Platform` (GPL), `Experiment` (SRX),
+  and `Run` (SRR). Each validates its accession at construction (`AccessionError`
+  otherwise) and resolves fields lazily via `cached_property`; construction does no
+  network I/O. Records compare/hash by class + accession.
+  - **Links return instances, not strings.** `Series.samples`→`[Sample]`,
+    `Series.platforms`→`[Platform]`, `Series.experiments`→`[Experiment]`,
+    `Sample.series`→`Series`, `Sample.platform`→`Platform`, `Sample.experiments`→
+    `[Experiment]`, `Experiment.runs`→`[Run]`, `Run.experiment`→`Experiment`. Linked
+    instances share the parent's Entrez client.
+  - GEO records expose `geo_url` (acc.cgi) and `supplementary_http_url` (derived from the
+    accession, no request); SRA records expose `url` (SRA web page).
+  - `Series.bioproject_ids` (`PRJNA…`, plain strings) via `gds`→`bioproject` elink.
+  - `supplementary_files` lists a record's `suppl/` directory lazily over HTTP via the new
+    `labdata.geo._web` seam (single mockable `list_directory`; 404 → empty). Replaces the
+    earlier `supplementary_file_types` (removed — only exposed extensions). The GEO
+    "overall design" text remains out of scope (not exposed by E-utilities).
+  - SRA records parse the `sra` esummary `ExpXml`/`Runs` fragments for organism,
+    instrument model, study (`SRP`), title, and per-run spot/base counts and public flag.
+- `EntrezClient.esummary` handles both esummary response shapes — the classic `DocSum`
+  list (`gds`/`sra`) and the v2.0 `DocumentSummarySet` (`bioproject`).
 - CLI: `labdata version` and `labdata ncbi configure` (store NCBI credentials).
 - MkDocs Material docs *pipeline* (`mkdocs.yml`, stub `docs/{index,reference}.md`) — page
   content is intentionally deferred until the GEO part is finalized.

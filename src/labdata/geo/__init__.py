@@ -1,5 +1,5 @@
-"""GEO (Gene Expression Omnibus) records. Currently: the Series class."""
+"""The GEO object model: Series, Sample, Platform, Experiment, and Run."""
 
-from labdata.geo.series import Series
+from labdata.geo.records import Experiment, Platform, Run, Sample, Series
 
-__all__ = ["Series"]
+__all__ = ["Experiment", "Platform", "Run", "Sample", "Series"]

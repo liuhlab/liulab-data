@@ -53,3 +53,19 @@ class FakeEntrezClient(EntrezClient):
     def count(self, method: str) -> int:
         """Return how many times ``method`` has been called."""
         return sum(1 for name, _ in self.calls if name == method)
+
+    def but(
+        self,
+        *,
+        esearch: dict[str, list[str]] | None = None,
+        esummary: dict[tuple[str, str], dict[str, Any]] | None = None,
+        elink: dict[tuple[str, str, str], list[str]] | None = None,
+    ) -> FakeEntrezClient:
+        """Replace whole canned-response maps in place and return self (for chaining)."""
+        if esearch is not None:
+            self._esearch = esearch
+        if esummary is not None:
+            self._esummary = esummary
+        if elink is not None:
+            self._elink = elink
+        return self
