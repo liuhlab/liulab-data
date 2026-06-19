@@ -22,12 +22,14 @@ Each level has its own ID prefix — and its own class in `labdata`:
 
 | Level | Example ID | What it is | `labdata` class |
 | --- | --- | --- | --- |
-| BioProject | `PRJNA123456` | the whole study / "the paper" | `BioProject` |
-| GEO Series | `GSE131907` | the study, as seen in GEO | `Series` |
-| GEO Platform | `GPL16791` | the sequencer used | `Platform` |
-| GEO Sample | `GSM3827114` | one biological sample | `Sample` |
-| SRA Experiment | `SRX111222` | one library + sequencing design | `Experiment` |
-| SRA Run | `SRR333444` | the raw FASTQ files | `Run` |
+| BioProject | `PRJNA208503` | the whole study / "the paper" | `BioProject` |
+| GEO Series | `GSE47966` | the study, as seen in GEO | `Series` |
+| GEO Platform | `GPL13112` | the sequencer used | `Platform` |
+| GEO Sample | `GSM1173819` | one biological sample | `Sample` |
+| SRA Experiment | `SRX314994` | one library + sequencing design | `Experiment` |
+| SRA Run | `SRR921999` | the raw FASTQ files | `Run` |
+
+(IDs above are from the example study [GSE47966](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE47966).)
 
 A few things worth remembering:
 
@@ -35,9 +37,9 @@ A few things worth remembering:
   have several experiments, and each experiment can have several runs.
 - **`SRR` (the run) is what you actually download** — FASTQ files live at the run
   level.
-- You'll also see **`SAMN…` (BioSample)**, the SRA-side name for the biological
-  material behind a `GSM`. `labdata` surfaces it as a `BioSample` field (e.g. a column
-  in the run table) rather than a separate class.
+- You'll also see **`SAMN…` (BioSample)** — e.g. `SAMN02206500` — the SRA-side name for
+  the biological material behind a `GSM`. `labdata` surfaces it as a `BioSample` field
+  (e.g. a column in the run table) rather than a separate class.
 
 ## How `labdata` reaches this data
 
@@ -55,7 +57,7 @@ Because links return real objects, you can walk the tree in plain Python:
 ```python
 from labdata import Series
 
-gse = Series("GSE131907")        # GEO Series (GSE)
+gse = Series("GSE47966")         # GEO Series (GSE)
 
 for experiment in gse.experiments:   # SRX level
     for run in experiment.runs:      # SRR level — the downloadable units
@@ -64,3 +66,24 @@ for experiment in gse.experiments:   # SRX level
 
 That's the whole idea: **start at a GEO Series, follow the links down to runs, then
 download.** The [GEO Series tutorial](geo-series.md) shows it end to end.
+
+## What's not in GEO
+
+The structured records above (samples, platforms, experiments, runs) are only part of
+a study. Two things commonly live *outside* that metadata — don't forget them:
+
+- **Supplementary files.** The actual *ready-to-analyze* outputs — count matrices,
+  peak calls, bigWig tracks, READMEs — are usually attached to the Series as
+  supplementary files, not encoded in the metadata. They're often the most useful
+  part. List and fetch them directly:
+
+    ```python
+    gse.supplementary_files       # ['GSE47966_RAW.tar', 'GSE47966_README.txt', 'filelist.txt']
+    gse.supplementary_file_urls   # full https URLs you can download
+    ```
+
+- **Whatever the paper kept elsewhere.** GEO doesn't capture everything. Always read
+  the paper's **"Data Availability"** and **"Code Availability"** statements: raw or
+  controlled-access data may sit in another repository (dbGaP, EGA, Zenodo, …), and the
+  analysis code typically lives on GitHub — none of which a GEO record will point you
+  to.

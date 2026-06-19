@@ -1,7 +1,9 @@
 # GEO Series: from study to FASTQ
 
-This tutorial goes from a GEO accession to downloaded FASTQ in three short steps.
-First, make sure you've [installed the package and set your NCBI email](../index.md).
+This tutorial goes from a GEO accession to downloaded FASTQ in a few short steps,
+using a real study — [GSE47966](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE47966)
+(*Global epigenomic reconfiguration during mammalian brain development*). First, make
+sure you've [installed the package and set your NCBI email](../index.md).
 
 ## 1. Look up a GEO Series
 
@@ -11,14 +13,14 @@ field is what triggers the lookup.
 ```python
 from labdata import Series
 
-gse = Series("GSE131907")     # just a handle — no network yet
+gse = Series("GSE47966")     # just a handle — no network yet
 
-gse.title         # 'Single-cell landscape of lung adenocarcinoma'
-gse.organism      # 'Homo sapiens'
-gse.pubmed_id     # '32385277'
-gse.samples       # [Sample('GSM3827114'), Sample('GSM3827115'), ...]
-gse.experiments   # [Experiment('SRX5921017'), ...]
-gse.url           # 'https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE131907'
+gse.title         # 'Global epigenomic reconfiguration during mammalian brain development'
+gse.organism      # 'Homo sapiens; Mus musculus'
+gse.platforms     # [Platform('GPL13112'), Platform('GPL11154')]
+gse.samples       # [Sample('GSM1173819'), Sample('GSM1173773'), ...]   (65 samples)
+gse.experiments   # [Experiment('SRX314994'), Experiment('SRX314993'), ...]   (65 experiments)
+gse.url           # 'https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE47966'
 ```
 
 Each linked item (a sample, an experiment, a run) is its own object you can drill
@@ -33,20 +35,21 @@ comes back as a [pandas](https://pandas.pydata.org/) `DataFrame`, so you can fil
 sort, and export it however you like.
 
 ```python
-table = gse.make_sra_run_table()
+table = gse.make_sra_run_table()      # one row per run (392 in this study)
 
-table[["Run", "Experiment", "Instrument", "Bases", "LibraryLayout"]].head()
+table[["Run", "Experiment", "Instrument", "Bases", "LibraryLayout"]].head(3)
 ```
 
 ```text
-          Run   Experiment           Instrument        Bases LibraryLayout
-0  SRR9000001   SRX5921017  Illumina HiSeq 2500   1200000000        PAIRED
-1  SRR9000002   SRX5921017  Illumina HiSeq 2500    800000000        PAIRED
+         Run Experiment           Instrument        Bases LibraryLayout
+0  SRR907554  SRX309596  Illumina HiSeq 2000  10100000000        SINGLE
+1  SRR907555  SRX309596  Illumina HiSeq 2000  10100000000        SINGLE
+2  SRR907556  SRX309596  Illumina HiSeq 2000  10100000000        SINGLE
 ...
 ```
 
 ```python
-table.to_csv("GSE131907_runs.csv", index=False)   # hand it off to collaborators
+table.to_csv("GSE47966_runs.csv", index=False)   # hand it off to collaborators
 ```
 
 ## 3. Download all FASTQ files
@@ -60,24 +63,27 @@ gse.download("./fastq", n_parallel=4)   # 4 runs at a time
 ```
 
 ```text
-{'SRR9000001': True, 'SRR9000002': True, ...}     # each run: success?
+{'SRR921999': True, 'SRR922000': True, 'SRR922001': True, ...}     # each run: success?
 ```
 
 The files land in a tidy tree:
 
 ```text
 fastq/
-└── GSE131907/
-    └── SRX5921017/
-        ├── SRR9000001_1.fastq.gz
-        ├── SRR9000001_2.fastq.gz
-        ├── SRR9000002_1.fastq.gz
-        └── SRR9000002_2.fastq.gz
+└── GSE47966/
+    ├── SRX314994/
+    │   ├── SRR921999.fastq.gz
+    │   ├── SRR922000.fastq.gz
+    │   └── ...
+    └── SRX314993/
+        └── ...
 ```
 
 !!! note "Good to know"
     - This downloads **real sequencing data**, which can be large — point
       `output_dir` somewhere with room to spare.
+    - GSE47966's runs are single-end, so each gives one `.fastq.gz`; paired-end runs
+      produce `_1`/`_2` files instead.
     - Each finished run drops a hidden `.<run>.success` marker, so re-running
       `download()` **skips what's already done** and resumes the rest.
     - Needs `sra-tools` and `pigz` on your system (see [Installation](../index.md)).
@@ -85,6 +91,21 @@ fastq/
 !!! info "Just one experiment?"
     `Series.download` does the whole study. To grab a single experiment instead, use
     `SraDownloader` — see the [API reference](../reference.md).
+
+## 4. Grab the supplementary files
+
+Raw FASTQ isn't the whole story. Authors usually attach **supplementary files** —
+processed matrices, peak calls, bigWigs, READMEs — to the Series. List them and grab
+their download URLs directly:
+
+```python
+gse.supplementary_files       # ['GSE47966_RAW.tar', 'GSE47966_README.txt', 'filelist.txt']
+gse.supplementary_file_urls   # full https URLs you can download
+gse.supplementary_http_url    # the suppl/ directory itself
+```
+
+These are often where the *useful, ready-to-analyze* outputs live — see
+[what's not in GEO](understanding-geo.md#whats-not-in-geo) for why they matter.
 
 ## Going deeper
 
