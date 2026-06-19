@@ -346,7 +346,9 @@ class Series(_GdsRecord):
     def pubmed_id(self) -> str | None:
         """The PubMed ID of the associated publication, or ``None``."""
         pmids = self._summary.get("PubMedIds") or []
-        return str(pmids[0]) if pmids else None
+        # Biopython yields PubMedIds as IntegerElement, whose str() is a verbose repr;
+        # go through int() so we get the bare numeric id.
+        return str(int(pmids[0])) if pmids else None
 
     @cached_property
     def samples(self) -> list[Sample]:

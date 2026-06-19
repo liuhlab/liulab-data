@@ -8,6 +8,12 @@ and this project adheres to [Calendar Versioning](https://calver.org/) using
 
 ## [Unreleased]
 
+### Fixed
+
+- `Series.pubmed_id` returned a verbose repr (e.g. `IntegerElement(23828890, attributes={})`)
+  because Biopython parses `PubMedIds` as `IntegerElement`, whose `str()` is that repr; it
+  now unwraps through `int()` and returns the bare id (e.g. `"23828890"`).
+
 ### Added
 
 - Initial pixi scaffold: `pyproject.toml` with `[tool.pixi.*]` manifest, conda-forge +

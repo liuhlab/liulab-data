@@ -32,6 +32,17 @@ def test_uid_and_metadata() -> None:
     assert s.pubmed_id == "32385277"
 
 
+def test_pubmed_id_unwraps_biopython_integer_element() -> None:
+    # Biopython parses PubMedIds as IntegerElement, whose str() is a verbose repr
+    # ("IntegerElement(23828890, attributes={})"). pubmed_id must return the bare id.
+    class IntegerElement(int):
+        def __str__(self) -> str:
+            return f"IntegerElement({int(self)}, attributes={{}})"
+
+    s = Series(g.GSE)._seed(summary={"PubMedIds": [IntegerElement(23828890)]})
+    assert s.pubmed_id == "23828890"
+
+
 def test_no_record_raises() -> None:
     s = Series(g.GSE, client=g.build_client().but(esearch={}))
     with pytest.raises(EntrezError, match="no GEO Series"):
