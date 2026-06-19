@@ -52,6 +52,7 @@ plugins:
 nav:
   - Home: index.md
   - Tutorials:
+      - Understanding GEO & SRA: tutorials/understanding-geo.md
       - GEO Series: tutorials/geo-series.md
   - API reference: reference.md
 
