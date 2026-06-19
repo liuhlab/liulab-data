@@ -21,6 +21,7 @@ classifiers = [
 dynamic = ["version"]
 dependencies = [
     "biopython>=1.83",
+    "pandas>=2.0",
     "typer>=0.12",
 ]
 
@@ -53,10 +54,16 @@ platforms = ["osx-arm64", "linux-64"]
 [tool.pixi.pypi-dependencies]
 liulab-data = { path = ".", editable = true }
 
-# Runtime deps (conda-forge)
+# Runtime deps (conda-forge + bioconda).
+# sra-tools (prefetch/fasterq-dump) and pigz are external binaries used by
+# labdata.geo.sratools — they are not importable Python, so they live here only,
+# not in [project.dependencies].
 [tool.pixi.dependencies]
 biopython = ">=1.83"
+pandas = ">=2.0"
 typer = ">=0.12"
+sra-tools = "*"
+pigz = "*"
 
 # Python version features
 [tool.pixi.feature.py312.dependencies]

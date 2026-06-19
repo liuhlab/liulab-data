@@ -22,6 +22,7 @@ gse.samples[0].platform       # Platform(...) for that sample
 gse.experiments[0].runs       # [Run('SRR...'), ...]
 ```
 
-The GEO/SRA object model — `Series`, `Sample`, `Platform`, `Experiment`, `Run` — is
+The GEO/SRA object model — `Series`, `Sample`, `Platform`, `Experiment`, `Run`,
+`BioProject` — is
 lazy throughout: links between objects return instances that only hit NCBI when you
 read one of their fields.

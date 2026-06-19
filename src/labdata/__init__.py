@@ -2,11 +2,20 @@
 
 from importlib.metadata import PackageNotFoundError, version
 
-from labdata.geo import Experiment, Platform, Run, Sample, Series
+from labdata.geo import BioProject, Experiment, Platform, Run, Sample, Series, SraDownloader
 
 try:
     __version__ = version("liulab-data")
 except PackageNotFoundError:
     __version__ = "0.0.0+unknown"
 
-__all__ = ["Experiment", "Platform", "Run", "Sample", "Series", "__version__"]
+__all__ = [
+    "BioProject",
+    "Experiment",
+    "Platform",
+    "Run",
+    "Sample",
+    "Series",
+    "SraDownloader",
+    "__version__",
+]

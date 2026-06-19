@@ -23,6 +23,8 @@ class FakeEntrezClient(EntrezClient):
         Maps ``(db, uid)`` to the document summary it should return.
     elink : dict[tuple[str, str, str], list[str]] or None
         Maps ``(dbfrom, db, uid)`` to the linked UID list it should return.
+    efetch : dict[tuple[str, str], str] or None
+        Maps ``(db, rettype)`` to the raw text EFetch should return.
     """
 
     def __init__(
@@ -31,11 +33,13 @@ class FakeEntrezClient(EntrezClient):
         esearch: dict[str, list[str]] | None = None,
         esummary: dict[tuple[str, str], dict[str, Any]] | None = None,
         elink: dict[tuple[str, str, str], list[str]] | None = None,
+        efetch: dict[tuple[str, str], str] | None = None,
     ) -> None:
         # Intentionally does not call super().__init__ — no credentials, no network.
         self._esearch = esearch or {}
         self._esummary = esummary or {}
         self._elink = elink or {}
+        self._efetch = efetch or {}
         self.calls: list[tuple[str, tuple[Any, ...]]] = []
 
     def esearch(self, db: str, term: str, *, retmax: int = 20) -> list[str]:
@@ -46,9 +50,18 @@ class FakeEntrezClient(EntrezClient):
         self.calls.append(("esummary", (db, uid)))
         return self._esummary[db, uid]
 
+    def esummary_many(self, db: str, uids: list[str]) -> list[dict[str, Any]]:
+        ids = [str(uid) for uid in uids]
+        self.calls.append(("esummary_many", (db, tuple(ids))))
+        return [self._esummary[db, uid] for uid in ids]
+
     def elink(self, dbfrom: str, db: str, uid: str) -> list[str]:
         self.calls.append(("elink", (dbfrom, db, uid)))
         return self._elink.get((dbfrom, db, uid), [])
+
+    def efetch(self, db: str, ids: list[str], *, rettype: str, retmode: str = "text") -> str:
+        self.calls.append(("efetch", (db, tuple(str(uid) for uid in ids), rettype)))
+        return self._efetch.get((db, rettype), "")
 
     def count(self, method: str) -> int:
         """Return how many times ``method`` has been called."""

@@ -4,7 +4,7 @@ import pytest
 
 import labdata.geo._web as web_mod
 from labdata.exceptions import AccessionError, EntrezError
-from labdata.geo import Experiment, Platform, Sample, Series
+from labdata.geo import BioProject, Experiment, Platform, Run, Sample, Series
 from tests import _geodata as g
 
 
@@ -65,6 +65,25 @@ def test_experiments_are_instances() -> None:
     assert isinstance(experiments[0], Experiment)
 
 
+def test_experiments_use_one_batched_summary() -> None:
+    client = g.build_client()
+    _ = Series(g.GSE, client=client).experiments
+    assert client.count("esummary_many") == 1
+    # the per-UID sra esummary loop is gone
+    assert not any(name == "esummary" and args[0] == "sra" for name, args in client.calls)
+
+
+def test_linked_experiment_is_seeded() -> None:
+    client = g.build_client()
+    experiment = Series(g.GSE, client=client).experiments[0]
+    before = len(client.calls)
+    assert experiment.title == "scRNA-seq of LUNG_N01"
+    assert experiment.instrument_model == "Illumina HiSeq 2500"
+    assert experiment.runs == [Run(g.SRR1), Run(g.SRR2)]
+    assert experiment.runs[0].total_spots == 600
+    assert len(client.calls) == before  # served entirely from the seeded summary
+
+
 def test_linked_instances_share_client() -> None:
     client = g.build_client()
     s = Series(g.GSE, client=client)
@@ -72,8 +91,20 @@ def test_linked_instances_share_client() -> None:
     assert s.platforms[0].client is client
 
 
-def test_bioproject_ids_are_strings() -> None:
-    assert Series(g.GSE, client=g.build_client()).bioproject_ids == ["PRJNA545296"]
+def test_bioprojects_are_instances() -> None:
+    bioprojects = Series(g.GSE, client=g.build_client()).bioprojects
+    assert bioprojects == [BioProject(g.PRJNA)]
+    assert isinstance(bioprojects[0], BioProject)
+
+
+def test_bioprojects_use_one_batched_summary_and_seed() -> None:
+    client = g.build_client()
+    bioprojects = Series(g.GSE, client=client).bioprojects
+    assert client.count("esummary_many") == 1
+    before = len(client.calls)
+    assert bioprojects[0].title == "Single cell RNA sequencing of lung adenocarcinoma"
+    assert bioprojects[0].organism == "Homo sapiens"
+    assert len(client.calls) == before  # served from the seeded bioproject summary
 
 
 def test_supplementary_files_lists_directory(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -87,6 +118,18 @@ def test_supplementary_files_lists_directory(monkeypatch: pytest.MonkeyPatch) ->
     s = Series(g.GSE, client=g.build_client())
     assert s.supplementary_files == ["GSE131907_matrix.txt.gz", "GSE131907_meta.csv"]
     assert seen["url"] == s.supplementary_http_url
+
+
+def test_supplementary_file_urls(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        web_mod, "list_directory", lambda _url: ["GSE131907_matrix.txt.gz", "GSE131907_meta.csv"]
+    )
+    s = Series(g.GSE, client=g.build_client())
+    base = s.supplementary_http_url
+    assert s.supplementary_file_urls == [
+        base + "GSE131907_matrix.txt.gz",
+        base + "GSE131907_meta.csv",
+    ]
 
 
 def test_lazy_and_cached() -> None:

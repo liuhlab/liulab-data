@@ -1,16 +1,19 @@
-r"""The GEO object model: Series, Sample, Platform, Experiment, and Run.
+r"""The GEO object model: Series, Sample, Platform, Experiment, Run, BioProject.
 
 Each class is a lazy handle on one accessioned record. Construction only
 validates and stores the accession; properties issue their NCBI request on first
 access and cache it (``functools.cached_property``), so building a record is
 cheap and network traffic happens only for the fields you read.
 
-Two families share most of the plumbing:
+Three families share most of the plumbing:
 
 * **GEO records** (``GSE``/``GSM``/``GPL``) live in the Entrez ``gds`` database
   (:class:`_GdsRecord`). They expose a ``url`` and a ``suppl/`` directory.
 * **SRA records** (``SRX``/``SRR``) live in the Entrez ``sra`` database
   (:class:`_SraRecord`), whose summary carries the experiment/run XML.
+* **BioProject** (``PRJNA``/``PRJEB``/``PRJDB``) lives in the Entrez
+  ``bioproject`` database (:class:`BioProject`); it is the umbrella a Series
+  links out to.
 
 Properties that reference other GEO/SRA objects return **instances** of the
 relevant class (sharing this record's Entrez client), not bare accession strings.
@@ -22,13 +25,47 @@ module sidesteps the import cycle that separate files would create.
 
 from __future__ import annotations
 
+import io
 import re
 from functools import cached_property
-from typing import Any, ClassVar
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, ClassVar, Self
 
 from labdata.exceptions import AccessionError, EntrezError
 from labdata.geo import _web
-from labdata.ncbi.entrez import EntrezClient
+from labdata.ncbi.entrez import EntrezClient, _chunked, _docsum_uid
+
+if TYPE_CHECKING:
+    import pandas
+
+#: UIDs per batched EFetch request (keeps the GET URL within limits).
+_RUNINFO_CHUNK = 300
+
+#: Rename SRA ``runinfo`` columns to the SRA-Run-Selector-style names callers expect.
+_RUNINFO_RENAME = {"avgLength": "AvgSpotLen", "bases": "Bases", "Model": "Instrument"}
+
+#: Preferred leading column order for the SRA run table (remaining columns follow).
+_RUN_TABLE_COLUMNS = [
+    "Run",
+    "BioSample",
+    "AvgSpotLen",
+    "Bases",
+    "size_MB",
+    "Experiment",
+    "Instrument",
+    "LibraryName",
+    "Sample",
+    "SampleName",
+    "BioProject",
+    "SRAStudy",
+    "Platform",
+    "LibraryStrategy",
+    "LibrarySource",
+    "LibrarySelection",
+    "LibraryLayout",
+    "ScientificName",
+    "TaxID",
+]
 
 # --------------------------------------------------------------------------- #
 # small parsing helpers (SRA ExpXml/Runs are loosely structured XML fragments
@@ -79,15 +116,22 @@ def _split_ids(raw: str) -> list[str]:
     return [tok for tok in re.split(r"[;,\s]+", raw) if tok]
 
 
-def _experiments_via_sra(client: EntrezClient, gds_uid: str) -> list[str]:
-    """Resolve the SRA experiment (``SRX``) accessions linked from a ``gds`` UID."""
-    found: dict[str, None] = {}
-    for sra_uid in client.elink(dbfrom="gds", db="sra", uid=gds_uid):
-        exp_xml = str(client.esummary(db="sra", uid=sra_uid).get("ExpXml", ""))
-        accession = _attr(exp_xml, "Experiment", "acc")
-        if accession:
-            found.setdefault(accession, None)
-    return list(found)
+def _linked_experiments(client: EntrezClient, uid: str, *, dbfrom: str = "gds") -> list[Experiment]:
+    """Resolve the SRA experiments (``SRX``) linked from a ``dbfrom`` UID.
+
+    One ``elink`` plus one batched ``esummary`` for the whole set; each returned
+    :class:`Experiment` is seeded with the UID and summary already fetched, so
+    reading its fields costs no further network.
+    """
+    sra_uids = client.elink(dbfrom=dbfrom, db="sra", uid=uid)
+    found: dict[str, Experiment] = {}
+    for docsum in client.esummary_many(db="sra", uids=sra_uids):
+        accession = _attr(str(docsum.get("ExpXml", "")), "Experiment", "acc")
+        if accession and accession not in found:
+            experiment = Experiment(accession, client=client)
+            experiment._seed(uid=_docsum_uid(docsum), summary=dict(docsum))
+            found[accession] = experiment
+    return list(found.values())
 
 
 # --------------------------------------------------------------------------- #
@@ -127,6 +171,19 @@ class _Record:
         if self._client is None:
             self._client = EntrezClient()
         return self._client
+
+    def _seed(self, *, uid: str | None = None, summary: dict[str, Any] | None = None) -> Self:
+        """Pre-populate the ``uid``/``_summary`` caches from an already-fetched response.
+
+        Writes straight into the instance ``__dict__`` under the ``cached_property``
+        names, so the seeded values are served without a request. Used when a
+        batched lookup has already resolved a linked record's identity and summary.
+        """
+        if uid is not None:
+            self.__dict__["uid"] = uid
+        if summary is not None:
+            self.__dict__["_summary"] = summary
+        return self
 
 
 class _GdsRecord(_Record):
@@ -191,6 +248,21 @@ class _GdsRecord(_Record):
             File names, or an empty list when the record has no supplementary files.
         """
         return _web.list_directory(self.supplementary_http_url)
+
+    @property
+    def supplementary_file_urls(self) -> list[str]:
+        """Full download URLs for this record's supplementary files.
+
+        Each entry is :attr:`supplementary_http_url` joined with a name from
+        :attr:`supplementary_files` (resolved lazily on first access).
+
+        Returns
+        -------
+        list of str
+            Direct HTTP URLs, or an empty list when there are no supplementary files.
+        """
+        base = self.supplementary_http_url
+        return [base + name for name in self.supplementary_files]
 
 
 class _SraRecord(_Record):
@@ -293,23 +365,96 @@ class Series(_GdsRecord):
     @cached_property
     def experiments(self) -> list[Experiment]:
         """The SRA experiments (``SRX``) linked to this Series, as :class:`Experiment` instances."""
-        accessions = _experiments_via_sra(self.client, self.uid)
-        return [Experiment(acc, client=self.client) for acc in accessions]
+        return _linked_experiments(self.client, self.uid)
 
     @cached_property
-    def bioproject_ids(self) -> list[str]:
-        """The BioProject accessions (``PRJNA…``) linked to this Series.
+    def bioprojects(self) -> list[BioProject]:
+        """The BioProjects (``PRJNA…``) linked to this Series, as :class:`BioProject` instances.
 
-        Returns plain strings: BioProject is not part of the GEO object model.
+        One ``elink`` plus one batched ``esummary``; each :class:`BioProject` is
+        seeded with the UID and summary already fetched.
         """
-        found: dict[str, None] = {}
-        for bp_uid in self.client.elink(dbfrom="gds", db="bioproject", uid=self.uid):
-            accession = str(
-                self.client.esummary(db="bioproject", uid=bp_uid).get("Project_Acc", "")
-            )
-            if accession:
-                found.setdefault(accession, None)
-        return list(found)
+        bp_uids = self.client.elink(dbfrom="gds", db="bioproject", uid=self.uid)
+        found: dict[str, BioProject] = {}
+        for docsum in self.client.esummary_many(db="bioproject", uids=bp_uids):
+            accession = str(docsum.get("Project_Acc", ""))
+            if accession and accession not in found:
+                bioproject = BioProject(accession, client=self.client)
+                bioproject._seed(uid=_docsum_uid(docsum), summary=dict(docsum))
+                found[accession] = bioproject
+        return list(found.values())
+
+    def make_sra_run_table(self) -> pandas.DataFrame:
+        """Build a tidy, run-level (``SRR``) table for this Series, like SRA Run Selector.
+
+        Resolves the Series' SRA experiments and fetches NCBI's ``runinfo`` report
+        in one batched EFetch per chunk, returning one row per sequencing run. The
+        columns are SRA's ``runinfo`` fields (``Run``, ``BioSample``, ``Experiment``,
+        ``LibraryName``, ``Platform``, …) with a few renamed to the Run-Selector
+        names (``AvgSpotLen``, ``Bases``, ``Instrument``). The reported size is
+        ``size_MB`` — E-utilities ``runinfo`` does not expose an exact byte count.
+
+        Returns
+        -------
+        pandas.DataFrame
+            One row per run, key columns ordered first. Empty when the Series has
+            no linked SRA runs.
+
+        Examples
+        --------
+        >>> table = Series("GSE229022").make_sra_run_table()  # doctest: +SKIP
+        >>> table[["Run", "BioSample", "Instrument"]].head()  # doctest: +SKIP
+        """
+        import pandas
+
+        sra_uids = self.client.elink(dbfrom="gds", db="sra", uid=self.uid)
+        frames: list[pandas.DataFrame] = []
+        for chunk in _chunked(sra_uids, _RUNINFO_CHUNK):
+            text = self.client.efetch(db="sra", ids=chunk, rettype="runinfo", retmode="text")
+            if text.strip():
+                frames.append(pandas.read_csv(io.StringIO(text)))
+        if not frames:
+            return pandas.DataFrame()
+        table = pandas.concat(frames, ignore_index=True).rename(columns=_RUNINFO_RENAME)
+        leading = [column for column in _RUN_TABLE_COLUMNS if column in table.columns]
+        remaining = [column for column in table.columns if column not in leading]
+        return table.reindex(columns=leading + remaining)
+
+    def download(self, output_dir: str | Path = ".", n_parallel: int = 1) -> dict[str, bool]:
+        """Download FASTQ for every run of every SRA experiment in this Series.
+
+        Lays the data out as ``<output_dir>/<GSE>/<SRX>/<SRR>*.fastq.gz`` — one
+        directory per experiment under a directory named for this Series — via
+        sra-tools (``prefetch`` + ``fasterq-dump``). Runs already marked done (a
+        ``.<SRR>.success`` flag) are skipped; the whole Series is downloaded in
+        parallel at the run (``SRR``) level.
+
+        Parameters
+        ----------
+        output_dir : str or Path, default "."
+            Parent directory; a ``<output_dir>/<GSE>`` subtree is created for this Series.
+        n_parallel : int, default 1
+            Maximum runs to download concurrently across the whole Series.
+
+        Returns
+        -------
+        dict[str, bool]
+            Maps each run accession to whether its data is present on completion.
+
+        Examples
+        --------
+        >>> Series("GSE229022").download("./fastq", n_parallel=4)  # doctest: +SKIP
+        {'SRR24084454': True, 'SRR24084455': True, ...}
+        """
+        from labdata.geo import sratools
+
+        base = Path(output_dir) / self.accession
+        tasks: list[tuple[Run, Path]] = []
+        for experiment in self.experiments:
+            srx_dir = base / experiment.accession
+            srx_dir.mkdir(parents=True, exist_ok=True)
+            tasks.extend((run, srx_dir) for run in experiment.runs)
+        return sratools._download_tasks(tasks, n_parallel)
 
 
 class Sample(_GdsRecord):
@@ -349,8 +494,7 @@ class Sample(_GdsRecord):
     @cached_property
     def experiments(self) -> list[Experiment]:
         """The SRA experiments (``SRX``) for this sample, as :class:`Experiment` instances."""
-        accessions = _experiments_via_sra(self.client, self.uid)
-        return [Experiment(acc, client=self.client) for acc in accessions]
+        return _linked_experiments(self.client, self.uid)
 
 
 class Platform(_GdsRecord):
@@ -418,8 +562,15 @@ class Experiment(_SraRecord):
 
     @cached_property
     def runs(self) -> list[Run]:
-        """The sequencing runs (``SRR``) of this experiment, as :class:`Run` instances."""
-        return [Run(acc, client=self.client) for acc in _attrs_all(self._runs_xml, "Run", "acc")]
+        """The sequencing runs (``SRR``) of this experiment, as :class:`Run` instances.
+
+        A run resolves to the same ``sra`` record as its experiment, so each
+        :class:`Run` is seeded with this experiment's summary (no extra fetch).
+        """
+        return [
+            Run(acc, client=self.client)._seed(uid=self.uid, summary=self._summary)
+            for acc in _attrs_all(self._runs_xml, "Run", "acc")
+        ]
 
 
 class Run(_SraRecord):
@@ -465,5 +616,123 @@ class Run(_SraRecord):
 
     @cached_property
     def experiment(self) -> Experiment:
-        """The parent :class:`Experiment` (``SRX``) of this run."""
-        return Experiment(_attr(self._exp_xml, "Experiment", "acc"), client=self.client)
+        """The parent :class:`Experiment` (``SRX``) of this run.
+
+        Shares this run's ``sra`` record, so the experiment is seeded from the
+        same summary (no extra fetch).
+        """
+        accession = _attr(self._exp_xml, "Experiment", "acc")
+        return Experiment(accession, client=self.client)._seed(uid=self.uid, summary=self._summary)
+
+
+# --------------------------------------------------------------------------- #
+# BioProject (the umbrella a Series links out to)
+# --------------------------------------------------------------------------- #
+
+
+class BioProject(_Record):
+    r"""An NCBI BioProject (``PRJNA000000``), resolved lazily through NCBI Entrez.
+
+    BioProject is the umbrella record that groups a study's GEO Series and SRA
+    data. It lives in the Entrez ``bioproject`` database, whose esummary uses the
+    v2.0 ``DocumentSummarySet`` shape.
+
+    Parameters
+    ----------
+    accession : str
+        A BioProject accession, e.g. ``"PRJNA545296"`` (``^PRJ[A-Z]{2}\d+$``,
+        covering NCBI ``PRJNA``, EBI ``PRJEB``, and DDBJ ``PRJDB``).
+    client : EntrezClient or None
+        Entrez client to use; a default one is built on first network access.
+
+    Raises
+    ------
+    AccessionError
+        If ``accession`` is not a well-formed BioProject accession.
+    """
+
+    _ACCESSION_RE = re.compile(r"^PRJ[A-Z]{2}\d+$")
+    _KIND = "BioProject"
+
+    @cached_property
+    def uid(self) -> str:
+        """The Entrez ``bioproject`` UID for this record.
+
+        Raises
+        ------
+        EntrezError
+            If NCBI returns no matching ``bioproject`` record.
+        """
+        uids = self.client.esearch(db="bioproject", term=self.accession)
+        if not uids:
+            raise EntrezError(f"no BioProject found for {self.accession!r}")
+        return uids[0]
+
+    @cached_property
+    def _summary(self) -> dict[str, Any]:
+        """The raw ``bioproject`` esummary docsum for this record (fetched once)."""
+        return self.client.esummary(db="bioproject", uid=self.uid)
+
+    @property
+    def title(self) -> str:
+        """The project title."""
+        return str(self._summary.get("Project_Title", ""))
+
+    @property
+    def name(self) -> str:
+        """The project name."""
+        return str(self._summary.get("Project_Name", ""))
+
+    @property
+    def description(self) -> str:
+        """The free-text project description."""
+        return str(self._summary.get("Project_Description", ""))
+
+    @property
+    def organism(self) -> str:
+        """The organism the project targets."""
+        return str(self._summary.get("Organism_Name", ""))
+
+    @property
+    def data_type(self) -> str:
+        """The project data type (e.g. ``Transcriptome or Gene expression``)."""
+        return str(self._summary.get("Project_Data_Type", ""))
+
+    @property
+    def registration_date(self) -> str:
+        """The project's registration date as reported by NCBI."""
+        return str(self._summary.get("Registration_Date", ""))
+
+    @property
+    def submitter(self) -> str:
+        """The submitting organization."""
+        return str(self._summary.get("Submitter_Organization", ""))
+
+    @property
+    def url(self) -> str:
+        """The NCBI BioProject web URL for this record."""
+        return f"https://www.ncbi.nlm.nih.gov/bioproject/{self.accession}"
+
+    @cached_property
+    def series(self) -> list[Series]:
+        """The GEO Series (``GSE``) under this project, as :class:`Series` instances.
+
+        One ``elink`` plus one batched ``esummary``; each :class:`Series` is seeded
+        with the UID and summary already fetched.
+        """
+        gds_uids = self.client.elink(dbfrom="bioproject", db="gds", uid=self.uid)
+        found: dict[str, Series] = {}
+        for docsum in self.client.esummary_many(db="gds", uids=gds_uids):
+            if str(docsum.get("entryType", "")) != "GSE":
+                continue
+            accession = str(docsum.get("Accession", ""))
+            if accession and accession not in found:
+                series = Series(accession, client=self.client)
+                series._seed(uid=_docsum_uid(docsum), summary=dict(docsum))
+                found[accession] = series
+        return list(found.values())
+
+    @cached_property
+    def experiments(self) -> list[Experiment]:
+        """The SRA experiments (``SRX``) under this project, as :class:`Experiment` instances."""
+        return _linked_experiments(self.client, self.uid, dbfrom="bioproject")

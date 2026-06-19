@@ -33,6 +33,19 @@ def test_runs_are_instances() -> None:
     assert all(isinstance(r, Run) for r in runs)
 
 
+def test_runs_are_seeded_from_experiment_summary() -> None:
+    client = g.build_client()
+    e = Experiment(g.SRX, client=client)
+    runs = e.runs
+    before = len(client.calls)
+    # A run shares its experiment's sra record, so its stats need no extra request.
+    assert runs[0].total_spots == 600
+    assert runs[0].total_bases == 1200
+    assert runs[1].total_spots == 400
+    assert runs[0].experiment == e
+    assert len(client.calls) == before
+
+
 def test_url() -> None:
     assert Experiment(g.SRX).url == "https://www.ncbi.nlm.nih.gov/sra/?term=SRX5921017"
 
