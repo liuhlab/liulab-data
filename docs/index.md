@@ -1,28 +1,45 @@
 # liulab-data
 
-Data curation, download, and organization utilities for the Liu Lab.
+Look up a GEO study, inspect its sequencing runs, and download the raw FASTQ — in a
+few lines of Python. `liulab-data` (import name `labdata`) talks to NCBI for you and
+keeps every object lazy, so nothing hits the network until you actually ask for
+something.
 
-!!! note "Documentation in progress"
-    This site is a scaffold. Narrative documentation is being written alongside the
-    GEO feature set; for now see the [API reference](reference.md) and the project
-    `README.md`.
+New here? Jump to the [GEO Series tutorial](tutorials/geo-series.md).
 
-## At a glance
+## Installation
 
-```python
-from labdata import Series
-
-gse = Series("GSE131907")     # cheap — no network until you ask for something
-gse.pubmed_id                 # linked publication (PubMed ID)
-gse.samples                   # [Sample('GSM...'), ...]   — lazy Sample instances
-gse.platforms                 # [Platform('GPL...'), ...]
-gse.experiments               # [Experiment('SRX...'), ...]
-
-gse.samples[0].platform       # Platform(...) for that sample
-gse.experiments[0].runs       # [Run('SRR...'), ...]
+```bash
+pip install liulab-data
 ```
 
-The GEO/SRA object model — `Series`, `Sample`, `Platform`, `Experiment`, `Run`,
-`BioProject` — is
-lazy throughout: links between objects return instances that only hit NCBI when you
-read one of their fields.
+Downloading FASTQ also needs two external tools, [sra-tools](https://github.com/ncbi/sra-tools)
+and [pigz](https://zlib.net/pigz/). Install them from Bioconda/conda-forge:
+
+```bash
+conda install -c bioconda -c conda-forge sra-tools pigz
+```
+
+!!! tip "Working inside the lab's pixi project?"
+    Both tools are already in the project environment — `pixi install` gives you the
+    Python package *and* `sra-tools`/`pigz` in one step.
+
+## Configuration
+
+NCBI asks every caller to identify themselves with a contact email. Set it once and
+you're ready:
+
+```bash
+export NCBI_EMAIL="you@lab.org"     # required by NCBI
+export NCBI_API_KEY="..."           # optional — raises your rate limit
+```
+
+!!! tip
+    Prefer not to use environment variables? Run `labdata ncbi configure` to save
+    your email to `~/.cache/liulab-data/` once and forget about it.
+
+## Next steps
+
+- **[GEO Series tutorial](tutorials/geo-series.md)** — from an accession to downloaded
+  FASTQ, step by step.
+- **[API reference](reference.md)** — every class and method in full detail.

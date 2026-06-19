@@ -18,12 +18,13 @@ leaks into the package's shared layers (`_cache`, `exceptions`, `ncbi`).
 
 ```
 src/labdata/
-  __init__.py        public API: Series, __version__
+  __init__.py        public API: Series, Sample, Platform, Experiment, Run,
+                       BioProject, SraDownloader, __version__
   _cache.py          cache-dir resolution ($XDG_CACHE_HOME/liulab-data)
   exceptions.py      LabdataError hierarchy
   cli.py             thin Typer CLI (labdata version, labdata ncbi configure)
   ncbi/              NCBI E-utilities: credential config + EntrezClient seam
-  geo/               GEO records (Series today; Sample/Experiment/Run later)
+  geo/               GEO/SRA object model (records.py) + FASTQ downloader (sratools.py)
 tests/               pytest suite, mirrors src; mocks the EntrezClient seam
 ```
 
@@ -57,8 +58,24 @@ tests/               pytest suite, mirrors src; mocks the EntrezClient seam
 - Live tests against real NCBI are marked `@pytest.mark.network` and deselected by
   default (`-m "not network"`); run them explicitly with `pixi run test -m network`.
 
+## Documentation
+
+Two layers, kept strictly separate — never duplicate one in the other:
+
+- **Narrative pages** (`docs/*.md`, e.g. `index.md`) are for **human readers**.
+  Task-oriented and short: show the common path with simple, copy-pasteable demos and
+  example output. Aim for the *minimum* an end user needs to get going; favor easy,
+  plain language over completeness. Do **not** spell out per-class/method/parameter
+  behavior in prose — link to the API reference for "going deeper".
+- **API reference** (`docs/reference.md`) is **auto-generated from docstrings** via
+  mkdocstrings (NumPy style). This is the single home for exhaustive per-symbol detail
+  (`Series`, `Sample`, `Experiment`, `Run`, the downloader, …). Keep docstrings good and
+  the reference takes care of itself.
+- Example **output in narrative pages may be illustrative/faked** — don't hit the
+  network or download large data just to produce a snippet — but keep it faithful to the
+  real shape (real accessions, real column names, real return types).
+- Build check: `pixi run -e docs mkdocs build --strict` (also runs in CI).
+
 ## Out of scope right now
 
-- Documentation **content** (page bodies, skills) — deferred until the GEO part is final.
-  The docs *pipeline* (mkdocs + the `docs` env + workflow) is scaffolded; pages are stubs.
-- `Sample` / `Experiment` / `Run` classes — `Series` returns accession strings only.
+- Zenodo and non-NCBI data sources — GEO/SRA first; the rest come later.
