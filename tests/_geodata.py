@@ -73,6 +73,22 @@ _GPL_SUMMARY = {
 }
 _SRA_SUMMARY = {"Id": SRA_UID, "ExpXml": _EXP_XML, "Runs": _RUNS_XML}
 
+# Full SRA XML (efetch rettype=full): carries the per-read <Statistics> the
+# esummary fragment lacks. SRR1 is paired (28 + 94), SRR2 is single-end (75).
+_FULL_XML = (
+    "<EXPERIMENT_PACKAGE_SET><EXPERIMENT_PACKAGE>"
+    f'<RUN accession="{SRR1}" total_spots="600" total_bases="1200">'
+    '<Statistics nreads="2" nspots="600">'
+    '<Read index="0" count="600" average="28" stdev="0"/>'
+    '<Read index="1" count="600" average="94" stdev="3.2"/>'
+    "</Statistics></RUN>"
+    f'<RUN accession="{SRR2}" total_spots="400" total_bases="800">'
+    '<Statistics nreads="1" nspots="400">'
+    '<Read index="0" count="400" average="75" stdev="0"/>'
+    "</Statistics></RUN>"
+    "</EXPERIMENT_PACKAGE></EXPERIMENT_PACKAGE_SET>"
+)
+
 
 def build_client() -> FakeEntrezClient:
     """Return a FakeEntrezClient wired with the synthetic GEO/SRA graph."""
@@ -100,6 +116,7 @@ def build_client() -> FakeEntrezClient:
             ("bioproject", "gds", BP_UID): [GSE_UID],
             ("bioproject", "sra", BP_UID): [SRA_UID],
         },
+        efetch={("sra", "full"): _FULL_XML},
     )
 
 
@@ -131,10 +148,30 @@ RUNINFO_CSV = (
 )
 
 
+# Full SRA XML for the run-table runs: per-read <Statistics> drives the
+# ReadStructure column. Two runs are paired (28 + 99 / 28 + 98); the third has no
+# statistics, so its ReadStructure comes back empty.
+RUNTABLE_FULL_XML = (
+    "<EXPERIMENT_PACKAGE_SET>"
+    '<RUN accession="SRR24084454" total_spots="71383145">'
+    '<Statistics nreads="2" nspots="71383145">'
+    '<Read index="0" count="71383145" average="28" stdev="0"/>'
+    '<Read index="1" count="71383145" average="99" stdev="0"/>'
+    "</Statistics></RUN>"
+    '<RUN accession="SRR24084455" total_spots="68000000">'
+    '<Statistics nreads="2" nspots="68000000">'
+    '<Read index="0" count="68000000" average="28" stdev="0"/>'
+    '<Read index="1" count="68000000" average="98" stdev="0"/>'
+    "</Statistics></RUN>"
+    '<RUN accession="SRR27685594" total_spots="50000000"/>'
+    "</EXPERIMENT_PACKAGE_SET>"
+)
+
+
 def build_runtable_client() -> FakeEntrezClient:
     """Return a FakeEntrezClient wired for ``GSE229022.make_sra_run_table``."""
     return FakeEntrezClient(
         esearch={f"{GSE2}[ACCN] AND gse[ETYP]": [GSE2_UID]},
         elink={("gds", "sra", GSE2_UID): RUNTABLE_SRA_UIDS},
-        efetch={("sra", "runinfo"): RUNINFO_CSV},
+        efetch={("sra", "runinfo"): RUNINFO_CSV, ("sra", "full"): RUNTABLE_FULL_XML},
     )

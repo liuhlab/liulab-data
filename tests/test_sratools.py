@@ -95,6 +95,17 @@ def test_download_cleans_up_intermediates_and_marks_success(
         assert (srx_dir / f".{srr}.success").exists()
 
 
+def test_keep_sra_preserves_sra_next_to_fastq(fake: FakeTools, tmp_path: Path) -> None:
+    SraDownloader(_experiment(), tmp_path).download(keep_sra=True)
+    srx_dir = tmp_path / g.SRX
+    for srr in (g.SRR1, g.SRR2):
+        # The .sra is moved up beside the gzipped FASTQ instead of being deleted.
+        assert (srx_dir / f"{srr}.sra").exists()
+        assert (srx_dir / f"{srr}_1.fastq.gz").exists()
+        # The prefetch download directory is still cleaned up.
+        assert not (srx_dir / srr).exists()
+
+
 def test_existing_success_flag_skips_the_run(fake: FakeTools, tmp_path: Path) -> None:
     srx_dir = tmp_path / g.SRX
     srx_dir.mkdir(parents=True)
@@ -252,3 +263,60 @@ def test_run_seam_raises_download_error_on_missing_tool() -> None:
     # The real _run translates a missing executable into a domain error.
     with pytest.raises(DownloadError, match="not found"):
         sratools._run(["labdata-no-such-tool-xyz"])
+
+
+# --------------------------------------------------------------------------- #
+# user-facing progress output (printed to stderr)
+# --------------------------------------------------------------------------- #
+
+
+def test_download_prints_plan_and_per_run_lines(
+    fake: FakeTools, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    Series(g.GSE, client=g.build_client()).download(tmp_path)
+    err = capsys.readouterr().err
+    # The plan announces the destination, run/experiment counts, and lists the SRX.
+    assert g.GSE in err
+    assert "2 runs, 1 experiment" in err
+    assert g.SRX in err
+    # One "done" line per freshly downloaded run, plus the final tally.
+    assert f"✓ {g.SRR1}" in err
+    assert f"✓ {g.SRR2}" in err
+    assert "Done: 2 ok, 0 failed." in err
+
+
+def test_download_reports_skipped_runs(
+    fake: FakeTools, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    srx_dir = tmp_path / g.GSE / g.SRX
+    srx_dir.mkdir(parents=True)
+    (srx_dir / f".{g.SRR1}.success").touch()
+
+    Series(g.GSE, client=g.build_client()).download(tmp_path)
+    err = capsys.readouterr().err
+    assert "1 of 2 already done" in err
+    assert f"• {g.SRR1}" in err
+    assert f"✓ {g.SRR2}" in err
+
+
+def test_download_reports_failed_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def boom(cmd: list[str], *, cwd: Path | None = None) -> None:
+        raise DownloadError("tool exploded")
+
+    monkeypatch.setattr(sratools, "_run", boom)
+    monkeypatch.setattr(sratools, "_have", lambda tool: True)
+
+    Series(g.GSE, client=g.build_client()).download(tmp_path)
+    err = capsys.readouterr().err
+    assert f"✗ {g.SRR1}" in err
+    assert "Done: 0 ok, 2 failed." in err
+
+
+def test_verbose_false_is_silent(
+    fake: FakeTools, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    result = Series(g.GSE, client=g.build_client()).download(tmp_path, verbose=False)
+    assert result == {g.SRR1: True, g.SRR2: True}
+    assert capsys.readouterr().err == ""

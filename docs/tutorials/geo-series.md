@@ -37,16 +37,21 @@ sort, and export it however you like.
 ```python
 table = gse.make_sra_run_table()      # one row per run (392 in this study)
 
-table[["Run", "Experiment", "Instrument", "Bases", "LibraryLayout"]].head(3)
+table[["Run", "Instrument", "ReadStructure", "Bases", "LibraryLayout"]].head(3)
 ```
 
 ```text
-         Run Experiment           Instrument        Bases LibraryLayout
-0  SRR907554  SRX309596  Illumina HiSeq 2000  10100000000        SINGLE
-1  SRR907555  SRX309596  Illumina HiSeq 2000  10100000000        SINGLE
-2  SRR907556  SRX309596  Illumina HiSeq 2000  10100000000        SINGLE
+         Run           Instrument ReadStructure        Bases LibraryLayout
+0  SRR907554  Illumina HiSeq 2000            50  10100000000        SINGLE
+1  SRR907555  Illumina HiSeq 2000            50  10100000000        SINGLE
+2  SRR907556  Illumina HiSeq 2000            50  10100000000        SINGLE
 ...
 ```
+
+`ReadStructure` gives the length of each read in a spot, joined with `+`: a
+single-end 50&nbsp;bp run reads `50`, while a paired run with a 28&nbsp;bp barcode
+and a 94&nbsp;bp cDNA read reads `28+94` — a quick way to spot single-cell
+chemistries.
 
 ```python
 table.to_csv("GSE47966_runs.csv", index=False)   # hand it off to collaborators
@@ -86,6 +91,8 @@ fastq/
       produce `_1`/`_2` files instead.
     - Each finished run drops a hidden `.<run>.success` marker, so re-running
       `download()` **skips what's already done** and resumes the rest.
+    - Pass `keep_sra=True` to keep each run's `.sra` next to its FASTQ instead of
+      deleting it after extraction (useful for re-extracting later).
     - Needs `sra-tools` and `pigz` on your system (see [Installation](../index.md)).
 
 !!! info "Just one experiment?"

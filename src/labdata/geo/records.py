@@ -50,6 +50,7 @@ _RUN_TABLE_COLUMNS = [
     "BioSample",
     "AvgSpotLen",
     "Bases",
+    "ReadStructure",
     "size_MB",
     "Experiment",
     "Instrument",
@@ -94,6 +95,45 @@ def _int_attr(tag: str, attribute: str) -> int | None:
     """Return an integer ``attribute`` from a single element ``tag``, or ``None``."""
     match = re.search(rf'\b{attribute}="(\d+)"', tag)
     return int(match.group(1)) if match else None
+
+
+def _read_lengths(run_block: str) -> list[int]:
+    """Return the average length of each read in a ``<RUN>`` block, in read order.
+
+    Reads the per-read ``<Read index=… average=…/>`` rows of the run's
+    ``<Statistics>`` element (the empirical read lengths SRA reports), rounding
+    each average to the nearest base and ordering by ``index``. Returns an empty
+    list when the block carries no read statistics.
+    """
+    lengths: list[tuple[int, int]] = []
+    for tag in re.findall(r"<Read\b[^>]*?/?>", run_block):
+        index = _int_attr(tag, "index")
+        average = re.search(r'\baverage="([\d.]+)"', tag)
+        if index is not None and average is not None:
+            lengths.append((index, round(float(average.group(1)))))
+    return [length for _index, length in sorted(lengths)]
+
+
+def _read_structure(lengths: list[int]) -> str:
+    """Render read lengths as a ``{L1}+{L2}+…`` structure string (empty if none)."""
+    return "+".join(str(length) for length in lengths)
+
+
+def _run_blocks(full_xml: str) -> dict[str, str]:
+    """Map each run accession in a full SRA XML to its ``<RUN …>`` element.
+
+    Matches both a self-closing ``<RUN …/>`` and a ``<RUN …>…</RUN>`` body; the
+    body form is tempered so a self-closing run never lets a match run on into the
+    next run's element.
+    """
+    return {
+        match.group(1): match.group(0)
+        for match in re.finditer(
+            r'<RUN\b[^>]*?\baccession="([SED]RR\d+)"[^>]*?(?:/>|>(?:(?!</?RUN\b).)*?</RUN>)',
+            full_xml,
+            re.S,
+        )
+    }
 
 
 def _ftp_bucket(accession: str) -> str:
@@ -396,6 +436,11 @@ class Series(_GdsRecord):
         names (``AvgSpotLen``, ``Bases``, ``Instrument``). The reported size is
         ``size_MB`` — E-utilities ``runinfo`` does not expose an exact byte count.
 
+        A ``ReadStructure`` column (``{L1}+{L2}+…``, e.g. ``"28+94"``) is added
+        from each run's per-read ``<Statistics>``, read from the full SRA XML with
+        a second batched EFetch per chunk (see :attr:`Run.read_structure`); it is
+        empty for runs SRA reports no read statistics for.
+
         Returns
         -------
         pandas.DataFrame
@@ -411,13 +456,18 @@ class Series(_GdsRecord):
 
         sra_uids = self.client.elink(dbfrom="gds", db="sra", uid=self.uid)
         frames: list[pandas.DataFrame] = []
+        structures: dict[str, str] = {}
         for chunk in _chunked(sra_uids, _RUNINFO_CHUNK):
             text = self.client.efetch(db="sra", ids=chunk, rettype="runinfo", retmode="text")
             if text.strip():
                 frames.append(pandas.read_csv(io.StringIO(text)))
+            xml = self.client.efetch(db="sra", ids=chunk, rettype="full", retmode="xml")
+            for accession, block in _run_blocks(xml).items():
+                structures[accession] = _read_structure(_read_lengths(block))
         if not frames:
             return pandas.DataFrame()
         table = pandas.concat(frames, ignore_index=True).rename(columns=_RUNINFO_RENAME)
+        table["ReadStructure"] = [structures.get(run, "") for run in table["Run"]]
         leading = [column for column in _RUN_TABLE_COLUMNS if column in table.columns]
         remaining = [column for column in table.columns if column not in leading]
         return table.reindex(columns=leading + remaining)
@@ -430,6 +480,8 @@ class Series(_GdsRecord):
         max_size: str | None = None,
         retries: int | None = None,
         backoff: float | None = None,
+        keep_sra: bool = False,
+        verbose: bool = True,
     ) -> dict[str, bool]:
         """Download FASTQ for every run of every SRA experiment in this Series.
 
@@ -458,6 +510,12 @@ class Series(_GdsRecord):
         backoff : float, optional
             Base seconds for the linear backoff between ``prefetch`` retries
             (defaults to :data:`~labdata.geo.sratools.DEFAULT_BACKOFF`).
+        keep_sra : bool, default False
+            Keep each run's downloaded ``.sra`` next to its FASTQ (as
+            ``<GSE>/<SRX>/<SRR>.sra``) instead of deleting it after extraction.
+        verbose : bool, default True
+            Print a download plan up front and one line per finished run to
+            ``stderr``. Set ``False`` to download silently.
 
         Returns
         -------
@@ -484,7 +542,15 @@ class Series(_GdsRecord):
             srx_dir = base / experiment.accession
             srx_dir.mkdir(parents=True, exist_ok=True)
             tasks.extend((run, srx_dir) for run in experiment.runs)
-        return sratools._download_tasks(tasks, n_parallel, **overrides)
+        return sratools._run_plan(
+            self.accession,
+            tasks,
+            n_parallel,
+            output_root=base,
+            verbose=verbose,
+            keep_sra=keep_sra,
+            **overrides,
+        )
 
 
 class Sample(_GdsRecord):
@@ -643,6 +709,47 @@ class Run(_SraRecord):
     def is_public(self) -> bool:
         """Whether the run's data is publicly accessible."""
         return _attr(self._run_tag, "Run", "is_public") == "true"
+
+    @cached_property
+    def _full_xml(self) -> str:
+        """The full SRA XML for this run's experiment package (fetched once).
+
+        The esummary ``Runs`` fragment carries spot/base totals but not the
+        per-read layout, so the read structure is read from the full record.
+        """
+        return self.client.efetch(db="sra", ids=[self.uid], rettype="full", retmode="xml")
+
+    @property
+    def _statistics_block(self) -> str:
+        """Return this run's ``<RUN>…</RUN>`` block within :attr:`_full_xml`."""
+        return _run_blocks(self._full_xml).get(self.accession, "")
+
+    @property
+    def read_lengths(self) -> list[int]:
+        """The average length of each read (mate) sequenced per spot, in read order.
+
+        Reads SRA's per-run ``<Statistics>`` from the full record (one EFetch,
+        cached). A paired run yields two lengths, e.g. ``[28, 94]``; a single-end
+        run yields one. Empty when SRA reports no read statistics.
+        """
+        return _read_lengths(self._statistics_block)
+
+    @property
+    def n_reads(self) -> int | None:
+        """The number of reads (mates) sequenced per spot, or ``None`` if unreported."""
+        nreads = _int_attr(self._statistics_block, "nreads")
+        if nreads is not None:
+            return nreads
+        return len(self.read_lengths) or None
+
+    @property
+    def read_structure(self) -> str:
+        """The run's read structure as ``{L1}+{L2}+…`` (e.g. ``"28+94"``), or ``""``.
+
+        A compact rendering of :attr:`read_lengths`: each read's rounded average
+        length joined with ``+`` in read order. Empty when the lengths are unknown.
+        """
+        return _read_structure(self.read_lengths)
 
     @cached_property
     def experiment(self) -> Experiment:

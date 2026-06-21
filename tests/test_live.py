@@ -66,6 +66,11 @@ def test_live_experiment_and_runs() -> None:
     assert run.total_spots is not None
     assert run.total_spots > 0
     assert run.experiment == e
+    # Read structure comes from the full SRA XML: one length per read per spot.
+    assert run.read_lengths
+    assert all(length > 0 for length in run.read_lengths)
+    assert run.n_reads == len(run.read_lengths)
+    assert run.read_structure == "+".join(str(length) for length in run.read_lengths)
 
 
 @_needs_creds
@@ -78,8 +83,11 @@ def test_live_make_sra_run_table() -> None:
         "BioSample",
         "AvgSpotLen",
         "Bases",
+        "ReadStructure",
         "Experiment",
         "Instrument",
         "LibraryName",
     ):
         assert column in table.columns
+    # At least one run carries a parsed read structure (e.g. "28+94").
+    assert table["ReadStructure"].str.match(r"^\d+(\+\d+)*$").any()

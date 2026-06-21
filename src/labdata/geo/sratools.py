@@ -21,10 +21,12 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
+import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TextIO
 
 from labdata.exceptions import DownloadError
 
@@ -122,21 +124,156 @@ def _have(tool: str) -> bool:
 
 
 # --------------------------------------------------------------------------- #
+# user-facing progress (a download plan up front, one line per finished run)
+# --------------------------------------------------------------------------- #
+
+
+class _Progress:
+    """Thread-safe sink for per-run progress lines (one per finished run).
+
+    A disabled reporter is a no-op, so the worker functions can call it
+    unconditionally regardless of whether the caller asked for output.
+
+    Parameters
+    ----------
+    total : int
+        Number of runs in the batch; shown as the ``(n/total)`` counter.
+    enabled : bool, default True
+        When ``False`` every method is a no-op (used for quiet downloads).
+    stream : TextIO or None
+        Where lines are written; defaults to ``sys.stderr`` so stdout stays clean.
+    """
+
+    def __init__(self, total: int, *, enabled: bool = True, stream: TextIO | None = None) -> None:
+        self.total = total
+        self.enabled = enabled
+        self.stream = stream if stream is not None else sys.stderr
+        self._lock = threading.Lock()
+        self._done = 0
+
+    def _emit(self, mark: str, accession: str, note: str) -> None:
+        if not self.enabled:
+            return
+        with self._lock:
+            self._done += 1
+            position = f"({self._done}/{self.total})"
+        print(f"{mark} {accession}  {note}  {position}", file=self.stream, flush=True)
+
+    def downloaded(self, accession: str) -> None:
+        """Report that ``accession`` was freshly downloaded."""
+        self._emit("✓", accession, "done")
+
+    def skipped(self, accession: str) -> None:
+        """Report that ``accession`` was already present and skipped."""
+        self._emit("•", accession, "already done")
+
+    def failed(self, accession: str) -> None:
+        """Report that ``accession`` failed to download."""
+        self._emit("✗", accession, "failed")
+
+
+def _print_plan(
+    label: str,
+    tasks: list[tuple[Run, Path]],
+    *,
+    n_parallel: int,
+    output_root: Path,
+    stream: TextIO | None = None,
+) -> None:
+    """Print the download plan: destination, run/experiment counts, and a per-SRX list.
+
+    Groups ``tasks`` by their experiment directory and notes how many runs already
+    have a ``.<SRR>.success`` flag (and so will be skipped).
+    """
+    out = stream if stream is not None else sys.stderr
+    if not tasks:
+        print(f"{label}: no SRA runs to download.", file=out, flush=True)
+        return
+
+    groups: dict[Path, list[str]] = {}
+    already = 0
+    for run, srx_dir in tasks:
+        groups.setdefault(srx_dir, []).append(run.accession)
+        if (srx_dir / f".{run.accession}.success").exists():
+            already += 1
+
+    n_runs = len(tasks)
+    runs_word = "run" if n_runs == 1 else "runs"
+    exp_word = "experiment" if len(groups) == 1 else "experiments"
+    print(
+        f"{label} → {output_root}  "
+        f"[{n_runs} {runs_word}, {len(groups)} {exp_word}, n_parallel={n_parallel}]",
+        file=out,
+        flush=True,
+    )
+    for srx_dir, runs in groups.items():
+        print(f"  {srx_dir.name}: {', '.join(runs)}", file=out, flush=True)
+    if already:
+        print(f"  ({already} of {n_runs} already done, will be skipped)", file=out, flush=True)
+
+
+def _print_summary(results: dict[str, bool], *, stream: TextIO | None = None) -> None:
+    """Print a one-line tally of succeeded vs failed runs."""
+    out = stream if stream is not None else sys.stderr
+    ok = sum(1 for success in results.values() if success)
+    failed = len(results) - ok
+    print(f"Done: {ok} ok, {failed} failed.", file=out, flush=True)
+
+
+def _run_plan(
+    label: str,
+    tasks: list[tuple[Run, Path]],
+    n_parallel: int,
+    *,
+    output_root: Path,
+    verbose: bool,
+    max_size: str = DEFAULT_MAX_SIZE,
+    retries: int = DEFAULT_RETRIES,
+    backoff: float = DEFAULT_BACKOFF,
+    keep_sra: bool = False,
+) -> dict[str, bool]:
+    """Announce the plan, run the tasks (reporting each run), then tally the results.
+
+    The shared entry point behind :meth:`Series.download` and
+    :meth:`SraDownloader.download`; ``verbose=False`` silences all three steps.
+    """
+    if verbose:
+        _print_plan(label, tasks, n_parallel=n_parallel, output_root=output_root)
+    progress = _Progress(len(tasks), enabled=verbose)
+    results = _download_tasks(
+        tasks,
+        n_parallel,
+        max_size=max_size,
+        retries=retries,
+        backoff=backoff,
+        keep_sra=keep_sra,
+        progress=progress,
+    )
+    if verbose and tasks:
+        _print_summary(results)
+    return results
+
+
+# --------------------------------------------------------------------------- #
 # per-run worker (the unit of parallelism)
 # --------------------------------------------------------------------------- #
 
 
-def _cleanup_run(srx_dir: Path, accession: str) -> None:
+def _cleanup_run(srx_dir: Path, accession: str, *, keep_sra: bool = False) -> None:
     """Remove this run's intermediate ``prefetch``/``fasterq-dump`` artifacts.
 
     Leaves only the gzipped FASTQ (``<SRR>*.fastq.gz``); the ``.sra`` download
-    directory, stray ``.sra`` files, and ``fasterq.tmp.*`` scratch dirs are dropped.
+    directory and ``fasterq.tmp.*`` scratch dirs are dropped. When ``keep_sra``
+    is set, the downloaded ``.sra`` is first moved up to ``<srx_dir>/<SRR>.sra``
+    so it survives the directory cleanup.
     """
     prefetch_dir = srx_dir / accession
+    if keep_sra:
+        sra = prefetch_dir / f"{accession}.sra"
+        if sra.exists():
+            shutil.move(str(sra), str(srx_dir / f"{accession}.sra"))
     if prefetch_dir.is_dir():
         shutil.rmtree(prefetch_dir, ignore_errors=True)
-    for sra in srx_dir.glob(f"{accession}*.sra"):
-        sra.unlink(missing_ok=True)
     for tmp in srx_dir.glob("fasterq.tmp.*"):
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -149,6 +286,8 @@ def _download_run(
     max_size: str = DEFAULT_MAX_SIZE,
     retries: int = DEFAULT_RETRIES,
     backoff: float = DEFAULT_BACKOFF,
+    keep_sra: bool = False,
+    progress: _Progress | None = None,
 ) -> bool:
     """Download, extract, and gzip one run (``SRR``) into ``srx_dir``.
 
@@ -173,6 +312,9 @@ def _download_run(
         Attempts for the ``prefetch`` network step before giving up.
     backoff : float, default :data:`DEFAULT_BACKOFF`
         Base seconds for the linear backoff between ``prefetch`` retries.
+    keep_sra : bool, default False
+        Keep the downloaded ``.sra`` alongside the FASTQ (as
+        ``<srx_dir>/<SRR>.sra``) instead of deleting it during cleanup.
 
     Returns
     -------
@@ -189,6 +331,8 @@ def _download_run(
     flag = srx_dir / f".{accession}.success"
     if flag.exists():
         logger.info("skipping %s — already downloaded", accession)
+        if progress is not None:
+            progress.skipped(accession)
         return True
 
     _run_retry(
@@ -222,9 +366,11 @@ def _download_run(
     else:
         _run(["gzip", "-f", *paths])
 
-    _cleanup_run(srx_dir, accession)
+    _cleanup_run(srx_dir, accession, keep_sra=keep_sra)
     flag.touch()
     logger.info("downloaded %s", accession)
+    if progress is not None:
+        progress.downloaded(accession)
     return True
 
 
@@ -235,6 +381,8 @@ def _safe_download(
     max_size: str = DEFAULT_MAX_SIZE,
     retries: int = DEFAULT_RETRIES,
     backoff: float = DEFAULT_BACKOFF,
+    keep_sra: bool = False,
+    progress: _Progress | None = None,
 ) -> bool:
     """Run :func:`_download_run`, returning ``False`` instead of raising on failure.
 
@@ -242,9 +390,19 @@ def _safe_download(
     success flag means a later rerun retries it.
     """
     try:
-        return _download_run(run, srx_dir, max_size=max_size, retries=retries, backoff=backoff)
+        return _download_run(
+            run,
+            srx_dir,
+            max_size=max_size,
+            retries=retries,
+            backoff=backoff,
+            keep_sra=keep_sra,
+            progress=progress,
+        )
     except DownloadError:
         logger.exception("failed to download %s", run.accession)
+        if progress is not None:
+            progress.failed(run.accession)
         return False
 
 
@@ -255,6 +413,8 @@ def _download_tasks(
     max_size: str = DEFAULT_MAX_SIZE,
     retries: int = DEFAULT_RETRIES,
     backoff: float = DEFAULT_BACKOFF,
+    keep_sra: bool = False,
+    progress: _Progress | None = None,
 ) -> dict[str, bool]:
     """Download ``(run, srx_dir)`` pairs, parallel at the run level.
 
@@ -270,6 +430,8 @@ def _download_tasks(
         Attempts for the ``prefetch`` network step per run before giving up.
     backoff : float, default :data:`DEFAULT_BACKOFF`
         Base seconds for the linear backoff between ``prefetch`` retries.
+    keep_sra : bool, default False
+        Keep each run's downloaded ``.sra`` next to its FASTQ.
 
     Returns
     -------
@@ -278,7 +440,15 @@ def _download_tasks(
     """
 
     def work(run: Run, srx_dir: Path) -> bool:
-        return _safe_download(run, srx_dir, max_size=max_size, retries=retries, backoff=backoff)
+        return _safe_download(
+            run,
+            srx_dir,
+            max_size=max_size,
+            retries=retries,
+            backoff=backoff,
+            keep_sra=keep_sra,
+            progress=progress,
+        )
 
     if n_parallel <= 1:
         return {run.accession: work(run, srx_dir) for run, srx_dir in tasks}
@@ -335,6 +505,8 @@ class SraDownloader:
         max_size: str = DEFAULT_MAX_SIZE,
         retries: int = DEFAULT_RETRIES,
         backoff: float = DEFAULT_BACKOFF,
+        keep_sra: bool = False,
+        verbose: bool = True,
     ) -> dict[str, bool]:
         """Download every run of the experiment, parallel at the run level.
 
@@ -355,6 +527,12 @@ class SraDownloader:
             continues the partial download rather than restarting.
         backoff : float, default :data:`DEFAULT_BACKOFF`
             Base seconds for the linear backoff between ``prefetch`` retries.
+        keep_sra : bool, default False
+            Keep each run's downloaded ``.sra`` next to its FASTQ (as
+            ``<SRX>/<SRR>.sra``) instead of deleting it after extraction.
+        verbose : bool, default True
+            Print a download plan up front and one line per finished run to
+            ``stderr``. Set ``False`` to download silently.
 
         Returns
         -------
@@ -364,6 +542,14 @@ class SraDownloader:
         srx_dir = self.srx_dir
         srx_dir.mkdir(parents=True, exist_ok=True)
         tasks = [(run, srx_dir) for run in self.experiment.runs]
-        return _download_tasks(
-            tasks, n_parallel, max_size=max_size, retries=retries, backoff=backoff
+        return _run_plan(
+            self.experiment.accession,
+            tasks,
+            n_parallel,
+            output_root=srx_dir,
+            verbose=verbose,
+            max_size=max_size,
+            retries=retries,
+            backoff=backoff,
+            keep_sra=keep_sra,
         )

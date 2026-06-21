@@ -27,8 +27,8 @@ def test_run_table_renames_and_orders_columns() -> None:
         assert column in table.columns
     assert "avgLength" not in table.columns
     assert "Model" not in table.columns
-    # the key columns lead the frame
-    assert list(table.columns[:4]) == ["Run", "BioSample", "AvgSpotLen", "Bases"]
+    # the key columns lead the frame, with ReadStructure right after Bases
+    assert list(table.columns[:5]) == ["Run", "BioSample", "AvgSpotLen", "Bases", "ReadStructure"]
 
 
 def test_run_table_values() -> None:
@@ -42,10 +42,20 @@ def test_run_table_values() -> None:
     assert first["LibraryName"] == "GSM7147956"
 
 
-def test_run_table_uses_one_batched_efetch() -> None:
+def test_run_table_read_structure_column() -> None:
+    table = Series(g.GSE2, client=g.build_runtable_client()).make_sra_run_table()
+    structures = dict(zip(table["Run"], table["ReadStructure"], strict=True))
+    # Per-read <Statistics> renders as {L1}+{L2}; the run lacking stats is empty.
+    assert structures["SRR24084454"] == "28+99"
+    assert structures["SRR24084455"] == "28+98"
+    assert structures["SRR27685594"] == ""
+
+
+def test_run_table_uses_batched_efetch_per_report() -> None:
     client = g.build_runtable_client()
     Series(g.GSE2, client=client).make_sra_run_table()
-    assert client.count("efetch") == 1
+    # One batched runinfo fetch + one batched full-XML fetch (for ReadStructure).
+    assert client.count("efetch") == 2
 
 
 def test_run_table_empty_without_sra() -> None:
