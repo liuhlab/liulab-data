@@ -61,6 +61,7 @@ def fake(monkeypatch: pytest.MonkeyPatch) -> FakeTools:
     tools = FakeTools()
     monkeypatch.setattr(sratools, "_run", tools.run)
     monkeypatch.setattr(sratools, "_have", lambda tool: True)
+    monkeypatch.setattr(sratools.time, "sleep", lambda _seconds: None)
     return tools
 
 
@@ -155,6 +156,96 @@ def test_series_download_nests_under_series_then_experiment(
     srx_dir = tmp_path / g.GSE / g.SRX
     assert srx_dir.is_dir()
     assert (srx_dir / f"{g.SRR1}_1.fastq.gz").exists()
+
+
+def test_prefetch_passes_max_size_with_default(fake: FakeTools, tmp_path: Path) -> None:
+    SraDownloader(_experiment(), tmp_path).download()
+    prefetch = next(cmd for cmd in fake.commands if cmd[0] == "prefetch")
+    assert "--max-size" in prefetch
+    assert prefetch[prefetch.index("--max-size") + 1] == sratools.DEFAULT_MAX_SIZE
+
+
+def test_default_max_size_is_200g() -> None:
+    assert sratools.DEFAULT_MAX_SIZE == "200G"
+
+
+def test_download_accepts_max_size_override(fake: FakeTools, tmp_path: Path) -> None:
+    SraDownloader(_experiment(), tmp_path).download(max_size="500G")
+    for cmd in fake.commands:
+        if cmd[0] == "prefetch":
+            assert cmd[cmd.index("--max-size") + 1] == "500G"
+
+
+class FlakyTools(FakeTools):
+    """A fake whose ``prefetch`` fails its first ``fail_times`` calls, then succeeds.
+
+    ``fasterq-dump`` (and everything else) always succeeds, so a test can tell
+    network retries apart from local steps.
+    """
+
+    def __init__(self, fail_times: int) -> None:
+        super().__init__()
+        self.fail_times = fail_times
+        self.prefetch_attempts = 0
+
+    def run(self, cmd: list[str], *, cwd: Path | None = None) -> None:
+        if cmd[0] == "prefetch":
+            self.prefetch_attempts += 1
+            if self.prefetch_attempts <= self.fail_times:
+                self.commands.append(cmd)
+                raise DownloadError("transient network blip")
+        super().run(cmd, cwd=cwd)
+
+
+def test_prefetch_retries_then_succeeds(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    tools = FlakyTools(fail_times=2)
+    monkeypatch.setattr(sratools, "_run", tools.run)
+    monkeypatch.setattr(sratools, "_have", lambda tool: True)
+    monkeypatch.setattr(sratools.time, "sleep", lambda _seconds: None)
+
+    # One run only, so the attempt count is unambiguous.
+    experiment = Experiment(g.SRX, client=g.build_client())
+    result = sratools._download_run(experiment.runs[0], tmp_path, retries=3)
+
+    assert result is True
+    # Two failures + one success for the single run.
+    assert tools.prefetch_attempts == 3
+
+
+def test_prefetch_gives_up_after_retries(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    tools = FlakyTools(fail_times=99)  # never recovers
+    monkeypatch.setattr(sratools, "_run", tools.run)
+    monkeypatch.setattr(sratools, "_have", lambda tool: True)
+    monkeypatch.setattr(sratools.time, "sleep", lambda _seconds: None)
+
+    experiment = Experiment(g.SRX, client=g.build_client())
+    with pytest.raises(DownloadError):
+        sratools._download_run(experiment.runs[0], tmp_path, retries=3)
+    # Exactly the configured number of attempts, no more.
+    assert tools.prefetch_attempts == 3
+
+
+def test_fasterq_dump_is_not_retried(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    attempts = {"fasterq-dump": 0}
+
+    def run(cmd: list[str], *, cwd: Path | None = None) -> None:
+        if cmd[0] == "prefetch":
+            out = Path(cmd[cmd.index("-O") + 1]) / cmd[1]
+            out.mkdir(parents=True, exist_ok=True)
+            (out / f"{cmd[1]}.sra").write_bytes(b"sra")
+        elif cmd[0] == "fasterq-dump":
+            attempts["fasterq-dump"] += 1
+            raise DownloadError("extraction failed")
+
+    monkeypatch.setattr(sratools, "_run", run)
+    monkeypatch.setattr(sratools, "_have", lambda tool: True)
+    monkeypatch.setattr(sratools.time, "sleep", lambda _seconds: None)
+
+    experiment = Experiment(g.SRX, client=g.build_client())
+    with pytest.raises(DownloadError):
+        sratools._download_run(experiment.runs[0], tmp_path, retries=3)
+    # The local extraction step is run once — retries apply only to prefetch.
+    assert attempts["fasterq-dump"] == 1
 
 
 def test_run_seam_raises_download_error_on_missing_tool() -> None:

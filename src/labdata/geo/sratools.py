@@ -21,6 +21,7 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -31,6 +32,13 @@ if TYPE_CHECKING:
     from labdata.geo.records import Experiment, Run
 
 logger = logging.getLogger(__name__)
+
+#: Default ``prefetch --max-size``; the tool otherwise refuses runs over 20G.
+DEFAULT_MAX_SIZE = "200G"
+#: Default attempts for the network step (``prefetch``); see :func:`_run_retry`.
+DEFAULT_RETRIES = 3
+#: Default base seconds for the linear backoff between ``prefetch`` retries.
+DEFAULT_BACKOFF = 5.0
 
 
 # --------------------------------------------------------------------------- #
@@ -66,6 +74,48 @@ def _run(cmd: list[str], *, cwd: Path | None = None) -> None:
         ) from err
 
 
+def _run_retry(
+    cmd: list[str],
+    *,
+    cwd: Path | None = None,
+    retries: int = DEFAULT_RETRIES,
+    backoff: float = DEFAULT_BACKOFF,
+) -> None:
+    """Run a network command, retrying with linear backoff on failure.
+
+    For the resumable network step (``prefetch``): a retry continues the partial
+    download rather than starting over, so retries are cheap. The extraction step
+    (``fasterq-dump``) is local-only and is *not* routed through here — retrying it
+    gains nothing since its input ``.sra`` is already on disk.
+
+    Parameters
+    ----------
+    cmd : list of str
+        The command and its arguments (``cmd[0]`` is the executable).
+    cwd : Path or None
+        Working directory for the command, if any.
+    retries : int, default :data:`DEFAULT_RETRIES`
+        Total attempts before giving up. ``<= 1`` disables retrying.
+    backoff : float, default :data:`DEFAULT_BACKOFF`
+        Base seconds for the linear backoff; attempt *n* sleeps ``backoff * n``.
+
+    Raises
+    ------
+    DownloadError
+        If every attempt fails (the last failure is re-raised).
+    """
+    attempts = max(1, retries)
+    for attempt in range(1, attempts + 1):
+        try:
+            _run(cmd, cwd=cwd)
+            return
+        except DownloadError:
+            if attempt == attempts:
+                raise
+            logger.warning("%s failed (attempt %d/%d); retrying", cmd[0], attempt, attempts)
+            time.sleep(backoff * attempt)
+
+
 def _have(tool: str) -> bool:
     """Return whether ``tool`` is on ``PATH``."""
     return shutil.which(tool) is not None
@@ -91,13 +141,22 @@ def _cleanup_run(srx_dir: Path, accession: str) -> None:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def _download_run(run: Run, srx_dir: Path, *, threads: int = 1) -> bool:
+def _download_run(
+    run: Run,
+    srx_dir: Path,
+    *,
+    threads: int = 1,
+    max_size: str = DEFAULT_MAX_SIZE,
+    retries: int = DEFAULT_RETRIES,
+    backoff: float = DEFAULT_BACKOFF,
+) -> bool:
     """Download, extract, and gzip one run (``SRR``) into ``srx_dir``.
 
     Skips immediately when the ``.<SRR>.success`` flag already exists. Otherwise
     runs ``prefetch`` then ``fasterq-dump``, compresses the FASTQ, cleans up the
     intermediates, and writes the flag last so an interrupted run is never marked
-    successful.
+    successful. Only ``prefetch`` (the network step) is retried; it resumes its
+    partial download, so a failed run also recovers cleanly on a later rerun.
 
     Parameters
     ----------
@@ -107,6 +166,13 @@ def _download_run(run: Run, srx_dir: Path, *, threads: int = 1) -> bool:
         The (already created) experiment directory the FASTQ is written into.
     threads : int, default 1
         Threads passed to ``fasterq-dump`` and ``pigz`` for this single run.
+    max_size : str, default :data:`DEFAULT_MAX_SIZE`
+        Passed to ``prefetch --max-size``; raise it for large runs (``prefetch``
+        otherwise refuses anything over its 20G default).
+    retries : int, default :data:`DEFAULT_RETRIES`
+        Attempts for the ``prefetch`` network step before giving up.
+    backoff : float, default :data:`DEFAULT_BACKOFF`
+        Base seconds for the linear backoff between ``prefetch`` retries.
 
     Returns
     -------
@@ -125,7 +191,11 @@ def _download_run(run: Run, srx_dir: Path, *, threads: int = 1) -> bool:
         logger.info("skipping %s — already downloaded", accession)
         return True
 
-    _run(["prefetch", accession, "-O", str(srx_dir)])
+    _run_retry(
+        ["prefetch", accession, "-O", str(srx_dir), "--max-size", max_size],
+        retries=retries,
+        backoff=backoff,
+    )
 
     sra_path = srx_dir / accession / f"{accession}.sra"
     target = str(sra_path) if sra_path.exists() else accession
@@ -158,20 +228,34 @@ def _download_run(run: Run, srx_dir: Path, *, threads: int = 1) -> bool:
     return True
 
 
-def _safe_download(run: Run, srx_dir: Path) -> bool:
+def _safe_download(
+    run: Run,
+    srx_dir: Path,
+    *,
+    max_size: str = DEFAULT_MAX_SIZE,
+    retries: int = DEFAULT_RETRIES,
+    backoff: float = DEFAULT_BACKOFF,
+) -> bool:
     """Run :func:`_download_run`, returning ``False`` instead of raising on failure.
 
     Lets a batch continue past one bad run; the failure is logged and the missing
     success flag means a later rerun retries it.
     """
     try:
-        return _download_run(run, srx_dir)
+        return _download_run(run, srx_dir, max_size=max_size, retries=retries, backoff=backoff)
     except DownloadError:
         logger.exception("failed to download %s", run.accession)
         return False
 
 
-def _download_tasks(tasks: list[tuple[Run, Path]], n_parallel: int) -> dict[str, bool]:
+def _download_tasks(
+    tasks: list[tuple[Run, Path]],
+    n_parallel: int,
+    *,
+    max_size: str = DEFAULT_MAX_SIZE,
+    retries: int = DEFAULT_RETRIES,
+    backoff: float = DEFAULT_BACKOFF,
+) -> dict[str, bool]:
     """Download ``(run, srx_dir)`` pairs, parallel at the run level.
 
     Parameters
@@ -180,20 +264,28 @@ def _download_tasks(tasks: list[tuple[Run, Path]], n_parallel: int) -> dict[str,
         Each run paired with the experiment directory it belongs in.
     n_parallel : int
         Maximum runs to download concurrently (``<= 1`` runs them sequentially).
+    max_size : str, default :data:`DEFAULT_MAX_SIZE`
+        Passed to ``prefetch --max-size`` for every run.
+    retries : int, default :data:`DEFAULT_RETRIES`
+        Attempts for the ``prefetch`` network step per run before giving up.
+    backoff : float, default :data:`DEFAULT_BACKOFF`
+        Base seconds for the linear backoff between ``prefetch`` retries.
 
     Returns
     -------
     dict[str, bool]
         Maps each run accession to whether its data is present on completion.
     """
+
+    def work(run: Run, srx_dir: Path) -> bool:
+        return _safe_download(run, srx_dir, max_size=max_size, retries=retries, backoff=backoff)
+
     if n_parallel <= 1:
-        return {run.accession: _safe_download(run, srx_dir) for run, srx_dir in tasks}
+        return {run.accession: work(run, srx_dir) for run, srx_dir in tasks}
 
     results: dict[str, bool] = {}
     with ThreadPoolExecutor(max_workers=n_parallel) as pool:
-        futures = {
-            pool.submit(_safe_download, run, srx_dir): run.accession for run, srx_dir in tasks
-        }
+        futures = {pool.submit(work, run, srx_dir): run.accession for run, srx_dir in tasks}
         for future in as_completed(futures):
             results[futures[future]] = future.result()
     return results
@@ -236,7 +328,14 @@ class SraDownloader:
         """The destination directory for this experiment (``<output_dir>/<SRX>``)."""
         return self.output_dir / self.experiment.accession
 
-    def download(self, n_parallel: int = 1) -> dict[str, bool]:
+    def download(
+        self,
+        n_parallel: int = 1,
+        *,
+        max_size: str = DEFAULT_MAX_SIZE,
+        retries: int = DEFAULT_RETRIES,
+        backoff: float = DEFAULT_BACKOFF,
+    ) -> dict[str, bool]:
         """Download every run of the experiment, parallel at the run level.
 
         Creates :attr:`srx_dir`, then downloads each run's gzipped FASTQ into it.
@@ -246,7 +345,16 @@ class SraDownloader:
         Parameters
         ----------
         n_parallel : int, default 1
-            Maximum runs to download concurrently.
+            Maximum runs to download concurrently. On a flaky link, fewer
+            concurrent connections (``1`` or ``2``) is often more reliable.
+        max_size : str, default :data:`DEFAULT_MAX_SIZE`
+            Passed to ``prefetch --max-size``; raise it for large runs (``prefetch``
+            otherwise refuses anything over its 20G default).
+        retries : int, default :data:`DEFAULT_RETRIES`
+            Attempts for the resumable ``prefetch`` network step per run; a retry
+            continues the partial download rather than restarting.
+        backoff : float, default :data:`DEFAULT_BACKOFF`
+            Base seconds for the linear backoff between ``prefetch`` retries.
 
         Returns
         -------
@@ -256,4 +364,6 @@ class SraDownloader:
         srx_dir = self.srx_dir
         srx_dir.mkdir(parents=True, exist_ok=True)
         tasks = [(run, srx_dir) for run in self.experiment.runs]
-        return _download_tasks(tasks, n_parallel)
+        return _download_tasks(
+            tasks, n_parallel, max_size=max_size, retries=retries, backoff=backoff
+        )

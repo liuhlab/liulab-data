@@ -422,21 +422,42 @@ class Series(_GdsRecord):
         remaining = [column for column in table.columns if column not in leading]
         return table.reindex(columns=leading + remaining)
 
-    def download(self, output_dir: str | Path = ".", n_parallel: int = 1) -> dict[str, bool]:
+    def download(
+        self,
+        output_dir: str | Path = ".",
+        n_parallel: int = 1,
+        *,
+        max_size: str | None = None,
+        retries: int | None = None,
+        backoff: float | None = None,
+    ) -> dict[str, bool]:
         """Download FASTQ for every run of every SRA experiment in this Series.
 
         Lays the data out as ``<output_dir>/<GSE>/<SRX>/<SRR>*.fastq.gz`` — one
         directory per experiment under a directory named for this Series — via
         sra-tools (``prefetch`` + ``fasterq-dump``). Runs already marked done (a
         ``.<SRR>.success`` flag) are skipped; the whole Series is downloaded in
-        parallel at the run (``SRR``) level.
+        parallel at the run (``SRR``) level. The resumable ``prefetch`` step is
+        retried on failure, so this is safe to rerun on an unstable connection.
 
         Parameters
         ----------
         output_dir : str or Path, default "."
             Parent directory; a ``<output_dir>/<GSE>`` subtree is created for this Series.
         n_parallel : int, default 1
-            Maximum runs to download concurrently across the whole Series.
+            Maximum runs to download concurrently across the whole Series. On a
+            flaky link, fewer concurrent connections (``1`` or ``2``) is often
+            more reliable.
+        max_size : str, optional
+            Passed to ``prefetch --max-size`` (defaults to
+            :data:`~labdata.geo.sratools.DEFAULT_MAX_SIZE`); raise it for runs that
+            exceed ``prefetch``'s 20G default.
+        retries : int, optional
+            Attempts for the resumable ``prefetch`` network step per run (defaults
+            to :data:`~labdata.geo.sratools.DEFAULT_RETRIES`).
+        backoff : float, optional
+            Base seconds for the linear backoff between ``prefetch`` retries
+            (defaults to :data:`~labdata.geo.sratools.DEFAULT_BACKOFF`).
 
         Returns
         -------
@@ -450,13 +471,20 @@ class Series(_GdsRecord):
         """
         from labdata.geo import sratools
 
+        kwargs = {
+            "max_size": max_size,
+            "retries": retries,
+            "backoff": backoff,
+        }
+        overrides = {key: value for key, value in kwargs.items() if value is not None}
+
         base = Path(output_dir) / self.accession
         tasks: list[tuple[Run, Path]] = []
         for experiment in self.experiments:
             srx_dir = base / experiment.accession
             srx_dir.mkdir(parents=True, exist_ok=True)
             tasks.extend((run, srx_dir) for run in experiment.runs)
-        return sratools._download_tasks(tasks, n_parallel)
+        return sratools._download_tasks(tasks, n_parallel, **overrides)
 
 
 class Sample(_GdsRecord):
