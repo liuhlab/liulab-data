@@ -26,5 +26,9 @@ class EntrezError(LabdataError, RuntimeError):
     """An Entrez request failed or returned an unusable response."""
 
 
+class SdlError(LabdataError, RuntimeError):
+    """An SRA Data Locator (SDL) request failed or returned an unusable response."""
+
+
 class DownloadError(LabdataError, RuntimeError):
     """An external download tool is missing or a download/extract step failed."""

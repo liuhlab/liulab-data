@@ -170,7 +170,7 @@ addopts = ["-ra", "--strict-markers", "--strict-config", "-m", "not network"]
 xfail_strict = true
 filterwarnings = ["error"]
 markers = [
-    "network: hits the live NCBI E-utilities (deselected by default; run with `-m network`)",
+    "network: hits live NCBI services (E-utilities, SDL) (deselected by default; run with `-m network`)",
 ]
 
 [tool.coverage.run]

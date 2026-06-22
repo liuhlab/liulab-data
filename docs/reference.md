@@ -8,4 +8,6 @@
 
 ::: labdata.ncbi.entrez
 
+::: labdata.ncbi.sdl
+
 ::: labdata.ncbi.config
