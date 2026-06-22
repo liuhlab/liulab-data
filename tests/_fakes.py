@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from labdata.ncbi.entrez import EntrezClient
+from labdata.ncbi.sdl import RemoteFile, SdlClient
 
 
 class FakeEntrezClient(EntrezClient):
@@ -82,3 +83,23 @@ class FakeEntrezClient(EntrezClient):
         if elink is not None:
             self._elink = elink
         return self
+
+
+class FakeSdlClient(SdlClient):
+    """A recording stand-in for ``SdlClient`` seeded with canned file listings.
+
+    Parameters
+    ----------
+    files : dict[str, list[RemoteFile]] or None
+        Maps a run accession to the :class:`~labdata.ncbi.sdl.RemoteFile` list its
+        ``retrieve`` should return.
+    """
+
+    def __init__(self, files: dict[str, list[RemoteFile]] | None = None) -> None:
+        # Intentionally does not call super().__init__ — no network.
+        self._files = files or {}
+        self.calls: list[str] = []
+
+    def retrieve(self, accession: str) -> list[RemoteFile]:
+        self.calls.append(accession)
+        return list(self._files.get(accession, []))

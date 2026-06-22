@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Self
 from labdata.exceptions import AccessionError, EntrezError
 from labdata.geo import _web
 from labdata.ncbi.entrez import EntrezClient, _chunked, _docsum_uid
+from labdata.ncbi.sdl import RemoteFile, SdlClient
 
 if TYPE_CHECKING:
     import pandas
@@ -187,11 +188,18 @@ class _Record:
     #: Human-readable record kind, used in error messages.
     _KIND: ClassVar[str]
 
-    def __init__(self, accession: str, *, client: EntrezClient | None = None) -> None:
+    def __init__(
+        self,
+        accession: str,
+        *,
+        client: EntrezClient | None = None,
+        sdl_client: SdlClient | None = None,
+    ) -> None:
         if not isinstance(accession, str) or not self._ACCESSION_RE.match(accession):
             raise AccessionError(f"not a GEO/SRA {self._KIND} accession: {accession!r}")
         self.accession = accession
         self._client = client
+        self._sdl_client = sdl_client
 
     def __repr__(self) -> str:
         """Return an unambiguous representation."""
@@ -211,6 +219,13 @@ class _Record:
         if self._client is None:
             self._client = EntrezClient()
         return self._client
+
+    @property
+    def sdl_client(self) -> SdlClient:
+        """Return the SRA Data Locator client, constructing a default one on first use."""
+        if self._sdl_client is None:
+            self._sdl_client = SdlClient()
+        return self._sdl_client
 
     def _seed(self, *, uid: str | None = None, summary: dict[str, Any] | None = None) -> Self:
         """Pre-populate the ``uid``/``_summary`` caches from an already-fetched response.
@@ -760,6 +775,52 @@ class Run(_SraRecord):
         """
         accession = _attr(self._exp_xml, "Experiment", "acc")
         return Experiment(accession, client=self.client)._seed(uid=self.uid, summary=self._summary)
+
+    @cached_property
+    def files(self) -> list[RemoteFile]:
+        """Every file the SRA Data Locator lists for this run (one SDL request, cached).
+
+        Includes both the normalized SRA archive file(s) and any original/submitted
+        files (e.g. a 10X Genomics ``possorted_genome_bam``). This is the data behind
+        the Run Browser's "Data access" panel.
+
+        Returns
+        -------
+        list of RemoteFile
+            All files SDL exposes for this run, each with its download locations.
+
+        Raises
+        ------
+        SdlError
+            If the SDL request fails or the run is unknown/non-public.
+
+        Examples
+        --------
+        >>> [(f.name, f.type) for f in Run("SRR20172067").files]  # doctest: +SKIP
+        [('possorted_genome_bam_TC2_d15_1.bam', 'TenX'), ('SRR20172067', 'sra')]
+        """
+        return self.sdl_client.retrieve(self.accession)
+
+    @property
+    def original_files(self) -> list[RemoteFile]:
+        """The original/submitted files for this run (the "Original format" listing).
+
+        The submitter's own uploads — e.g. the 10X Genomics BAM behind a run whose
+        ``.sra`` only stored a single read — as opposed to the normalized SRA archive.
+        Filters :attr:`files` to the non-archive types.
+
+        Returns
+        -------
+        list of RemoteFile
+            Files whose type is not a normalized SRA archive type; empty when the
+            submission has no original-format files.
+
+        Examples
+        --------
+        >>> [f.name for f in Run("SRR20172067").original_files]  # doctest: +SKIP
+        ['possorted_genome_bam_TC2_d15_1.bam']
+        """
+        return [file for file in self.files if not file.is_sra_archive]
 
 
 # --------------------------------------------------------------------------- #

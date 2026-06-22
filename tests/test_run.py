@@ -69,3 +69,38 @@ def test_experiment_link_is_instance() -> None:
 
 def test_url() -> None:
     assert Run(g.SRR1).url == "https://www.ncbi.nlm.nih.gov/sra/?term=SRR9000001"
+
+
+def test_files_lists_all_sdl_entries() -> None:
+    r = Run(g.SRR_TENX, sdl_client=g.build_sdl_client())
+    assert [f.name for f in r.files] == [
+        "possorted_genome_bam_TC2_d15_1.bam",
+        "SRR20172067",
+    ]
+
+
+def test_original_files_filters_out_sra_archive() -> None:
+    r = Run(g.SRR_TENX, sdl_client=g.build_sdl_client())
+    originals = r.original_files
+    assert [f.type for f in originals] == ["TenX"]
+    assert originals[0].name == "possorted_genome_bam_TC2_d15_1.bam"
+    assert originals[0].url == (
+        "https://sra-pub-src-2.s3.amazonaws.com/SRR20172067/possorted_genome_bam_TC2_d15_1.bam.1"
+    )
+
+
+def test_original_files_empty_without_submitted_files() -> None:
+    sdl = g.FakeSdlClient({g.SRR1: g._SDL_FILES[g.SRR_TENX][1:]})  # only the sra archive file
+    r = Run(g.SRR1, sdl_client=sdl)
+    assert r.files != []
+    assert r.original_files == []
+
+
+def test_files_fetched_once() -> None:
+    sdl = g.build_sdl_client()
+    r = Run(g.SRR_TENX, sdl_client=sdl)
+    # Repeated access (including via original_files) hits SDL once, then caches.
+    assert r.files
+    assert r.original_files
+    assert r.files
+    assert sdl.calls == [g.SRR_TENX]

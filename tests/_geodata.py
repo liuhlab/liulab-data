@@ -8,7 +8,8 @@ responses.
 
 from __future__ import annotations
 
-from tests._fakes import FakeEntrezClient
+from labdata.ncbi.sdl import FileLocation, RemoteFile
+from tests._fakes import FakeEntrezClient, FakeSdlClient
 
 GSE = "GSE131907"
 GSE_UID = "200131907"
@@ -175,3 +176,53 @@ def build_runtable_client() -> FakeEntrezClient:
         elink={("gds", "sra", GSE2_UID): RUNTABLE_SRA_UIDS},
         efetch={("sra", "runinfo"): RUNINFO_CSV, ("sra", "full"): RUNTABLE_FULL_XML},
     )
+
+
+# --------------------------------------------------------------------------- #
+# SRA Data Locator (SDL) listing for a 10X run whose original BAM is recoverable.
+# Mirrors the real ``sdl/2/retrieve`` response for SRR20172067: one original-format
+# ``TenX`` BAM plus the normalized ``sra`` archive file.
+# --------------------------------------------------------------------------- #
+
+SRR_TENX = "SRR20172067"
+
+_SDL_FILES = {
+    SRR_TENX: [
+        RemoteFile(
+            name="possorted_genome_bam_TC2_d15_1.bam",
+            type="TenX",
+            size=17220510363,
+            md5="4cf6c049aa2a0693d44158b1b06ea679",
+            modification_date="2022-07-14T06:00:26Z",
+            accession=SRR_TENX,
+            locations=(
+                FileLocation(
+                    "s3",
+                    "us-east-1",
+                    "https://sra-pub-src-2.s3.amazonaws.com/"
+                    "SRR20172067/possorted_genome_bam_TC2_d15_1.bam.1",
+                ),
+            ),
+        ),
+        RemoteFile(
+            name="SRR20172067",
+            type="sra",
+            size=7650138419,
+            md5="b2f5d7e58e8187771eb0470be2c1f3bf",
+            modification_date="2022-07-14T06:04:38Z",
+            accession=SRR_TENX,
+            locations=(
+                FileLocation(
+                    "s3",
+                    "us-east-1",
+                    "https://sra-pub-run-odp.s3.amazonaws.com/sra/SRR20172067/SRR20172067",
+                ),
+            ),
+        ),
+    ],
+}
+
+
+def build_sdl_client() -> FakeSdlClient:
+    """Return a FakeSdlClient wired with the SRR20172067 file listing."""
+    return FakeSdlClient(_SDL_FILES)
