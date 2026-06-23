@@ -108,6 +108,7 @@ test-cov  = "pytest --cov=labdata --cov-report=term-missing"
 check     = { depends-on = ["lint", "fmt-check", "typecheck", "test"] }
 build     = "python -m build"
 docs      = "mkdocs serve"
+gh-deploy = "mkdocs gh-deploy --force"
 
 # -------- tool config --------
 

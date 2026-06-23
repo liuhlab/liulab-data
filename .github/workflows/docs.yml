@@ -1,34 +1,32 @@
 name: Docs
 
-# Builds the MkDocs site and deploys it to GitHub Pages on every push to main.
+# Builds the MkDocs site and pushes it to the `gh-pages` branch on every push
+# to main, via `mkdocs gh-deploy`.
 #
 # Setup (one-off, by a maintainer):
-#   1. Settings → Pages → Build and deployment → Source: "GitHub Actions".
-#   2. (Private repo + GitHub Pro/Team only) Settings → Pages → Visibility:
-#      "Public" if docs should be world-readable, "Private" to restrict to
-#      people with repo access.
-#   3. First push to main triggers this workflow; the URL appears in the
-#      deployment's environment summary and at Settings → Pages.
+#   1. Let this workflow run once so it creates the `gh-pages` branch.
+#   2. Settings → Pages → Build and deployment → Source: "Deploy from a branch".
+#   3. Branch: `gh-pages`, folder: `/ (root)`. Save.
+#   4. The published URL appears at Settings → Pages.
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
+# gh-deploy commits and pushes the built site to the gh-pages branch.
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
-# Allow only one concurrent deployment, but don't cancel an in-progress one
-# (Pages deploys aren't safe to interrupt mid-flight).
+# Allow only one concurrent deployment; don't cancel an in-progress one
+# (a push mid-flight could leave gh-pages in a partial state).
 concurrency:
-  group: pages
+  group: gh-pages
   cancel-in-progress: false
 
 jobs:
-  build:
-    name: Build site
+  deploy:
+    name: Build & deploy to gh-pages
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -38,19 +36,9 @@ jobs:
         with:
           environments: docs
           locked: true
-      - name: mkdocs build --strict
-        run: pixi run -e docs mkdocs build --strict
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: site
-
-  deploy:
-    name: Deploy to GitHub Pages
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      - name: mkdocs gh-deploy
+        run: pixi run -e docs mkdocs gh-deploy --force --strict
