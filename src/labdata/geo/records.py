@@ -195,6 +195,7 @@ class _Record:
         client: EntrezClient | None = None,
         sdl_client: SdlClient | None = None,
     ) -> None:
+        accession = accession.strip().upper()
         if not isinstance(accession, str) or not self._ACCESSION_RE.match(accession):
             raise AccessionError(f"not a GEO/SRA {self._KIND} accession: {accession!r}")
         self.accession = accession
