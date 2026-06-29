@@ -21,6 +21,15 @@ pixi shell              # activate the env
 pixi run check          # lint + fmt-check + typecheck + test (the CI gate)
 ```
 
+### Notebooks (Jupyter)
+
+To use `labdata` from a Jupyter notebook, register this env's Python as a kernel
+once, then pick it in Jupyter:
+
+```bash
+pixi run register-kernel     # creates the "Python (liulab-data)" kernel (idempotent)
+```
+
 ### NCBI credentials
 
 Entrez requests need a contact email (and accept an optional API key that raises the
