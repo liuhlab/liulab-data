@@ -3511,19 +3511,23 @@ covering NCBI <code>PRJNA</code>, EBI <code>PRJEB</code>, and DDBJ <code>PRJDB</
 <span class="normal"><a href="#__codelineno-0-200">200</a></span>
 <span class="normal"><a href="#__codelineno-0-201">201</a></span>
 <span class="normal"><a href="#__codelineno-0-202">202</a></span>
-<span class="normal"><a href="#__codelineno-0-203">203</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-191" name="__codelineno-0-191"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+<span class="normal"><a href="#__codelineno-0-203">203</a></span>
+<span class="normal"><a href="#__codelineno-0-204">204</a></span>
+<span class="normal"><a href="#__codelineno-0-205">205</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-191" name="__codelineno-0-191"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
 <a id="__codelineno-0-192" name="__codelineno-0-192"></a>    <span class="bp">self</span><span class="p">,</span>
 <a id="__codelineno-0-193" name="__codelineno-0-193"></a>    <span class="n">accession</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
 <a id="__codelineno-0-194" name="__codelineno-0-194"></a>    <span class="o">*</span><span class="p">,</span>
 <a id="__codelineno-0-195" name="__codelineno-0-195"></a>    <span class="n">client</span><span class="p">:</span> <span class="n">EntrezClient</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-196" name="__codelineno-0-196"></a>    <span class="n">sdl_client</span><span class="p">:</span> <span class="n">SdlClient</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-197" name="__codelineno-0-197"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-198" name="__codelineno-0-198"></a>    <span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
-<a id="__codelineno-0-199" name="__codelineno-0-199"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">accession</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ACCESSION_RE</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">accession</span><span class="p">):</span>
-<a id="__codelineno-0-200" name="__codelineno-0-200"></a>        <span class="k">raise</span> <span class="n">AccessionError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;not a GEO/SRA </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_KIND</span><span class="si">}</span><span class="s2"> accession: </span><span class="si">{</span><span class="n">accession</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-201" name="__codelineno-0-201"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span>
-<a id="__codelineno-0-202" name="__codelineno-0-202"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_client</span> <span class="o">=</span> <span class="n">client</span>
-<a id="__codelineno-0-203" name="__codelineno-0-203"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_sdl_client</span> <span class="o">=</span> <span class="n">sdl_client</span>
+<a id="__codelineno-0-198" name="__codelineno-0-198"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">accession</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+<a id="__codelineno-0-199" name="__codelineno-0-199"></a>        <span class="k">raise</span> <span class="n">AccessionError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;not a GEO/SRA </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_KIND</span><span class="si">}</span><span class="s2"> accession: </span><span class="si">{</span><span class="n">accession</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-200" name="__codelineno-0-200"></a>    <span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
+<a id="__codelineno-0-201" name="__codelineno-0-201"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ACCESSION_RE</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">accession</span><span class="p">):</span>
+<a id="__codelineno-0-202" name="__codelineno-0-202"></a>        <span class="k">raise</span> <span class="n">AccessionError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;not a GEO/SRA </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_KIND</span><span class="si">}</span><span class="s2"> accession: </span><span class="si">{</span><span class="n">accession</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-203" name="__codelineno-0-203"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span>
+<a id="__codelineno-0-204" name="__codelineno-0-204"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_client</span> <span class="o">=</span> <span class="n">client</span>
+<a id="__codelineno-0-205" name="__codelineno-0-205"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_sdl_client</span> <span class="o">=</span> <span class="n">sdl_client</span>
 </code></pre></div></td></tr></table></div>
                   </details>
 
@@ -3957,19 +3961,23 @@ covering SRA/ENA/DDBJ).</p>
 <span class="normal"><a href="#__codelineno-0-200">200</a></span>
 <span class="normal"><a href="#__codelineno-0-201">201</a></span>
 <span class="normal"><a href="#__codelineno-0-202">202</a></span>
-<span class="normal"><a href="#__codelineno-0-203">203</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-191" name="__codelineno-0-191"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+<span class="normal"><a href="#__codelineno-0-203">203</a></span>
+<span class="normal"><a href="#__codelineno-0-204">204</a></span>
+<span class="normal"><a href="#__codelineno-0-205">205</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-191" name="__codelineno-0-191"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
 <a id="__codelineno-0-192" name="__codelineno-0-192"></a>    <span class="bp">self</span><span class="p">,</span>
 <a id="__codelineno-0-193" name="__codelineno-0-193"></a>    <span class="n">accession</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
 <a id="__codelineno-0-194" name="__codelineno-0-194"></a>    <span class="o">*</span><span class="p">,</span>
 <a id="__codelineno-0-195" name="__codelineno-0-195"></a>    <span class="n">client</span><span class="p">:</span> <span class="n">EntrezClient</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-196" name="__codelineno-0-196"></a>    <span class="n">sdl_client</span><span class="p">:</span> <span class="n">SdlClient</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-197" name="__codelineno-0-197"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-198" name="__codelineno-0-198"></a>    <span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
-<a id="__codelineno-0-199" name="__codelineno-0-199"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">accession</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ACCESSION_RE</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">accession</span><span class="p">):</span>
-<a id="__codelineno-0-200" name="__codelineno-0-200"></a>        <span class="k">raise</span> <span class="n">AccessionError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;not a GEO/SRA </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_KIND</span><span class="si">}</span><span class="s2"> accession: </span><span class="si">{</span><span class="n">accession</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-201" name="__codelineno-0-201"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span>
-<a id="__codelineno-0-202" name="__codelineno-0-202"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_client</span> <span class="o">=</span> <span class="n">client</span>
-<a id="__codelineno-0-203" name="__codelineno-0-203"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_sdl_client</span> <span class="o">=</span> <span class="n">sdl_client</span>
+<a id="__codelineno-0-198" name="__codelineno-0-198"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">accession</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+<a id="__codelineno-0-199" name="__codelineno-0-199"></a>        <span class="k">raise</span> <span class="n">AccessionError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;not a GEO/SRA </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_KIND</span><span class="si">}</span><span class="s2"> accession: </span><span class="si">{</span><span class="n">accession</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-200" name="__codelineno-0-200"></a>    <span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
+<a id="__codelineno-0-201" name="__codelineno-0-201"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ACCESSION_RE</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">accession</span><span class="p">):</span>
+<a id="__codelineno-0-202" name="__codelineno-0-202"></a>        <span class="k">raise</span> <span class="n">AccessionError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;not a GEO/SRA </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_KIND</span><span class="si">}</span><span class="s2"> accession: </span><span class="si">{</span><span class="n">accession</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-203" name="__codelineno-0-203"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span>
+<a id="__codelineno-0-204" name="__codelineno-0-204"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_client</span> <span class="o">=</span> <span class="n">client</span>
+<a id="__codelineno-0-205" name="__codelineno-0-205"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_sdl_client</span> <span class="o">=</span> <span class="n">sdl_client</span>
 </code></pre></div></td></tr></table></div>
                   </details>
 
@@ -4185,19 +4193,23 @@ covering SRA/ENA/DDBJ).</p>
 <span class="normal"><a href="#__codelineno-0-200">200</a></span>
 <span class="normal"><a href="#__codelineno-0-201">201</a></span>
 <span class="normal"><a href="#__codelineno-0-202">202</a></span>
-<span class="normal"><a href="#__codelineno-0-203">203</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-191" name="__codelineno-0-191"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+<span class="normal"><a href="#__codelineno-0-203">203</a></span>
+<span class="normal"><a href="#__codelineno-0-204">204</a></span>
+<span class="normal"><a href="#__codelineno-0-205">205</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-191" name="__codelineno-0-191"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
 <a id="__codelineno-0-192" name="__codelineno-0-192"></a>    <span class="bp">self</span><span class="p">,</span>
 <a id="__codelineno-0-193" name="__codelineno-0-193"></a>    <span class="n">accession</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
 <a id="__codelineno-0-194" name="__codelineno-0-194"></a>    <span class="o">*</span><span class="p">,</span>
 <a id="__codelineno-0-195" name="__codelineno-0-195"></a>    <span class="n">client</span><span class="p">:</span> <span class="n">EntrezClient</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-196" name="__codelineno-0-196"></a>    <span class="n">sdl_client</span><span class="p">:</span> <span class="n">SdlClient</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-197" name="__codelineno-0-197"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-198" name="__codelineno-0-198"></a>    <span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
-<a id="__codelineno-0-199" name="__codelineno-0-199"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">accession</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ACCESSION_RE</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">accession</span><span class="p">):</span>
-<a id="__codelineno-0-200" name="__codelineno-0-200"></a>        <span class="k">raise</span> <span class="n">AccessionError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;not a GEO/SRA </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_KIND</span><span class="si">}</span><span class="s2"> accession: </span><span class="si">{</span><span class="n">accession</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-201" name="__codelineno-0-201"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span>
-<a id="__codelineno-0-202" name="__codelineno-0-202"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_client</span> <span class="o">=</span> <span class="n">client</span>
-<a id="__codelineno-0-203" name="__codelineno-0-203"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_sdl_client</span> <span class="o">=</span> <span class="n">sdl_client</span>
+<a id="__codelineno-0-198" name="__codelineno-0-198"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">accession</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+<a id="__codelineno-0-199" name="__codelineno-0-199"></a>        <span class="k">raise</span> <span class="n">AccessionError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;not a GEO/SRA </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_KIND</span><span class="si">}</span><span class="s2"> accession: </span><span class="si">{</span><span class="n">accession</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-200" name="__codelineno-0-200"></a>    <span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
+<a id="__codelineno-0-201" name="__codelineno-0-201"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ACCESSION_RE</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">accession</span><span class="p">):</span>
+<a id="__codelineno-0-202" name="__codelineno-0-202"></a>        <span class="k">raise</span> <span class="n">AccessionError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;not a GEO/SRA </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_KIND</span><span class="si">}</span><span class="s2"> accession: </span><span class="si">{</span><span class="n">accession</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-203" name="__codelineno-0-203"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span>
+<a id="__codelineno-0-204" name="__codelineno-0-204"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_client</span> <span class="o">=</span> <span class="n">client</span>
+<a id="__codelineno-0-205" name="__codelineno-0-205"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_sdl_client</span> <span class="o">=</span> <span class="n">sdl_client</span>
 </code></pre></div></td></tr></table></div>
                   </details>
 
@@ -4362,19 +4374,23 @@ covering SRA/ENA/DDBJ).</p>
 <span class="normal"><a href="#__codelineno-0-200">200</a></span>
 <span class="normal"><a href="#__codelineno-0-201">201</a></span>
 <span class="normal"><a href="#__codelineno-0-202">202</a></span>
-<span class="normal"><a href="#__codelineno-0-203">203</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-191" name="__codelineno-0-191"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+<span class="normal"><a href="#__codelineno-0-203">203</a></span>
+<span class="normal"><a href="#__codelineno-0-204">204</a></span>
+<span class="normal"><a href="#__codelineno-0-205">205</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-191" name="__codelineno-0-191"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
 <a id="__codelineno-0-192" name="__codelineno-0-192"></a>    <span class="bp">self</span><span class="p">,</span>
 <a id="__codelineno-0-193" name="__codelineno-0-193"></a>    <span class="n">accession</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
 <a id="__codelineno-0-194" name="__codelineno-0-194"></a>    <span class="o">*</span><span class="p">,</span>
 <a id="__codelineno-0-195" name="__codelineno-0-195"></a>    <span class="n">client</span><span class="p">:</span> <span class="n">EntrezClient</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-196" name="__codelineno-0-196"></a>    <span class="n">sdl_client</span><span class="p">:</span> <span class="n">SdlClient</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-197" name="__codelineno-0-197"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-198" name="__codelineno-0-198"></a>    <span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
-<a id="__codelineno-0-199" name="__codelineno-0-199"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">accession</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ACCESSION_RE</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">accession</span><span class="p">):</span>
-<a id="__codelineno-0-200" name="__codelineno-0-200"></a>        <span class="k">raise</span> <span class="n">AccessionError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;not a GEO/SRA </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_KIND</span><span class="si">}</span><span class="s2"> accession: </span><span class="si">{</span><span class="n">accession</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-201" name="__codelineno-0-201"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span>
-<a id="__codelineno-0-202" name="__codelineno-0-202"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_client</span> <span class="o">=</span> <span class="n">client</span>
-<a id="__codelineno-0-203" name="__codelineno-0-203"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_sdl_client</span> <span class="o">=</span> <span class="n">sdl_client</span>
+<a id="__codelineno-0-198" name="__codelineno-0-198"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">accession</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+<a id="__codelineno-0-199" name="__codelineno-0-199"></a>        <span class="k">raise</span> <span class="n">AccessionError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;not a GEO/SRA </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_KIND</span><span class="si">}</span><span class="s2"> accession: </span><span class="si">{</span><span class="n">accession</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-200" name="__codelineno-0-200"></a>    <span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
+<a id="__codelineno-0-201" name="__codelineno-0-201"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ACCESSION_RE</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">accession</span><span class="p">):</span>
+<a id="__codelineno-0-202" name="__codelineno-0-202"></a>        <span class="k">raise</span> <span class="n">AccessionError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;not a GEO/SRA </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_KIND</span><span class="si">}</span><span class="s2"> accession: </span><span class="si">{</span><span class="n">accession</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-203" name="__codelineno-0-203"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span>
+<a id="__codelineno-0-204" name="__codelineno-0-204"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_client</span> <span class="o">=</span> <span class="n">client</span>
+<a id="__codelineno-0-205" name="__codelineno-0-205"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_sdl_client</span> <span class="o">=</span> <span class="n">sdl_client</span>
 </code></pre></div></td></tr></table></div>
                   </details>
 
@@ -4828,19 +4844,23 @@ submission has no original-format files.</p>
 <span class="normal"><a href="#__codelineno-0-200">200</a></span>
 <span class="normal"><a href="#__codelineno-0-201">201</a></span>
 <span class="normal"><a href="#__codelineno-0-202">202</a></span>
-<span class="normal"><a href="#__codelineno-0-203">203</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-191" name="__codelineno-0-191"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+<span class="normal"><a href="#__codelineno-0-203">203</a></span>
+<span class="normal"><a href="#__codelineno-0-204">204</a></span>
+<span class="normal"><a href="#__codelineno-0-205">205</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-191" name="__codelineno-0-191"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
 <a id="__codelineno-0-192" name="__codelineno-0-192"></a>    <span class="bp">self</span><span class="p">,</span>
 <a id="__codelineno-0-193" name="__codelineno-0-193"></a>    <span class="n">accession</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
 <a id="__codelineno-0-194" name="__codelineno-0-194"></a>    <span class="o">*</span><span class="p">,</span>
 <a id="__codelineno-0-195" name="__codelineno-0-195"></a>    <span class="n">client</span><span class="p">:</span> <span class="n">EntrezClient</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-196" name="__codelineno-0-196"></a>    <span class="n">sdl_client</span><span class="p">:</span> <span class="n">SdlClient</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-197" name="__codelineno-0-197"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-198" name="__codelineno-0-198"></a>    <span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
-<a id="__codelineno-0-199" name="__codelineno-0-199"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">accession</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ACCESSION_RE</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">accession</span><span class="p">):</span>
-<a id="__codelineno-0-200" name="__codelineno-0-200"></a>        <span class="k">raise</span> <span class="n">AccessionError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;not a GEO/SRA </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_KIND</span><span class="si">}</span><span class="s2"> accession: </span><span class="si">{</span><span class="n">accession</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-201" name="__codelineno-0-201"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span>
-<a id="__codelineno-0-202" name="__codelineno-0-202"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_client</span> <span class="o">=</span> <span class="n">client</span>
-<a id="__codelineno-0-203" name="__codelineno-0-203"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_sdl_client</span> <span class="o">=</span> <span class="n">sdl_client</span>
+<a id="__codelineno-0-198" name="__codelineno-0-198"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">accession</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+<a id="__codelineno-0-199" name="__codelineno-0-199"></a>        <span class="k">raise</span> <span class="n">AccessionError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;not a GEO/SRA </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_KIND</span><span class="si">}</span><span class="s2"> accession: </span><span class="si">{</span><span class="n">accession</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-200" name="__codelineno-0-200"></a>    <span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
+<a id="__codelineno-0-201" name="__codelineno-0-201"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ACCESSION_RE</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">accession</span><span class="p">):</span>
+<a id="__codelineno-0-202" name="__codelineno-0-202"></a>        <span class="k">raise</span> <span class="n">AccessionError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;not a GEO/SRA </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_KIND</span><span class="si">}</span><span class="s2"> accession: </span><span class="si">{</span><span class="n">accession</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-203" name="__codelineno-0-203"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span>
+<a id="__codelineno-0-204" name="__codelineno-0-204"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_client</span> <span class="o">=</span> <span class="n">client</span>
+<a id="__codelineno-0-205" name="__codelineno-0-205"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_sdl_client</span> <span class="o">=</span> <span class="n">sdl_client</span>
 </code></pre></div></td></tr></table></div>
                   </details>
 
@@ -5054,19 +5074,23 @@ submission has no original-format files.</p>
 <span class="normal"><a href="#__codelineno-0-200">200</a></span>
 <span class="normal"><a href="#__codelineno-0-201">201</a></span>
 <span class="normal"><a href="#__codelineno-0-202">202</a></span>
-<span class="normal"><a href="#__codelineno-0-203">203</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-191" name="__codelineno-0-191"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+<span class="normal"><a href="#__codelineno-0-203">203</a></span>
+<span class="normal"><a href="#__codelineno-0-204">204</a></span>
+<span class="normal"><a href="#__codelineno-0-205">205</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-191" name="__codelineno-0-191"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
 <a id="__codelineno-0-192" name="__codelineno-0-192"></a>    <span class="bp">self</span><span class="p">,</span>
 <a id="__codelineno-0-193" name="__codelineno-0-193"></a>    <span class="n">accession</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
 <a id="__codelineno-0-194" name="__codelineno-0-194"></a>    <span class="o">*</span><span class="p">,</span>
 <a id="__codelineno-0-195" name="__codelineno-0-195"></a>    <span class="n">client</span><span class="p">:</span> <span class="n">EntrezClient</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-196" name="__codelineno-0-196"></a>    <span class="n">sdl_client</span><span class="p">:</span> <span class="n">SdlClient</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-197" name="__codelineno-0-197"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-198" name="__codelineno-0-198"></a>    <span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
-<a id="__codelineno-0-199" name="__codelineno-0-199"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">accession</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ACCESSION_RE</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">accession</span><span class="p">):</span>
-<a id="__codelineno-0-200" name="__codelineno-0-200"></a>        <span class="k">raise</span> <span class="n">AccessionError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;not a GEO/SRA </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_KIND</span><span class="si">}</span><span class="s2"> accession: </span><span class="si">{</span><span class="n">accession</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-201" name="__codelineno-0-201"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span>
-<a id="__codelineno-0-202" name="__codelineno-0-202"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_client</span> <span class="o">=</span> <span class="n">client</span>
-<a id="__codelineno-0-203" name="__codelineno-0-203"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_sdl_client</span> <span class="o">=</span> <span class="n">sdl_client</span>
+<a id="__codelineno-0-198" name="__codelineno-0-198"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">accession</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+<a id="__codelineno-0-199" name="__codelineno-0-199"></a>        <span class="k">raise</span> <span class="n">AccessionError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;not a GEO/SRA </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_KIND</span><span class="si">}</span><span class="s2"> accession: </span><span class="si">{</span><span class="n">accession</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-200" name="__codelineno-0-200"></a>    <span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
+<a id="__codelineno-0-201" name="__codelineno-0-201"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ACCESSION_RE</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">accession</span><span class="p">):</span>
+<a id="__codelineno-0-202" name="__codelineno-0-202"></a>        <span class="k">raise</span> <span class="n">AccessionError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;not a GEO/SRA </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_KIND</span><span class="si">}</span><span class="s2"> accession: </span><span class="si">{</span><span class="n">accession</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-203" name="__codelineno-0-203"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span>
+<a id="__codelineno-0-204" name="__codelineno-0-204"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_client</span> <span class="o">=</span> <span class="n">client</span>
+<a id="__codelineno-0-205" name="__codelineno-0-205"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_sdl_client</span> <span class="o">=</span> <span class="n">sdl_client</span>
 </code></pre></div></td></tr></table></div>
                   </details>
 
@@ -5292,9 +5316,7 @@ no linked SRA runs.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/labdata/geo/records.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-445">445</a></span>
-<span class="normal"><a href="#__codelineno-0-446">446</a></span>
-<span class="normal"><a href="#__codelineno-0-447">447</a></span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-447">447</a></span>
 <span class="normal"><a href="#__codelineno-0-448">448</a></span>
 <span class="normal"><a href="#__codelineno-0-449">449</a></span>
 <span class="normal"><a href="#__codelineno-0-450">450</a></span>
@@ -5336,51 +5358,53 @@ no linked SRA runs.</p>
 <span class="normal"><a href="#__codelineno-0-486">486</a></span>
 <span class="normal"><a href="#__codelineno-0-487">487</a></span>
 <span class="normal"><a href="#__codelineno-0-488">488</a></span>
-<span class="normal"><a href="#__codelineno-0-489">489</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-445" name="__codelineno-0-445"></a><span class="k">def</span><span class="w"> </span><span class="nf">make_sra_run_table</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pandas</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">:</span>
-<a id="__codelineno-0-446" name="__codelineno-0-446"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Build a tidy, run-level (``SRR``) table for this Series, like SRA Run Selector.</span>
-<a id="__codelineno-0-447" name="__codelineno-0-447"></a>
-<a id="__codelineno-0-448" name="__codelineno-0-448"></a><span class="sd">    Resolves the Series&#39; SRA experiments and fetches NCBI&#39;s ``runinfo`` report</span>
-<a id="__codelineno-0-449" name="__codelineno-0-449"></a><span class="sd">    in one batched EFetch per chunk, returning one row per sequencing run. The</span>
-<a id="__codelineno-0-450" name="__codelineno-0-450"></a><span class="sd">    columns are SRA&#39;s ``runinfo`` fields (``Run``, ``BioSample``, ``Experiment``,</span>
-<a id="__codelineno-0-451" name="__codelineno-0-451"></a><span class="sd">    ``LibraryName``, ``Platform``, …) with a few renamed to the Run-Selector</span>
-<a id="__codelineno-0-452" name="__codelineno-0-452"></a><span class="sd">    names (``AvgSpotLen``, ``Bases``, ``Instrument``). The reported size is</span>
-<a id="__codelineno-0-453" name="__codelineno-0-453"></a><span class="sd">    ``size_MB`` — E-utilities ``runinfo`` does not expose an exact byte count.</span>
-<a id="__codelineno-0-454" name="__codelineno-0-454"></a>
-<a id="__codelineno-0-455" name="__codelineno-0-455"></a><span class="sd">    A ``ReadStructure`` column (``{L1}+{L2}+…``, e.g. ``&quot;28+94&quot;``) is added</span>
-<a id="__codelineno-0-456" name="__codelineno-0-456"></a><span class="sd">    from each run&#39;s per-read ``&lt;Statistics&gt;``, read from the full SRA XML with</span>
-<a id="__codelineno-0-457" name="__codelineno-0-457"></a><span class="sd">    a second batched EFetch per chunk (see :attr:`Run.read_structure`); it is</span>
-<a id="__codelineno-0-458" name="__codelineno-0-458"></a><span class="sd">    empty for runs SRA reports no read statistics for.</span>
-<a id="__codelineno-0-459" name="__codelineno-0-459"></a>
-<a id="__codelineno-0-460" name="__codelineno-0-460"></a><span class="sd">    Returns</span>
-<a id="__codelineno-0-461" name="__codelineno-0-461"></a><span class="sd">    -------</span>
-<a id="__codelineno-0-462" name="__codelineno-0-462"></a><span class="sd">    pandas.DataFrame</span>
-<a id="__codelineno-0-463" name="__codelineno-0-463"></a><span class="sd">        One row per run, key columns ordered first. Empty when the Series has</span>
-<a id="__codelineno-0-464" name="__codelineno-0-464"></a><span class="sd">        no linked SRA runs.</span>
-<a id="__codelineno-0-465" name="__codelineno-0-465"></a>
-<a id="__codelineno-0-466" name="__codelineno-0-466"></a><span class="sd">    Examples</span>
-<a id="__codelineno-0-467" name="__codelineno-0-467"></a><span class="sd">    --------</span>
-<a id="__codelineno-0-468" name="__codelineno-0-468"></a><span class="sd">    &gt;&gt;&gt; table = Series(&quot;GSE229022&quot;).make_sra_run_table()  # doctest: +SKIP</span>
-<a id="__codelineno-0-469" name="__codelineno-0-469"></a><span class="sd">    &gt;&gt;&gt; table[[&quot;Run&quot;, &quot;BioSample&quot;, &quot;Instrument&quot;]].head()  # doctest: +SKIP</span>
-<a id="__codelineno-0-470" name="__codelineno-0-470"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-471" name="__codelineno-0-471"></a>    <span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span>
-<a id="__codelineno-0-472" name="__codelineno-0-472"></a>
-<a id="__codelineno-0-473" name="__codelineno-0-473"></a>    <span class="n">sra_uids</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">client</span><span class="o">.</span><span class="n">elink</span><span class="p">(</span><span class="n">dbfrom</span><span class="o">=</span><span class="s2">&quot;gds&quot;</span><span class="p">,</span> <span class="n">db</span><span class="o">=</span><span class="s2">&quot;sra&quot;</span><span class="p">,</span> <span class="n">uid</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">uid</span><span class="p">)</span>
-<a id="__codelineno-0-474" name="__codelineno-0-474"></a>    <span class="n">frames</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">pandas</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
-<a id="__codelineno-0-475" name="__codelineno-0-475"></a>    <span class="n">structures</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
-<a id="__codelineno-0-476" name="__codelineno-0-476"></a>    <span class="k">for</span> <span class="n">chunk</span> <span class="ow">in</span> <span class="n">_chunked</span><span class="p">(</span><span class="n">sra_uids</span><span class="p">,</span> <span class="n">_RUNINFO_CHUNK</span><span class="p">):</span>
-<a id="__codelineno-0-477" name="__codelineno-0-477"></a>        <span class="n">text</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">client</span><span class="o">.</span><span class="n">efetch</span><span class="p">(</span><span class="n">db</span><span class="o">=</span><span class="s2">&quot;sra&quot;</span><span class="p">,</span> <span class="n">ids</span><span class="o">=</span><span class="n">chunk</span><span class="p">,</span> <span class="n">rettype</span><span class="o">=</span><span class="s2">&quot;runinfo&quot;</span><span class="p">,</span> <span class="n">retmode</span><span class="o">=</span><span class="s2">&quot;text&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-478" name="__codelineno-0-478"></a>        <span class="k">if</span> <span class="n">text</span><span class="o">.</span><span class="n">strip</span><span class="p">():</span>
-<a id="__codelineno-0-479" name="__codelineno-0-479"></a>            <span class="n">frames</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">pandas</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="n">io</span><span class="o">.</span><span class="n">StringIO</span><span class="p">(</span><span class="n">text</span><span class="p">)))</span>
-<a id="__codelineno-0-480" name="__codelineno-0-480"></a>        <span class="n">xml</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">client</span><span class="o">.</span><span class="n">efetch</span><span class="p">(</span><span class="n">db</span><span class="o">=</span><span class="s2">&quot;sra&quot;</span><span class="p">,</span> <span class="n">ids</span><span class="o">=</span><span class="n">chunk</span><span class="p">,</span> <span class="n">rettype</span><span class="o">=</span><span class="s2">&quot;full&quot;</span><span class="p">,</span> <span class="n">retmode</span><span class="o">=</span><span class="s2">&quot;xml&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-481" name="__codelineno-0-481"></a>        <span class="k">for</span> <span class="n">accession</span><span class="p">,</span> <span class="n">block</span> <span class="ow">in</span> <span class="n">_run_blocks</span><span class="p">(</span><span class="n">xml</span><span class="p">)</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
-<a id="__codelineno-0-482" name="__codelineno-0-482"></a>            <span class="n">structures</span><span class="p">[</span><span class="n">accession</span><span class="p">]</span> <span class="o">=</span> <span class="n">_read_structure</span><span class="p">(</span><span class="n">_read_lengths</span><span class="p">(</span><span class="n">block</span><span class="p">))</span>
-<a id="__codelineno-0-483" name="__codelineno-0-483"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">frames</span><span class="p">:</span>
-<a id="__codelineno-0-484" name="__codelineno-0-484"></a>        <span class="k">return</span> <span class="n">pandas</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">()</span>
-<a id="__codelineno-0-485" name="__codelineno-0-485"></a>    <span class="n">table</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">concat</span><span class="p">(</span><span class="n">frames</span><span class="p">,</span> <span class="n">ignore_index</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">rename</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="n">_RUNINFO_RENAME</span><span class="p">)</span>
-<a id="__codelineno-0-486" name="__codelineno-0-486"></a>    <span class="n">table</span><span class="p">[</span><span class="s2">&quot;ReadStructure&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">structures</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">run</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span> <span class="k">for</span> <span class="n">run</span> <span class="ow">in</span> <span class="n">table</span><span class="p">[</span><span class="s2">&quot;Run&quot;</span><span class="p">]]</span>
-<a id="__codelineno-0-487" name="__codelineno-0-487"></a>    <span class="n">leading</span> <span class="o">=</span> <span class="p">[</span><span class="n">column</span> <span class="k">for</span> <span class="n">column</span> <span class="ow">in</span> <span class="n">_RUN_TABLE_COLUMNS</span> <span class="k">if</span> <span class="n">column</span> <span class="ow">in</span> <span class="n">table</span><span class="o">.</span><span class="n">columns</span><span class="p">]</span>
-<a id="__codelineno-0-488" name="__codelineno-0-488"></a>    <span class="n">remaining</span> <span class="o">=</span> <span class="p">[</span><span class="n">column</span> <span class="k">for</span> <span class="n">column</span> <span class="ow">in</span> <span class="n">table</span><span class="o">.</span><span class="n">columns</span> <span class="k">if</span> <span class="n">column</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">leading</span><span class="p">]</span>
-<a id="__codelineno-0-489" name="__codelineno-0-489"></a>    <span class="k">return</span> <span class="n">table</span><span class="o">.</span><span class="n">reindex</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="n">leading</span> <span class="o">+</span> <span class="n">remaining</span><span class="p">)</span>
+<span class="normal"><a href="#__codelineno-0-489">489</a></span>
+<span class="normal"><a href="#__codelineno-0-490">490</a></span>
+<span class="normal"><a href="#__codelineno-0-491">491</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-447" name="__codelineno-0-447"></a><span class="k">def</span><span class="w"> </span><span class="nf">make_sra_run_table</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pandas</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">:</span>
+<a id="__codelineno-0-448" name="__codelineno-0-448"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Build a tidy, run-level (``SRR``) table for this Series, like SRA Run Selector.</span>
+<a id="__codelineno-0-449" name="__codelineno-0-449"></a>
+<a id="__codelineno-0-450" name="__codelineno-0-450"></a><span class="sd">    Resolves the Series&#39; SRA experiments and fetches NCBI&#39;s ``runinfo`` report</span>
+<a id="__codelineno-0-451" name="__codelineno-0-451"></a><span class="sd">    in one batched EFetch per chunk, returning one row per sequencing run. The</span>
+<a id="__codelineno-0-452" name="__codelineno-0-452"></a><span class="sd">    columns are SRA&#39;s ``runinfo`` fields (``Run``, ``BioSample``, ``Experiment``,</span>
+<a id="__codelineno-0-453" name="__codelineno-0-453"></a><span class="sd">    ``LibraryName``, ``Platform``, …) with a few renamed to the Run-Selector</span>
+<a id="__codelineno-0-454" name="__codelineno-0-454"></a><span class="sd">    names (``AvgSpotLen``, ``Bases``, ``Instrument``). The reported size is</span>
+<a id="__codelineno-0-455" name="__codelineno-0-455"></a><span class="sd">    ``size_MB`` — E-utilities ``runinfo`` does not expose an exact byte count.</span>
+<a id="__codelineno-0-456" name="__codelineno-0-456"></a>
+<a id="__codelineno-0-457" name="__codelineno-0-457"></a><span class="sd">    A ``ReadStructure`` column (``{L1}+{L2}+…``, e.g. ``&quot;28+94&quot;``) is added</span>
+<a id="__codelineno-0-458" name="__codelineno-0-458"></a><span class="sd">    from each run&#39;s per-read ``&lt;Statistics&gt;``, read from the full SRA XML with</span>
+<a id="__codelineno-0-459" name="__codelineno-0-459"></a><span class="sd">    a second batched EFetch per chunk (see :attr:`Run.read_structure`); it is</span>
+<a id="__codelineno-0-460" name="__codelineno-0-460"></a><span class="sd">    empty for runs SRA reports no read statistics for.</span>
+<a id="__codelineno-0-461" name="__codelineno-0-461"></a>
+<a id="__codelineno-0-462" name="__codelineno-0-462"></a><span class="sd">    Returns</span>
+<a id="__codelineno-0-463" name="__codelineno-0-463"></a><span class="sd">    -------</span>
+<a id="__codelineno-0-464" name="__codelineno-0-464"></a><span class="sd">    pandas.DataFrame</span>
+<a id="__codelineno-0-465" name="__codelineno-0-465"></a><span class="sd">        One row per run, key columns ordered first. Empty when the Series has</span>
+<a id="__codelineno-0-466" name="__codelineno-0-466"></a><span class="sd">        no linked SRA runs.</span>
+<a id="__codelineno-0-467" name="__codelineno-0-467"></a>
+<a id="__codelineno-0-468" name="__codelineno-0-468"></a><span class="sd">    Examples</span>
+<a id="__codelineno-0-469" name="__codelineno-0-469"></a><span class="sd">    --------</span>
+<a id="__codelineno-0-470" name="__codelineno-0-470"></a><span class="sd">    &gt;&gt;&gt; table = Series(&quot;GSE229022&quot;).make_sra_run_table()  # doctest: +SKIP</span>
+<a id="__codelineno-0-471" name="__codelineno-0-471"></a><span class="sd">    &gt;&gt;&gt; table[[&quot;Run&quot;, &quot;BioSample&quot;, &quot;Instrument&quot;]].head()  # doctest: +SKIP</span>
+<a id="__codelineno-0-472" name="__codelineno-0-472"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-473" name="__codelineno-0-473"></a>    <span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span>
+<a id="__codelineno-0-474" name="__codelineno-0-474"></a>
+<a id="__codelineno-0-475" name="__codelineno-0-475"></a>    <span class="n">sra_uids</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">client</span><span class="o">.</span><span class="n">elink</span><span class="p">(</span><span class="n">dbfrom</span><span class="o">=</span><span class="s2">&quot;gds&quot;</span><span class="p">,</span> <span class="n">db</span><span class="o">=</span><span class="s2">&quot;sra&quot;</span><span class="p">,</span> <span class="n">uid</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">uid</span><span class="p">)</span>
+<a id="__codelineno-0-476" name="__codelineno-0-476"></a>    <span class="n">frames</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">pandas</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+<a id="__codelineno-0-477" name="__codelineno-0-477"></a>    <span class="n">structures</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+<a id="__codelineno-0-478" name="__codelineno-0-478"></a>    <span class="k">for</span> <span class="n">chunk</span> <span class="ow">in</span> <span class="n">_chunked</span><span class="p">(</span><span class="n">sra_uids</span><span class="p">,</span> <span class="n">_RUNINFO_CHUNK</span><span class="p">):</span>
+<a id="__codelineno-0-479" name="__codelineno-0-479"></a>        <span class="n">text</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">client</span><span class="o">.</span><span class="n">efetch</span><span class="p">(</span><span class="n">db</span><span class="o">=</span><span class="s2">&quot;sra&quot;</span><span class="p">,</span> <span class="n">ids</span><span class="o">=</span><span class="n">chunk</span><span class="p">,</span> <span class="n">rettype</span><span class="o">=</span><span class="s2">&quot;runinfo&quot;</span><span class="p">,</span> <span class="n">retmode</span><span class="o">=</span><span class="s2">&quot;text&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-480" name="__codelineno-0-480"></a>        <span class="k">if</span> <span class="n">text</span><span class="o">.</span><span class="n">strip</span><span class="p">():</span>
+<a id="__codelineno-0-481" name="__codelineno-0-481"></a>            <span class="n">frames</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">pandas</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="n">io</span><span class="o">.</span><span class="n">StringIO</span><span class="p">(</span><span class="n">text</span><span class="p">)))</span>
+<a id="__codelineno-0-482" name="__codelineno-0-482"></a>        <span class="n">xml</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">client</span><span class="o">.</span><span class="n">efetch</span><span class="p">(</span><span class="n">db</span><span class="o">=</span><span class="s2">&quot;sra&quot;</span><span class="p">,</span> <span class="n">ids</span><span class="o">=</span><span class="n">chunk</span><span class="p">,</span> <span class="n">rettype</span><span class="o">=</span><span class="s2">&quot;full&quot;</span><span class="p">,</span> <span class="n">retmode</span><span class="o">=</span><span class="s2">&quot;xml&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-483" name="__codelineno-0-483"></a>        <span class="k">for</span> <span class="n">accession</span><span class="p">,</span> <span class="n">block</span> <span class="ow">in</span> <span class="n">_run_blocks</span><span class="p">(</span><span class="n">xml</span><span class="p">)</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+<a id="__codelineno-0-484" name="__codelineno-0-484"></a>            <span class="n">structures</span><span class="p">[</span><span class="n">accession</span><span class="p">]</span> <span class="o">=</span> <span class="n">_read_structure</span><span class="p">(</span><span class="n">_read_lengths</span><span class="p">(</span><span class="n">block</span><span class="p">))</span>
+<a id="__codelineno-0-485" name="__codelineno-0-485"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">frames</span><span class="p">:</span>
+<a id="__codelineno-0-486" name="__codelineno-0-486"></a>        <span class="k">return</span> <span class="n">pandas</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">()</span>
+<a id="__codelineno-0-487" name="__codelineno-0-487"></a>    <span class="n">table</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">concat</span><span class="p">(</span><span class="n">frames</span><span class="p">,</span> <span class="n">ignore_index</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">rename</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="n">_RUNINFO_RENAME</span><span class="p">)</span>
+<a id="__codelineno-0-488" name="__codelineno-0-488"></a>    <span class="n">table</span><span class="p">[</span><span class="s2">&quot;ReadStructure&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">structures</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">run</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span> <span class="k">for</span> <span class="n">run</span> <span class="ow">in</span> <span class="n">table</span><span class="p">[</span><span class="s2">&quot;Run&quot;</span><span class="p">]]</span>
+<a id="__codelineno-0-489" name="__codelineno-0-489"></a>    <span class="n">leading</span> <span class="o">=</span> <span class="p">[</span><span class="n">column</span> <span class="k">for</span> <span class="n">column</span> <span class="ow">in</span> <span class="n">_RUN_TABLE_COLUMNS</span> <span class="k">if</span> <span class="n">column</span> <span class="ow">in</span> <span class="n">table</span><span class="o">.</span><span class="n">columns</span><span class="p">]</span>
+<a id="__codelineno-0-490" name="__codelineno-0-490"></a>    <span class="n">remaining</span> <span class="o">=</span> <span class="p">[</span><span class="n">column</span> <span class="k">for</span> <span class="n">column</span> <span class="ow">in</span> <span class="n">table</span><span class="o">.</span><span class="n">columns</span> <span class="k">if</span> <span class="n">column</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">leading</span><span class="p">]</span>
+<a id="__codelineno-0-491" name="__codelineno-0-491"></a>    <span class="k">return</span> <span class="n">table</span><span class="o">.</span><span class="n">reindex</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="n">leading</span> <span class="o">+</span> <span class="n">remaining</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -5584,9 +5608,7 @@ to :data:<code>~labdata.geo.sratools.DEFAULT_RETRIES</code>).</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/labdata/geo/records.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-491">491</a></span>
-<span class="normal"><a href="#__codelineno-0-492">492</a></span>
-<span class="normal"><a href="#__codelineno-0-493">493</a></span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-493">493</a></span>
 <span class="normal"><a href="#__codelineno-0-494">494</a></span>
 <span class="normal"><a href="#__codelineno-0-495">495</a></span>
 <span class="normal"><a href="#__codelineno-0-496">496</a></span>
@@ -5662,85 +5684,87 @@ to :data:<code>~labdata.geo.sratools.DEFAULT_RETRIES</code>).</p>
 <span class="normal"><a href="#__codelineno-0-566">566</a></span>
 <span class="normal"><a href="#__codelineno-0-567">567</a></span>
 <span class="normal"><a href="#__codelineno-0-568">568</a></span>
-<span class="normal"><a href="#__codelineno-0-569">569</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-491" name="__codelineno-0-491"></a><span class="k">def</span><span class="w"> </span><span class="nf">download</span><span class="p">(</span>
-<a id="__codelineno-0-492" name="__codelineno-0-492"></a>    <span class="bp">self</span><span class="p">,</span>
-<a id="__codelineno-0-493" name="__codelineno-0-493"></a>    <span class="n">output_dir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-494" name="__codelineno-0-494"></a>    <span class="n">n_parallel</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
-<a id="__codelineno-0-495" name="__codelineno-0-495"></a>    <span class="o">*</span><span class="p">,</span>
-<a id="__codelineno-0-496" name="__codelineno-0-496"></a>    <span class="n">max_size</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-497" name="__codelineno-0-497"></a>    <span class="n">retries</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-498" name="__codelineno-0-498"></a>    <span class="n">backoff</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-499" name="__codelineno-0-499"></a>    <span class="n">keep_sra</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
-<a id="__codelineno-0-500" name="__codelineno-0-500"></a>    <span class="n">verbose</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
-<a id="__codelineno-0-501" name="__codelineno-0-501"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">bool</span><span class="p">]:</span>
-<a id="__codelineno-0-502" name="__codelineno-0-502"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Download FASTQ for every run of every SRA experiment in this Series.</span>
-<a id="__codelineno-0-503" name="__codelineno-0-503"></a>
-<a id="__codelineno-0-504" name="__codelineno-0-504"></a><span class="sd">    Lays the data out as ``&lt;output_dir&gt;/&lt;GSE&gt;/&lt;SRX&gt;/&lt;SRR&gt;*.fastq.gz`` — one</span>
-<a id="__codelineno-0-505" name="__codelineno-0-505"></a><span class="sd">    directory per experiment under a directory named for this Series — via</span>
-<a id="__codelineno-0-506" name="__codelineno-0-506"></a><span class="sd">    sra-tools (``prefetch`` + ``fasterq-dump``). Runs already marked done (a</span>
-<a id="__codelineno-0-507" name="__codelineno-0-507"></a><span class="sd">    ``.&lt;SRR&gt;.success`` flag) are skipped; the whole Series is downloaded in</span>
-<a id="__codelineno-0-508" name="__codelineno-0-508"></a><span class="sd">    parallel at the run (``SRR``) level. The resumable ``prefetch`` step is</span>
-<a id="__codelineno-0-509" name="__codelineno-0-509"></a><span class="sd">    retried on failure, so this is safe to rerun on an unstable connection.</span>
-<a id="__codelineno-0-510" name="__codelineno-0-510"></a>
-<a id="__codelineno-0-511" name="__codelineno-0-511"></a><span class="sd">    Parameters</span>
-<a id="__codelineno-0-512" name="__codelineno-0-512"></a><span class="sd">    ----------</span>
-<a id="__codelineno-0-513" name="__codelineno-0-513"></a><span class="sd">    output_dir : str or Path, default &quot;.&quot;</span>
-<a id="__codelineno-0-514" name="__codelineno-0-514"></a><span class="sd">        Parent directory; a ``&lt;output_dir&gt;/&lt;GSE&gt;`` subtree is created for this Series.</span>
-<a id="__codelineno-0-515" name="__codelineno-0-515"></a><span class="sd">    n_parallel : int, default 1</span>
-<a id="__codelineno-0-516" name="__codelineno-0-516"></a><span class="sd">        Maximum runs to download concurrently across the whole Series. On a</span>
-<a id="__codelineno-0-517" name="__codelineno-0-517"></a><span class="sd">        flaky link, fewer concurrent connections (``1`` or ``2``) is often</span>
-<a id="__codelineno-0-518" name="__codelineno-0-518"></a><span class="sd">        more reliable.</span>
-<a id="__codelineno-0-519" name="__codelineno-0-519"></a><span class="sd">    max_size : str, optional</span>
-<a id="__codelineno-0-520" name="__codelineno-0-520"></a><span class="sd">        Passed to ``prefetch --max-size`` (defaults to</span>
-<a id="__codelineno-0-521" name="__codelineno-0-521"></a><span class="sd">        :data:`~labdata.geo.sratools.DEFAULT_MAX_SIZE`); raise it for runs that</span>
-<a id="__codelineno-0-522" name="__codelineno-0-522"></a><span class="sd">        exceed ``prefetch``&#39;s 20G default.</span>
-<a id="__codelineno-0-523" name="__codelineno-0-523"></a><span class="sd">    retries : int, optional</span>
-<a id="__codelineno-0-524" name="__codelineno-0-524"></a><span class="sd">        Attempts for the resumable ``prefetch`` network step per run (defaults</span>
-<a id="__codelineno-0-525" name="__codelineno-0-525"></a><span class="sd">        to :data:`~labdata.geo.sratools.DEFAULT_RETRIES`).</span>
-<a id="__codelineno-0-526" name="__codelineno-0-526"></a><span class="sd">    backoff : float, optional</span>
-<a id="__codelineno-0-527" name="__codelineno-0-527"></a><span class="sd">        Base seconds for the linear backoff between ``prefetch`` retries</span>
-<a id="__codelineno-0-528" name="__codelineno-0-528"></a><span class="sd">        (defaults to :data:`~labdata.geo.sratools.DEFAULT_BACKOFF`).</span>
-<a id="__codelineno-0-529" name="__codelineno-0-529"></a><span class="sd">    keep_sra : bool, default False</span>
-<a id="__codelineno-0-530" name="__codelineno-0-530"></a><span class="sd">        Keep each run&#39;s downloaded ``.sra`` next to its FASTQ (as</span>
-<a id="__codelineno-0-531" name="__codelineno-0-531"></a><span class="sd">        ``&lt;GSE&gt;/&lt;SRX&gt;/&lt;SRR&gt;.sra``) instead of deleting it after extraction.</span>
-<a id="__codelineno-0-532" name="__codelineno-0-532"></a><span class="sd">    verbose : bool, default True</span>
-<a id="__codelineno-0-533" name="__codelineno-0-533"></a><span class="sd">        Print a download plan up front and one line per finished run to</span>
-<a id="__codelineno-0-534" name="__codelineno-0-534"></a><span class="sd">        ``stderr``. Set ``False`` to download silently.</span>
-<a id="__codelineno-0-535" name="__codelineno-0-535"></a>
-<a id="__codelineno-0-536" name="__codelineno-0-536"></a><span class="sd">    Returns</span>
-<a id="__codelineno-0-537" name="__codelineno-0-537"></a><span class="sd">    -------</span>
-<a id="__codelineno-0-538" name="__codelineno-0-538"></a><span class="sd">    dict[str, bool]</span>
-<a id="__codelineno-0-539" name="__codelineno-0-539"></a><span class="sd">        Maps each run accession to whether its data is present on completion.</span>
-<a id="__codelineno-0-540" name="__codelineno-0-540"></a>
-<a id="__codelineno-0-541" name="__codelineno-0-541"></a><span class="sd">    Examples</span>
-<a id="__codelineno-0-542" name="__codelineno-0-542"></a><span class="sd">    --------</span>
-<a id="__codelineno-0-543" name="__codelineno-0-543"></a><span class="sd">    &gt;&gt;&gt; Series(&quot;GSE229022&quot;).download(&quot;./fastq&quot;, n_parallel=4)  # doctest: +SKIP</span>
-<a id="__codelineno-0-544" name="__codelineno-0-544"></a><span class="sd">    {&#39;SRR24084454&#39;: True, &#39;SRR24084455&#39;: True, ...}</span>
-<a id="__codelineno-0-545" name="__codelineno-0-545"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-546" name="__codelineno-0-546"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">labdata.geo</span><span class="w"> </span><span class="kn">import</span> <span class="n">sratools</span>
-<a id="__codelineno-0-547" name="__codelineno-0-547"></a>
-<a id="__codelineno-0-548" name="__codelineno-0-548"></a>    <span class="n">kwargs</span> <span class="o">=</span> <span class="p">{</span>
-<a id="__codelineno-0-549" name="__codelineno-0-549"></a>        <span class="s2">&quot;max_size&quot;</span><span class="p">:</span> <span class="n">max_size</span><span class="p">,</span>
-<a id="__codelineno-0-550" name="__codelineno-0-550"></a>        <span class="s2">&quot;retries&quot;</span><span class="p">:</span> <span class="n">retries</span><span class="p">,</span>
-<a id="__codelineno-0-551" name="__codelineno-0-551"></a>        <span class="s2">&quot;backoff&quot;</span><span class="p">:</span> <span class="n">backoff</span><span class="p">,</span>
-<a id="__codelineno-0-552" name="__codelineno-0-552"></a>    <span class="p">}</span>
-<a id="__codelineno-0-553" name="__codelineno-0-553"></a>    <span class="n">overrides</span> <span class="o">=</span> <span class="p">{</span><span class="n">key</span><span class="p">:</span> <span class="n">value</span> <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">}</span>
-<a id="__codelineno-0-554" name="__codelineno-0-554"></a>
-<a id="__codelineno-0-555" name="__codelineno-0-555"></a>    <span class="n">base</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">output_dir</span><span class="p">)</span> <span class="o">/</span> <span class="bp">self</span><span class="o">.</span><span class="n">accession</span>
-<a id="__codelineno-0-556" name="__codelineno-0-556"></a>    <span class="n">tasks</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="n">Run</span><span class="p">,</span> <span class="n">Path</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
-<a id="__codelineno-0-557" name="__codelineno-0-557"></a>    <span class="k">for</span> <span class="n">experiment</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">experiments</span><span class="p">:</span>
-<a id="__codelineno-0-558" name="__codelineno-0-558"></a>        <span class="n">srx_dir</span> <span class="o">=</span> <span class="n">base</span> <span class="o">/</span> <span class="n">experiment</span><span class="o">.</span><span class="n">accession</span>
-<a id="__codelineno-0-559" name="__codelineno-0-559"></a>        <span class="n">srx_dir</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">parents</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<a id="__codelineno-0-560" name="__codelineno-0-560"></a>        <span class="n">tasks</span><span class="o">.</span><span class="n">extend</span><span class="p">((</span><span class="n">run</span><span class="p">,</span> <span class="n">srx_dir</span><span class="p">)</span> <span class="k">for</span> <span class="n">run</span> <span class="ow">in</span> <span class="n">experiment</span><span class="o">.</span><span class="n">runs</span><span class="p">)</span>
-<a id="__codelineno-0-561" name="__codelineno-0-561"></a>    <span class="k">return</span> <span class="n">sratools</span><span class="o">.</span><span class="n">_run_plan</span><span class="p">(</span>
-<a id="__codelineno-0-562" name="__codelineno-0-562"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">accession</span><span class="p">,</span>
-<a id="__codelineno-0-563" name="__codelineno-0-563"></a>        <span class="n">tasks</span><span class="p">,</span>
-<a id="__codelineno-0-564" name="__codelineno-0-564"></a>        <span class="n">n_parallel</span><span class="p">,</span>
-<a id="__codelineno-0-565" name="__codelineno-0-565"></a>        <span class="n">output_root</span><span class="o">=</span><span class="n">base</span><span class="p">,</span>
-<a id="__codelineno-0-566" name="__codelineno-0-566"></a>        <span class="n">verbose</span><span class="o">=</span><span class="n">verbose</span><span class="p">,</span>
-<a id="__codelineno-0-567" name="__codelineno-0-567"></a>        <span class="n">keep_sra</span><span class="o">=</span><span class="n">keep_sra</span><span class="p">,</span>
-<a id="__codelineno-0-568" name="__codelineno-0-568"></a>        <span class="o">**</span><span class="n">overrides</span><span class="p">,</span>
-<a id="__codelineno-0-569" name="__codelineno-0-569"></a>    <span class="p">)</span>
+<span class="normal"><a href="#__codelineno-0-569">569</a></span>
+<span class="normal"><a href="#__codelineno-0-570">570</a></span>
+<span class="normal"><a href="#__codelineno-0-571">571</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-493" name="__codelineno-0-493"></a><span class="k">def</span><span class="w"> </span><span class="nf">download</span><span class="p">(</span>
+<a id="__codelineno-0-494" name="__codelineno-0-494"></a>    <span class="bp">self</span><span class="p">,</span>
+<a id="__codelineno-0-495" name="__codelineno-0-495"></a>    <span class="n">output_dir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-496" name="__codelineno-0-496"></a>    <span class="n">n_parallel</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+<a id="__codelineno-0-497" name="__codelineno-0-497"></a>    <span class="o">*</span><span class="p">,</span>
+<a id="__codelineno-0-498" name="__codelineno-0-498"></a>    <span class="n">max_size</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-499" name="__codelineno-0-499"></a>    <span class="n">retries</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-500" name="__codelineno-0-500"></a>    <span class="n">backoff</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-501" name="__codelineno-0-501"></a>    <span class="n">keep_sra</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-502" name="__codelineno-0-502"></a>    <span class="n">verbose</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-0-503" name="__codelineno-0-503"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">bool</span><span class="p">]:</span>
+<a id="__codelineno-0-504" name="__codelineno-0-504"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Download FASTQ for every run of every SRA experiment in this Series.</span>
+<a id="__codelineno-0-505" name="__codelineno-0-505"></a>
+<a id="__codelineno-0-506" name="__codelineno-0-506"></a><span class="sd">    Lays the data out as ``&lt;output_dir&gt;/&lt;GSE&gt;/&lt;SRX&gt;/&lt;SRR&gt;*.fastq.gz`` — one</span>
+<a id="__codelineno-0-507" name="__codelineno-0-507"></a><span class="sd">    directory per experiment under a directory named for this Series — via</span>
+<a id="__codelineno-0-508" name="__codelineno-0-508"></a><span class="sd">    sra-tools (``prefetch`` + ``fasterq-dump``). Runs already marked done (a</span>
+<a id="__codelineno-0-509" name="__codelineno-0-509"></a><span class="sd">    ``.&lt;SRR&gt;.success`` flag) are skipped; the whole Series is downloaded in</span>
+<a id="__codelineno-0-510" name="__codelineno-0-510"></a><span class="sd">    parallel at the run (``SRR``) level. The resumable ``prefetch`` step is</span>
+<a id="__codelineno-0-511" name="__codelineno-0-511"></a><span class="sd">    retried on failure, so this is safe to rerun on an unstable connection.</span>
+<a id="__codelineno-0-512" name="__codelineno-0-512"></a>
+<a id="__codelineno-0-513" name="__codelineno-0-513"></a><span class="sd">    Parameters</span>
+<a id="__codelineno-0-514" name="__codelineno-0-514"></a><span class="sd">    ----------</span>
+<a id="__codelineno-0-515" name="__codelineno-0-515"></a><span class="sd">    output_dir : str or Path, default &quot;.&quot;</span>
+<a id="__codelineno-0-516" name="__codelineno-0-516"></a><span class="sd">        Parent directory; a ``&lt;output_dir&gt;/&lt;GSE&gt;`` subtree is created for this Series.</span>
+<a id="__codelineno-0-517" name="__codelineno-0-517"></a><span class="sd">    n_parallel : int, default 1</span>
+<a id="__codelineno-0-518" name="__codelineno-0-518"></a><span class="sd">        Maximum runs to download concurrently across the whole Series. On a</span>
+<a id="__codelineno-0-519" name="__codelineno-0-519"></a><span class="sd">        flaky link, fewer concurrent connections (``1`` or ``2``) is often</span>
+<a id="__codelineno-0-520" name="__codelineno-0-520"></a><span class="sd">        more reliable.</span>
+<a id="__codelineno-0-521" name="__codelineno-0-521"></a><span class="sd">    max_size : str, optional</span>
+<a id="__codelineno-0-522" name="__codelineno-0-522"></a><span class="sd">        Passed to ``prefetch --max-size`` (defaults to</span>
+<a id="__codelineno-0-523" name="__codelineno-0-523"></a><span class="sd">        :data:`~labdata.geo.sratools.DEFAULT_MAX_SIZE`); raise it for runs that</span>
+<a id="__codelineno-0-524" name="__codelineno-0-524"></a><span class="sd">        exceed ``prefetch``&#39;s 20G default.</span>
+<a id="__codelineno-0-525" name="__codelineno-0-525"></a><span class="sd">    retries : int, optional</span>
+<a id="__codelineno-0-526" name="__codelineno-0-526"></a><span class="sd">        Attempts for the resumable ``prefetch`` network step per run (defaults</span>
+<a id="__codelineno-0-527" name="__codelineno-0-527"></a><span class="sd">        to :data:`~labdata.geo.sratools.DEFAULT_RETRIES`).</span>
+<a id="__codelineno-0-528" name="__codelineno-0-528"></a><span class="sd">    backoff : float, optional</span>
+<a id="__codelineno-0-529" name="__codelineno-0-529"></a><span class="sd">        Base seconds for the linear backoff between ``prefetch`` retries</span>
+<a id="__codelineno-0-530" name="__codelineno-0-530"></a><span class="sd">        (defaults to :data:`~labdata.geo.sratools.DEFAULT_BACKOFF`).</span>
+<a id="__codelineno-0-531" name="__codelineno-0-531"></a><span class="sd">    keep_sra : bool, default False</span>
+<a id="__codelineno-0-532" name="__codelineno-0-532"></a><span class="sd">        Keep each run&#39;s downloaded ``.sra`` next to its FASTQ (as</span>
+<a id="__codelineno-0-533" name="__codelineno-0-533"></a><span class="sd">        ``&lt;GSE&gt;/&lt;SRX&gt;/&lt;SRR&gt;.sra``) instead of deleting it after extraction.</span>
+<a id="__codelineno-0-534" name="__codelineno-0-534"></a><span class="sd">    verbose : bool, default True</span>
+<a id="__codelineno-0-535" name="__codelineno-0-535"></a><span class="sd">        Print a download plan up front and one line per finished run to</span>
+<a id="__codelineno-0-536" name="__codelineno-0-536"></a><span class="sd">        ``stderr``. Set ``False`` to download silently.</span>
+<a id="__codelineno-0-537" name="__codelineno-0-537"></a>
+<a id="__codelineno-0-538" name="__codelineno-0-538"></a><span class="sd">    Returns</span>
+<a id="__codelineno-0-539" name="__codelineno-0-539"></a><span class="sd">    -------</span>
+<a id="__codelineno-0-540" name="__codelineno-0-540"></a><span class="sd">    dict[str, bool]</span>
+<a id="__codelineno-0-541" name="__codelineno-0-541"></a><span class="sd">        Maps each run accession to whether its data is present on completion.</span>
+<a id="__codelineno-0-542" name="__codelineno-0-542"></a>
+<a id="__codelineno-0-543" name="__codelineno-0-543"></a><span class="sd">    Examples</span>
+<a id="__codelineno-0-544" name="__codelineno-0-544"></a><span class="sd">    --------</span>
+<a id="__codelineno-0-545" name="__codelineno-0-545"></a><span class="sd">    &gt;&gt;&gt; Series(&quot;GSE229022&quot;).download(&quot;./fastq&quot;, n_parallel=4)  # doctest: +SKIP</span>
+<a id="__codelineno-0-546" name="__codelineno-0-546"></a><span class="sd">    {&#39;SRR24084454&#39;: True, &#39;SRR24084455&#39;: True, ...}</span>
+<a id="__codelineno-0-547" name="__codelineno-0-547"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-548" name="__codelineno-0-548"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">labdata.geo</span><span class="w"> </span><span class="kn">import</span> <span class="n">sratools</span>
+<a id="__codelineno-0-549" name="__codelineno-0-549"></a>
+<a id="__codelineno-0-550" name="__codelineno-0-550"></a>    <span class="n">kwargs</span> <span class="o">=</span> <span class="p">{</span>
+<a id="__codelineno-0-551" name="__codelineno-0-551"></a>        <span class="s2">&quot;max_size&quot;</span><span class="p">:</span> <span class="n">max_size</span><span class="p">,</span>
+<a id="__codelineno-0-552" name="__codelineno-0-552"></a>        <span class="s2">&quot;retries&quot;</span><span class="p">:</span> <span class="n">retries</span><span class="p">,</span>
+<a id="__codelineno-0-553" name="__codelineno-0-553"></a>        <span class="s2">&quot;backoff&quot;</span><span class="p">:</span> <span class="n">backoff</span><span class="p">,</span>
+<a id="__codelineno-0-554" name="__codelineno-0-554"></a>    <span class="p">}</span>
+<a id="__codelineno-0-555" name="__codelineno-0-555"></a>    <span class="n">overrides</span> <span class="o">=</span> <span class="p">{</span><span class="n">key</span><span class="p">:</span> <span class="n">value</span> <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">}</span>
+<a id="__codelineno-0-556" name="__codelineno-0-556"></a>
+<a id="__codelineno-0-557" name="__codelineno-0-557"></a>    <span class="n">base</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">output_dir</span><span class="p">)</span> <span class="o">/</span> <span class="bp">self</span><span class="o">.</span><span class="n">accession</span>
+<a id="__codelineno-0-558" name="__codelineno-0-558"></a>    <span class="n">tasks</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="n">Run</span><span class="p">,</span> <span class="n">Path</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+<a id="__codelineno-0-559" name="__codelineno-0-559"></a>    <span class="k">for</span> <span class="n">experiment</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">experiments</span><span class="p">:</span>
+<a id="__codelineno-0-560" name="__codelineno-0-560"></a>        <span class="n">srx_dir</span> <span class="o">=</span> <span class="n">base</span> <span class="o">/</span> <span class="n">experiment</span><span class="o">.</span><span class="n">accession</span>
+<a id="__codelineno-0-561" name="__codelineno-0-561"></a>        <span class="n">srx_dir</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">parents</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-0-562" name="__codelineno-0-562"></a>        <span class="n">tasks</span><span class="o">.</span><span class="n">extend</span><span class="p">((</span><span class="n">run</span><span class="p">,</span> <span class="n">srx_dir</span><span class="p">)</span> <span class="k">for</span> <span class="n">run</span> <span class="ow">in</span> <span class="n">experiment</span><span class="o">.</span><span class="n">runs</span><span class="p">)</span>
+<a id="__codelineno-0-563" name="__codelineno-0-563"></a>    <span class="k">return</span> <span class="n">sratools</span><span class="o">.</span><span class="n">_run_plan</span><span class="p">(</span>
+<a id="__codelineno-0-564" name="__codelineno-0-564"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">accession</span><span class="p">,</span>
+<a id="__codelineno-0-565" name="__codelineno-0-565"></a>        <span class="n">tasks</span><span class="p">,</span>
+<a id="__codelineno-0-566" name="__codelineno-0-566"></a>        <span class="n">n_parallel</span><span class="p">,</span>
+<a id="__codelineno-0-567" name="__codelineno-0-567"></a>        <span class="n">output_root</span><span class="o">=</span><span class="n">base</span><span class="p">,</span>
+<a id="__codelineno-0-568" name="__codelineno-0-568"></a>        <span class="n">verbose</span><span class="o">=</span><span class="n">verbose</span><span class="p">,</span>
+<a id="__codelineno-0-569" name="__codelineno-0-569"></a>        <span class="n">keep_sra</span><span class="o">=</span><span class="n">keep_sra</span><span class="p">,</span>
+<a id="__codelineno-0-570" name="__codelineno-0-570"></a>        <span class="o">**</span><span class="n">overrides</span><span class="p">,</span>
+<a id="__codelineno-0-571" name="__codelineno-0-571"></a>    <span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -7027,19 +7051,23 @@ module sidesteps the import cycle that separate files would create.</p>
 <span class="normal"><a href="#__codelineno-0-200">200</a></span>
 <span class="normal"><a href="#__codelineno-0-201">201</a></span>
 <span class="normal"><a href="#__codelineno-0-202">202</a></span>
-<span class="normal"><a href="#__codelineno-0-203">203</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-191" name="__codelineno-0-191"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+<span class="normal"><a href="#__codelineno-0-203">203</a></span>
+<span class="normal"><a href="#__codelineno-0-204">204</a></span>
+<span class="normal"><a href="#__codelineno-0-205">205</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-191" name="__codelineno-0-191"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
 <a id="__codelineno-0-192" name="__codelineno-0-192"></a>    <span class="bp">self</span><span class="p">,</span>
 <a id="__codelineno-0-193" name="__codelineno-0-193"></a>    <span class="n">accession</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
 <a id="__codelineno-0-194" name="__codelineno-0-194"></a>    <span class="o">*</span><span class="p">,</span>
 <a id="__codelineno-0-195" name="__codelineno-0-195"></a>    <span class="n">client</span><span class="p">:</span> <span class="n">EntrezClient</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-196" name="__codelineno-0-196"></a>    <span class="n">sdl_client</span><span class="p">:</span> <span class="n">SdlClient</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-197" name="__codelineno-0-197"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-198" name="__codelineno-0-198"></a>    <span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
-<a id="__codelineno-0-199" name="__codelineno-0-199"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">accession</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ACCESSION_RE</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">accession</span><span class="p">):</span>
-<a id="__codelineno-0-200" name="__codelineno-0-200"></a>        <span class="k">raise</span> <span class="n">AccessionError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;not a GEO/SRA </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_KIND</span><span class="si">}</span><span class="s2"> accession: </span><span class="si">{</span><span class="n">accession</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-201" name="__codelineno-0-201"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span>
-<a id="__codelineno-0-202" name="__codelineno-0-202"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_client</span> <span class="o">=</span> <span class="n">client</span>
-<a id="__codelineno-0-203" name="__codelineno-0-203"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_sdl_client</span> <span class="o">=</span> <span class="n">sdl_client</span>
+<a id="__codelineno-0-198" name="__codelineno-0-198"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">accession</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+<a id="__codelineno-0-199" name="__codelineno-0-199"></a>        <span class="k">raise</span> <span class="n">AccessionError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;not a GEO/SRA </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_KIND</span><span class="si">}</span><span class="s2"> accession: </span><span class="si">{</span><span class="n">accession</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-200" name="__codelineno-0-200"></a>    <span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
+<a id="__codelineno-0-201" name="__codelineno-0-201"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ACCESSION_RE</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">accession</span><span class="p">):</span>
+<a id="__codelineno-0-202" name="__codelineno-0-202"></a>        <span class="k">raise</span> <span class="n">AccessionError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;not a GEO/SRA </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_KIND</span><span class="si">}</span><span class="s2"> accession: </span><span class="si">{</span><span class="n">accession</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-203" name="__codelineno-0-203"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span>
+<a id="__codelineno-0-204" name="__codelineno-0-204"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_client</span> <span class="o">=</span> <span class="n">client</span>
+<a id="__codelineno-0-205" name="__codelineno-0-205"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_sdl_client</span> <span class="o">=</span> <span class="n">sdl_client</span>
 </code></pre></div></td></tr></table></div>
                   </details>
 
@@ -7265,9 +7293,7 @@ no linked SRA runs.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/labdata/geo/records.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-445">445</a></span>
-<span class="normal"><a href="#__codelineno-0-446">446</a></span>
-<span class="normal"><a href="#__codelineno-0-447">447</a></span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-447">447</a></span>
 <span class="normal"><a href="#__codelineno-0-448">448</a></span>
 <span class="normal"><a href="#__codelineno-0-449">449</a></span>
 <span class="normal"><a href="#__codelineno-0-450">450</a></span>
@@ -7309,51 +7335,53 @@ no linked SRA runs.</p>
 <span class="normal"><a href="#__codelineno-0-486">486</a></span>
 <span class="normal"><a href="#__codelineno-0-487">487</a></span>
 <span class="normal"><a href="#__codelineno-0-488">488</a></span>
-<span class="normal"><a href="#__codelineno-0-489">489</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-445" name="__codelineno-0-445"></a><span class="k">def</span><span class="w"> </span><span class="nf">make_sra_run_table</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pandas</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">:</span>
-<a id="__codelineno-0-446" name="__codelineno-0-446"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Build a tidy, run-level (``SRR``) table for this Series, like SRA Run Selector.</span>
-<a id="__codelineno-0-447" name="__codelineno-0-447"></a>
-<a id="__codelineno-0-448" name="__codelineno-0-448"></a><span class="sd">    Resolves the Series&#39; SRA experiments and fetches NCBI&#39;s ``runinfo`` report</span>
-<a id="__codelineno-0-449" name="__codelineno-0-449"></a><span class="sd">    in one batched EFetch per chunk, returning one row per sequencing run. The</span>
-<a id="__codelineno-0-450" name="__codelineno-0-450"></a><span class="sd">    columns are SRA&#39;s ``runinfo`` fields (``Run``, ``BioSample``, ``Experiment``,</span>
-<a id="__codelineno-0-451" name="__codelineno-0-451"></a><span class="sd">    ``LibraryName``, ``Platform``, …) with a few renamed to the Run-Selector</span>
-<a id="__codelineno-0-452" name="__codelineno-0-452"></a><span class="sd">    names (``AvgSpotLen``, ``Bases``, ``Instrument``). The reported size is</span>
-<a id="__codelineno-0-453" name="__codelineno-0-453"></a><span class="sd">    ``size_MB`` — E-utilities ``runinfo`` does not expose an exact byte count.</span>
-<a id="__codelineno-0-454" name="__codelineno-0-454"></a>
-<a id="__codelineno-0-455" name="__codelineno-0-455"></a><span class="sd">    A ``ReadStructure`` column (``{L1}+{L2}+…``, e.g. ``&quot;28+94&quot;``) is added</span>
-<a id="__codelineno-0-456" name="__codelineno-0-456"></a><span class="sd">    from each run&#39;s per-read ``&lt;Statistics&gt;``, read from the full SRA XML with</span>
-<a id="__codelineno-0-457" name="__codelineno-0-457"></a><span class="sd">    a second batched EFetch per chunk (see :attr:`Run.read_structure`); it is</span>
-<a id="__codelineno-0-458" name="__codelineno-0-458"></a><span class="sd">    empty for runs SRA reports no read statistics for.</span>
-<a id="__codelineno-0-459" name="__codelineno-0-459"></a>
-<a id="__codelineno-0-460" name="__codelineno-0-460"></a><span class="sd">    Returns</span>
-<a id="__codelineno-0-461" name="__codelineno-0-461"></a><span class="sd">    -------</span>
-<a id="__codelineno-0-462" name="__codelineno-0-462"></a><span class="sd">    pandas.DataFrame</span>
-<a id="__codelineno-0-463" name="__codelineno-0-463"></a><span class="sd">        One row per run, key columns ordered first. Empty when the Series has</span>
-<a id="__codelineno-0-464" name="__codelineno-0-464"></a><span class="sd">        no linked SRA runs.</span>
-<a id="__codelineno-0-465" name="__codelineno-0-465"></a>
-<a id="__codelineno-0-466" name="__codelineno-0-466"></a><span class="sd">    Examples</span>
-<a id="__codelineno-0-467" name="__codelineno-0-467"></a><span class="sd">    --------</span>
-<a id="__codelineno-0-468" name="__codelineno-0-468"></a><span class="sd">    &gt;&gt;&gt; table = Series(&quot;GSE229022&quot;).make_sra_run_table()  # doctest: +SKIP</span>
-<a id="__codelineno-0-469" name="__codelineno-0-469"></a><span class="sd">    &gt;&gt;&gt; table[[&quot;Run&quot;, &quot;BioSample&quot;, &quot;Instrument&quot;]].head()  # doctest: +SKIP</span>
-<a id="__codelineno-0-470" name="__codelineno-0-470"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-471" name="__codelineno-0-471"></a>    <span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span>
-<a id="__codelineno-0-472" name="__codelineno-0-472"></a>
-<a id="__codelineno-0-473" name="__codelineno-0-473"></a>    <span class="n">sra_uids</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">client</span><span class="o">.</span><span class="n">elink</span><span class="p">(</span><span class="n">dbfrom</span><span class="o">=</span><span class="s2">&quot;gds&quot;</span><span class="p">,</span> <span class="n">db</span><span class="o">=</span><span class="s2">&quot;sra&quot;</span><span class="p">,</span> <span class="n">uid</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">uid</span><span class="p">)</span>
-<a id="__codelineno-0-474" name="__codelineno-0-474"></a>    <span class="n">frames</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">pandas</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
-<a id="__codelineno-0-475" name="__codelineno-0-475"></a>    <span class="n">structures</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
-<a id="__codelineno-0-476" name="__codelineno-0-476"></a>    <span class="k">for</span> <span class="n">chunk</span> <span class="ow">in</span> <span class="n">_chunked</span><span class="p">(</span><span class="n">sra_uids</span><span class="p">,</span> <span class="n">_RUNINFO_CHUNK</span><span class="p">):</span>
-<a id="__codelineno-0-477" name="__codelineno-0-477"></a>        <span class="n">text</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">client</span><span class="o">.</span><span class="n">efetch</span><span class="p">(</span><span class="n">db</span><span class="o">=</span><span class="s2">&quot;sra&quot;</span><span class="p">,</span> <span class="n">ids</span><span class="o">=</span><span class="n">chunk</span><span class="p">,</span> <span class="n">rettype</span><span class="o">=</span><span class="s2">&quot;runinfo&quot;</span><span class="p">,</span> <span class="n">retmode</span><span class="o">=</span><span class="s2">&quot;text&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-478" name="__codelineno-0-478"></a>        <span class="k">if</span> <span class="n">text</span><span class="o">.</span><span class="n">strip</span><span class="p">():</span>
-<a id="__codelineno-0-479" name="__codelineno-0-479"></a>            <span class="n">frames</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">pandas</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="n">io</span><span class="o">.</span><span class="n">StringIO</span><span class="p">(</span><span class="n">text</span><span class="p">)))</span>
-<a id="__codelineno-0-480" name="__codelineno-0-480"></a>        <span class="n">xml</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">client</span><span class="o">.</span><span class="n">efetch</span><span class="p">(</span><span class="n">db</span><span class="o">=</span><span class="s2">&quot;sra&quot;</span><span class="p">,</span> <span class="n">ids</span><span class="o">=</span><span class="n">chunk</span><span class="p">,</span> <span class="n">rettype</span><span class="o">=</span><span class="s2">&quot;full&quot;</span><span class="p">,</span> <span class="n">retmode</span><span class="o">=</span><span class="s2">&quot;xml&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-481" name="__codelineno-0-481"></a>        <span class="k">for</span> <span class="n">accession</span><span class="p">,</span> <span class="n">block</span> <span class="ow">in</span> <span class="n">_run_blocks</span><span class="p">(</span><span class="n">xml</span><span class="p">)</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
-<a id="__codelineno-0-482" name="__codelineno-0-482"></a>            <span class="n">structures</span><span class="p">[</span><span class="n">accession</span><span class="p">]</span> <span class="o">=</span> <span class="n">_read_structure</span><span class="p">(</span><span class="n">_read_lengths</span><span class="p">(</span><span class="n">block</span><span class="p">))</span>
-<a id="__codelineno-0-483" name="__codelineno-0-483"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">frames</span><span class="p">:</span>
-<a id="__codelineno-0-484" name="__codelineno-0-484"></a>        <span class="k">return</span> <span class="n">pandas</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">()</span>
-<a id="__codelineno-0-485" name="__codelineno-0-485"></a>    <span class="n">table</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">concat</span><span class="p">(</span><span class="n">frames</span><span class="p">,</span> <span class="n">ignore_index</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">rename</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="n">_RUNINFO_RENAME</span><span class="p">)</span>
-<a id="__codelineno-0-486" name="__codelineno-0-486"></a>    <span class="n">table</span><span class="p">[</span><span class="s2">&quot;ReadStructure&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">structures</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">run</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span> <span class="k">for</span> <span class="n">run</span> <span class="ow">in</span> <span class="n">table</span><span class="p">[</span><span class="s2">&quot;Run&quot;</span><span class="p">]]</span>
-<a id="__codelineno-0-487" name="__codelineno-0-487"></a>    <span class="n">leading</span> <span class="o">=</span> <span class="p">[</span><span class="n">column</span> <span class="k">for</span> <span class="n">column</span> <span class="ow">in</span> <span class="n">_RUN_TABLE_COLUMNS</span> <span class="k">if</span> <span class="n">column</span> <span class="ow">in</span> <span class="n">table</span><span class="o">.</span><span class="n">columns</span><span class="p">]</span>
-<a id="__codelineno-0-488" name="__codelineno-0-488"></a>    <span class="n">remaining</span> <span class="o">=</span> <span class="p">[</span><span class="n">column</span> <span class="k">for</span> <span class="n">column</span> <span class="ow">in</span> <span class="n">table</span><span class="o">.</span><span class="n">columns</span> <span class="k">if</span> <span class="n">column</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">leading</span><span class="p">]</span>
-<a id="__codelineno-0-489" name="__codelineno-0-489"></a>    <span class="k">return</span> <span class="n">table</span><span class="o">.</span><span class="n">reindex</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="n">leading</span> <span class="o">+</span> <span class="n">remaining</span><span class="p">)</span>
+<span class="normal"><a href="#__codelineno-0-489">489</a></span>
+<span class="normal"><a href="#__codelineno-0-490">490</a></span>
+<span class="normal"><a href="#__codelineno-0-491">491</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-447" name="__codelineno-0-447"></a><span class="k">def</span><span class="w"> </span><span class="nf">make_sra_run_table</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pandas</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">:</span>
+<a id="__codelineno-0-448" name="__codelineno-0-448"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Build a tidy, run-level (``SRR``) table for this Series, like SRA Run Selector.</span>
+<a id="__codelineno-0-449" name="__codelineno-0-449"></a>
+<a id="__codelineno-0-450" name="__codelineno-0-450"></a><span class="sd">    Resolves the Series&#39; SRA experiments and fetches NCBI&#39;s ``runinfo`` report</span>
+<a id="__codelineno-0-451" name="__codelineno-0-451"></a><span class="sd">    in one batched EFetch per chunk, returning one row per sequencing run. The</span>
+<a id="__codelineno-0-452" name="__codelineno-0-452"></a><span class="sd">    columns are SRA&#39;s ``runinfo`` fields (``Run``, ``BioSample``, ``Experiment``,</span>
+<a id="__codelineno-0-453" name="__codelineno-0-453"></a><span class="sd">    ``LibraryName``, ``Platform``, …) with a few renamed to the Run-Selector</span>
+<a id="__codelineno-0-454" name="__codelineno-0-454"></a><span class="sd">    names (``AvgSpotLen``, ``Bases``, ``Instrument``). The reported size is</span>
+<a id="__codelineno-0-455" name="__codelineno-0-455"></a><span class="sd">    ``size_MB`` — E-utilities ``runinfo`` does not expose an exact byte count.</span>
+<a id="__codelineno-0-456" name="__codelineno-0-456"></a>
+<a id="__codelineno-0-457" name="__codelineno-0-457"></a><span class="sd">    A ``ReadStructure`` column (``{L1}+{L2}+…``, e.g. ``&quot;28+94&quot;``) is added</span>
+<a id="__codelineno-0-458" name="__codelineno-0-458"></a><span class="sd">    from each run&#39;s per-read ``&lt;Statistics&gt;``, read from the full SRA XML with</span>
+<a id="__codelineno-0-459" name="__codelineno-0-459"></a><span class="sd">    a second batched EFetch per chunk (see :attr:`Run.read_structure`); it is</span>
+<a id="__codelineno-0-460" name="__codelineno-0-460"></a><span class="sd">    empty for runs SRA reports no read statistics for.</span>
+<a id="__codelineno-0-461" name="__codelineno-0-461"></a>
+<a id="__codelineno-0-462" name="__codelineno-0-462"></a><span class="sd">    Returns</span>
+<a id="__codelineno-0-463" name="__codelineno-0-463"></a><span class="sd">    -------</span>
+<a id="__codelineno-0-464" name="__codelineno-0-464"></a><span class="sd">    pandas.DataFrame</span>
+<a id="__codelineno-0-465" name="__codelineno-0-465"></a><span class="sd">        One row per run, key columns ordered first. Empty when the Series has</span>
+<a id="__codelineno-0-466" name="__codelineno-0-466"></a><span class="sd">        no linked SRA runs.</span>
+<a id="__codelineno-0-467" name="__codelineno-0-467"></a>
+<a id="__codelineno-0-468" name="__codelineno-0-468"></a><span class="sd">    Examples</span>
+<a id="__codelineno-0-469" name="__codelineno-0-469"></a><span class="sd">    --------</span>
+<a id="__codelineno-0-470" name="__codelineno-0-470"></a><span class="sd">    &gt;&gt;&gt; table = Series(&quot;GSE229022&quot;).make_sra_run_table()  # doctest: +SKIP</span>
+<a id="__codelineno-0-471" name="__codelineno-0-471"></a><span class="sd">    &gt;&gt;&gt; table[[&quot;Run&quot;, &quot;BioSample&quot;, &quot;Instrument&quot;]].head()  # doctest: +SKIP</span>
+<a id="__codelineno-0-472" name="__codelineno-0-472"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-473" name="__codelineno-0-473"></a>    <span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span>
+<a id="__codelineno-0-474" name="__codelineno-0-474"></a>
+<a id="__codelineno-0-475" name="__codelineno-0-475"></a>    <span class="n">sra_uids</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">client</span><span class="o">.</span><span class="n">elink</span><span class="p">(</span><span class="n">dbfrom</span><span class="o">=</span><span class="s2">&quot;gds&quot;</span><span class="p">,</span> <span class="n">db</span><span class="o">=</span><span class="s2">&quot;sra&quot;</span><span class="p">,</span> <span class="n">uid</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">uid</span><span class="p">)</span>
+<a id="__codelineno-0-476" name="__codelineno-0-476"></a>    <span class="n">frames</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">pandas</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+<a id="__codelineno-0-477" name="__codelineno-0-477"></a>    <span class="n">structures</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+<a id="__codelineno-0-478" name="__codelineno-0-478"></a>    <span class="k">for</span> <span class="n">chunk</span> <span class="ow">in</span> <span class="n">_chunked</span><span class="p">(</span><span class="n">sra_uids</span><span class="p">,</span> <span class="n">_RUNINFO_CHUNK</span><span class="p">):</span>
+<a id="__codelineno-0-479" name="__codelineno-0-479"></a>        <span class="n">text</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">client</span><span class="o">.</span><span class="n">efetch</span><span class="p">(</span><span class="n">db</span><span class="o">=</span><span class="s2">&quot;sra&quot;</span><span class="p">,</span> <span class="n">ids</span><span class="o">=</span><span class="n">chunk</span><span class="p">,</span> <span class="n">rettype</span><span class="o">=</span><span class="s2">&quot;runinfo&quot;</span><span class="p">,</span> <span class="n">retmode</span><span class="o">=</span><span class="s2">&quot;text&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-480" name="__codelineno-0-480"></a>        <span class="k">if</span> <span class="n">text</span><span class="o">.</span><span class="n">strip</span><span class="p">():</span>
+<a id="__codelineno-0-481" name="__codelineno-0-481"></a>            <span class="n">frames</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">pandas</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="n">io</span><span class="o">.</span><span class="n">StringIO</span><span class="p">(</span><span class="n">text</span><span class="p">)))</span>
+<a id="__codelineno-0-482" name="__codelineno-0-482"></a>        <span class="n">xml</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">client</span><span class="o">.</span><span class="n">efetch</span><span class="p">(</span><span class="n">db</span><span class="o">=</span><span class="s2">&quot;sra&quot;</span><span class="p">,</span> <span class="n">ids</span><span class="o">=</span><span class="n">chunk</span><span class="p">,</span> <span class="n">rettype</span><span class="o">=</span><span class="s2">&quot;full&quot;</span><span class="p">,</span> <span class="n">retmode</span><span class="o">=</span><span class="s2">&quot;xml&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-483" name="__codelineno-0-483"></a>        <span class="k">for</span> <span class="n">accession</span><span class="p">,</span> <span class="n">block</span> <span class="ow">in</span> <span class="n">_run_blocks</span><span class="p">(</span><span class="n">xml</span><span class="p">)</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+<a id="__codelineno-0-484" name="__codelineno-0-484"></a>            <span class="n">structures</span><span class="p">[</span><span class="n">accession</span><span class="p">]</span> <span class="o">=</span> <span class="n">_read_structure</span><span class="p">(</span><span class="n">_read_lengths</span><span class="p">(</span><span class="n">block</span><span class="p">))</span>
+<a id="__codelineno-0-485" name="__codelineno-0-485"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">frames</span><span class="p">:</span>
+<a id="__codelineno-0-486" name="__codelineno-0-486"></a>        <span class="k">return</span> <span class="n">pandas</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">()</span>
+<a id="__codelineno-0-487" name="__codelineno-0-487"></a>    <span class="n">table</span> <span class="o">=</span> <span class="n">pandas</span><span class="o">.</span><span class="n">concat</span><span class="p">(</span><span class="n">frames</span><span class="p">,</span> <span class="n">ignore_index</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">rename</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="n">_RUNINFO_RENAME</span><span class="p">)</span>
+<a id="__codelineno-0-488" name="__codelineno-0-488"></a>    <span class="n">table</span><span class="p">[</span><span class="s2">&quot;ReadStructure&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">structures</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">run</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span> <span class="k">for</span> <span class="n">run</span> <span class="ow">in</span> <span class="n">table</span><span class="p">[</span><span class="s2">&quot;Run&quot;</span><span class="p">]]</span>
+<a id="__codelineno-0-489" name="__codelineno-0-489"></a>    <span class="n">leading</span> <span class="o">=</span> <span class="p">[</span><span class="n">column</span> <span class="k">for</span> <span class="n">column</span> <span class="ow">in</span> <span class="n">_RUN_TABLE_COLUMNS</span> <span class="k">if</span> <span class="n">column</span> <span class="ow">in</span> <span class="n">table</span><span class="o">.</span><span class="n">columns</span><span class="p">]</span>
+<a id="__codelineno-0-490" name="__codelineno-0-490"></a>    <span class="n">remaining</span> <span class="o">=</span> <span class="p">[</span><span class="n">column</span> <span class="k">for</span> <span class="n">column</span> <span class="ow">in</span> <span class="n">table</span><span class="o">.</span><span class="n">columns</span> <span class="k">if</span> <span class="n">column</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">leading</span><span class="p">]</span>
+<a id="__codelineno-0-491" name="__codelineno-0-491"></a>    <span class="k">return</span> <span class="n">table</span><span class="o">.</span><span class="n">reindex</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="n">leading</span> <span class="o">+</span> <span class="n">remaining</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -7557,9 +7585,7 @@ to :data:<code>~labdata.geo.sratools.DEFAULT_RETRIES</code>).</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/labdata/geo/records.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-491">491</a></span>
-<span class="normal"><a href="#__codelineno-0-492">492</a></span>
-<span class="normal"><a href="#__codelineno-0-493">493</a></span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-493">493</a></span>
 <span class="normal"><a href="#__codelineno-0-494">494</a></span>
 <span class="normal"><a href="#__codelineno-0-495">495</a></span>
 <span class="normal"><a href="#__codelineno-0-496">496</a></span>
@@ -7635,85 +7661,87 @@ to :data:<code>~labdata.geo.sratools.DEFAULT_RETRIES</code>).</p>
 <span class="normal"><a href="#__codelineno-0-566">566</a></span>
 <span class="normal"><a href="#__codelineno-0-567">567</a></span>
 <span class="normal"><a href="#__codelineno-0-568">568</a></span>
-<span class="normal"><a href="#__codelineno-0-569">569</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-491" name="__codelineno-0-491"></a><span class="k">def</span><span class="w"> </span><span class="nf">download</span><span class="p">(</span>
-<a id="__codelineno-0-492" name="__codelineno-0-492"></a>    <span class="bp">self</span><span class="p">,</span>
-<a id="__codelineno-0-493" name="__codelineno-0-493"></a>    <span class="n">output_dir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-494" name="__codelineno-0-494"></a>    <span class="n">n_parallel</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
-<a id="__codelineno-0-495" name="__codelineno-0-495"></a>    <span class="o">*</span><span class="p">,</span>
-<a id="__codelineno-0-496" name="__codelineno-0-496"></a>    <span class="n">max_size</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-497" name="__codelineno-0-497"></a>    <span class="n">retries</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-498" name="__codelineno-0-498"></a>    <span class="n">backoff</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-499" name="__codelineno-0-499"></a>    <span class="n">keep_sra</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
-<a id="__codelineno-0-500" name="__codelineno-0-500"></a>    <span class="n">verbose</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
-<a id="__codelineno-0-501" name="__codelineno-0-501"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">bool</span><span class="p">]:</span>
-<a id="__codelineno-0-502" name="__codelineno-0-502"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Download FASTQ for every run of every SRA experiment in this Series.</span>
-<a id="__codelineno-0-503" name="__codelineno-0-503"></a>
-<a id="__codelineno-0-504" name="__codelineno-0-504"></a><span class="sd">    Lays the data out as ``&lt;output_dir&gt;/&lt;GSE&gt;/&lt;SRX&gt;/&lt;SRR&gt;*.fastq.gz`` — one</span>
-<a id="__codelineno-0-505" name="__codelineno-0-505"></a><span class="sd">    directory per experiment under a directory named for this Series — via</span>
-<a id="__codelineno-0-506" name="__codelineno-0-506"></a><span class="sd">    sra-tools (``prefetch`` + ``fasterq-dump``). Runs already marked done (a</span>
-<a id="__codelineno-0-507" name="__codelineno-0-507"></a><span class="sd">    ``.&lt;SRR&gt;.success`` flag) are skipped; the whole Series is downloaded in</span>
-<a id="__codelineno-0-508" name="__codelineno-0-508"></a><span class="sd">    parallel at the run (``SRR``) level. The resumable ``prefetch`` step is</span>
-<a id="__codelineno-0-509" name="__codelineno-0-509"></a><span class="sd">    retried on failure, so this is safe to rerun on an unstable connection.</span>
-<a id="__codelineno-0-510" name="__codelineno-0-510"></a>
-<a id="__codelineno-0-511" name="__codelineno-0-511"></a><span class="sd">    Parameters</span>
-<a id="__codelineno-0-512" name="__codelineno-0-512"></a><span class="sd">    ----------</span>
-<a id="__codelineno-0-513" name="__codelineno-0-513"></a><span class="sd">    output_dir : str or Path, default &quot;.&quot;</span>
-<a id="__codelineno-0-514" name="__codelineno-0-514"></a><span class="sd">        Parent directory; a ``&lt;output_dir&gt;/&lt;GSE&gt;`` subtree is created for this Series.</span>
-<a id="__codelineno-0-515" name="__codelineno-0-515"></a><span class="sd">    n_parallel : int, default 1</span>
-<a id="__codelineno-0-516" name="__codelineno-0-516"></a><span class="sd">        Maximum runs to download concurrently across the whole Series. On a</span>
-<a id="__codelineno-0-517" name="__codelineno-0-517"></a><span class="sd">        flaky link, fewer concurrent connections (``1`` or ``2``) is often</span>
-<a id="__codelineno-0-518" name="__codelineno-0-518"></a><span class="sd">        more reliable.</span>
-<a id="__codelineno-0-519" name="__codelineno-0-519"></a><span class="sd">    max_size : str, optional</span>
-<a id="__codelineno-0-520" name="__codelineno-0-520"></a><span class="sd">        Passed to ``prefetch --max-size`` (defaults to</span>
-<a id="__codelineno-0-521" name="__codelineno-0-521"></a><span class="sd">        :data:`~labdata.geo.sratools.DEFAULT_MAX_SIZE`); raise it for runs that</span>
-<a id="__codelineno-0-522" name="__codelineno-0-522"></a><span class="sd">        exceed ``prefetch``&#39;s 20G default.</span>
-<a id="__codelineno-0-523" name="__codelineno-0-523"></a><span class="sd">    retries : int, optional</span>
-<a id="__codelineno-0-524" name="__codelineno-0-524"></a><span class="sd">        Attempts for the resumable ``prefetch`` network step per run (defaults</span>
-<a id="__codelineno-0-525" name="__codelineno-0-525"></a><span class="sd">        to :data:`~labdata.geo.sratools.DEFAULT_RETRIES`).</span>
-<a id="__codelineno-0-526" name="__codelineno-0-526"></a><span class="sd">    backoff : float, optional</span>
-<a id="__codelineno-0-527" name="__codelineno-0-527"></a><span class="sd">        Base seconds for the linear backoff between ``prefetch`` retries</span>
-<a id="__codelineno-0-528" name="__codelineno-0-528"></a><span class="sd">        (defaults to :data:`~labdata.geo.sratools.DEFAULT_BACKOFF`).</span>
-<a id="__codelineno-0-529" name="__codelineno-0-529"></a><span class="sd">    keep_sra : bool, default False</span>
-<a id="__codelineno-0-530" name="__codelineno-0-530"></a><span class="sd">        Keep each run&#39;s downloaded ``.sra`` next to its FASTQ (as</span>
-<a id="__codelineno-0-531" name="__codelineno-0-531"></a><span class="sd">        ``&lt;GSE&gt;/&lt;SRX&gt;/&lt;SRR&gt;.sra``) instead of deleting it after extraction.</span>
-<a id="__codelineno-0-532" name="__codelineno-0-532"></a><span class="sd">    verbose : bool, default True</span>
-<a id="__codelineno-0-533" name="__codelineno-0-533"></a><span class="sd">        Print a download plan up front and one line per finished run to</span>
-<a id="__codelineno-0-534" name="__codelineno-0-534"></a><span class="sd">        ``stderr``. Set ``False`` to download silently.</span>
-<a id="__codelineno-0-535" name="__codelineno-0-535"></a>
-<a id="__codelineno-0-536" name="__codelineno-0-536"></a><span class="sd">    Returns</span>
-<a id="__codelineno-0-537" name="__codelineno-0-537"></a><span class="sd">    -------</span>
-<a id="__codelineno-0-538" name="__codelineno-0-538"></a><span class="sd">    dict[str, bool]</span>
-<a id="__codelineno-0-539" name="__codelineno-0-539"></a><span class="sd">        Maps each run accession to whether its data is present on completion.</span>
-<a id="__codelineno-0-540" name="__codelineno-0-540"></a>
-<a id="__codelineno-0-541" name="__codelineno-0-541"></a><span class="sd">    Examples</span>
-<a id="__codelineno-0-542" name="__codelineno-0-542"></a><span class="sd">    --------</span>
-<a id="__codelineno-0-543" name="__codelineno-0-543"></a><span class="sd">    &gt;&gt;&gt; Series(&quot;GSE229022&quot;).download(&quot;./fastq&quot;, n_parallel=4)  # doctest: +SKIP</span>
-<a id="__codelineno-0-544" name="__codelineno-0-544"></a><span class="sd">    {&#39;SRR24084454&#39;: True, &#39;SRR24084455&#39;: True, ...}</span>
-<a id="__codelineno-0-545" name="__codelineno-0-545"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-546" name="__codelineno-0-546"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">labdata.geo</span><span class="w"> </span><span class="kn">import</span> <span class="n">sratools</span>
-<a id="__codelineno-0-547" name="__codelineno-0-547"></a>
-<a id="__codelineno-0-548" name="__codelineno-0-548"></a>    <span class="n">kwargs</span> <span class="o">=</span> <span class="p">{</span>
-<a id="__codelineno-0-549" name="__codelineno-0-549"></a>        <span class="s2">&quot;max_size&quot;</span><span class="p">:</span> <span class="n">max_size</span><span class="p">,</span>
-<a id="__codelineno-0-550" name="__codelineno-0-550"></a>        <span class="s2">&quot;retries&quot;</span><span class="p">:</span> <span class="n">retries</span><span class="p">,</span>
-<a id="__codelineno-0-551" name="__codelineno-0-551"></a>        <span class="s2">&quot;backoff&quot;</span><span class="p">:</span> <span class="n">backoff</span><span class="p">,</span>
-<a id="__codelineno-0-552" name="__codelineno-0-552"></a>    <span class="p">}</span>
-<a id="__codelineno-0-553" name="__codelineno-0-553"></a>    <span class="n">overrides</span> <span class="o">=</span> <span class="p">{</span><span class="n">key</span><span class="p">:</span> <span class="n">value</span> <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">}</span>
-<a id="__codelineno-0-554" name="__codelineno-0-554"></a>
-<a id="__codelineno-0-555" name="__codelineno-0-555"></a>    <span class="n">base</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">output_dir</span><span class="p">)</span> <span class="o">/</span> <span class="bp">self</span><span class="o">.</span><span class="n">accession</span>
-<a id="__codelineno-0-556" name="__codelineno-0-556"></a>    <span class="n">tasks</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="n">Run</span><span class="p">,</span> <span class="n">Path</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
-<a id="__codelineno-0-557" name="__codelineno-0-557"></a>    <span class="k">for</span> <span class="n">experiment</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">experiments</span><span class="p">:</span>
-<a id="__codelineno-0-558" name="__codelineno-0-558"></a>        <span class="n">srx_dir</span> <span class="o">=</span> <span class="n">base</span> <span class="o">/</span> <span class="n">experiment</span><span class="o">.</span><span class="n">accession</span>
-<a id="__codelineno-0-559" name="__codelineno-0-559"></a>        <span class="n">srx_dir</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">parents</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<a id="__codelineno-0-560" name="__codelineno-0-560"></a>        <span class="n">tasks</span><span class="o">.</span><span class="n">extend</span><span class="p">((</span><span class="n">run</span><span class="p">,</span> <span class="n">srx_dir</span><span class="p">)</span> <span class="k">for</span> <span class="n">run</span> <span class="ow">in</span> <span class="n">experiment</span><span class="o">.</span><span class="n">runs</span><span class="p">)</span>
-<a id="__codelineno-0-561" name="__codelineno-0-561"></a>    <span class="k">return</span> <span class="n">sratools</span><span class="o">.</span><span class="n">_run_plan</span><span class="p">(</span>
-<a id="__codelineno-0-562" name="__codelineno-0-562"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">accession</span><span class="p">,</span>
-<a id="__codelineno-0-563" name="__codelineno-0-563"></a>        <span class="n">tasks</span><span class="p">,</span>
-<a id="__codelineno-0-564" name="__codelineno-0-564"></a>        <span class="n">n_parallel</span><span class="p">,</span>
-<a id="__codelineno-0-565" name="__codelineno-0-565"></a>        <span class="n">output_root</span><span class="o">=</span><span class="n">base</span><span class="p">,</span>
-<a id="__codelineno-0-566" name="__codelineno-0-566"></a>        <span class="n">verbose</span><span class="o">=</span><span class="n">verbose</span><span class="p">,</span>
-<a id="__codelineno-0-567" name="__codelineno-0-567"></a>        <span class="n">keep_sra</span><span class="o">=</span><span class="n">keep_sra</span><span class="p">,</span>
-<a id="__codelineno-0-568" name="__codelineno-0-568"></a>        <span class="o">**</span><span class="n">overrides</span><span class="p">,</span>
-<a id="__codelineno-0-569" name="__codelineno-0-569"></a>    <span class="p">)</span>
+<span class="normal"><a href="#__codelineno-0-569">569</a></span>
+<span class="normal"><a href="#__codelineno-0-570">570</a></span>
+<span class="normal"><a href="#__codelineno-0-571">571</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-493" name="__codelineno-0-493"></a><span class="k">def</span><span class="w"> </span><span class="nf">download</span><span class="p">(</span>
+<a id="__codelineno-0-494" name="__codelineno-0-494"></a>    <span class="bp">self</span><span class="p">,</span>
+<a id="__codelineno-0-495" name="__codelineno-0-495"></a>    <span class="n">output_dir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-496" name="__codelineno-0-496"></a>    <span class="n">n_parallel</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+<a id="__codelineno-0-497" name="__codelineno-0-497"></a>    <span class="o">*</span><span class="p">,</span>
+<a id="__codelineno-0-498" name="__codelineno-0-498"></a>    <span class="n">max_size</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-499" name="__codelineno-0-499"></a>    <span class="n">retries</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-500" name="__codelineno-0-500"></a>    <span class="n">backoff</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-501" name="__codelineno-0-501"></a>    <span class="n">keep_sra</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-502" name="__codelineno-0-502"></a>    <span class="n">verbose</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-0-503" name="__codelineno-0-503"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">bool</span><span class="p">]:</span>
+<a id="__codelineno-0-504" name="__codelineno-0-504"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Download FASTQ for every run of every SRA experiment in this Series.</span>
+<a id="__codelineno-0-505" name="__codelineno-0-505"></a>
+<a id="__codelineno-0-506" name="__codelineno-0-506"></a><span class="sd">    Lays the data out as ``&lt;output_dir&gt;/&lt;GSE&gt;/&lt;SRX&gt;/&lt;SRR&gt;*.fastq.gz`` — one</span>
+<a id="__codelineno-0-507" name="__codelineno-0-507"></a><span class="sd">    directory per experiment under a directory named for this Series — via</span>
+<a id="__codelineno-0-508" name="__codelineno-0-508"></a><span class="sd">    sra-tools (``prefetch`` + ``fasterq-dump``). Runs already marked done (a</span>
+<a id="__codelineno-0-509" name="__codelineno-0-509"></a><span class="sd">    ``.&lt;SRR&gt;.success`` flag) are skipped; the whole Series is downloaded in</span>
+<a id="__codelineno-0-510" name="__codelineno-0-510"></a><span class="sd">    parallel at the run (``SRR``) level. The resumable ``prefetch`` step is</span>
+<a id="__codelineno-0-511" name="__codelineno-0-511"></a><span class="sd">    retried on failure, so this is safe to rerun on an unstable connection.</span>
+<a id="__codelineno-0-512" name="__codelineno-0-512"></a>
+<a id="__codelineno-0-513" name="__codelineno-0-513"></a><span class="sd">    Parameters</span>
+<a id="__codelineno-0-514" name="__codelineno-0-514"></a><span class="sd">    ----------</span>
+<a id="__codelineno-0-515" name="__codelineno-0-515"></a><span class="sd">    output_dir : str or Path, default &quot;.&quot;</span>
+<a id="__codelineno-0-516" name="__codelineno-0-516"></a><span class="sd">        Parent directory; a ``&lt;output_dir&gt;/&lt;GSE&gt;`` subtree is created for this Series.</span>
+<a id="__codelineno-0-517" name="__codelineno-0-517"></a><span class="sd">    n_parallel : int, default 1</span>
+<a id="__codelineno-0-518" name="__codelineno-0-518"></a><span class="sd">        Maximum runs to download concurrently across the whole Series. On a</span>
+<a id="__codelineno-0-519" name="__codelineno-0-519"></a><span class="sd">        flaky link, fewer concurrent connections (``1`` or ``2``) is often</span>
+<a id="__codelineno-0-520" name="__codelineno-0-520"></a><span class="sd">        more reliable.</span>
+<a id="__codelineno-0-521" name="__codelineno-0-521"></a><span class="sd">    max_size : str, optional</span>
+<a id="__codelineno-0-522" name="__codelineno-0-522"></a><span class="sd">        Passed to ``prefetch --max-size`` (defaults to</span>
+<a id="__codelineno-0-523" name="__codelineno-0-523"></a><span class="sd">        :data:`~labdata.geo.sratools.DEFAULT_MAX_SIZE`); raise it for runs that</span>
+<a id="__codelineno-0-524" name="__codelineno-0-524"></a><span class="sd">        exceed ``prefetch``&#39;s 20G default.</span>
+<a id="__codelineno-0-525" name="__codelineno-0-525"></a><span class="sd">    retries : int, optional</span>
+<a id="__codelineno-0-526" name="__codelineno-0-526"></a><span class="sd">        Attempts for the resumable ``prefetch`` network step per run (defaults</span>
+<a id="__codelineno-0-527" name="__codelineno-0-527"></a><span class="sd">        to :data:`~labdata.geo.sratools.DEFAULT_RETRIES`).</span>
+<a id="__codelineno-0-528" name="__codelineno-0-528"></a><span class="sd">    backoff : float, optional</span>
+<a id="__codelineno-0-529" name="__codelineno-0-529"></a><span class="sd">        Base seconds for the linear backoff between ``prefetch`` retries</span>
+<a id="__codelineno-0-530" name="__codelineno-0-530"></a><span class="sd">        (defaults to :data:`~labdata.geo.sratools.DEFAULT_BACKOFF`).</span>
+<a id="__codelineno-0-531" name="__codelineno-0-531"></a><span class="sd">    keep_sra : bool, default False</span>
+<a id="__codelineno-0-532" name="__codelineno-0-532"></a><span class="sd">        Keep each run&#39;s downloaded ``.sra`` next to its FASTQ (as</span>
+<a id="__codelineno-0-533" name="__codelineno-0-533"></a><span class="sd">        ``&lt;GSE&gt;/&lt;SRX&gt;/&lt;SRR&gt;.sra``) instead of deleting it after extraction.</span>
+<a id="__codelineno-0-534" name="__codelineno-0-534"></a><span class="sd">    verbose : bool, default True</span>
+<a id="__codelineno-0-535" name="__codelineno-0-535"></a><span class="sd">        Print a download plan up front and one line per finished run to</span>
+<a id="__codelineno-0-536" name="__codelineno-0-536"></a><span class="sd">        ``stderr``. Set ``False`` to download silently.</span>
+<a id="__codelineno-0-537" name="__codelineno-0-537"></a>
+<a id="__codelineno-0-538" name="__codelineno-0-538"></a><span class="sd">    Returns</span>
+<a id="__codelineno-0-539" name="__codelineno-0-539"></a><span class="sd">    -------</span>
+<a id="__codelineno-0-540" name="__codelineno-0-540"></a><span class="sd">    dict[str, bool]</span>
+<a id="__codelineno-0-541" name="__codelineno-0-541"></a><span class="sd">        Maps each run accession to whether its data is present on completion.</span>
+<a id="__codelineno-0-542" name="__codelineno-0-542"></a>
+<a id="__codelineno-0-543" name="__codelineno-0-543"></a><span class="sd">    Examples</span>
+<a id="__codelineno-0-544" name="__codelineno-0-544"></a><span class="sd">    --------</span>
+<a id="__codelineno-0-545" name="__codelineno-0-545"></a><span class="sd">    &gt;&gt;&gt; Series(&quot;GSE229022&quot;).download(&quot;./fastq&quot;, n_parallel=4)  # doctest: +SKIP</span>
+<a id="__codelineno-0-546" name="__codelineno-0-546"></a><span class="sd">    {&#39;SRR24084454&#39;: True, &#39;SRR24084455&#39;: True, ...}</span>
+<a id="__codelineno-0-547" name="__codelineno-0-547"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-548" name="__codelineno-0-548"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">labdata.geo</span><span class="w"> </span><span class="kn">import</span> <span class="n">sratools</span>
+<a id="__codelineno-0-549" name="__codelineno-0-549"></a>
+<a id="__codelineno-0-550" name="__codelineno-0-550"></a>    <span class="n">kwargs</span> <span class="o">=</span> <span class="p">{</span>
+<a id="__codelineno-0-551" name="__codelineno-0-551"></a>        <span class="s2">&quot;max_size&quot;</span><span class="p">:</span> <span class="n">max_size</span><span class="p">,</span>
+<a id="__codelineno-0-552" name="__codelineno-0-552"></a>        <span class="s2">&quot;retries&quot;</span><span class="p">:</span> <span class="n">retries</span><span class="p">,</span>
+<a id="__codelineno-0-553" name="__codelineno-0-553"></a>        <span class="s2">&quot;backoff&quot;</span><span class="p">:</span> <span class="n">backoff</span><span class="p">,</span>
+<a id="__codelineno-0-554" name="__codelineno-0-554"></a>    <span class="p">}</span>
+<a id="__codelineno-0-555" name="__codelineno-0-555"></a>    <span class="n">overrides</span> <span class="o">=</span> <span class="p">{</span><span class="n">key</span><span class="p">:</span> <span class="n">value</span> <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">}</span>
+<a id="__codelineno-0-556" name="__codelineno-0-556"></a>
+<a id="__codelineno-0-557" name="__codelineno-0-557"></a>    <span class="n">base</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">output_dir</span><span class="p">)</span> <span class="o">/</span> <span class="bp">self</span><span class="o">.</span><span class="n">accession</span>
+<a id="__codelineno-0-558" name="__codelineno-0-558"></a>    <span class="n">tasks</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="n">Run</span><span class="p">,</span> <span class="n">Path</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+<a id="__codelineno-0-559" name="__codelineno-0-559"></a>    <span class="k">for</span> <span class="n">experiment</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">experiments</span><span class="p">:</span>
+<a id="__codelineno-0-560" name="__codelineno-0-560"></a>        <span class="n">srx_dir</span> <span class="o">=</span> <span class="n">base</span> <span class="o">/</span> <span class="n">experiment</span><span class="o">.</span><span class="n">accession</span>
+<a id="__codelineno-0-561" name="__codelineno-0-561"></a>        <span class="n">srx_dir</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">parents</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-0-562" name="__codelineno-0-562"></a>        <span class="n">tasks</span><span class="o">.</span><span class="n">extend</span><span class="p">((</span><span class="n">run</span><span class="p">,</span> <span class="n">srx_dir</span><span class="p">)</span> <span class="k">for</span> <span class="n">run</span> <span class="ow">in</span> <span class="n">experiment</span><span class="o">.</span><span class="n">runs</span><span class="p">)</span>
+<a id="__codelineno-0-563" name="__codelineno-0-563"></a>    <span class="k">return</span> <span class="n">sratools</span><span class="o">.</span><span class="n">_run_plan</span><span class="p">(</span>
+<a id="__codelineno-0-564" name="__codelineno-0-564"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">accession</span><span class="p">,</span>
+<a id="__codelineno-0-565" name="__codelineno-0-565"></a>        <span class="n">tasks</span><span class="p">,</span>
+<a id="__codelineno-0-566" name="__codelineno-0-566"></a>        <span class="n">n_parallel</span><span class="p">,</span>
+<a id="__codelineno-0-567" name="__codelineno-0-567"></a>        <span class="n">output_root</span><span class="o">=</span><span class="n">base</span><span class="p">,</span>
+<a id="__codelineno-0-568" name="__codelineno-0-568"></a>        <span class="n">verbose</span><span class="o">=</span><span class="n">verbose</span><span class="p">,</span>
+<a id="__codelineno-0-569" name="__codelineno-0-569"></a>        <span class="n">keep_sra</span><span class="o">=</span><span class="n">keep_sra</span><span class="p">,</span>
+<a id="__codelineno-0-570" name="__codelineno-0-570"></a>        <span class="o">**</span><span class="n">overrides</span><span class="p">,</span>
+<a id="__codelineno-0-571" name="__codelineno-0-571"></a>    <span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -7844,19 +7872,23 @@ to :data:<code>~labdata.geo.sratools.DEFAULT_RETRIES</code>).</p>
 <span class="normal"><a href="#__codelineno-0-200">200</a></span>
 <span class="normal"><a href="#__codelineno-0-201">201</a></span>
 <span class="normal"><a href="#__codelineno-0-202">202</a></span>
-<span class="normal"><a href="#__codelineno-0-203">203</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-191" name="__codelineno-0-191"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+<span class="normal"><a href="#__codelineno-0-203">203</a></span>
+<span class="normal"><a href="#__codelineno-0-204">204</a></span>
+<span class="normal"><a href="#__codelineno-0-205">205</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-191" name="__codelineno-0-191"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
 <a id="__codelineno-0-192" name="__codelineno-0-192"></a>    <span class="bp">self</span><span class="p">,</span>
 <a id="__codelineno-0-193" name="__codelineno-0-193"></a>    <span class="n">accession</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
 <a id="__codelineno-0-194" name="__codelineno-0-194"></a>    <span class="o">*</span><span class="p">,</span>
 <a id="__codelineno-0-195" name="__codelineno-0-195"></a>    <span class="n">client</span><span class="p">:</span> <span class="n">EntrezClient</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-196" name="__codelineno-0-196"></a>    <span class="n">sdl_client</span><span class="p">:</span> <span class="n">SdlClient</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-197" name="__codelineno-0-197"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-198" name="__codelineno-0-198"></a>    <span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
-<a id="__codelineno-0-199" name="__codelineno-0-199"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">accession</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ACCESSION_RE</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">accession</span><span class="p">):</span>
-<a id="__codelineno-0-200" name="__codelineno-0-200"></a>        <span class="k">raise</span> <span class="n">AccessionError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;not a GEO/SRA </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_KIND</span><span class="si">}</span><span class="s2"> accession: </span><span class="si">{</span><span class="n">accession</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-201" name="__codelineno-0-201"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span>
-<a id="__codelineno-0-202" name="__codelineno-0-202"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_client</span> <span class="o">=</span> <span class="n">client</span>
-<a id="__codelineno-0-203" name="__codelineno-0-203"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_sdl_client</span> <span class="o">=</span> <span class="n">sdl_client</span>
+<a id="__codelineno-0-198" name="__codelineno-0-198"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">accession</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+<a id="__codelineno-0-199" name="__codelineno-0-199"></a>        <span class="k">raise</span> <span class="n">AccessionError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;not a GEO/SRA </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_KIND</span><span class="si">}</span><span class="s2"> accession: </span><span class="si">{</span><span class="n">accession</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-200" name="__codelineno-0-200"></a>    <span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
+<a id="__codelineno-0-201" name="__codelineno-0-201"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ACCESSION_RE</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">accession</span><span class="p">):</span>
+<a id="__codelineno-0-202" name="__codelineno-0-202"></a>        <span class="k">raise</span> <span class="n">AccessionError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;not a GEO/SRA </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_KIND</span><span class="si">}</span><span class="s2"> accession: </span><span class="si">{</span><span class="n">accession</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-203" name="__codelineno-0-203"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span>
+<a id="__codelineno-0-204" name="__codelineno-0-204"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_client</span> <span class="o">=</span> <span class="n">client</span>
+<a id="__codelineno-0-205" name="__codelineno-0-205"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_sdl_client</span> <span class="o">=</span> <span class="n">sdl_client</span>
 </code></pre></div></td></tr></table></div>
                   </details>
 
@@ -8070,19 +8102,23 @@ to :data:<code>~labdata.geo.sratools.DEFAULT_RETRIES</code>).</p>
 <span class="normal"><a href="#__codelineno-0-200">200</a></span>
 <span class="normal"><a href="#__codelineno-0-201">201</a></span>
 <span class="normal"><a href="#__codelineno-0-202">202</a></span>
-<span class="normal"><a href="#__codelineno-0-203">203</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-191" name="__codelineno-0-191"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+<span class="normal"><a href="#__codelineno-0-203">203</a></span>
+<span class="normal"><a href="#__codelineno-0-204">204</a></span>
+<span class="normal"><a href="#__codelineno-0-205">205</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-191" name="__codelineno-0-191"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
 <a id="__codelineno-0-192" name="__codelineno-0-192"></a>    <span class="bp">self</span><span class="p">,</span>
 <a id="__codelineno-0-193" name="__codelineno-0-193"></a>    <span class="n">accession</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
 <a id="__codelineno-0-194" name="__codelineno-0-194"></a>    <span class="o">*</span><span class="p">,</span>
 <a id="__codelineno-0-195" name="__codelineno-0-195"></a>    <span class="n">client</span><span class="p">:</span> <span class="n">EntrezClient</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-196" name="__codelineno-0-196"></a>    <span class="n">sdl_client</span><span class="p">:</span> <span class="n">SdlClient</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-197" name="__codelineno-0-197"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-198" name="__codelineno-0-198"></a>    <span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
-<a id="__codelineno-0-199" name="__codelineno-0-199"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">accession</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ACCESSION_RE</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">accession</span><span class="p">):</span>
-<a id="__codelineno-0-200" name="__codelineno-0-200"></a>        <span class="k">raise</span> <span class="n">AccessionError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;not a GEO/SRA </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_KIND</span><span class="si">}</span><span class="s2"> accession: </span><span class="si">{</span><span class="n">accession</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-201" name="__codelineno-0-201"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span>
-<a id="__codelineno-0-202" name="__codelineno-0-202"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_client</span> <span class="o">=</span> <span class="n">client</span>
-<a id="__codelineno-0-203" name="__codelineno-0-203"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_sdl_client</span> <span class="o">=</span> <span class="n">sdl_client</span>
+<a id="__codelineno-0-198" name="__codelineno-0-198"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">accession</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+<a id="__codelineno-0-199" name="__codelineno-0-199"></a>        <span class="k">raise</span> <span class="n">AccessionError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;not a GEO/SRA </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_KIND</span><span class="si">}</span><span class="s2"> accession: </span><span class="si">{</span><span class="n">accession</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-200" name="__codelineno-0-200"></a>    <span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
+<a id="__codelineno-0-201" name="__codelineno-0-201"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ACCESSION_RE</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">accession</span><span class="p">):</span>
+<a id="__codelineno-0-202" name="__codelineno-0-202"></a>        <span class="k">raise</span> <span class="n">AccessionError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;not a GEO/SRA </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_KIND</span><span class="si">}</span><span class="s2"> accession: </span><span class="si">{</span><span class="n">accession</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-203" name="__codelineno-0-203"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span>
+<a id="__codelineno-0-204" name="__codelineno-0-204"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_client</span> <span class="o">=</span> <span class="n">client</span>
+<a id="__codelineno-0-205" name="__codelineno-0-205"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_sdl_client</span> <span class="o">=</span> <span class="n">sdl_client</span>
 </code></pre></div></td></tr></table></div>
                   </details>
 
@@ -8248,19 +8284,23 @@ covering SRA/ENA/DDBJ).</p>
 <span class="normal"><a href="#__codelineno-0-200">200</a></span>
 <span class="normal"><a href="#__codelineno-0-201">201</a></span>
 <span class="normal"><a href="#__codelineno-0-202">202</a></span>
-<span class="normal"><a href="#__codelineno-0-203">203</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-191" name="__codelineno-0-191"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+<span class="normal"><a href="#__codelineno-0-203">203</a></span>
+<span class="normal"><a href="#__codelineno-0-204">204</a></span>
+<span class="normal"><a href="#__codelineno-0-205">205</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-191" name="__codelineno-0-191"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
 <a id="__codelineno-0-192" name="__codelineno-0-192"></a>    <span class="bp">self</span><span class="p">,</span>
 <a id="__codelineno-0-193" name="__codelineno-0-193"></a>    <span class="n">accession</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
 <a id="__codelineno-0-194" name="__codelineno-0-194"></a>    <span class="o">*</span><span class="p">,</span>
 <a id="__codelineno-0-195" name="__codelineno-0-195"></a>    <span class="n">client</span><span class="p">:</span> <span class="n">EntrezClient</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-196" name="__codelineno-0-196"></a>    <span class="n">sdl_client</span><span class="p">:</span> <span class="n">SdlClient</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-197" name="__codelineno-0-197"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-198" name="__codelineno-0-198"></a>    <span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
-<a id="__codelineno-0-199" name="__codelineno-0-199"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">accession</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ACCESSION_RE</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">accession</span><span class="p">):</span>
-<a id="__codelineno-0-200" name="__codelineno-0-200"></a>        <span class="k">raise</span> <span class="n">AccessionError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;not a GEO/SRA </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_KIND</span><span class="si">}</span><span class="s2"> accession: </span><span class="si">{</span><span class="n">accession</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-201" name="__codelineno-0-201"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span>
-<a id="__codelineno-0-202" name="__codelineno-0-202"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_client</span> <span class="o">=</span> <span class="n">client</span>
-<a id="__codelineno-0-203" name="__codelineno-0-203"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_sdl_client</span> <span class="o">=</span> <span class="n">sdl_client</span>
+<a id="__codelineno-0-198" name="__codelineno-0-198"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">accession</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+<a id="__codelineno-0-199" name="__codelineno-0-199"></a>        <span class="k">raise</span> <span class="n">AccessionError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;not a GEO/SRA </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_KIND</span><span class="si">}</span><span class="s2"> accession: </span><span class="si">{</span><span class="n">accession</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-200" name="__codelineno-0-200"></a>    <span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
+<a id="__codelineno-0-201" name="__codelineno-0-201"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ACCESSION_RE</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">accession</span><span class="p">):</span>
+<a id="__codelineno-0-202" name="__codelineno-0-202"></a>        <span class="k">raise</span> <span class="n">AccessionError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;not a GEO/SRA </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_KIND</span><span class="si">}</span><span class="s2"> accession: </span><span class="si">{</span><span class="n">accession</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-203" name="__codelineno-0-203"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span>
+<a id="__codelineno-0-204" name="__codelineno-0-204"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_client</span> <span class="o">=</span> <span class="n">client</span>
+<a id="__codelineno-0-205" name="__codelineno-0-205"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_sdl_client</span> <span class="o">=</span> <span class="n">sdl_client</span>
 </code></pre></div></td></tr></table></div>
                   </details>
 
@@ -8476,19 +8516,23 @@ covering SRA/ENA/DDBJ).</p>
 <span class="normal"><a href="#__codelineno-0-200">200</a></span>
 <span class="normal"><a href="#__codelineno-0-201">201</a></span>
 <span class="normal"><a href="#__codelineno-0-202">202</a></span>
-<span class="normal"><a href="#__codelineno-0-203">203</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-191" name="__codelineno-0-191"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+<span class="normal"><a href="#__codelineno-0-203">203</a></span>
+<span class="normal"><a href="#__codelineno-0-204">204</a></span>
+<span class="normal"><a href="#__codelineno-0-205">205</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-191" name="__codelineno-0-191"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
 <a id="__codelineno-0-192" name="__codelineno-0-192"></a>    <span class="bp">self</span><span class="p">,</span>
 <a id="__codelineno-0-193" name="__codelineno-0-193"></a>    <span class="n">accession</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
 <a id="__codelineno-0-194" name="__codelineno-0-194"></a>    <span class="o">*</span><span class="p">,</span>
 <a id="__codelineno-0-195" name="__codelineno-0-195"></a>    <span class="n">client</span><span class="p">:</span> <span class="n">EntrezClient</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-196" name="__codelineno-0-196"></a>    <span class="n">sdl_client</span><span class="p">:</span> <span class="n">SdlClient</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-197" name="__codelineno-0-197"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-198" name="__codelineno-0-198"></a>    <span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
-<a id="__codelineno-0-199" name="__codelineno-0-199"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">accession</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ACCESSION_RE</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">accession</span><span class="p">):</span>
-<a id="__codelineno-0-200" name="__codelineno-0-200"></a>        <span class="k">raise</span> <span class="n">AccessionError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;not a GEO/SRA </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_KIND</span><span class="si">}</span><span class="s2"> accession: </span><span class="si">{</span><span class="n">accession</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-201" name="__codelineno-0-201"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span>
-<a id="__codelineno-0-202" name="__codelineno-0-202"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_client</span> <span class="o">=</span> <span class="n">client</span>
-<a id="__codelineno-0-203" name="__codelineno-0-203"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_sdl_client</span> <span class="o">=</span> <span class="n">sdl_client</span>
+<a id="__codelineno-0-198" name="__codelineno-0-198"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">accession</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+<a id="__codelineno-0-199" name="__codelineno-0-199"></a>        <span class="k">raise</span> <span class="n">AccessionError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;not a GEO/SRA </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_KIND</span><span class="si">}</span><span class="s2"> accession: </span><span class="si">{</span><span class="n">accession</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-200" name="__codelineno-0-200"></a>    <span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
+<a id="__codelineno-0-201" name="__codelineno-0-201"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ACCESSION_RE</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">accession</span><span class="p">):</span>
+<a id="__codelineno-0-202" name="__codelineno-0-202"></a>        <span class="k">raise</span> <span class="n">AccessionError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;not a GEO/SRA </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_KIND</span><span class="si">}</span><span class="s2"> accession: </span><span class="si">{</span><span class="n">accession</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-203" name="__codelineno-0-203"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span>
+<a id="__codelineno-0-204" name="__codelineno-0-204"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_client</span> <span class="o">=</span> <span class="n">client</span>
+<a id="__codelineno-0-205" name="__codelineno-0-205"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_sdl_client</span> <span class="o">=</span> <span class="n">sdl_client</span>
 </code></pre></div></td></tr></table></div>
                   </details>
 
@@ -8946,19 +8990,23 @@ covering NCBI <code>PRJNA</code>, EBI <code>PRJEB</code>, and DDBJ <code>PRJDB</
 <span class="normal"><a href="#__codelineno-0-200">200</a></span>
 <span class="normal"><a href="#__codelineno-0-201">201</a></span>
 <span class="normal"><a href="#__codelineno-0-202">202</a></span>
-<span class="normal"><a href="#__codelineno-0-203">203</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-191" name="__codelineno-0-191"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+<span class="normal"><a href="#__codelineno-0-203">203</a></span>
+<span class="normal"><a href="#__codelineno-0-204">204</a></span>
+<span class="normal"><a href="#__codelineno-0-205">205</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-191" name="__codelineno-0-191"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
 <a id="__codelineno-0-192" name="__codelineno-0-192"></a>    <span class="bp">self</span><span class="p">,</span>
 <a id="__codelineno-0-193" name="__codelineno-0-193"></a>    <span class="n">accession</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
 <a id="__codelineno-0-194" name="__codelineno-0-194"></a>    <span class="o">*</span><span class="p">,</span>
 <a id="__codelineno-0-195" name="__codelineno-0-195"></a>    <span class="n">client</span><span class="p">:</span> <span class="n">EntrezClient</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-196" name="__codelineno-0-196"></a>    <span class="n">sdl_client</span><span class="p">:</span> <span class="n">SdlClient</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-197" name="__codelineno-0-197"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-198" name="__codelineno-0-198"></a>    <span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
-<a id="__codelineno-0-199" name="__codelineno-0-199"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">accession</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ACCESSION_RE</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">accession</span><span class="p">):</span>
-<a id="__codelineno-0-200" name="__codelineno-0-200"></a>        <span class="k">raise</span> <span class="n">AccessionError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;not a GEO/SRA </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_KIND</span><span class="si">}</span><span class="s2"> accession: </span><span class="si">{</span><span class="n">accession</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-201" name="__codelineno-0-201"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span>
-<a id="__codelineno-0-202" name="__codelineno-0-202"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_client</span> <span class="o">=</span> <span class="n">client</span>
-<a id="__codelineno-0-203" name="__codelineno-0-203"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_sdl_client</span> <span class="o">=</span> <span class="n">sdl_client</span>
+<a id="__codelineno-0-198" name="__codelineno-0-198"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">accession</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+<a id="__codelineno-0-199" name="__codelineno-0-199"></a>        <span class="k">raise</span> <span class="n">AccessionError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;not a GEO/SRA </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_KIND</span><span class="si">}</span><span class="s2"> accession: </span><span class="si">{</span><span class="n">accession</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-200" name="__codelineno-0-200"></a>    <span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
+<a id="__codelineno-0-201" name="__codelineno-0-201"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ACCESSION_RE</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">accession</span><span class="p">):</span>
+<a id="__codelineno-0-202" name="__codelineno-0-202"></a>        <span class="k">raise</span> <span class="n">AccessionError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;not a GEO/SRA </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_KIND</span><span class="si">}</span><span class="s2"> accession: </span><span class="si">{</span><span class="n">accession</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-203" name="__codelineno-0-203"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">accession</span> <span class="o">=</span> <span class="n">accession</span>
+<a id="__codelineno-0-204" name="__codelineno-0-204"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_client</span> <span class="o">=</span> <span class="n">client</span>
+<a id="__codelineno-0-205" name="__codelineno-0-205"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_sdl_client</span> <span class="o">=</span> <span class="n">sdl_client</span>
 </code></pre></div></td></tr></table></div>
                   </details>
 
