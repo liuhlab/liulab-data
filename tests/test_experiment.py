@@ -7,7 +7,7 @@ from labdata.geo import Experiment, Run
 from tests import _geodata as g
 
 
-@pytest.mark.parametrize("bad", ["SRR9000001", "SRX", "srx1", "", "GSM1"])
+@pytest.mark.parametrize("bad", ["SRR9000001", "SRX", "", "GSM1"])
 def test_invalid_accession_raises(bad: str) -> None:
     with pytest.raises(AccessionError):
         Experiment(bad)
@@ -16,6 +16,10 @@ def test_invalid_accession_raises(bad: str) -> None:
 @pytest.mark.parametrize("good", ["SRX1", "ERX123", "DRX999"])
 def test_valid_accession_prefixes(good: str) -> None:
     assert Experiment(good).accession == good
+
+
+def test_accession_is_normalized() -> None:
+    assert Experiment("  srx1  ").accession == "SRX1"
 
 
 def test_metadata() -> None:

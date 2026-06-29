@@ -8,10 +8,15 @@ from labdata.geo import BioProject, Experiment, Platform, Run, Sample, Series
 from tests import _geodata as g
 
 
-@pytest.mark.parametrize("bad", ["GSM3828672", "GSE", "gse123", "GSE12a", "", "foo"])
+@pytest.mark.parametrize("bad", ["GSM3828672", "GSE", "GSE12a", "", "foo"])
 def test_invalid_accession_raises(bad: str) -> None:
     with pytest.raises(AccessionError):
         Series(bad)
+
+
+@pytest.mark.parametrize("raw", ["gse131907", "  GSE131907  ", "Gse131907"])
+def test_accession_is_normalized(raw: str) -> None:
+    assert Series(raw).accession == "GSE131907"
 
 
 def test_non_string_accession_raises() -> None:

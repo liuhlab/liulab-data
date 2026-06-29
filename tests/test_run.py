@@ -7,10 +7,14 @@ from labdata.geo import Experiment, Run
 from tests import _geodata as g
 
 
-@pytest.mark.parametrize("bad", ["SRX5921017", "SRR", "srr1", "", "GSM1"])
+@pytest.mark.parametrize("bad", ["SRX5921017", "SRR", "", "GSM1"])
 def test_invalid_accession_raises(bad: str) -> None:
     with pytest.raises(AccessionError):
         Run(bad)
+
+
+def test_accession_is_normalized() -> None:
+    assert Run("  srr1  ").accession == "SRR1"
 
 
 def test_run_stats() -> None:

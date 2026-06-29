@@ -7,10 +7,14 @@ from labdata.geo import Platform
 from tests import _geodata as g
 
 
-@pytest.mark.parametrize("bad", ["GSE131907", "GPL", "gpl1", "", "SRX1"])
+@pytest.mark.parametrize("bad", ["GSE131907", "GPL", "", "SRX1"])
 def test_invalid_accession_raises(bad: str) -> None:
     with pytest.raises(AccessionError):
         Platform(bad)
+
+
+def test_accession_is_normalized() -> None:
+    assert Platform("  gpl1234  ").accession == "GPL1234"
 
 
 def test_metadata() -> None:

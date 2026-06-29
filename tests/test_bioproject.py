@@ -7,7 +7,7 @@ from labdata.geo import BioProject, Experiment, Series
 from tests import _geodata as g
 
 
-@pytest.mark.parametrize("bad", ["GSE131907", "PRJ", "prjna1", "PRJNA", "", "545296"])
+@pytest.mark.parametrize("bad", ["GSE131907", "PRJ", "PRJNA", "", "545296"])
 def test_invalid_accession_raises(bad: str) -> None:
     with pytest.raises(AccessionError):
         BioProject(bad)
@@ -16,6 +16,10 @@ def test_invalid_accession_raises(bad: str) -> None:
 @pytest.mark.parametrize("good", ["PRJNA545296", "PRJEB12345", "PRJDB6789"])
 def test_valid_accessions(good: str) -> None:
     assert BioProject(good).accession == good
+
+
+def test_accession_is_normalized() -> None:
+    assert BioProject("  prjna545296  ").accession == "PRJNA545296"
 
 
 def test_repr() -> None:
