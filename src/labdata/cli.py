@@ -10,7 +10,7 @@ from pathlib import Path
 
 import typer
 
-from labdata import Series
+from labdata import BioProject, Series
 from labdata import __version__ as _package_version
 from labdata.exceptions import LabdataError
 from labdata.ncbi.config import (
@@ -55,9 +55,24 @@ def ncbi_configure(
     typer.echo(f"Saved NCBI credentials for {creds.email} to {path}")
 
 
+def _record_for_download(accession: str) -> Series | BioProject:
+    """Return the downloadable record for ``accession``, auto-detecting its kind.
+
+    A BioProject accession (``PRJNA…``/``PRJEB…``/``PRJDB…``) builds a
+    :class:`~labdata.BioProject`; anything else is treated as a GEO Series and
+    validated by :class:`~labdata.Series` (which raises on a malformed accession).
+    Both expose the same ``download`` signature, so the caller need not care which.
+    """
+    if accession.strip().upper().startswith("PRJ"):
+        return BioProject(accession)
+    return Series(accession)
+
+
 @geo_app.command("download")
 def geo_download(
-    accession: str = typer.Argument(..., help="GEO Series accession, e.g. GSE131907."),
+    accession: str = typer.Argument(
+        ..., help="GEO Series (e.g. GSE131907) or BioProject (e.g. PRJNA1027859) accession."
+    ),
     output_dir: Path = typer.Option(
         Path(), "--output", "-o", help="Parent directory; a <GSE>/ subtree is created in it."
     ),
@@ -78,13 +93,15 @@ def geo_download(
     ),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Suppress the download plan/progress."),
 ) -> None:
-    """Download FASTQ for a whole GEO Series (every SRX/SRR) with sra-tools.
+    """Download FASTQ for a whole GEO Series or BioProject (every SRX/SRR) with sra-tools.
 
-    Lays the data out as ``<output>/<GSE>/<SRX>/<SRR>*.fastq.gz`` and skips runs that
-    are already complete, so it is safe to rerun. Exits non-zero if any run fails.
+    The accession kind is auto-detected: a GEO Series (``GSE…``) or a BioProject
+    (``PRJ…``) both work. Lays the data out as
+    ``<output>/<accession>/<SRX>/<SRR>*.fastq.gz`` and skips runs that are already
+    complete, so it is safe to rerun. Exits non-zero if any run fails.
     """
     try:
-        results = Series(accession).download(
+        results = _record_for_download(accession).download(
             output_dir,
             n_parallel,
             max_size=max_size or None,

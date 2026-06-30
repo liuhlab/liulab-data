@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from labdata import Experiment, Series, SraDownloader
+from labdata import BioProject, Experiment, Series, SraDownloader
 from labdata.exceptions import DownloadError
 from labdata.geo import sratools
 from tests import _geodata as g
@@ -167,6 +167,18 @@ def test_series_download_nests_under_series_then_experiment(
     srx_dir = tmp_path / g.GSE / g.SRX
     assert srx_dir.is_dir()
     assert (srx_dir / f"{g.SRR1}_1.fastq.gz").exists()
+
+
+def test_bioproject_download_nests_under_bioproject_then_experiment(
+    fake: FakeTools, tmp_path: Path
+) -> None:
+    result = BioProject(g.PRJNA, client=g.build_client()).download(tmp_path)
+    assert result == {g.SRR1: True, g.SRR2: True}
+    # Layout matches Series: <output_dir>/<PRJNA>/<SRX>/<SRR>*.fastq.gz
+    srx_dir = tmp_path / g.PRJNA / g.SRX
+    assert srx_dir.is_dir()
+    assert (srx_dir / f"{g.SRR1}_1.fastq.gz").exists()
+    assert (srx_dir / f"{g.SRR2}_1.fastq.gz").exists()
 
 
 def test_prefetch_passes_max_size_with_default(fake: FakeTools, tmp_path: Path) -> None:

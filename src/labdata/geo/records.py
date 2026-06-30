@@ -175,6 +175,49 @@ def _linked_experiments(client: EntrezClient, uid: str, *, dbfrom: str = "gds") 
     return list(found.values())
 
 
+def _download_experiments(
+    accession: str,
+    experiments: list[Experiment],
+    output_dir: str | Path,
+    n_parallel: int,
+    *,
+    max_size: str | None,
+    retries: int | None,
+    backoff: float | None,
+    keep_sra: bool,
+    verbose: bool,
+) -> dict[str, bool]:
+    """Download every run of ``experiments`` into ``<output_dir>/<accession>/<SRX>/``.
+
+    The shared body behind :meth:`Series.download` and :meth:`BioProject.download`:
+    each resolves its SRA experiments and lays the FASTQ out identically, differing
+    only in the accession that names the top-level directory. ``None`` overrides
+    fall through to the sra-tools defaults.
+    """
+    from labdata.geo import sratools
+
+    overrides = {
+        key: value
+        for key, value in {"max_size": max_size, "retries": retries, "backoff": backoff}.items()
+        if value is not None
+    }
+    base = Path(output_dir) / accession
+    tasks: list[tuple[Run, Path]] = []
+    for experiment in experiments:
+        srx_dir = base / experiment.accession
+        srx_dir.mkdir(parents=True, exist_ok=True)
+        tasks.extend((run, srx_dir) for run in experiment.runs)
+    return sratools._run_plan(
+        accession,
+        tasks,
+        n_parallel,
+        output_root=base,
+        verbose=verbose,
+        keep_sra=keep_sra,
+        **overrides,
+    )
+
+
 # --------------------------------------------------------------------------- #
 # base classes
 # --------------------------------------------------------------------------- #
@@ -545,29 +588,16 @@ class Series(_GdsRecord):
         >>> Series("GSE229022").download("./fastq", n_parallel=4)  # doctest: +SKIP
         {'SRR24084454': True, 'SRR24084455': True, ...}
         """
-        from labdata.geo import sratools
-
-        kwargs = {
-            "max_size": max_size,
-            "retries": retries,
-            "backoff": backoff,
-        }
-        overrides = {key: value for key, value in kwargs.items() if value is not None}
-
-        base = Path(output_dir) / self.accession
-        tasks: list[tuple[Run, Path]] = []
-        for experiment in self.experiments:
-            srx_dir = base / experiment.accession
-            srx_dir.mkdir(parents=True, exist_ok=True)
-            tasks.extend((run, srx_dir) for run in experiment.runs)
-        return sratools._run_plan(
+        return _download_experiments(
             self.accession,
-            tasks,
+            self.experiments,
+            output_dir,
             n_parallel,
-            output_root=base,
-            verbose=verbose,
+            max_size=max_size,
+            retries=retries,
+            backoff=backoff,
             keep_sra=keep_sra,
-            **overrides,
+            verbose=verbose,
         )
 
 
@@ -937,3 +967,72 @@ class BioProject(_Record):
     def experiments(self) -> list[Experiment]:
         """The SRA experiments (``SRX``) under this project, as :class:`Experiment` instances."""
         return _linked_experiments(self.client, self.uid, dbfrom="bioproject")
+
+    def download(
+        self,
+        output_dir: str | Path = ".",
+        n_parallel: int = 1,
+        *,
+        max_size: str | None = None,
+        retries: int | None = None,
+        backoff: float | None = None,
+        keep_sra: bool = False,
+        verbose: bool = True,
+    ) -> dict[str, bool]:
+        """Download FASTQ for every run of every SRA experiment in this BioProject.
+
+        Lays the data out as ``<output_dir>/<PRJNA>/<SRX>/<SRR>*.fastq.gz`` — one
+        directory per experiment under a directory named for this project — via
+        sra-tools (``prefetch`` + ``fasterq-dump``), exactly like
+        :meth:`Series.download`. Runs already marked done (a ``.<SRR>.success``
+        flag) are skipped; the whole project is downloaded in parallel at the run
+        (``SRR``) level. The resumable ``prefetch`` step is retried on failure, so
+        this is safe to rerun on an unstable connection.
+
+        Parameters
+        ----------
+        output_dir : str or Path, default "."
+            Parent directory; a ``<output_dir>/<PRJNA>`` subtree is created for this
+            project.
+        n_parallel : int, default 1
+            Maximum runs to download concurrently across the whole project. On a
+            flaky link, fewer concurrent connections (``1`` or ``2``) is often
+            more reliable.
+        max_size : str, optional
+            Passed to ``prefetch --max-size`` (defaults to
+            :data:`~labdata.geo.sratools.DEFAULT_MAX_SIZE`); raise it for runs that
+            exceed ``prefetch``'s 20G default.
+        retries : int, optional
+            Attempts for the resumable ``prefetch`` network step per run (defaults
+            to :data:`~labdata.geo.sratools.DEFAULT_RETRIES`).
+        backoff : float, optional
+            Base seconds for the linear backoff between ``prefetch`` retries
+            (defaults to :data:`~labdata.geo.sratools.DEFAULT_BACKOFF`).
+        keep_sra : bool, default False
+            Keep each run's downloaded ``.sra`` next to its FASTQ (as
+            ``<PRJNA>/<SRX>/<SRR>.sra``) instead of deleting it after extraction.
+        verbose : bool, default True
+            Print a download plan up front and one line per finished run to
+            ``stderr``. Set ``False`` to download silently.
+
+        Returns
+        -------
+        dict[str, bool]
+            Maps each run accession to whether its data is present on completion.
+
+        Examples
+        --------
+        >>> BioProject("PRJNA1027859").download("./fastq", n_parallel=4)  # doctest: +SKIP
+        {'SRR26452081': True, 'SRR26452082': True, ...}
+        """
+        return _download_experiments(
+            self.accession,
+            self.experiments,
+            output_dir,
+            n_parallel,
+            max_size=max_size,
+            retries=retries,
+            backoff=backoff,
+            keep_sra=keep_sra,
+            verbose=verbose,
+        )

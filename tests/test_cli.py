@@ -14,7 +14,7 @@ import pytest
 from typer.testing import CliRunner
 
 import labdata.cli as cli_mod
-from labdata import Series
+from labdata import BioProject, Series
 from labdata.exceptions import DownloadError
 from labdata.geo import sratools
 from tests import _geodata as g
@@ -43,6 +43,16 @@ def fake_series(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cli_mod, "Series", factory)
 
 
+@pytest.fixture
+def fake_bioproject(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the command build a BioProject wired to the synthetic GEO/SRA graph."""
+
+    def factory(accession: str) -> BioProject:
+        return BioProject(accession, client=g.build_client())
+
+    monkeypatch.setattr(cli_mod, "BioProject", factory)
+
+
 def test_geo_download_runs_whole_series(
     fake_tools: FakeTools, fake_series: None, tmp_path: Path
 ) -> None:
@@ -54,6 +64,22 @@ def test_geo_download_runs_whole_series(
     assert (srx_dir / f"{g.SRR2}_1.fastq.gz").exists()
     # The plan and the per-run tally reach the user.
     assert g.GSE in result.output
+    assert "Done: 2 ok, 0 failed." in result.output
+
+
+def test_geo_download_auto_detects_bioproject(
+    fake_tools: FakeTools, fake_bioproject: None, tmp_path: Path
+) -> None:
+    result = runner.invoke(
+        cli_mod.app, ["geo", "download", g.PRJNA, "-o", str(tmp_path), "-j", "2"]
+    )
+
+    assert result.exit_code == 0
+    # Same layout as a Series download, but the top dir is named for the project.
+    srx_dir = tmp_path / g.PRJNA / g.SRX
+    assert (srx_dir / f"{g.SRR1}_1.fastq.gz").exists()
+    assert (srx_dir / f"{g.SRR2}_1.fastq.gz").exists()
+    assert g.PRJNA in result.output
     assert "Done: 2 ok, 0 failed." in result.output
 
 

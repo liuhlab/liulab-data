@@ -99,6 +99,12 @@ fastq/
     `Series.download` does the whole study. To grab a single experiment instead, use
     `SraDownloader` — see the [API reference](../reference.md).
 
+!!! tip "Have a BioProject instead?"
+    `BioProject` exposes the same `download()` — `BioProject("PRJNA1027859").download("./fastq")`
+    lays the FASTQ out identically, under a `PRJNA…/` directory. The
+    `labdata geo download` command auto-detects which you gave it, so `GSE…` and
+    `PRJ…` accessions both just work.
+
 ## 4. Grab the supplementary files
 
 Raw FASTQ isn't the whole story. Authors usually attach **supplementary files** —
