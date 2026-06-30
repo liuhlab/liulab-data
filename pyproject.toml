@@ -114,7 +114,7 @@ docs      = "mkdocs serve"
 # Register THIS env's Python as a Jupyter kernel (idempotent). Run once so a
 # standalone Jupyter Lab can pick the "Python (liulab-data)" kernel and import
 # labdata. Re-run after recreating the env (the kernelspec path changes).
-register-kernel = "python -m ipykernel install --user --name liulab-data --display-name \"Python (liulab-data)\""
+register-kernel = "python -m ipykernel install --user --name liulab-data --display-name \"Python (liulab-data dev)\""
 
 # -------- tool config --------
 
