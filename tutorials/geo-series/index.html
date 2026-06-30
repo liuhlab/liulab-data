@@ -714,6 +714,13 @@ study → experiment → run and gzipped for you:</p>
 <p><code>Series.download</code> does the whole study. To grab a single experiment instead, use
 <code>SraDownloader</code> — see the <a href="../../reference/">API reference</a>.</p>
 </div>
+<div class="admonition tip">
+<p class="admonition-title">Have a BioProject instead?</p>
+<p><code>BioProject</code> exposes the same <code>download()</code> — <code>BioProject("PRJNA1027859").download("./fastq")</code>
+lays the FASTQ out identically, under a <code>PRJNA…/</code> directory. The
+<code>labdata geo download</code> command auto-detects which you gave it, so <code>GSE…</code> and
+<code>PRJ…</code> accessions both just work.</p>
+</div>
 <h2 id="4-grab-the-supplementary-files">4. Grab the supplementary files<a class="headerlink" href="#4-grab-the-supplementary-files" title="Permanent link">&para;</a></h2>
 <p>Raw FASTQ isn't the whole story. Authors usually attach <strong>supplementary files</strong> —
 processed matrices, peak calls, bigWigs, READMEs — to the Series. List them and grab
