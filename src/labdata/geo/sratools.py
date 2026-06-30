@@ -348,6 +348,7 @@ def _download_run(
             "fasterq-dump",
             target,
             "--split-files",
+            "--include-technical",
             "--threads",
             str(threads),
             "-O",
