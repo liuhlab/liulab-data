@@ -6222,11 +6222,11 @@ set per run, plus a <code>.&lt;SRR&gt;.success</code> marker per finished run.</
 
                   <details class="mkdocstrings-source">
                     <summary>Source code in <code>src/labdata/geo/sratools.py</code></summary>
-                    <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-488">488</a></span>
-<span class="normal"><a href="#__codelineno-0-489">489</a></span>
-<span class="normal"><a href="#__codelineno-0-490">490</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-488" name="__codelineno-0-488"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">experiment</span><span class="p">:</span> <span class="n">Experiment</span><span class="p">,</span> <span class="n">output_dir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-489" name="__codelineno-0-489"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">experiment</span> <span class="o">=</span> <span class="n">experiment</span>
-<a id="__codelineno-0-490" name="__codelineno-0-490"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">output_dir</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">output_dir</span><span class="p">)</span>
+                    <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-489">489</a></span>
+<span class="normal"><a href="#__codelineno-0-490">490</a></span>
+<span class="normal"><a href="#__codelineno-0-491">491</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-489" name="__codelineno-0-489"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">experiment</span><span class="p">:</span> <span class="n">Experiment</span><span class="p">,</span> <span class="n">output_dir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-490" name="__codelineno-0-490"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">experiment</span> <span class="o">=</span> <span class="n">experiment</span>
+<a id="__codelineno-0-491" name="__codelineno-0-491"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">output_dir</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">output_dir</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
                   </details>
 
@@ -6285,11 +6285,11 @@ set per run, plus a <code>.&lt;SRR&gt;.success</code> marker per finished run.</
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/labdata/geo/sratools.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-492">492</a></span>
-<span class="normal"><a href="#__codelineno-0-493">493</a></span>
-<span class="normal"><a href="#__codelineno-0-494">494</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-492" name="__codelineno-0-492"></a><span class="k">def</span><span class="w"> </span><span class="fm">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<a id="__codelineno-0-493" name="__codelineno-0-493"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Return an unambiguous representation.&quot;&quot;&quot;</span>
-<a id="__codelineno-0-494" name="__codelineno-0-494"></a>    <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">(</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">experiment</span><span class="o">.</span><span class="n">accession</span><span class="si">!r}</span><span class="s2">, </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">output_dir</span><span class="p">)</span><span class="si">!r}</span><span class="s2">)&quot;</span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-493">493</a></span>
+<span class="normal"><a href="#__codelineno-0-494">494</a></span>
+<span class="normal"><a href="#__codelineno-0-495">495</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-493" name="__codelineno-0-493"></a><span class="k">def</span><span class="w"> </span><span class="fm">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<a id="__codelineno-0-494" name="__codelineno-0-494"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Return an unambiguous representation.&quot;&quot;&quot;</span>
+<a id="__codelineno-0-495" name="__codelineno-0-495"></a>    <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">(</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">experiment</span><span class="o">.</span><span class="n">accession</span><span class="si">!r}</span><span class="s2">, </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">output_dir</span><span class="p">)</span><span class="si">!r}</span><span class="s2">)&quot;</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -6464,8 +6464,7 @@ continues the partial download rather than restarting.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/labdata/geo/sratools.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-501">501</a></span>
-<span class="normal"><a href="#__codelineno-0-502">502</a></span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-502">502</a></span>
 <span class="normal"><a href="#__codelineno-0-503">503</a></span>
 <span class="normal"><a href="#__codelineno-0-504">504</a></span>
 <span class="normal"><a href="#__codelineno-0-505">505</a></span>
@@ -6518,61 +6517,62 @@ continues the partial download rather than restarting.</p>
 <span class="normal"><a href="#__codelineno-0-552">552</a></span>
 <span class="normal"><a href="#__codelineno-0-553">553</a></span>
 <span class="normal"><a href="#__codelineno-0-554">554</a></span>
-<span class="normal"><a href="#__codelineno-0-555">555</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-501" name="__codelineno-0-501"></a><span class="k">def</span><span class="w"> </span><span class="nf">download</span><span class="p">(</span>
-<a id="__codelineno-0-502" name="__codelineno-0-502"></a>    <span class="bp">self</span><span class="p">,</span>
-<a id="__codelineno-0-503" name="__codelineno-0-503"></a>    <span class="n">n_parallel</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
-<a id="__codelineno-0-504" name="__codelineno-0-504"></a>    <span class="o">*</span><span class="p">,</span>
-<a id="__codelineno-0-505" name="__codelineno-0-505"></a>    <span class="n">max_size</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">DEFAULT_MAX_SIZE</span><span class="p">,</span>
-<a id="__codelineno-0-506" name="__codelineno-0-506"></a>    <span class="n">retries</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">DEFAULT_RETRIES</span><span class="p">,</span>
-<a id="__codelineno-0-507" name="__codelineno-0-507"></a>    <span class="n">backoff</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">DEFAULT_BACKOFF</span><span class="p">,</span>
-<a id="__codelineno-0-508" name="__codelineno-0-508"></a>    <span class="n">keep_sra</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
-<a id="__codelineno-0-509" name="__codelineno-0-509"></a>    <span class="n">verbose</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
-<a id="__codelineno-0-510" name="__codelineno-0-510"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">bool</span><span class="p">]:</span>
-<a id="__codelineno-0-511" name="__codelineno-0-511"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Download every run of the experiment, parallel at the run level.</span>
-<a id="__codelineno-0-512" name="__codelineno-0-512"></a>
-<a id="__codelineno-0-513" name="__codelineno-0-513"></a><span class="sd">    Creates :attr:`srx_dir`, then downloads each run&#39;s gzipped FASTQ into it.</span>
-<a id="__codelineno-0-514" name="__codelineno-0-514"></a><span class="sd">    Runs with an existing ``.&lt;SRR&gt;.success`` flag are skipped; a run that fails</span>
-<a id="__codelineno-0-515" name="__codelineno-0-515"></a><span class="sd">    is recorded as ``False`` without aborting the others.</span>
-<a id="__codelineno-0-516" name="__codelineno-0-516"></a>
-<a id="__codelineno-0-517" name="__codelineno-0-517"></a><span class="sd">    Parameters</span>
-<a id="__codelineno-0-518" name="__codelineno-0-518"></a><span class="sd">    ----------</span>
-<a id="__codelineno-0-519" name="__codelineno-0-519"></a><span class="sd">    n_parallel : int, default 1</span>
-<a id="__codelineno-0-520" name="__codelineno-0-520"></a><span class="sd">        Maximum runs to download concurrently. On a flaky link, fewer</span>
-<a id="__codelineno-0-521" name="__codelineno-0-521"></a><span class="sd">        concurrent connections (``1`` or ``2``) is often more reliable.</span>
-<a id="__codelineno-0-522" name="__codelineno-0-522"></a><span class="sd">    max_size : str, default :data:`DEFAULT_MAX_SIZE`</span>
-<a id="__codelineno-0-523" name="__codelineno-0-523"></a><span class="sd">        Passed to ``prefetch --max-size``; raise it for large runs (``prefetch``</span>
-<a id="__codelineno-0-524" name="__codelineno-0-524"></a><span class="sd">        otherwise refuses anything over its 20G default).</span>
-<a id="__codelineno-0-525" name="__codelineno-0-525"></a><span class="sd">    retries : int, default :data:`DEFAULT_RETRIES`</span>
-<a id="__codelineno-0-526" name="__codelineno-0-526"></a><span class="sd">        Attempts for the resumable ``prefetch`` network step per run; a retry</span>
-<a id="__codelineno-0-527" name="__codelineno-0-527"></a><span class="sd">        continues the partial download rather than restarting.</span>
-<a id="__codelineno-0-528" name="__codelineno-0-528"></a><span class="sd">    backoff : float, default :data:`DEFAULT_BACKOFF`</span>
-<a id="__codelineno-0-529" name="__codelineno-0-529"></a><span class="sd">        Base seconds for the linear backoff between ``prefetch`` retries.</span>
-<a id="__codelineno-0-530" name="__codelineno-0-530"></a><span class="sd">    keep_sra : bool, default False</span>
-<a id="__codelineno-0-531" name="__codelineno-0-531"></a><span class="sd">        Keep each run&#39;s downloaded ``.sra`` next to its FASTQ (as</span>
-<a id="__codelineno-0-532" name="__codelineno-0-532"></a><span class="sd">        ``&lt;SRX&gt;/&lt;SRR&gt;.sra``) instead of deleting it after extraction.</span>
-<a id="__codelineno-0-533" name="__codelineno-0-533"></a><span class="sd">    verbose : bool, default True</span>
-<a id="__codelineno-0-534" name="__codelineno-0-534"></a><span class="sd">        Print a download plan up front and one line per finished run to</span>
-<a id="__codelineno-0-535" name="__codelineno-0-535"></a><span class="sd">        ``stderr``. Set ``False`` to download silently.</span>
-<a id="__codelineno-0-536" name="__codelineno-0-536"></a>
-<a id="__codelineno-0-537" name="__codelineno-0-537"></a><span class="sd">    Returns</span>
-<a id="__codelineno-0-538" name="__codelineno-0-538"></a><span class="sd">    -------</span>
-<a id="__codelineno-0-539" name="__codelineno-0-539"></a><span class="sd">    dict[str, bool]</span>
-<a id="__codelineno-0-540" name="__codelineno-0-540"></a><span class="sd">        Maps each run accession to whether its data is present on completion.</span>
-<a id="__codelineno-0-541" name="__codelineno-0-541"></a><span class="sd">    &quot;&quot;&quot;</span>
-<a id="__codelineno-0-542" name="__codelineno-0-542"></a>    <span class="n">srx_dir</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">srx_dir</span>
-<a id="__codelineno-0-543" name="__codelineno-0-543"></a>    <span class="n">srx_dir</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">parents</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<a id="__codelineno-0-544" name="__codelineno-0-544"></a>    <span class="n">tasks</span> <span class="o">=</span> <span class="p">[(</span><span class="n">run</span><span class="p">,</span> <span class="n">srx_dir</span><span class="p">)</span> <span class="k">for</span> <span class="n">run</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">experiment</span><span class="o">.</span><span class="n">runs</span><span class="p">]</span>
-<a id="__codelineno-0-545" name="__codelineno-0-545"></a>    <span class="k">return</span> <span class="n">_run_plan</span><span class="p">(</span>
-<a id="__codelineno-0-546" name="__codelineno-0-546"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">experiment</span><span class="o">.</span><span class="n">accession</span><span class="p">,</span>
-<a id="__codelineno-0-547" name="__codelineno-0-547"></a>        <span class="n">tasks</span><span class="p">,</span>
-<a id="__codelineno-0-548" name="__codelineno-0-548"></a>        <span class="n">n_parallel</span><span class="p">,</span>
-<a id="__codelineno-0-549" name="__codelineno-0-549"></a>        <span class="n">output_root</span><span class="o">=</span><span class="n">srx_dir</span><span class="p">,</span>
-<a id="__codelineno-0-550" name="__codelineno-0-550"></a>        <span class="n">verbose</span><span class="o">=</span><span class="n">verbose</span><span class="p">,</span>
-<a id="__codelineno-0-551" name="__codelineno-0-551"></a>        <span class="n">max_size</span><span class="o">=</span><span class="n">max_size</span><span class="p">,</span>
-<a id="__codelineno-0-552" name="__codelineno-0-552"></a>        <span class="n">retries</span><span class="o">=</span><span class="n">retries</span><span class="p">,</span>
-<a id="__codelineno-0-553" name="__codelineno-0-553"></a>        <span class="n">backoff</span><span class="o">=</span><span class="n">backoff</span><span class="p">,</span>
-<a id="__codelineno-0-554" name="__codelineno-0-554"></a>        <span class="n">keep_sra</span><span class="o">=</span><span class="n">keep_sra</span><span class="p">,</span>
-<a id="__codelineno-0-555" name="__codelineno-0-555"></a>    <span class="p">)</span>
+<span class="normal"><a href="#__codelineno-0-555">555</a></span>
+<span class="normal"><a href="#__codelineno-0-556">556</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-502" name="__codelineno-0-502"></a><span class="k">def</span><span class="w"> </span><span class="nf">download</span><span class="p">(</span>
+<a id="__codelineno-0-503" name="__codelineno-0-503"></a>    <span class="bp">self</span><span class="p">,</span>
+<a id="__codelineno-0-504" name="__codelineno-0-504"></a>    <span class="n">n_parallel</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+<a id="__codelineno-0-505" name="__codelineno-0-505"></a>    <span class="o">*</span><span class="p">,</span>
+<a id="__codelineno-0-506" name="__codelineno-0-506"></a>    <span class="n">max_size</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">DEFAULT_MAX_SIZE</span><span class="p">,</span>
+<a id="__codelineno-0-507" name="__codelineno-0-507"></a>    <span class="n">retries</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">DEFAULT_RETRIES</span><span class="p">,</span>
+<a id="__codelineno-0-508" name="__codelineno-0-508"></a>    <span class="n">backoff</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">DEFAULT_BACKOFF</span><span class="p">,</span>
+<a id="__codelineno-0-509" name="__codelineno-0-509"></a>    <span class="n">keep_sra</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-510" name="__codelineno-0-510"></a>    <span class="n">verbose</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-0-511" name="__codelineno-0-511"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">bool</span><span class="p">]:</span>
+<a id="__codelineno-0-512" name="__codelineno-0-512"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Download every run of the experiment, parallel at the run level.</span>
+<a id="__codelineno-0-513" name="__codelineno-0-513"></a>
+<a id="__codelineno-0-514" name="__codelineno-0-514"></a><span class="sd">    Creates :attr:`srx_dir`, then downloads each run&#39;s gzipped FASTQ into it.</span>
+<a id="__codelineno-0-515" name="__codelineno-0-515"></a><span class="sd">    Runs with an existing ``.&lt;SRR&gt;.success`` flag are skipped; a run that fails</span>
+<a id="__codelineno-0-516" name="__codelineno-0-516"></a><span class="sd">    is recorded as ``False`` without aborting the others.</span>
+<a id="__codelineno-0-517" name="__codelineno-0-517"></a>
+<a id="__codelineno-0-518" name="__codelineno-0-518"></a><span class="sd">    Parameters</span>
+<a id="__codelineno-0-519" name="__codelineno-0-519"></a><span class="sd">    ----------</span>
+<a id="__codelineno-0-520" name="__codelineno-0-520"></a><span class="sd">    n_parallel : int, default 1</span>
+<a id="__codelineno-0-521" name="__codelineno-0-521"></a><span class="sd">        Maximum runs to download concurrently. On a flaky link, fewer</span>
+<a id="__codelineno-0-522" name="__codelineno-0-522"></a><span class="sd">        concurrent connections (``1`` or ``2``) is often more reliable.</span>
+<a id="__codelineno-0-523" name="__codelineno-0-523"></a><span class="sd">    max_size : str, default :data:`DEFAULT_MAX_SIZE`</span>
+<a id="__codelineno-0-524" name="__codelineno-0-524"></a><span class="sd">        Passed to ``prefetch --max-size``; raise it for large runs (``prefetch``</span>
+<a id="__codelineno-0-525" name="__codelineno-0-525"></a><span class="sd">        otherwise refuses anything over its 20G default).</span>
+<a id="__codelineno-0-526" name="__codelineno-0-526"></a><span class="sd">    retries : int, default :data:`DEFAULT_RETRIES`</span>
+<a id="__codelineno-0-527" name="__codelineno-0-527"></a><span class="sd">        Attempts for the resumable ``prefetch`` network step per run; a retry</span>
+<a id="__codelineno-0-528" name="__codelineno-0-528"></a><span class="sd">        continues the partial download rather than restarting.</span>
+<a id="__codelineno-0-529" name="__codelineno-0-529"></a><span class="sd">    backoff : float, default :data:`DEFAULT_BACKOFF`</span>
+<a id="__codelineno-0-530" name="__codelineno-0-530"></a><span class="sd">        Base seconds for the linear backoff between ``prefetch`` retries.</span>
+<a id="__codelineno-0-531" name="__codelineno-0-531"></a><span class="sd">    keep_sra : bool, default False</span>
+<a id="__codelineno-0-532" name="__codelineno-0-532"></a><span class="sd">        Keep each run&#39;s downloaded ``.sra`` next to its FASTQ (as</span>
+<a id="__codelineno-0-533" name="__codelineno-0-533"></a><span class="sd">        ``&lt;SRX&gt;/&lt;SRR&gt;.sra``) instead of deleting it after extraction.</span>
+<a id="__codelineno-0-534" name="__codelineno-0-534"></a><span class="sd">    verbose : bool, default True</span>
+<a id="__codelineno-0-535" name="__codelineno-0-535"></a><span class="sd">        Print a download plan up front and one line per finished run to</span>
+<a id="__codelineno-0-536" name="__codelineno-0-536"></a><span class="sd">        ``stderr``. Set ``False`` to download silently.</span>
+<a id="__codelineno-0-537" name="__codelineno-0-537"></a>
+<a id="__codelineno-0-538" name="__codelineno-0-538"></a><span class="sd">    Returns</span>
+<a id="__codelineno-0-539" name="__codelineno-0-539"></a><span class="sd">    -------</span>
+<a id="__codelineno-0-540" name="__codelineno-0-540"></a><span class="sd">    dict[str, bool]</span>
+<a id="__codelineno-0-541" name="__codelineno-0-541"></a><span class="sd">        Maps each run accession to whether its data is present on completion.</span>
+<a id="__codelineno-0-542" name="__codelineno-0-542"></a><span class="sd">    &quot;&quot;&quot;</span>
+<a id="__codelineno-0-543" name="__codelineno-0-543"></a>    <span class="n">srx_dir</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">srx_dir</span>
+<a id="__codelineno-0-544" name="__codelineno-0-544"></a>    <span class="n">srx_dir</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">parents</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-0-545" name="__codelineno-0-545"></a>    <span class="n">tasks</span> <span class="o">=</span> <span class="p">[(</span><span class="n">run</span><span class="p">,</span> <span class="n">srx_dir</span><span class="p">)</span> <span class="k">for</span> <span class="n">run</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">experiment</span><span class="o">.</span><span class="n">runs</span><span class="p">]</span>
+<a id="__codelineno-0-546" name="__codelineno-0-546"></a>    <span class="k">return</span> <span class="n">_run_plan</span><span class="p">(</span>
+<a id="__codelineno-0-547" name="__codelineno-0-547"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">experiment</span><span class="o">.</span><span class="n">accession</span><span class="p">,</span>
+<a id="__codelineno-0-548" name="__codelineno-0-548"></a>        <span class="n">tasks</span><span class="p">,</span>
+<a id="__codelineno-0-549" name="__codelineno-0-549"></a>        <span class="n">n_parallel</span><span class="p">,</span>
+<a id="__codelineno-0-550" name="__codelineno-0-550"></a>        <span class="n">output_root</span><span class="o">=</span><span class="n">srx_dir</span><span class="p">,</span>
+<a id="__codelineno-0-551" name="__codelineno-0-551"></a>        <span class="n">verbose</span><span class="o">=</span><span class="n">verbose</span><span class="p">,</span>
+<a id="__codelineno-0-552" name="__codelineno-0-552"></a>        <span class="n">max_size</span><span class="o">=</span><span class="n">max_size</span><span class="p">,</span>
+<a id="__codelineno-0-553" name="__codelineno-0-553"></a>        <span class="n">retries</span><span class="o">=</span><span class="n">retries</span><span class="p">,</span>
+<a id="__codelineno-0-554" name="__codelineno-0-554"></a>        <span class="n">backoff</span><span class="o">=</span><span class="n">backoff</span><span class="p">,</span>
+<a id="__codelineno-0-555" name="__codelineno-0-555"></a>        <span class="n">keep_sra</span><span class="o">=</span><span class="n">keep_sra</span><span class="p">,</span>
+<a id="__codelineno-0-556" name="__codelineno-0-556"></a>    <span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
