@@ -9,6 +9,7 @@ exercised without any real tools or network.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -120,6 +121,81 @@ def test_existing_success_flag_skips_the_run(fake: FakeTools, tmp_path: Path) ->
     assert g.SRR2 in prefetched
 
 
+def test_success_flag_records_each_step_as_json(fake: FakeTools, tmp_path: Path) -> None:
+    SraDownloader(_experiment(), tmp_path).download()
+    flag = tmp_path / g.SRX / f".{g.SRR1}.success"
+    state = json.loads(flag.read_text())
+    # Every pipeline step is recorded, plus the per-file gzip list.
+    assert state["prefetch"] is True
+    assert state["fasterq-dump"] is True
+    assert state["cleanup"] is True
+    assert sorted(state["gzip"]) == [f"{g.SRR1}_1.fastq", f"{g.SRR1}_2.fastq"]
+
+
+def test_recorded_prefetch_is_skipped_on_rerun(fake: FakeTools, tmp_path: Path) -> None:
+    srx_dir = tmp_path / g.SRX
+    srx_dir.mkdir(parents=True)
+    # A flag that records only prefetch (e.g. an earlier run died during extraction).
+    (srx_dir / f".{g.SRR1}.success").write_text(json.dumps({"prefetch": True}))
+
+    SraDownloader(_experiment(), tmp_path).download()
+
+    # SRR1 is not prefetched again, but its later steps still run.
+    prefetched = [cmd[1] for cmd in fake.commands if cmd[0] == "prefetch"]
+    assert g.SRR1 not in prefetched
+    extracted = [Path(cmd[1]).name for cmd in fake.commands if cmd[0] == "fasterq-dump"]
+    assert g.SRR1 in extracted
+    assert (srx_dir / f"{g.SRR1}_1.fastq.gz").exists()
+
+
+def test_recorded_gzip_files_are_not_recompressed(fake: FakeTools, tmp_path: Path) -> None:
+    srx_dir = tmp_path / g.SRX
+    srx_dir.mkdir(parents=True)
+    # prefetch + fasterq-dump done, one mate already gzipped; only the other remains.
+    (srx_dir / f".{g.SRR1}.success").write_text(
+        json.dumps({"prefetch": True, "fasterq-dump": True, "gzip": [f"{g.SRR1}_1.fastq"]})
+    )
+    (srx_dir / f"{g.SRR1}_1.fastq.gz").write_bytes(b"gz")
+    (srx_dir / f"{g.SRR1}_2.fastq").write_text("@r\nACGT\n+\nIIII\n")
+
+    SraDownloader(_experiment(), tmp_path).download()
+
+    # Only the remaining mate is handed to the gzip tool for SRR1.
+    gzipped = [arg for cmd in fake.commands if cmd[0] == "pigz" for arg in cmd[1:]]
+    assert any(arg.endswith(f"{g.SRR1}_2.fastq") for arg in gzipped)
+    assert not any(arg.endswith(f"{g.SRR1}_1.fastq") for arg in gzipped)
+
+
+def test_prefetch_only_stops_after_prefetch(fake: FakeTools, tmp_path: Path) -> None:
+    result = SraDownloader(_experiment(), tmp_path).download(prefetch_only=True)
+
+    assert result == {g.SRR1: True, g.SRR2: True}
+    # Only prefetch ran — no extraction, compression, or cleanup.
+    assert fake.tools_used() == {"prefetch"}
+    srx_dir = tmp_path / g.SRX
+    for srr in (g.SRR1, g.SRR2):
+        # The downloaded .sra is left in place; no FASTQ is produced.
+        assert (srx_dir / srr / f"{srr}.sra").exists()
+        assert list(srx_dir.glob(f"{srr}*.fastq.gz")) == []
+        # The flag records only the prefetch step (the run is not yet complete).
+        state = json.loads((srx_dir / f".{srr}.success").read_text())
+        assert state["prefetch"] is True
+        assert "fasterq-dump" not in state
+
+
+def test_prefetch_only_then_full_download_resumes(fake: FakeTools, tmp_path: Path) -> None:
+    SraDownloader(_experiment(), tmp_path).download(prefetch_only=True)
+    fake.commands.clear()
+
+    result = SraDownloader(_experiment(), tmp_path).download()
+
+    assert result == {g.SRR1: True, g.SRR2: True}
+    # The full rerun extracts and gzips without re-fetching the already-prefetched .sra.
+    assert "prefetch" not in fake.tools_used()
+    assert "fasterq-dump" in fake.tools_used()
+    assert (tmp_path / g.SRX / f"{g.SRR1}_1.fastq.gz").exists()
+
+
 def test_prefetch_runs_before_fasterq_dump(fake: FakeTools, tmp_path: Path) -> None:
     SraDownloader(_experiment(), tmp_path).download()
     order = fake.order_of("prefetch", "fasterq-dump")
@@ -179,6 +255,16 @@ def test_bioproject_download_nests_under_bioproject_then_experiment(
     assert srx_dir.is_dir()
     assert (srx_dir / f"{g.SRR1}_1.fastq.gz").exists()
     assert (srx_dir / f"{g.SRR2}_1.fastq.gz").exists()
+
+
+def test_series_download_prefetch_only(fake: FakeTools, tmp_path: Path) -> None:
+    result = Series(g.GSE, client=g.build_client()).download(tmp_path, prefetch_only=True)
+    assert result == {g.SRR1: True, g.SRR2: True}
+    # Series threads prefetch_only down to the runs: only .sra is fetched, no FASTQ.
+    assert fake.tools_used() == {"prefetch"}
+    srx_dir = tmp_path / g.GSE / g.SRX
+    assert (srx_dir / g.SRR1 / f"{g.SRR1}.sra").exists()
+    assert list(srx_dir.glob("*.fastq.gz")) == []
 
 
 def test_prefetch_passes_max_size_with_default(fake: FakeTools, tmp_path: Path) -> None:

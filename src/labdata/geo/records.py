@@ -175,49 +175,6 @@ def _linked_experiments(client: EntrezClient, uid: str, *, dbfrom: str = "gds") 
     return list(found.values())
 
 
-def _download_experiments(
-    accession: str,
-    experiments: list[Experiment],
-    output_dir: str | Path,
-    n_parallel: int,
-    *,
-    max_size: str | None,
-    retries: int | None,
-    backoff: float | None,
-    keep_sra: bool,
-    verbose: bool,
-) -> dict[str, bool]:
-    """Download every run of ``experiments`` into ``<output_dir>/<accession>/<SRX>/``.
-
-    The shared body behind :meth:`Series.download` and :meth:`BioProject.download`:
-    each resolves its SRA experiments and lays the FASTQ out identically, differing
-    only in the accession that names the top-level directory. ``None`` overrides
-    fall through to the sra-tools defaults.
-    """
-    from labdata.geo import sratools
-
-    overrides = {
-        key: value
-        for key, value in {"max_size": max_size, "retries": retries, "backoff": backoff}.items()
-        if value is not None
-    }
-    base = Path(output_dir) / accession
-    tasks: list[tuple[Run, Path]] = []
-    for experiment in experiments:
-        srx_dir = base / experiment.accession
-        srx_dir.mkdir(parents=True, exist_ok=True)
-        tasks.extend((run, srx_dir) for run in experiment.runs)
-    return sratools._run_plan(
-        accession,
-        tasks,
-        n_parallel,
-        output_root=base,
-        verbose=verbose,
-        keep_sra=keep_sra,
-        **overrides,
-    )
-
-
 # --------------------------------------------------------------------------- #
 # base classes
 # --------------------------------------------------------------------------- #
@@ -413,11 +370,117 @@ class _SraRecord(_Record):
 
 
 # --------------------------------------------------------------------------- #
+# shared SRA download behavior
+# --------------------------------------------------------------------------- #
+
+
+class _SraDownloadMixin:
+    """FASTQ-download behavior shared by records that resolve SRA experiments.
+
+    Mixed into :class:`Series` and :class:`BioProject`. Both expose an
+    :attr:`accession` and a list of linked :attr:`experiments` — all
+    :meth:`download` needs — and lay their FASTQ out identically under a
+    directory named for the record's accession.
+    """
+
+    accession: str
+    experiments: list[Experiment]
+
+    def download(
+        self,
+        output_dir: str | Path = ".",
+        n_parallel: int = 1,
+        *,
+        max_size: str | None = None,
+        retries: int | None = None,
+        backoff: float | None = None,
+        keep_sra: bool = False,
+        prefetch_only: bool = False,
+        verbose: bool = True,
+    ) -> dict[str, bool]:
+        """Download FASTQ for every run of every SRA experiment in this record.
+
+        Lays the data out as ``<output_dir>/<accession>/<SRX>/<SRR>*.fastq.gz`` —
+        one directory per experiment under a directory named for this record — via
+        sra-tools (``prefetch`` + ``fasterq-dump``). Runs already marked done (a
+        ``.<SRR>.success`` flag) are skipped; the whole record is downloaded in
+        parallel at the run (``SRR``) level. The resumable ``prefetch`` step is
+        retried on failure, so this is safe to rerun on an unstable connection.
+
+        Parameters
+        ----------
+        output_dir : str or Path, default "."
+            Parent directory; a ``<output_dir>/<accession>`` subtree is created for
+            this record.
+        n_parallel : int, default 1
+            Maximum runs to download concurrently across the whole record. On a
+            flaky link, fewer concurrent connections (``1`` or ``2``) is often
+            more reliable.
+        max_size : str, optional
+            Passed to ``prefetch --max-size`` (defaults to
+            :data:`~labdata.geo.sratools.DEFAULT_MAX_SIZE`); raise it for runs that
+            exceed ``prefetch``'s 20G default.
+        retries : int, optional
+            Attempts for the resumable ``prefetch`` network step per run (defaults
+            to :data:`~labdata.geo.sratools.DEFAULT_RETRIES`).
+        backoff : float, optional
+            Base seconds for the linear backoff between ``prefetch`` retries
+            (defaults to :data:`~labdata.geo.sratools.DEFAULT_BACKOFF`).
+        keep_sra : bool, default False
+            Keep each run's downloaded ``.sra`` next to its FASTQ (as
+            ``<accession>/<SRX>/<SRR>.sra``) instead of deleting it after extraction.
+        prefetch_only : bool, default False
+            Only ``prefetch`` each run's ``.sra`` (into ``<SRX>/<SRR>/``), skipping
+            ``fasterq-dump``, gzip, and cleanup. A later full download resumes from
+            extraction without re-fetching.
+        verbose : bool, default True
+            Print a download plan up front and one line per finished run to
+            ``stderr``. Set ``False`` to download silently.
+
+        Returns
+        -------
+        dict[str, bool]
+            Maps each run accession to whether its data is present on completion.
+
+        Examples
+        --------
+        >>> Series("GSE229022").download("./fastq", n_parallel=4)  # doctest: +SKIP
+        {'SRR24084454': True, 'SRR24084455': True, ...}
+        >>> BioProject("PRJNA1027859").download("./fastq", n_parallel=4)  # doctest: +SKIP
+        {'SRR26452081': True, 'SRR26452082': True, ...}
+        """
+        from labdata.geo import sratools
+
+        # ``None`` overrides fall through to the sra-tools defaults.
+        overrides = {
+            key: value
+            for key, value in {"max_size": max_size, "retries": retries, "backoff": backoff}.items()
+            if value is not None
+        }
+        base = Path(output_dir) / self.accession
+        tasks: list[tuple[Run, Path]] = []
+        for experiment in self.experiments:
+            srx_dir = base / experiment.accession
+            srx_dir.mkdir(parents=True, exist_ok=True)
+            tasks.extend((run, srx_dir) for run in experiment.runs)
+        return sratools._run_plan(
+            self.accession,
+            tasks,
+            n_parallel,
+            output_root=base,
+            verbose=verbose,
+            keep_sra=keep_sra,
+            prefetch_only=prefetch_only,
+            **overrides,
+        )
+
+
+# --------------------------------------------------------------------------- #
 # concrete GEO records
 # --------------------------------------------------------------------------- #
 
 
-class Series(_GdsRecord):
+class Series(_SraDownloadMixin, _GdsRecord):
     r"""A GEO Series (``GSE000000``), resolved lazily through NCBI Entrez.
 
     Parameters
@@ -532,73 +595,6 @@ class Series(_GdsRecord):
         leading = [column for column in _RUN_TABLE_COLUMNS if column in table.columns]
         remaining = [column for column in table.columns if column not in leading]
         return table.reindex(columns=leading + remaining)
-
-    def download(
-        self,
-        output_dir: str | Path = ".",
-        n_parallel: int = 1,
-        *,
-        max_size: str | None = None,
-        retries: int | None = None,
-        backoff: float | None = None,
-        keep_sra: bool = False,
-        verbose: bool = True,
-    ) -> dict[str, bool]:
-        """Download FASTQ for every run of every SRA experiment in this Series.
-
-        Lays the data out as ``<output_dir>/<GSE>/<SRX>/<SRR>*.fastq.gz`` — one
-        directory per experiment under a directory named for this Series — via
-        sra-tools (``prefetch`` + ``fasterq-dump``). Runs already marked done (a
-        ``.<SRR>.success`` flag) are skipped; the whole Series is downloaded in
-        parallel at the run (``SRR``) level. The resumable ``prefetch`` step is
-        retried on failure, so this is safe to rerun on an unstable connection.
-
-        Parameters
-        ----------
-        output_dir : str or Path, default "."
-            Parent directory; a ``<output_dir>/<GSE>`` subtree is created for this Series.
-        n_parallel : int, default 1
-            Maximum runs to download concurrently across the whole Series. On a
-            flaky link, fewer concurrent connections (``1`` or ``2``) is often
-            more reliable.
-        max_size : str, optional
-            Passed to ``prefetch --max-size`` (defaults to
-            :data:`~labdata.geo.sratools.DEFAULT_MAX_SIZE`); raise it for runs that
-            exceed ``prefetch``'s 20G default.
-        retries : int, optional
-            Attempts for the resumable ``prefetch`` network step per run (defaults
-            to :data:`~labdata.geo.sratools.DEFAULT_RETRIES`).
-        backoff : float, optional
-            Base seconds for the linear backoff between ``prefetch`` retries
-            (defaults to :data:`~labdata.geo.sratools.DEFAULT_BACKOFF`).
-        keep_sra : bool, default False
-            Keep each run's downloaded ``.sra`` next to its FASTQ (as
-            ``<GSE>/<SRX>/<SRR>.sra``) instead of deleting it after extraction.
-        verbose : bool, default True
-            Print a download plan up front and one line per finished run to
-            ``stderr``. Set ``False`` to download silently.
-
-        Returns
-        -------
-        dict[str, bool]
-            Maps each run accession to whether its data is present on completion.
-
-        Examples
-        --------
-        >>> Series("GSE229022").download("./fastq", n_parallel=4)  # doctest: +SKIP
-        {'SRR24084454': True, 'SRR24084455': True, ...}
-        """
-        return _download_experiments(
-            self.accession,
-            self.experiments,
-            output_dir,
-            n_parallel,
-            max_size=max_size,
-            retries=retries,
-            backoff=backoff,
-            keep_sra=keep_sra,
-            verbose=verbose,
-        )
 
 
 class Sample(_GdsRecord):
@@ -861,7 +857,7 @@ class Run(_SraRecord):
 # --------------------------------------------------------------------------- #
 
 
-class BioProject(_Record):
+class BioProject(_SraDownloadMixin, _Record):
     r"""An NCBI BioProject (``PRJNA000000``), resolved lazily through NCBI Entrez.
 
     BioProject is the umbrella record that groups a study's GEO Series and SRA
@@ -967,72 +963,3 @@ class BioProject(_Record):
     def experiments(self) -> list[Experiment]:
         """The SRA experiments (``SRX``) under this project, as :class:`Experiment` instances."""
         return _linked_experiments(self.client, self.uid, dbfrom="bioproject")
-
-    def download(
-        self,
-        output_dir: str | Path = ".",
-        n_parallel: int = 1,
-        *,
-        max_size: str | None = None,
-        retries: int | None = None,
-        backoff: float | None = None,
-        keep_sra: bool = False,
-        verbose: bool = True,
-    ) -> dict[str, bool]:
-        """Download FASTQ for every run of every SRA experiment in this BioProject.
-
-        Lays the data out as ``<output_dir>/<PRJNA>/<SRX>/<SRR>*.fastq.gz`` — one
-        directory per experiment under a directory named for this project — via
-        sra-tools (``prefetch`` + ``fasterq-dump``), exactly like
-        :meth:`Series.download`. Runs already marked done (a ``.<SRR>.success``
-        flag) are skipped; the whole project is downloaded in parallel at the run
-        (``SRR``) level. The resumable ``prefetch`` step is retried on failure, so
-        this is safe to rerun on an unstable connection.
-
-        Parameters
-        ----------
-        output_dir : str or Path, default "."
-            Parent directory; a ``<output_dir>/<PRJNA>`` subtree is created for this
-            project.
-        n_parallel : int, default 1
-            Maximum runs to download concurrently across the whole project. On a
-            flaky link, fewer concurrent connections (``1`` or ``2``) is often
-            more reliable.
-        max_size : str, optional
-            Passed to ``prefetch --max-size`` (defaults to
-            :data:`~labdata.geo.sratools.DEFAULT_MAX_SIZE`); raise it for runs that
-            exceed ``prefetch``'s 20G default.
-        retries : int, optional
-            Attempts for the resumable ``prefetch`` network step per run (defaults
-            to :data:`~labdata.geo.sratools.DEFAULT_RETRIES`).
-        backoff : float, optional
-            Base seconds for the linear backoff between ``prefetch`` retries
-            (defaults to :data:`~labdata.geo.sratools.DEFAULT_BACKOFF`).
-        keep_sra : bool, default False
-            Keep each run's downloaded ``.sra`` next to its FASTQ (as
-            ``<PRJNA>/<SRX>/<SRR>.sra``) instead of deleting it after extraction.
-        verbose : bool, default True
-            Print a download plan up front and one line per finished run to
-            ``stderr``. Set ``False`` to download silently.
-
-        Returns
-        -------
-        dict[str, bool]
-            Maps each run accession to whether its data is present on completion.
-
-        Examples
-        --------
-        >>> BioProject("PRJNA1027859").download("./fastq", n_parallel=4)  # doctest: +SKIP
-        {'SRR26452081': True, 'SRR26452082': True, ...}
-        """
-        return _download_experiments(
-            self.accession,
-            self.experiments,
-            output_dir,
-            n_parallel,
-            max_size=max_size,
-            retries=retries,
-            backoff=backoff,
-            keep_sra=keep_sra,
-            verbose=verbose,
-        )

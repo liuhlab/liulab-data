@@ -48,6 +48,9 @@ plugins:
             members_order: source
             merge_init_into_class: true
             heading_level: 2
+            # ``download`` is shared via the private _SraDownloadMixin; render it
+            # on the Series/BioProject reference pages that inherit it.
+            inherited_members: [download]
 
 nav:
   - Home: index.md
