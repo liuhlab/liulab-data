@@ -4,7 +4,11 @@
     options:
       show_root_heading: false
 
-::: labdata.geo.records
+::: labdata.geo.geo_records
+
+::: labdata.geo.sra_records
+
+::: labdata.geo.bio_project_records
 
 ::: labdata.ncbi.entrez
 

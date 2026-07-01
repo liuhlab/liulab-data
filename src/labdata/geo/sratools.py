@@ -13,9 +13,9 @@ removes the intermediate ``.sra``/temp files, and records each finished step in 
 ``.<SRR>.success`` JSON marker (see :class:`_DownloadFlag`) so a rerun resumes from
 where it stopped — skipping ``prefetch``/``fasterq-dump`` once done and re-gzipping
 only the FASTQ files not yet compressed. :class:`SraDownloader` applies that over every run
-of one :class:`~labdata.geo.records.Experiment`; :meth:`Series.download
-<labdata.geo.records.Series.download>` applies it across a whole Series. Both
-parallelize at the run level.
+of one :class:`~labdata.geo.sra_records.Experiment`; :class:`_SraDownloadMixin`
+applies it across a whole :class:`~labdata.geo.geo_records.Series` or
+:class:`~labdata.geo.bio_project_records.BioProject`. All parallelize at the run level.
 """
 
 from __future__ import annotations
@@ -27,14 +27,16 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import TYPE_CHECKING, TextIO
 
-from labdata.exceptions import DownloadError
+from labdata.exceptions import AccessionError, DownloadError
+from labdata.geo.sra_records import Experiment
 
 if TYPE_CHECKING:
-    from labdata.geo.records import Experiment, Run
+    from labdata.geo.sra_records import Run
 
 logger = logging.getLogger(__name__)
 
@@ -570,6 +572,142 @@ def _download_tasks(
         for future in as_completed(futures):
             results[futures[future]] = future.result()
     return results
+
+
+# --------------------------------------------------------------------------- #
+# record-level download behavior (shared by Series and BioProject)
+# --------------------------------------------------------------------------- #
+
+
+class _SraDownloadMixin:
+    """FASTQ-download behavior shared by records that resolve SRA experiments.
+
+    Mixed into :class:`~labdata.geo.geo_records.Series` and
+    :class:`~labdata.geo.bio_project_records.BioProject`. Both expose an
+    :attr:`accession` and a list of linked :attr:`experiments` — all
+    :meth:`download` needs — and lay their FASTQ out identically under a
+    directory named for the record's accession.
+    """
+
+    accession: str
+    experiments: list[Experiment]
+
+    def download(
+        self,
+        output_dir: str | Path = ".",
+        n_parallel: int = 1,
+        *,
+        select_srx: Iterable[str] | None = None,
+        max_size: str | None = None,
+        retries: int | None = None,
+        backoff: float | None = None,
+        keep_sra: bool = False,
+        prefetch_only: bool = False,
+        verbose: bool = True,
+    ) -> dict[str, bool]:
+        """Download FASTQ for every run of every SRA experiment in this record.
+
+        Lays the data out as ``<output_dir>/<accession>/<SRX>/<SRR>*.fastq.gz`` —
+        one directory per experiment under a directory named for this record — via
+        sra-tools (``prefetch`` + ``fasterq-dump``). Runs already marked done (a
+        ``.<SRR>.success`` flag) are skipped; the whole record is downloaded in
+        parallel at the run (``SRR``) level. The resumable ``prefetch`` step is
+        retried on failure, so this is safe to rerun on an unstable connection.
+
+        Pass ``select_srx`` to download only some of the record's experiments (see
+        below).
+
+        Parameters
+        ----------
+        output_dir : str or Path, default "."
+            Parent directory; a ``<output_dir>/<accession>`` subtree is created for
+            this record.
+        n_parallel : int, default 1
+            Maximum runs to download concurrently across the whole record. On a
+            flaky link, fewer concurrent connections (``1`` or ``2``) is often
+            more reliable.
+        select_srx : iterable of str, optional
+            A whitelist of SRA experiment accessions (``SRX…``). When given, only
+            the record's experiments whose accession is listed are downloaded and
+            every other experiment is skipped; ``None`` (the default) downloads
+            them all. Entries are matched case-insensitively and every one must be
+            a well-formed ``SRX`` accession — anything else raises
+            :class:`~labdata.exceptions.AccessionError`.
+        max_size : str, optional
+            Passed to ``prefetch --max-size`` (defaults to :data:`DEFAULT_MAX_SIZE`);
+            raise it for runs that exceed ``prefetch``'s 20G default.
+        retries : int, optional
+            Attempts for the resumable ``prefetch`` network step per run (defaults
+            to :data:`DEFAULT_RETRIES`).
+        backoff : float, optional
+            Base seconds for the linear backoff between ``prefetch`` retries
+            (defaults to :data:`DEFAULT_BACKOFF`).
+        keep_sra : bool, default False
+            Keep each run's downloaded ``.sra`` next to its FASTQ (as
+            ``<accession>/<SRX>/<SRR>.sra``) instead of deleting it after extraction.
+        prefetch_only : bool, default False
+            Only ``prefetch`` each run's ``.sra`` (into ``<SRX>/<SRR>/``), skipping
+            ``fasterq-dump``, gzip, and cleanup. A later full download resumes from
+            extraction without re-fetching.
+        verbose : bool, default True
+            Print a download plan up front and one line per finished run to
+            ``stderr``. Set ``False`` to download silently.
+
+        Returns
+        -------
+        dict[str, bool]
+            Maps each run accession to whether its data is present on completion.
+
+        Examples
+        --------
+        >>> Series("GSE229022").download("./fastq", n_parallel=4)  # doctest: +SKIP
+        {'SRR24084454': True, 'SRR24084455': True, ...}
+        >>> BioProject("PRJNA1027859").download("./fastq", n_parallel=4)  # doctest: +SKIP
+        {'SRR26452081': True, 'SRR26452082': True, ...}
+        >>> Series("GSE229022").download("./fastq", select_srx=["SRX19885398"])  # doctest: +SKIP
+        {'SRR24084454': True}
+        """
+        # ``None`` overrides fall through to the sra-tools defaults.
+        overrides = {
+            key: value
+            for key, value in {"max_size": max_size, "retries": retries, "backoff": backoff}.items()
+            if value is not None
+        }
+        base = Path(output_dir) / self.accession
+        tasks: list[tuple[Run, Path]] = []
+        for experiment in self._selected_experiments(select_srx):
+            srx_dir = base / experiment.accession
+            srx_dir.mkdir(parents=True, exist_ok=True)
+            tasks.extend((run, srx_dir) for run in experiment.runs)
+        return _run_plan(
+            self.accession,
+            tasks,
+            n_parallel,
+            output_root=base,
+            verbose=verbose,
+            keep_sra=keep_sra,
+            prefetch_only=prefetch_only,
+            **overrides,
+        )
+
+    def _selected_experiments(self, select_srx: Iterable[str] | None) -> list[Experiment]:
+        """Return this record's experiments, restricted to the ``select_srx`` whitelist.
+
+        ``None`` selects every experiment. Otherwise each whitelist entry must be a
+        well-formed ``SRX`` experiment accession — it is normalized (stripped and
+        upper-cased) and validated, and anything that is not an ``SRX`` accession
+        raises :class:`~labdata.exceptions.AccessionError`. Experiments whose
+        accession is not listed are then dropped.
+        """
+        if select_srx is None:
+            return self.experiments
+        wanted: set[str] = set()
+        for entry in select_srx:
+            accession = Experiment(entry).accession  # normalizes + validates the digits
+            if not accession.startswith("SRX"):
+                raise AccessionError(f"select_srx expects an SRX accession, got {entry!r}")
+            wanted.add(accession)
+        return [experiment for experiment in self.experiments if experiment.accession in wanted]
 
 
 # --------------------------------------------------------------------------- #

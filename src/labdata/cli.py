@@ -68,6 +68,28 @@ def _record_for_download(accession: str) -> Series | BioProject:
     return Series(accession)
 
 
+def _resolve_select_srx(select_srx: list[str]) -> list[str] | None:
+    """Resolve the ``--select-srx`` values into an SRX whitelist, or ``None``.
+
+    The values are taken literally, except that a single value naming an existing
+    file is read as a whitelist file — one accession per line, with blank lines and
+    ``#`` comments ignored. Returns ``None`` when nothing was supplied, so the whole
+    record is downloaded rather than nothing.
+    """
+    if not select_srx:
+        return None
+    if len(select_srx) == 1:
+        candidate = Path(select_srx[0])
+        if candidate.is_file():
+            accessions: list[str] = []
+            for line in candidate.read_text().splitlines():
+                token = line.strip()
+                if token and not token.startswith("#"):
+                    accessions.append(token)
+            return accessions
+    return list(select_srx)
+
+
 @geo_app.command("download")
 def geo_download(
     accession: str = typer.Argument(
@@ -78,6 +100,13 @@ def geo_download(
     ),
     n_parallel: int = typer.Option(
         1, "--parallel", "-j", min=1, help="Maximum runs to download concurrently."
+    ),
+    select_srx: list[str] = typer.Option(
+        [],
+        "--select-srx",
+        help="Whitelist of SRX experiment accessions to download; repeatable. A "
+        "single value that is an existing file is read as a whitelist file (one "
+        "accession per line). Omit to download every experiment.",
     ),
     max_size: str = typer.Option(
         "", "--max-size", help="prefetch --max-size, e.g. 500G (defaults to 200G)."
@@ -99,11 +128,15 @@ def geo_download(
     (``PRJ…``) both work. Lays the data out as
     ``<output>/<accession>/<SRX>/<SRR>*.fastq.gz`` and skips runs that are already
     complete, so it is safe to rerun. Exits non-zero if any run fails.
+
+    Use ``--select-srx`` (repeatable, or a whitelist file) to download only some of
+    the record's experiments; without it every experiment is downloaded.
     """
     try:
         results = _record_for_download(accession).download(
             output_dir,
             n_parallel,
+            select_srx=_resolve_select_srx(select_srx),
             max_size=max_size or None,
             retries=retries or None,
             backoff=backoff or None,

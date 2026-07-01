@@ -83,6 +83,54 @@ def test_geo_download_auto_detects_bioproject(
     assert "Done: 2 ok, 0 failed." in result.output
 
 
+def test_geo_download_select_srx_restricts_to_listed_experiment(
+    fake_tools: FakeTools, fake_series: None, tmp_path: Path
+) -> None:
+    result = runner.invoke(
+        cli_mod.app, ["geo", "download", g.GSE, "-o", str(tmp_path), "--select-srx", g.SRX]
+    )
+    assert result.exit_code == 0
+    assert (tmp_path / g.GSE / g.SRX / f"{g.SRR1}_1.fastq.gz").exists()
+    assert "Done: 2 ok, 0 failed." in result.output
+
+
+def test_geo_download_select_srx_unknown_downloads_nothing(
+    fake_tools: FakeTools, fake_series: None, tmp_path: Path
+) -> None:
+    # A well-formed SRX not in the Series filters everything out — no runs, exit 0.
+    result = runner.invoke(
+        cli_mod.app, ["geo", "download", g.GSE, "-o", str(tmp_path), "--select-srx", "SRX0000000"]
+    )
+    assert result.exit_code == 0
+    assert "no SRA runs to download" in result.output
+    assert fake_tools.commands == []
+
+
+def test_geo_download_select_srx_reads_whitelist_file(
+    fake_tools: FakeTools, fake_series: None, tmp_path: Path
+) -> None:
+    # A single value that is an existing file is read as a one-accession-per-line list.
+    whitelist = tmp_path / "srx.txt"
+    whitelist.write_text(f"# experiments to fetch\n{g.SRX}\n\n")
+
+    result = runner.invoke(
+        cli_mod.app, ["geo", "download", g.GSE, "-o", str(tmp_path), "--select-srx", str(whitelist)]
+    )
+    assert result.exit_code == 0
+    assert (tmp_path / g.GSE / g.SRX / f"{g.SRR1}_1.fastq.gz").exists()
+
+
+def test_geo_download_select_srx_rejects_bad_accession(
+    fake_tools: FakeTools, fake_series: None, tmp_path: Path
+) -> None:
+    # A literal value that is neither a file nor an SRX accession is an error.
+    result = runner.invoke(
+        cli_mod.app, ["geo", "download", g.GSE, "-o", str(tmp_path), "--select-srx", "GSM123"]
+    )
+    assert result.exit_code == 1
+    assert "error:" in result.output
+
+
 def test_geo_download_quiet_suppresses_progress(
     fake_tools: FakeTools, fake_series: None, tmp_path: Path
 ) -> None:

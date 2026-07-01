@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from labdata import BioProject, Experiment, Series, SraDownloader
-from labdata.exceptions import DownloadError
+from labdata.exceptions import AccessionError, DownloadError
 from labdata.geo import sratools
 from tests import _geodata as g
 
@@ -255,6 +255,62 @@ def test_bioproject_download_nests_under_bioproject_then_experiment(
     assert srx_dir.is_dir()
     assert (srx_dir / f"{g.SRR1}_1.fastq.gz").exists()
     assert (srx_dir / f"{g.SRR2}_1.fastq.gz").exists()
+
+
+def test_series_download_select_srx_selects_matching_experiment(
+    fake: FakeTools, tmp_path: Path
+) -> None:
+    result = Series(g.GSE, client=g.build_client()).download(tmp_path, select_srx=[g.SRX])
+    # The listed experiment is downloaded in full (both of its runs).
+    assert result == {g.SRR1: True, g.SRR2: True}
+    assert (tmp_path / g.GSE / g.SRX / f"{g.SRR1}_1.fastq.gz").exists()
+
+
+def test_series_download_select_srx_is_case_insensitive(fake: FakeTools, tmp_path: Path) -> None:
+    result = Series(g.GSE, client=g.build_client()).download(tmp_path, select_srx=[g.SRX.lower()])
+    assert result == {g.SRR1: True, g.SRR2: True}
+
+
+def test_series_download_select_srx_excludes_unlisted_experiments(
+    fake: FakeTools, tmp_path: Path
+) -> None:
+    # An SRX not linked to the Series filters every experiment out: nothing runs.
+    result = Series(g.GSE, client=g.build_client()).download(tmp_path, select_srx=["SRX0000000"])
+    assert result == {}
+    assert fake.tools_used() == set()
+    assert not (tmp_path / g.GSE).exists()
+
+
+def test_series_download_empty_select_srx_downloads_nothing(
+    fake: FakeTools, tmp_path: Path
+) -> None:
+    # An explicit empty whitelist means "no experiments" (distinct from None = all).
+    result = Series(g.GSE, client=g.build_client()).download(tmp_path, select_srx=[])
+    assert result == {}
+    assert fake.tools_used() == set()
+
+
+def test_series_download_select_srx_rejects_malformed_accession(
+    fake: FakeTools, tmp_path: Path
+) -> None:
+    with pytest.raises(AccessionError):
+        Series(g.GSE, client=g.build_client()).download(tmp_path, select_srx=["not-an-srx"])
+
+
+def test_series_download_select_srx_rejects_non_srx_accession(
+    fake: FakeTools, tmp_path: Path
+) -> None:
+    # A well-formed accession that is not an experiment (here a run) is rejected too.
+    with pytest.raises(AccessionError):
+        Series(g.GSE, client=g.build_client()).download(tmp_path, select_srx=[g.SRR1])
+
+
+def test_bioproject_download_select_srx_selects_matching_experiment(
+    fake: FakeTools, tmp_path: Path
+) -> None:
+    result = BioProject(g.PRJNA, client=g.build_client()).download(tmp_path, select_srx=[g.SRX])
+    assert result == {g.SRR1: True, g.SRR2: True}
+    assert (tmp_path / g.PRJNA / g.SRX / f"{g.SRR1}_1.fastq.gz").exists()
 
 
 def test_series_download_prefetch_only(fake: FakeTools, tmp_path: Path) -> None:
