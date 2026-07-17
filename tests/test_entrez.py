@@ -5,12 +5,15 @@ context-manager handle and ``Entrez.read`` returns canned parsed structures, so
 no network or XML parsing happens here.
 """
 
+import http.client
+import urllib.error
+
 import pytest
 
 import labdata.ncbi.entrez as entrez_mod
 from labdata.exceptions import EntrezError
 from labdata.ncbi.config import NcbiCredentials
-from labdata.ncbi.entrez import EntrezClient
+from labdata.ncbi.entrez import EntrezClient, _is_transient
 
 CREDS = NcbiCredentials("t@t.org", "abc")
 
@@ -233,3 +236,96 @@ def test_read_failure_becomes_entrez_error(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr(entrez_mod.Entrez, "read", _boom)
     with pytest.raises(EntrezError, match="request failed"):
         EntrezClient(CREDS).esearch(db="gds", term="x")
+
+
+# ---------------------------------------------------------------- transient-retry
+
+
+def test_is_transient_tells_a_dropped_response_from_a_bad_query() -> None:
+    """Connection-level failures retry; a query NCBI rejects does not."""
+    # transient: the request reached NCBI and the response is what broke
+    assert _is_transient(RuntimeError("NCBI ...: Response ended prematurely"))
+    assert _is_transient(RuntimeError("Read failed: EOF (the other side ... closed connection)"))
+    assert _is_transient(http.client.IncompleteRead(b"partial"))
+    assert _is_transient(ConnectionResetError())
+    assert _is_transient(urllib.error.URLError("connection refused"))
+    assert _is_transient(urllib.error.HTTPError("u", 503, "busy", {}, None))  # type: ignore[arg-type]
+    assert _is_transient(urllib.error.HTTPError("u", 429, "slow down", {}, None))  # type: ignore[arg-type]
+    # permanent: our request is the problem, so retrying only hammers NCBI
+    assert not _is_transient(urllib.error.HTTPError("u", 400, "bad", {}, None))  # type: ignore[arg-type]
+    assert not _is_transient(RuntimeError("ID list is empty"))
+
+
+def test_a_transient_drop_is_retried_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
+    """NCBI closing the response mid-parse is retried, not surfaced as a failure."""
+    monkeypatch.setattr(entrez_mod.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(entrez_mod.Entrez, "esearch", lambda **_kw: _Handle())
+    reads = {"n": 0}
+
+    def _read(_handle: object) -> object:
+        reads["n"] += 1
+        if reads["n"] < 3:
+            raise RuntimeError("NCBI E-utilities: Response ended prematurely")
+        return {"IdList": ["42"]}
+
+    monkeypatch.setattr(entrez_mod.Entrez, "read", _read)
+    assert EntrezClient(CREDS).esearch(db="gds", term="x") == ["42"]
+    assert reads["n"] == 3  # two drops, third try wins
+
+
+def test_a_permanent_error_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A query NCBI will never accept fails fast, instead of hammering it _MAX_TRIES times."""
+    monkeypatch.setattr(entrez_mod.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(entrez_mod.Entrez, "esearch", lambda **_kw: _Handle())
+    reads = {"n": 0}
+
+    def _read(_handle: object) -> object:
+        reads["n"] += 1
+        raise RuntimeError("ID list is empty")  # logical, not a dropped connection
+
+    monkeypatch.setattr(entrez_mod.Entrez, "read", _read)
+    with pytest.raises(EntrezError):
+        EntrezClient(CREDS).esearch(db="gds", term="x")
+    assert reads["n"] == 1
+
+
+def test_a_drop_that_never_clears_gives_up_as_entrez_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A persistently failing request still terminates — after exactly _MAX_TRIES attempts."""
+    monkeypatch.setattr(entrez_mod.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(entrez_mod.Entrez, "esearch", lambda **_kw: _Handle())
+    reads = {"n": 0}
+
+    def _read(_handle: object) -> object:
+        reads["n"] += 1
+        raise RuntimeError("Response ended prematurely")
+
+    monkeypatch.setattr(entrez_mod.Entrez, "read", _read)
+    with pytest.raises(EntrezError, match="request failed"):
+        EntrezClient(CREDS).esearch(db="gds", term="x")
+    assert reads["n"] == entrez_mod._MAX_TRIES
+
+
+def test_efetch_retries_a_dropped_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The exact production failure: an efetch response drops mid-read. Retried, not fatal."""
+    monkeypatch.setattr(entrez_mod.time, "sleep", lambda _s: None)
+    state = {"reads": 0}
+
+    class _FetchHandle:
+        def __enter__(self) -> "_FetchHandle":
+            return self
+
+        def __exit__(self, *_exc: object) -> bool:
+            return False
+
+        def read(self) -> bytes:
+            state["reads"] += 1
+            if state["reads"] < 2:
+                raise http.client.IncompleteRead(b"partial")
+            return b"Run,ReleaseDate\nSRR1,2024\n"
+
+    monkeypatch.setattr(entrez_mod.Entrez, "efetch", lambda **_kw: _FetchHandle())
+    out = EntrezClient(CREDS).efetch(db="sra", ids=["1"], rettype="runinfo")
+    assert "SRR1" in out
+    assert state["reads"] == 2  # first read dropped, second succeeded
