@@ -2,7 +2,16 @@
 
 from importlib.metadata import PackageNotFoundError, version
 
-from labdata.geo import BioProject, Experiment, Platform, Run, Sample, Series, SraDownloader
+from labdata.geo import (
+    BioProject,
+    Experiment,
+    Platform,
+    Run,
+    Sample,
+    Series,
+    SraDownloader,
+    experiments_for,
+)
 from labdata.ncbi import FileLocation, RemoteFile, SdlClient
 
 try:
@@ -22,4 +31,5 @@ __all__ = [
     "Series",
     "SraDownloader",
     "__version__",
+    "experiments_for",
 ]

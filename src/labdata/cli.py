@@ -10,7 +10,7 @@ from pathlib import Path
 
 import typer
 
-from labdata import BioProject, Series
+from labdata import BioProject, Series, experiments_for
 from labdata import __version__ as _package_version
 from labdata.exceptions import LabdataError
 from labdata.ncbi.config import (
@@ -153,3 +153,24 @@ def geo_download(
             f"{len(failed)} run(s) failed: {', '.join(failed)}", fg=typer.colors.RED, err=True
         )
         raise typer.Exit(code=1)
+
+
+@geo_app.command("experiments")
+def geo_experiments(
+    accession: str = typer.Argument(
+        ..., help="Any GEO/SRA/BioProject accession (GSE, GSM, PRJNA, SRP, SRS, SAMN, SRX, SRR)."
+    ),
+) -> None:
+    """Print the SRA experiment accessions under ACCESSION, one per line.
+
+    Resolves a GEO Series/Sample, BioProject, study, sample or BioSample down to its SRA
+    experiments — traversing a GEO SuperSeries, which owns no runs of its own. Prints nothing (and
+    still exits 0) for a record that carries no raw SRA data.
+    """
+    try:
+        experiments = experiments_for(accession)
+    except LabdataError as err:
+        typer.secho(f"error: {err}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from err
+    for experiment in experiments:
+        typer.echo(experiment.accession)

@@ -14,13 +14,23 @@ import pytest
 from typer.testing import CliRunner
 
 import labdata.cli as cli_mod
-from labdata import BioProject, Series
+from labdata import BioProject, Series, experiments_for
 from labdata.exceptions import DownloadError
 from labdata.geo import sratools
 from tests import _geodata as g
 from tests.test_sratools import FakeTools
 
 runner = CliRunner()
+
+
+@pytest.fixture
+def fake_experiments(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Resolve experiments through the synthetic GEO/SRA graph instead of NCBI."""
+
+    def resolver(accession: str) -> list:
+        return experiments_for(accession, client=g.build_client())
+
+    monkeypatch.setattr(cli_mod, "experiments_for", resolver)
 
 
 @pytest.fixture
@@ -164,6 +174,18 @@ def test_geo_download_bad_accession_exits_nonzero(tmp_path: Path) -> None:
     result = runner.invoke(
         cli_mod.app, ["geo", "download", "not-an-accession", "-o", str(tmp_path)]
     )
+    assert result.exit_code == 1
+    assert "error:" in result.output
+
+
+def test_geo_experiments_prints_the_experiment_accessions(fake_experiments: None) -> None:
+    result = runner.invoke(cli_mod.app, ["geo", "experiments", g.GSE])
+    assert result.exit_code == 0
+    assert result.output.split() == [g.SRX]
+
+
+def test_geo_experiments_bad_accession_exits_nonzero(fake_experiments: None) -> None:
+    result = runner.invoke(cli_mod.app, ["geo", "experiments", "not-an-accession"])
     assert result.exit_code == 1
     assert "error:" in result.output
 
