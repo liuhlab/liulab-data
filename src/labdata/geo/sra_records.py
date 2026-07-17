@@ -79,14 +79,14 @@ class _SraRecord(_Record):
         return f"https://www.ncbi.nlm.nih.gov/sra/?term={self.accession}"
 
 
-def _linked_experiments(client: EntrezClient, uid: str, *, dbfrom: str = "gds") -> list[Experiment]:
-    """Resolve the SRA experiments (``SRX``) linked from a ``dbfrom`` UID.
+def _experiments_from_uids(client: EntrezClient, sra_uids: list[str]) -> list[Experiment]:
+    """Build the :class:`Experiment` set for a list of ``sra`` UIDs, de-duplicated.
 
-    One ``elink`` plus one batched ``esummary`` for the whole set; each returned
-    :class:`Experiment` is seeded with the UID and summary already fetched, so
-    reading its fields costs no further network.
+    One batched ``esummary`` for the whole set; each returned :class:`Experiment`
+    is seeded with its UID and summary already fetched, so reading its fields costs
+    no further network. Shared by both link-based (:func:`_linked_experiments`) and
+    search-based (a study/sample/BioSample accession) resolution.
     """
-    sra_uids = client.elink(dbfrom=dbfrom, db="sra", uid=uid)
     found: dict[str, Experiment] = {}
     for docsum in client.esummary_many(db="sra", uids=sra_uids):
         accession = _attr(str(docsum.get("ExpXml", "")), "Experiment", "acc")
@@ -95,6 +95,17 @@ def _linked_experiments(client: EntrezClient, uid: str, *, dbfrom: str = "gds") 
             experiment._seed(uid=_docsum_uid(docsum), summary=dict(docsum))
             found[accession] = experiment
     return list(found.values())
+
+
+def _linked_experiments(client: EntrezClient, uid: str, *, dbfrom: str = "gds") -> list[Experiment]:
+    """Resolve the SRA experiments (``SRX``) linked from a ``dbfrom`` UID.
+
+    One ``elink`` (to reach the linked ``sra`` UIDs, traversing GEO SuperSeries and
+    BioProject umbrellas transitively) plus the batched ``esummary`` of
+    :func:`_experiments_from_uids`.
+    """
+    sra_uids = client.elink(dbfrom=dbfrom, db="sra", uid=uid)
+    return _experiments_from_uids(client, sra_uids)
 
 
 class Experiment(_SraRecord):

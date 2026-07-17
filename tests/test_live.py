@@ -9,7 +9,8 @@ import os
 
 import pytest
 
-from labdata.geo import BioProject, Platform, Run, Sample, Series
+from labdata import experiments_for
+from labdata.geo import BioProject, Experiment, Platform, Run, Sample, Series
 
 pytestmark = pytest.mark.network
 
@@ -71,6 +72,26 @@ def test_live_experiment_and_runs() -> None:
     assert all(length > 0 for length in run.read_lengths)
     assert run.n_reads == len(run.read_lengths)
     assert run.read_structure == "+".join(str(length) for length in run.read_lengths)
+
+
+@_needs_creds
+def test_live_experiments_for_resolves_the_superseries() -> None:
+    # GSE229022 is a GEO SuperSeries: its own record owns no runs, so a resolver that does not
+    # traverse the elink to ``sra`` finds nothing. experiments_for must reach all 28 experiments.
+    experiments = experiments_for(_GSE)
+    assert all(isinstance(e, Experiment) for e in experiments)
+    assert all(e.accession.startswith("SRX") for e in experiments)
+    assert len(experiments) == 28
+
+
+@_needs_creds
+def test_live_experiments_for_agrees_across_accession_kinds() -> None:
+    # The Series and its BioProject must enumerate the same experiment set, whichever accession the
+    # caller happens to hold.
+    from_series = {e.accession for e in experiments_for(_GSE)}
+    bioproject = Series(_GSE).bioprojects[0].accession
+    from_bioproject = {e.accession for e in experiments_for(bioproject)}
+    assert from_series == from_bioproject
 
 
 @_needs_creds
