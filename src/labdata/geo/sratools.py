@@ -544,6 +544,15 @@ def download_original_run(
         dest = dest_dir / remote.name
         if dest.exists() and (remote.md5 is None or _md5(dest) == remote.md5):
             continue  # per-file resume: already present (and verified when a checksum is known)
+        # ``remote.url`` is SDL's anonymous, worldwide-egress HTTPS S3 link
+        # (``https://sra-pub-src-*.s3.amazonaws.com/…``), so a plain ``curl`` GET
+        # needs no AWS credentials/CLI and works off-cluster — matching the package's
+        # one-subprocess-seam, minimal-deps design.
+        # TODO(perf): each file is one sequential single-connection stream. For the
+        # tens-of-GB originals a multipart-parallel S3 client (``aws s3 cp
+        # --no-sign-request`` or ``s5cmd``) would be markedly faster. If throughput
+        # matters, dispatch to one when available and fall back to ``curl`` here; the
+        # locator/verify/DAG layers stay unchanged.
         _run_retry(
             ["curl", "-fSL", "-C", "-", "-o", str(dest), remote.url],
             retries=retries,
