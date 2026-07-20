@@ -598,8 +598,9 @@ something.</p>
 <div class="language-bash highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip<span class="w"> </span>install<span class="w"> </span>liulab-data
 </code></pre></div>
 <p>Downloading FASTQ also needs two external tools, <a href="https://github.com/ncbi/sra-tools">sra-tools</a>
-and <a href="https://zlib.net/pigz/">pigz</a>. Install them from Bioconda/conda-forge:</p>
-<div class="language-bash highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>conda<span class="w"> </span>install<span class="w"> </span>-c<span class="w"> </span>bioconda<span class="w"> </span>-c<span class="w"> </span>conda-forge<span class="w"> </span>sra-tools<span class="w"> </span>pigz
+and <a href="https://zlib.net/pigz/">pigz</a> (plus <code>curl</code>, for the original-format download path).
+Install them from Bioconda/conda-forge:</p>
+<div class="language-bash highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>conda<span class="w"> </span>install<span class="w"> </span>-c<span class="w"> </span>bioconda<span class="w"> </span>-c<span class="w"> </span>conda-forge<span class="w"> </span>sra-tools<span class="w"> </span>pigz<span class="w"> </span>curl
 </code></pre></div>
 <div class="admonition tip">
 <p class="admonition-title">Working inside the lab's pixi project?</p>

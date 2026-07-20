@@ -678,11 +678,17 @@ chemistries.</p>
 <div class="language-python highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">table</span><span class="o">.</span><span class="n">to_csv</span><span class="p">(</span><span class="s2">&quot;GSE47966_runs.csv&quot;</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>   <span class="c1"># hand it off to collaborators</span>
 </code></pre></div>
 <h2 id="3-download-all-fastq-files">3. Download all FASTQ files<a class="headerlink" href="#3-download-all-fastq-files" title="Permanent link">&para;</a></h2>
-<p>One call fetches the FASTQ for <strong>every run in the study</strong>, using
-<a href="https://github.com/ncbi/sra-tools">sra-tools</a> under the hood. Files are organized by
-study → experiment → run and gzipped for you:</p>
-<div class="language-python highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">gse</span><span class="o">.</span><span class="n">download</span><span class="p">(</span><span class="s2">&quot;./fastq&quot;</span><span class="p">,</span> <span class="n">n_parallel</span><span class="o">=</span><span class="mi">4</span><span class="p">)</span>   <span class="c1"># 4 runs at a time</span>
+<p>One call fetches the FASTQ for <strong>every run in the study</strong>, running a
+<a href="https://snakemake.github.io">Snakemake</a> pipeline (<code>prefetch → extract → compress</code>)
+over <a href="https://github.com/ncbi/sra-tools">sra-tools</a> under the hood. Files are organized
+by study → experiment → run and gzipped for you:</p>
+<div class="language-python highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">gse</span><span class="o">.</span><span class="n">download</span><span class="p">(</span><span class="s2">&quot;./fastq&quot;</span><span class="p">,</span> <span class="n">ncbi_parallel</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">cores</span><span class="o">=</span><span class="mi">16</span><span class="p">)</span>   <span class="c1"># ≤3 downloads at once, 16 cores total</span>
 </code></pre></div>
+<p>The two knobs are independent, which is the point: <code>ncbi_parallel</code> caps how many runs
+<code>prefetch</code> from NCBI at once (keep it low to stay friendly with NCBI), while <code>cores</code>
+bounds total CPU for the local extraction/gzip work. So downloads keep the network busy
+while cores chew through already-fetched runs, instead of the two blocking each other.
+On an HPC allocation, set <code>cores</code> to your allotted cores.</p>
 <div class="language-text highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>{&#39;SRR921999&#39;: True, &#39;SRR922000&#39;: True, &#39;SRR922001&#39;: True, ...}     # each run: success?
 </code></pre></div>
 <p>The files land in a tidy tree:</p>
@@ -699,20 +705,49 @@ study → experiment → run and gzipped for you:</p>
 <p class="admonition-title">Good to know</p>
 <ul>
 <li>This downloads <strong>real sequencing data</strong>, which can be large — point
-  <code>output_dir</code> somewhere with room to spare.</li>
+  <code>output_dir</code> somewhere with room to spare. If free space looks tight, the
+  download prints a rough warning before it starts (it never blocks).</li>
 <li>GSE47966's runs are single-end, so each gives one <code>.fastq.gz</code>; paired-end runs
   produce <code>_1</code>/<code>_2</code> files instead.</li>
-<li>Each finished run drops a hidden <code>.&lt;run&gt;.success</code> marker, so re-running
-  <code>download()</code> <strong>skips what's already done</strong> and resumes the rest.</li>
+<li><strong>Interruptible.</strong> A finished run leaves a <code>.&lt;run&gt;.done</code> marker, so re-running
+  <code>download()</code> <strong>skips what's already done</strong> — an interrupted download resumes
+  without re-fetching SRA data (and <code>prefetch</code> itself resumes a partial <code>.sra</code>).
+  Safe after a Ctrl-C or an HPC walltime kill.</li>
+<li><strong>Modest peak disk.</strong> Snakemake reclaims each intermediate the moment the next
+  step consumes it — a run's <code>.sra</code> the moment its FASTQ is extracted, the
+  uncompressed FASTQ the moment they're gzipped — and drains
+  extraction/compression before fetching more, so only a handful of <code>.sra</code> sit on
+  disk at once. Lower <code>ncbi_parallel</code> to shrink that working set further.</li>
 <li>Pass <code>keep_sra=True</code> to keep each run's <code>.sra</code> next to its FASTQ instead of
-  deleting it after extraction (useful for re-extracting later).</li>
-<li>Needs <code>sra-tools</code> and <code>pigz</code> on your system (see <a href="../../">Installation</a>).</li>
+  reclaiming it after extraction (useful for re-extracting later), or
+  <code>prefetch_only=True</code> to just stage the <code>.sra</code> files without extracting.</li>
+<li>Needs <code>sra-tools</code> and <code>pigz</code> on your system (see <a href="../../">Installation</a>);
+  Snakemake comes with <code>liulab-data</code>.</li>
 </ul>
+</div>
+<div class="admonition tip">
+<p class="admonition-title">Missing or useless <code>.sra</code>? Download the original files</p>
+<p>Occasionally a run's SRA-normalized <code>.sra</code> is gone, or wrong — e.g. a 10X run
+whose <code>.sra</code> kept only one read of a pair. The submitter's <strong>original-format</strong>
+files (what you see under "Data access" in the SRA Run Browser) are still there.
+Name those experiments with <code>original_srx</code> to fetch them as-is instead — download
+only, no extraction:</p>
+<p><div class="language-python highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">gse</span><span class="o">.</span><span class="n">download</span><span class="p">(</span><span class="s2">&quot;./fastq&quot;</span><span class="p">,</span> <span class="n">original_srx</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;SRX34567890&quot;</span><span class="p">])</span>
+</code></pre></div>
+<div class="language-bash highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>labdata<span class="w"> </span>geo<span class="w"> </span>download<span class="w"> </span>GSE310667<span class="w"> </span>--original-srx<span class="w"> </span>SRX34567890
+</code></pre></div></p>
+<p>The files land under <code>…/&lt;SRX&gt;/&lt;SRR&gt;/</code> with their original names and are md5-checked
+against NCBI; everything else in the study still takes the normal sra-tools path.
+This only sets the <em>mode</em> — pair it with <code>--select-srx</code>/<code>select_srx</code> (repeatable,
+or a whitelist file) if you also want to narrow <em>which</em> experiments run. Original
+format is heterogeneous, so labdata just downloads it and leaves the processing to
+you. Needs <code>curl</code> in addition to <code>sra-tools</code>/<code>pigz</code>.</p>
 </div>
 <div class="admonition info">
 <p class="admonition-title">Just one experiment?</p>
 <p><code>Series.download</code> does the whole study. To grab a single experiment instead, use
-<code>SraDownloader</code> — see the <a href="../../reference/">API reference</a>.</p>
+<code>SraDownloader</code> — see the <a href="../../reference/">API reference</a>. Pass <code>original=True</code> for
+that experiment's original-format files.</p>
 </div>
 <div class="admonition tip">
 <p class="admonition-title">Have a BioProject instead?</p>
@@ -725,9 +760,9 @@ lays the FASTQ out identically, under a <code>PRJNA…/</code> directory. The
 <p>Raw FASTQ isn't the whole story. Authors usually attach <strong>supplementary files</strong> —
 processed matrices, peak calls, bigWigs, READMEs — to the Series. List them and grab
 their download URLs directly:</p>
-<div class="language-python highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">gse</span><span class="o">.</span><span class="n">supplementary_files</span>       <span class="c1"># [&#39;GSE47966_RAW.tar&#39;, &#39;GSE47966_README.txt&#39;, &#39;filelist.txt&#39;]</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="n">gse</span><span class="o">.</span><span class="n">supplementary_file_urls</span>   <span class="c1"># full https URLs you can download</span>
-<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="n">gse</span><span class="o">.</span><span class="n">supplementary_http_url</span>    <span class="c1"># the suppl/ directory itself</span>
+<div class="language-python highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">gse</span><span class="o">.</span><span class="n">supplementary_files</span>       <span class="c1"># [&#39;GSE47966_RAW.tar&#39;, &#39;GSE47966_README.txt&#39;, &#39;filelist.txt&#39;]</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="n">gse</span><span class="o">.</span><span class="n">supplementary_file_urls</span>   <span class="c1"># full https URLs you can download</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="n">gse</span><span class="o">.</span><span class="n">supplementary_http_url</span>    <span class="c1"># the suppl/ directory itself</span>
 </code></pre></div>
 <p>These are often where the <em>useful, ready-to-analyze</em> outputs live — see
 <a href="../understanding-geo/#whats-not-in-geo">what's not in GEO</a> for why they matter.</p>
