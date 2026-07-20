@@ -25,6 +25,7 @@ environments:
     - https://pypi.org/simple
     packages:
       linux-64:
+      - conda: https://conda.anaconda.org/bioconda/linux-64/10x_bamtofastq-1.4.1-h3ab6199_4.conda
       - conda: https://conda.anaconda.org/bioconda/linux-64/perl-alien-build-2.84-pl5321h7b50bb2_1.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/linux-64/perl-alien-libxml2-0.20-pl5321hd2ab53c_0.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/linux-64/perl-xml-libxml-2.0210-pl5321hd2ab53c_1.tar.bz2
@@ -283,6 +284,7 @@ environments:
       - conda: https://conda.anaconda.org/bioconda/noarch/snakemake-interface-scheduler-plugins-2.0.2-pyhd4c3c12_0.conda
       - conda: https://conda.anaconda.org/bioconda/noarch/snakemake-interface-storage-plugins-4.4.1-pyh84498cf_0.conda
       - conda: https://conda.anaconda.org/bioconda/noarch/snakemake-minimal-9.23.1-pyhdfd78af_1.conda
+      - conda: https://conda.anaconda.org/bioconda/osx-64/10x_bamtofastq-1.4.1-hefd1791_4.conda
       - conda: https://conda.anaconda.org/bioconda/osx-64/perl-alien-build-2.84-pl5321h18d8cf3_1.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-64/perl-alien-libxml2-0.20-pl5321h3e28226_0.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-64/perl-xml-libxml-2.0210-pl5321h3e28226_1.tar.bz2
@@ -525,6 +527,7 @@ environments:
       - conda: https://conda.anaconda.org/bioconda/noarch/snakemake-interface-scheduler-plugins-2.0.2-pyhd4c3c12_0.conda
       - conda: https://conda.anaconda.org/bioconda/noarch/snakemake-interface-storage-plugins-4.4.1-pyh84498cf_0.conda
       - conda: https://conda.anaconda.org/bioconda/noarch/snakemake-minimal-9.23.1-pyhdfd78af_1.conda
+      - conda: https://conda.anaconda.org/bioconda/osx-arm64/10x_bamtofastq-1.4.1-h9399bea_4.conda
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/perl-alien-build-2.84-pl5321hbdacb55_1.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/perl-alien-libxml2-0.20-pl5321h9b71f33_0.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/perl-xml-libxml-2.0210-pl5321h9b71f33_1.tar.bz2
@@ -763,6 +766,7 @@ environments:
     - https://pypi.org/simple
     packages:
       linux-64:
+      - conda: https://conda.anaconda.org/bioconda/linux-64/10x_bamtofastq-1.4.1-h3ab6199_4.conda
       - conda: https://conda.anaconda.org/bioconda/linux-64/perl-alien-build-2.84-pl5321h7b50bb2_1.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/linux-64/perl-alien-libxml2-0.20-pl5321hd2ab53c_0.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/linux-64/perl-xml-libxml-2.0210-pl5321hd2ab53c_1.tar.bz2
@@ -959,6 +963,7 @@ environments:
       - conda: https://conda.anaconda.org/bioconda/noarch/snakemake-interface-scheduler-plugins-2.0.2-pyhd4c3c12_0.conda
       - conda: https://conda.anaconda.org/bioconda/noarch/snakemake-interface-storage-plugins-4.4.1-pyh84498cf_0.conda
       - conda: https://conda.anaconda.org/bioconda/noarch/snakemake-minimal-9.23.1-pyhdfd78af_1.conda
+      - conda: https://conda.anaconda.org/bioconda/osx-64/10x_bamtofastq-1.4.1-hefd1791_4.conda
       - conda: https://conda.anaconda.org/bioconda/osx-64/perl-alien-build-2.84-pl5321h18d8cf3_1.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-64/perl-alien-libxml2-0.20-pl5321h3e28226_0.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-64/perl-xml-libxml-2.0210-pl5321h3e28226_1.tar.bz2
@@ -1138,6 +1143,7 @@ environments:
       - conda: https://conda.anaconda.org/bioconda/noarch/snakemake-interface-scheduler-plugins-2.0.2-pyhd4c3c12_0.conda
       - conda: https://conda.anaconda.org/bioconda/noarch/snakemake-interface-storage-plugins-4.4.1-pyh84498cf_0.conda
       - conda: https://conda.anaconda.org/bioconda/noarch/snakemake-minimal-9.23.1-pyhdfd78af_1.conda
+      - conda: https://conda.anaconda.org/bioconda/osx-arm64/10x_bamtofastq-1.4.1-h9399bea_4.conda
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/perl-alien-build-2.84-pl5321hbdacb55_1.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/perl-alien-libxml2-0.20-pl5321h9b71f33_0.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/perl-xml-libxml-2.0210-pl5321h9b71f33_1.tar.bz2
@@ -1313,6 +1319,7 @@ environments:
     - https://pypi.org/simple
     packages:
       linux-64:
+      - conda: https://conda.anaconda.org/bioconda/linux-64/10x_bamtofastq-1.4.1-h3ab6199_4.conda
       - conda: https://conda.anaconda.org/bioconda/linux-64/perl-alien-build-2.84-pl5321h7b50bb2_1.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/linux-64/perl-alien-libxml2-0.20-pl5321hd2ab53c_0.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/linux-64/perl-xml-libxml-2.0210-pl5321hd2ab53c_1.tar.bz2
@@ -1497,6 +1504,7 @@ environments:
       - conda: https://conda.anaconda.org/bioconda/noarch/snakemake-interface-scheduler-plugins-2.0.2-pyhd4c3c12_0.conda
       - conda: https://conda.anaconda.org/bioconda/noarch/snakemake-interface-storage-plugins-4.4.1-pyh84498cf_0.conda
       - conda: https://conda.anaconda.org/bioconda/noarch/snakemake-minimal-9.23.1-pyhdfd78af_1.conda
+      - conda: https://conda.anaconda.org/bioconda/osx-64/10x_bamtofastq-1.4.1-hefd1791_4.conda
       - conda: https://conda.anaconda.org/bioconda/osx-64/perl-alien-build-2.84-pl5321h18d8cf3_1.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-64/perl-alien-libxml2-0.20-pl5321h3e28226_0.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-64/perl-xml-libxml-2.0210-pl5321h3e28226_1.tar.bz2
@@ -1664,6 +1672,7 @@ environments:
       - conda: https://conda.anaconda.org/bioconda/noarch/snakemake-interface-scheduler-plugins-2.0.2-pyhd4c3c12_0.conda
       - conda: https://conda.anaconda.org/bioconda/noarch/snakemake-interface-storage-plugins-4.4.1-pyh84498cf_0.conda
       - conda: https://conda.anaconda.org/bioconda/noarch/snakemake-minimal-9.23.1-pyhdfd78af_1.conda
+      - conda: https://conda.anaconda.org/bioconda/osx-arm64/10x_bamtofastq-1.4.1-h9399bea_4.conda
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/perl-alien-build-2.84-pl5321hbdacb55_1.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/perl-alien-libxml2-0.20-pl5321h9b71f33_0.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/perl-xml-libxml-2.0210-pl5321h9b71f33_1.tar.bz2
@@ -1826,6 +1835,7 @@ environments:
     - https://pypi.org/simple
     packages:
       linux-64:
+      - conda: https://conda.anaconda.org/bioconda/linux-64/10x_bamtofastq-1.4.1-h3ab6199_4.conda
       - conda: https://conda.anaconda.org/bioconda/linux-64/perl-alien-build-2.84-pl5321h7b50bb2_1.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/linux-64/perl-alien-libxml2-0.20-pl5321hd2ab53c_0.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/linux-64/perl-xml-libxml-2.0210-pl5321hd2ab53c_1.tar.bz2
@@ -2010,6 +2020,7 @@ environments:
       - conda: https://conda.anaconda.org/bioconda/noarch/snakemake-interface-scheduler-plugins-2.0.2-pyhd4c3c12_0.conda
       - conda: https://conda.anaconda.org/bioconda/noarch/snakemake-interface-storage-plugins-4.4.1-pyh84498cf_0.conda
       - conda: https://conda.anaconda.org/bioconda/noarch/snakemake-minimal-9.23.1-pyhdfd78af_1.conda
+      - conda: https://conda.anaconda.org/bioconda/osx-64/10x_bamtofastq-1.4.1-hefd1791_4.conda
       - conda: https://conda.anaconda.org/bioconda/osx-64/perl-alien-build-2.84-pl5321h18d8cf3_1.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-64/perl-alien-libxml2-0.20-pl5321h3e28226_0.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-64/perl-xml-libxml-2.0210-pl5321h3e28226_1.tar.bz2
@@ -2178,6 +2189,7 @@ environments:
       - conda: https://conda.anaconda.org/bioconda/noarch/snakemake-interface-scheduler-plugins-2.0.2-pyhd4c3c12_0.conda
       - conda: https://conda.anaconda.org/bioconda/noarch/snakemake-interface-storage-plugins-4.4.1-pyh84498cf_0.conda
       - conda: https://conda.anaconda.org/bioconda/noarch/snakemake-minimal-9.23.1-pyhdfd78af_1.conda
+      - conda: https://conda.anaconda.org/bioconda/osx-arm64/10x_bamtofastq-1.4.1-h9399bea_4.conda
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/perl-alien-build-2.84-pl5321hbdacb55_1.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/perl-alien-libxml2-0.20-pl5321h9b71f33_0.tar.bz2
       - conda: https://conda.anaconda.org/bioconda/osx-arm64/perl-xml-libxml-2.0210-pl5321h9b71f33_1.tar.bz2
@@ -2334,6 +2346,19 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/zstd-1.5.7-hbf9d68e_6.conda
       - pypi: ./
 packages:
+- conda: https://conda.anaconda.org/bioconda/linux-64/10x_bamtofastq-1.4.1-h3ab6199_4.conda
+  sha256: 1ebbc87a2fcae64843be6a05106db030ca1c58fad7f0fc160c063b03675b0299
+  md5: d30f8ad9e952302c1d89b394a063e2df
+  depends:
+  - libgcc >=13
+  - libstdcxx >=13
+  constrains:
+  - __glibc >=2.17
+  license: MIT
+  license_family: MIT
+  purls: []
+  size: 1387665
+  timestamp: 1758055132445
 - conda: https://conda.anaconda.org/bioconda/linux-64/perl-alien-build-2.84-pl5321h7b50bb2_1.tar.bz2
   sha256: ef28ca71abf0b875953d1d68a1cf14a0d14de7df20b33d24d98d9aeaf0a8c47e
   md5: 1966b7077b4cacfa9e2a2cb65723e9c1
@@ -2563,6 +2588,18 @@ packages:
   - pkg:pypi/snakemake?source=hash-mapping
   size: 888303
   timestamp: 1781821379807
+- conda: https://conda.anaconda.org/bioconda/osx-64/10x_bamtofastq-1.4.1-hefd1791_4.conda
+  sha256: f11adbc9b661787c26145f02a21e6194cec1404b9faa3b7c830c1632fe16c2cd
+  md5: 9d30f9093d87fde9291b831f8379d981
+  depends:
+  - libcxx >=18
+  constrains:
+  - __osx >=10.13
+  license: MIT
+  license_family: MIT
+  purls: []
+  size: 1290815
+  timestamp: 1758056056698
 - conda: https://conda.anaconda.org/bioconda/osx-64/perl-alien-build-2.84-pl5321h18d8cf3_1.tar.bz2
   sha256: bce6999f1ccb580f2b5b72f23ba7a58809ec4786a70a840a8512fbc8b6a30e31
   md5: 0dab5c3fd4a249dca4ad7d249a1e9e4f
@@ -2625,6 +2662,18 @@ packages:
   purls: []
   size: 14098648
   timestamp: 1776566095969
+- conda: https://conda.anaconda.org/bioconda/osx-arm64/10x_bamtofastq-1.4.1-h9399bea_4.conda
+  sha256: 29a5fe9b2fd8b205060faccaeb9b75585218b51d5bbd5b3a218df55a229e5836
+  md5: 7bcd31860cf6bdb8f34c83564d2dbe76
+  depends:
+  - libcxx >=18
+  constrains:
+  - __osx >=11.0
+  license: MIT
+  license_family: MIT
+  purls: []
+  size: 1176910
+  timestamp: 1758054487442
 - conda: https://conda.anaconda.org/bioconda/osx-arm64/perl-alien-build-2.84-pl5321hbdacb55_1.tar.bz2
   sha256: ca71aed14a0eaa37416b3a5830f8585dbe980797b6577c4ab725bb886713c7be
   md5: de297c117af21e7f5430a3667b484376
@@ -3040,7 +3089,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/debugpy?source=hash-mapping
+  - pkg:pypi/debugpy?source=compressed-mapping
   run_exports: {}
   size: 2825625
   timestamp: 1780390153372
@@ -3846,7 +3895,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/numpy?source=hash-mapping
+  - pkg:pypi/numpy?source=compressed-mapping
   run_exports:
     weak:
     - numpy >=1.25,<3
@@ -4358,7 +4407,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/rpds-py?source=hash-mapping
+  - pkg:pypi/rpds-py?source=compressed-mapping
   run_exports: {}
   size: 300259
   timestamp: 1782831325201
@@ -4458,7 +4507,7 @@ packages:
   license: Apache-2.0
   license_family: Apache
   purls:
-  - pkg:pypi/tornado?source=hash-mapping
+  - pkg:pypi/tornado?source=compressed-mapping
   run_exports: {}
   size: 885824
   timestamp: 1781006802459
@@ -5050,7 +5099,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/hatchling?source=hash-mapping
+  - pkg:pypi/hatchling?source=compressed-mapping
   run_exports: {}
   size: 61807
   timestamp: 1780403469805
@@ -5185,7 +5234,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/ipykernel?source=hash-mapping
+  - pkg:pypi/ipykernel?source=compressed-mapping
   run_exports: {}
   size: 137725
   timestamp: 1781101860049
@@ -5213,7 +5262,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/ipykernel?source=hash-mapping
+  - pkg:pypi/ipykernel?source=compressed-mapping
   run_exports: {}
   size: 138635
   timestamp: 1781101665847
@@ -6462,7 +6511,7 @@ packages:
   license: Apache-2.0
   license_family: APACHE
   purls:
-  - pkg:pypi/trove-classifiers?source=hash-mapping
+  - pkg:pypi/trove-classifiers?source=compressed-mapping
   run_exports: {}
   size: 24210
   timestamp: 1780385194431
@@ -6966,7 +7015,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/greenlet?source=hash-mapping
+  - pkg:pypi/greenlet?source=compressed-mapping
   run_exports: {}
   size: 260470
   timestamp: 1782524836843
@@ -8092,7 +8141,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/rpds-py?source=hash-mapping
+  - pkg:pypi/rpds-py?source=compressed-mapping
   run_exports: {}
   size: 300879
   timestamp: 1782831643076
@@ -8298,7 +8347,7 @@ packages:
   - python_abi 3.12.* *_cp312
   license: BSD-3-Clause AND MIT AND EPL-2.0
   purls:
-  - pkg:pypi/backports-zstd?source=hash-mapping
+  - pkg:pypi/backports-zstd?source=compressed-mapping
   run_exports: {}
   size: 240925
   timestamp: 1781450816363
@@ -8630,7 +8679,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/greenlet?source=hash-mapping
+  - pkg:pypi/greenlet?source=compressed-mapping
   run_exports: {}
   size: 262244
   timestamp: 1782524837618
@@ -9285,7 +9334,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/numpy?source=hash-mapping
+  - pkg:pypi/numpy?source=compressed-mapping
   run_exports:
     weak:
     - numpy >=1.25,<3
@@ -9791,7 +9840,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/rpds-py?source=hash-mapping
+  - pkg:pypi/rpds-py?source=compressed-mapping
   run_exports: {}
   size: 286191
   timestamp: 1782831381815

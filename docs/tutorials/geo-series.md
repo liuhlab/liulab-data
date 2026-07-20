@@ -131,7 +131,9 @@ fastq/
     This only sets the *mode* — pair it with `--select-srx`/`select_srx` (repeatable,
     or a whitelist file) if you also want to narrow *which* experiments run. Original
     format is heterogeneous, so labdata just downloads it and leaves the processing to
-    you. Needs `curl` in addition to `sra-tools`/`pigz`.
+    you. Needs `curl` in addition to `sra-tools`/`pigz`. When the original file is a
+    **10x cellranger BAM**, the [10x BAM → FASTQ tutorial](tenx-bam.md) turns it back
+    into remap-ready FASTQ.
 
 !!! info "Just one experiment?"
     `Series.download` does the whole study. To grab a single experiment instead, use

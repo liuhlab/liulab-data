@@ -10,6 +10,8 @@
 
 ::: labdata.geo.bio_project_records
 
+::: labdata.tenx.bamtofastq
+
 ::: labdata.ncbi.entrez
 
 ::: labdata.ncbi.sdl
