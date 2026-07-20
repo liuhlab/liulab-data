@@ -339,7 +339,7 @@ def tenx_bamtofastq(
     from_disk: bool = typer.Option(
         False,
         "--from-disk",
-        help="Find runs by scanning the on-disk <SRX>/<SRR>/*.bam tree instead of NCBI "
+        help="Find runs by scanning the on-disk <SRX>/<SRR>_*.bam tree instead of NCBI "
         "(no network/credentials — for offline HPC conversion of downloaded BAMs).",
     ),
     remove_bam: bool = typer.Option(
@@ -388,7 +388,7 @@ def tenx_bamtofastq(
 @tenx_app.command("_bamtofastq", hidden=True)
 def tenx_bamtofastq_stage(
     srr: str = typer.Argument(..., help="Run accession (SRR/ERR/DRR)."),
-    srx_dir: Path = typer.Argument(..., help="Experiment directory holding <SRR>/<name>.bam."),
+    srx_dir: Path = typer.Argument(..., help="Experiment directory holding <SRR>_<name>.bam."),
     threads: int = typer.Option(bamtofastq.DEFAULT_THREADS_PER_RUN, "--threads", min=1),
     reads_per_fastq: int = typer.Option(
         bamtofastq.DEFAULT_READS_PER_FASTQ, "--reads-per-fastq", min=1

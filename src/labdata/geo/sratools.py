@@ -543,9 +543,12 @@ def download_original_run(
     SRA-normalized ``.sra`` is missing or useless (e.g. a 10X run whose ``.sra``
     stored only one read) and the submitter's own uploads must be fetched instead.
     Each original file listed by the SRA Data Locator (:attr:`Run.original_files`)
-    is fetched with ``curl`` into ``<srx_dir>/<SRR>/<name>`` and, when the locator
-    reports a checksum, verified against it. Nothing is extracted or compressed —
-    the original format is heterogeneous and left for a later processing step.
+    is fetched with ``curl`` into ``<srx_dir>/<SRR>_<name>`` and, when the locator
+    reports a checksum, verified against it. Files land flat in the experiment dir,
+    each name prefixed with the run accession — matching the sra-tools output layout
+    (``<SRX>/<SRR>…``) and keeping runs from colliding when their submitted files
+    share a name. Nothing is extracted or compressed — the original format is
+    heterogeneous and left for a later processing step.
 
     ``curl`` resumes a partial file (``-C -``) and the whole call is retried with
     linear backoff, so an interrupted download continues on a rerun rather than
@@ -557,7 +560,8 @@ def download_original_run(
     run : Run
         The run whose original-format files to fetch.
     srx_dir : Path
-        The (already created) experiment directory; files land under ``<SRR>/``.
+        The (already created) experiment directory; files land directly in it,
+        each name prefixed with the run accession (``<SRR>_<name>``).
     retries : int, default :data:`DEFAULT_RETRIES`
         Attempts for each ``curl`` fetch before giving up.
     backoff : float, default :data:`DEFAULT_BACKOFF`
@@ -576,12 +580,11 @@ def download_original_run(
         raise DownloadError(
             f"no original-format files listed for {accession!r} — nothing to download"
         )
-    dest_dir = srx_dir / accession
-    dest_dir.mkdir(parents=True, exist_ok=True)
+    srx_dir.mkdir(parents=True, exist_ok=True)
     for remote in files:
         if not remote.url:
             raise DownloadError(f"no download URL for original file {remote.name!r} ({accession})")
-        dest = dest_dir / remote.name
+        dest = srx_dir / f"{accession}_{remote.name}"
         if dest.exists() and (remote.md5 is None or _md5(dest) == remote.md5):
             continue  # per-file resume: already present (and verified when a checksum is known)
         # ``remote.url`` is SDL's anonymous, worldwide-egress HTTPS S3 link

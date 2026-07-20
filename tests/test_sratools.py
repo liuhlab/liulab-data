@@ -306,19 +306,19 @@ def test_download_original_run_fetches_files(fake: FakeTools, tmp_path: Path) ->
 
     sratools.download_original_run(run, srx_dir)
 
-    run_dir = srx_dir / g.SRR1
-    assert (run_dir / f"{g.SRR1}_original_R1.fastq.gz").exists()
-    assert (run_dir / f"{g.SRR1}_original_R2.fastq.gz").exists()
+    # Files land flat in the SRX dir, SRR-prefixed (submitter name had no SRR).
+    assert (srx_dir / f"{g.SRR1}_original_R1.fastq.gz").exists()
+    assert (srx_dir / f"{g.SRR1}_original_R2.fastq.gz").exists()
+    assert not (srx_dir / g.SRR1).exists()  # no per-run subdir
     # Only curl ran — no prefetch/fasterq-dump/pigz, and nothing was extracted.
     assert fake.tools_used() == {"curl"}
 
 
 def test_download_original_run_skips_present_files(fake: FakeTools, tmp_path: Path) -> None:
     srx_dir = tmp_path / g.SRX
-    run_dir = srx_dir / g.SRR1
-    run_dir.mkdir(parents=True)
+    srx_dir.mkdir(parents=True)
     # One file already present (no md5 to check) is skipped; the other is fetched.
-    (run_dir / f"{g.SRR1}_original_R1.fastq.gz").write_bytes(b"already here")
+    (srx_dir / f"{g.SRR1}_original_R1.fastq.gz").write_bytes(b"already here")
 
     sratools.download_original_run(Run(g.SRR1, sdl_client=g.build_sdl_client()), srx_dir)
 
@@ -344,7 +344,7 @@ def test_download_original_run_verifies_md5(fake: FakeTools, tmp_path: Path) -> 
 
     sratools.download_original_run(Run(g.SRR1, sdl_client=sdl), srx_dir)
 
-    assert (srx_dir / g.SRR1 / "reads.bam").exists()
+    assert (srx_dir / f"{g.SRR1}_reads.bam").exists()
 
 
 def test_download_original_run_md5_mismatch_raises(fake: FakeTools, tmp_path: Path) -> None:
@@ -364,11 +364,11 @@ def test_series_download_original_srx_fetches_original_only(
     assert result == {g.SRR1: True, g.SRR2: True}
     srx_dir = tmp_path / g.GSE / g.SRX
     for srr in (g.SRR1, g.SRR2):
-        assert (srx_dir / srr / f"{srr}_original_R1.fastq.gz").exists()
+        assert (srx_dir / f"{srr}_original_R1.fastq.gz").exists()
         assert (srx_dir / f".{srr}.original.done").exists()
-    # No sra-tools path was taken, and no gzipped FASTQ / default .done markers exist.
+    # No sra-tools path was taken, and no default .done markers exist. Original FASTQ
+    # sit flat in the SRX dir (SRR-prefixed), not the SRR_1/_2 sra-tools naming.
     assert fake.tools_used() == {"curl"}
-    assert list(srx_dir.glob("*.fastq.gz")) == []
     assert not (srx_dir / f".{g.SRR1}.done").exists()
     assert not (srx_dir / f".{g.SRR2}.done").exists()
 
@@ -386,7 +386,7 @@ def test_sradownloader_original_downloads_submitter_files(
     assert result == {g.SRR1: True, g.SRR2: True}
     srx_dir = tmp_path / g.SRX
     for srr in (g.SRR1, g.SRR2):
-        assert (srx_dir / srr / f"{srr}_original_R1.fastq.gz").exists()
+        assert (srx_dir / f"{srr}_original_R1.fastq.gz").exists()
         assert (srx_dir / f".{srr}.original.done").exists()
     assert fake.tools_used() == {"curl"}
 

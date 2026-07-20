@@ -121,8 +121,9 @@ def _scratch_dir(srx_dir: Path, accession: str) -> Path:
 def _find_bam(srx_dir: Path, accession: str) -> Path:
     """Return the single on-disk original BAM for ``accession`` under ``srx_dir``.
 
-    The original-format download lays a run's submitted files under
-    ``<srx_dir>/<SRR>/``; the cellranger BAM is the ``*.bam`` there.
+    The original-format download lays a run's submitted files flat under
+    ``srx_dir`` with SRR-prefixed names; the cellranger BAM is the ``<SRR>_*.bam``
+    there.
 
     Raises
     ------
@@ -130,16 +131,15 @@ def _find_bam(srx_dir: Path, accession: str) -> Path:
         If no BAM (or more than one) is found — the former usually means the
         original-format download has not been run yet.
     """
-    run_dir = srx_dir / accession
-    bams = sorted(run_dir.glob("*.bam"))
+    bams = sorted(srx_dir.glob(f"{accession}_*.bam"))
     if not bams:
         raise DownloadError(
-            f"no cellranger BAM for {accession!r} under {run_dir} — run "
+            f"no cellranger BAM for {accession!r} under {srx_dir} — run "
             f"`labdata geo download … --original-srx {srx_dir.name}` first"
         )
     if len(bams) > 1:
         names = ", ".join(bam.name for bam in bams)
-        raise DownloadError(f"multiple BAMs for {accession!r} under {run_dir}: {names}")
+        raise DownloadError(f"multiple BAMs for {accession!r} under {srx_dir}: {names}")
     return bams[0]
 
 
@@ -195,9 +195,9 @@ def bamtofastq_run(
 ) -> list[Path]:
     """Convert one run's on-disk cellranger BAM to FASTQ with ``bamtofastq``.
 
-    The single stage of the tenx DAG. Locates the run's original-format BAM under
-    ``<srx_dir>/<SRR>/``, runs 10x's ``bamtofastq`` into a scratch dir, then flattens
-    that nested output into ``<srx_dir>/<SRR>_S1_L00N_R{1,2}_00N.fastq.gz`` (see
+    The single stage of the tenx DAG. Locates the run's original-format BAM
+    (``<srx_dir>/<SRR>_*.bam``), runs 10x's ``bamtofastq`` into a scratch dir, then
+    flattens that nested output into ``<srx_dir>/<SRR>_S1_L00N_R{1,2}_00N.fastq.gz`` (see
     :func:`_flatten_output`) and removes the scratch. Idempotent: a stale scratch from
     an interrupted run is cleared first (``bamtofastq`` refuses a pre-existing output
     dir), so a rerun reconverts cleanly.
@@ -207,7 +207,7 @@ def bamtofastq_run(
     run : Run
         The run whose BAM to convert.
     srx_dir : Path
-        The experiment directory holding ``<SRR>/<name>.bam``; the FASTQ land here.
+        The experiment directory holding ``<SRR>_<name>.bam``; the FASTQ land here.
     threads : int, default :data:`DEFAULT_THREADS_PER_RUN`
         Threads passed to ``bamtofastq --nthreads``.
     reads_per_fastq : int, default :data:`DEFAULT_READS_PER_FASTQ`
@@ -325,10 +325,12 @@ def _as_record(accession_or_record: str | Series | BioProject) -> Series | BioPr
 def _tasks_from_disk(base: Path, wanted: set[str] | None) -> list[tuple[Run, Path]]:
     """Build ``(run, srx_dir)`` tasks by scanning ``base`` for on-disk cellranger BAMs.
 
-    Walks ``base/<SRX>/<SRR>/`` and includes every run directory that holds a ``*.bam``,
-    needing no network. Hidden dirs (e.g. the ``.labdata`` control dir) are skipped, as
-    are directory names that are not well-formed ``SRX``/``SRR`` accessions. When
-    ``wanted`` is given, only experiments whose accession is listed are considered.
+    Walks ``base/<SRX>/`` and includes every run whose SRR-prefixed ``<SRR>_*.bam``
+    sits flat in the experiment dir (the original-format download layout), needing no
+    network. The run accession is the leading ``<SRR>`` token of the BAM name. Hidden
+    dirs (e.g. the ``.labdata`` control dir) are skipped, as are names that are not
+    well-formed ``SRX``/``SRR`` accessions. When ``wanted`` is given, only experiments
+    whose accession is listed are considered.
 
     Parameters
     ----------
@@ -340,7 +342,7 @@ def _tasks_from_disk(base: Path, wanted: set[str] | None) -> list[tuple[Run, Pat
     Returns
     -------
     list of (Run, Path)
-        One task per run directory that contains a BAM, in accession order.
+        One task per run with a BAM, in accession order.
     """
     if not base.is_dir():
         return []
@@ -348,13 +350,16 @@ def _tasks_from_disk(base: Path, wanted: set[str] | None) -> list[tuple[Run, Pat
     for srx_dir in sorted(p for p in base.iterdir() if p.is_dir() and not p.name.startswith(".")):
         if wanted is not None and srx_dir.name not in wanted:
             continue
-        for run_dir in sorted(p for p in srx_dir.iterdir() if p.is_dir()):
-            if not any(run_dir.glob("*.bam")):
+        seen: set[str] = set()
+        for bam in sorted(srx_dir.glob("*.bam")):
+            srr = bam.name.split("_", 1)[0]  # names are "<SRR>_<submitter-name>.bam"
+            if srr in seen:
                 continue
             try:
-                run = Run(run_dir.name)  # validates the SRR accession shape
+                run = Run(srr)  # validates the SRR accession shape
             except AccessionError:
                 continue
+            seen.add(srr)
             tasks.append((run, srx_dir))
     return tasks
 
@@ -452,7 +457,7 @@ class TenxConverter:
             flag.
         from_disk : bool, default False
             Build the task list by scanning the on-disk tree
-            (``<output_dir>/<accession>/<SRX>/<SRR>/*.bam``) instead of resolving the
+            (``<output_dir>/<accession>/<SRX>/<SRR>_*.bam``) instead of resolving the
             record through NCBI. This needs no network or NCBI credentials — the point
             when converting already-downloaded BAMs on an offline HPC compute node.
             ``select_srx`` still filters by experiment; ``all_runs`` and the SDL
