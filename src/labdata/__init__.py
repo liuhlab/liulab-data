@@ -13,6 +13,7 @@ from labdata.geo import (
     experiments_for,
 )
 from labdata.ncbi import FileLocation, RemoteFile, SdlClient
+from labdata.tenx import TenxConverter
 
 try:
     __version__ = version("liulab-data")
@@ -30,6 +31,7 @@ __all__ = [
     "SdlClient",
     "Series",
     "SraDownloader",
+    "TenxConverter",
     "__version__",
     "experiments_for",
 ]

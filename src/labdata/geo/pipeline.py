@@ -21,23 +21,18 @@ import json
 import logging
 import shlex
 import shutil
-import subprocess
 import sys
 from collections.abc import Set as AbstractSet
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from labdata.exceptions import DownloadError
+from labdata import _pipeline
+from labdata._pipeline import CONTROL_DIRNAME, RESILIENCE_FLAGS
 
 if TYPE_CHECKING:
     from labdata.geo.sra_records import Run
 
 logger = logging.getLogger(__name__)
-
-#: Directory (under the download's output root) holding the generated Snakemake
-#: config and the whole-pipeline success flag — kept out of the FASTQ output tree.
-#: Per-run completion markers live per-experiment (``<srx>/.<srr>.done``) with the FASTQ.
-CONTROL_DIRNAME = ".labdata"
 
 #: Whole-pipeline success flag (under the control dir): written once every requested
 #: run has finished. It is the durable, sole record of a completed download — once it
@@ -46,28 +41,14 @@ CONTROL_DIRNAME = ".labdata"
 SUCCESS_FILENAME = "success.json"
 
 
-def _success_path(output_root: Path) -> Path:
-    """Path to the whole-pipeline success flag under ``output_root``."""
-    return output_root / CONTROL_DIRNAME / SUCCESS_FILENAME
-
-
 def _load_completed(output_root: Path) -> dict[str, str]:
     """Return the ``{run: srx}`` map the success flag records, or ``{}`` if absent."""
-    path = _success_path(output_root)
-    if not path.exists():
-        return {}
-    try:
-        runs = json.loads(path.read_text()).get("runs", {})
-    except (OSError, ValueError):
-        return {}
-    return runs if isinstance(runs, dict) else {}
+    return _pipeline.load_completed(output_root, SUCCESS_FILENAME)
 
 
 def _write_success(output_root: Path, runs: dict[str, str]) -> None:
     """Write the success flag recording every completed ``{run: srx}``."""
-    path = _success_path(output_root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"runs": dict(sorted(runs.items()))}, indent=2, sort_keys=True))
+    _pipeline.write_success(output_root, runs, SUCCESS_FILENAME)
 
 
 def _snakefile() -> Path:
@@ -76,41 +57,12 @@ def _snakefile() -> Path:
 
 
 def _run_snakemake(argv: list[str], *, verbose: bool) -> int:
-    """Run ``snakemake`` with ``argv``; return its exit code.
+    """Run ``snakemake`` with ``argv`` (the download's seam); return its exit code.
 
-    The subprocess seam for the download orchestration. Snakemake's own progress
-    is streamed to the terminal when ``verbose``; otherwise it is discarded. A
-    non-zero exit (individual job failures under ``--keep-going``) is returned to
-    the caller rather than raised, so partial results can still be collected — only
-    a *missing* ``snakemake`` binary raises.
-
-    Parameters
-    ----------
-    argv : list of str
-        Arguments passed to ``snakemake`` (without the program name).
-    verbose : bool
-        When ``True`` Snakemake's output is shown; when ``False`` it is suppressed.
-
-    Returns
-    -------
-    int
-        Snakemake's exit code (``0`` on full success).
-
-    Raises
-    ------
-    DownloadError
-        If the ``snakemake`` executable is not installed.
+    A thin per-module alias for :func:`labdata._pipeline.run_snakemake` so this
+    module's tests can monkeypatch ``pipeline._run_snakemake`` in place.
     """
-    cmd = ["snakemake", *argv]
-    logger.info("running: %s", " ".join(shlex.quote(part) for part in cmd))
-    sink = None if verbose else subprocess.DEVNULL
-    try:
-        completed = subprocess.run(cmd, stdout=sink, stderr=sink, check=False)
-    except FileNotFoundError as err:
-        raise DownloadError(
-            "'snakemake' not found — install snakemake (e.g. via pixi/conda)"
-        ) from err
-    return completed.returncode
+    return _pipeline.run_snakemake(argv, verbose=verbose)
 
 
 def run(
@@ -236,20 +188,10 @@ def run(
         f"ncbi={ncbi_parallel}",
         "--configfile",
         str(config_path),
-        # Resume purely on marker presence; don't re-run finished stages just
-        # because params/config changed. Recover interrupted jobs on rerun.
-        "--rerun-triggers",
-        "mtime",
-        "--rerun-incomplete",
-        # Keep a walltime/OOM-killed job's partial outputs (esp. a partial .sra) so
-        # prefetch resumes rather than restarts — the point of --keep-incomplete here.
-        "--keep-incomplete",
-        # One failed run must not abort the others (matches the old batch behavior).
-        "--keep-going",
-        # No workdir lock: an HPC walltime/OOM kill (SIGTERM/SIGKILL) leaves a stale
-        # lock that would otherwise block the resume this pipeline is designed for.
-        # Downloads are idempotent per run; just don't point two at the same output.
-        "--nolock",
+        # Resume on marker presence, recover interrupted jobs, keep a walltime/OOM-killed
+        # job's partial .sra so prefetch resumes, keep going past one failed run, and take
+        # no workdir lock (so an HPC kill leaves nothing to unlock). See RESILIENCE_FLAGS.
+        *RESILIENCE_FLAGS,
     ]
     returncode = _run_snakemake(argv, verbose=verbose)
     if returncode != 0:

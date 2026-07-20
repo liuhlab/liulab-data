@@ -15,15 +15,17 @@ pip install liulab-data
 
 Downloading FASTQ also needs two external tools, [sra-tools](https://github.com/ncbi/sra-tools)
 and [pigz](https://zlib.net/pigz/) (plus `curl`, for the original-format download path).
-Install them from Bioconda/conda-forge:
+Recovering FASTQ from a 10x cellranger BAM additionally needs
+[10x Genomics' bamtofastq](https://github.com/10XGenomics/bamtofastq). Install them from
+Bioconda/conda-forge:
 
 ```bash
-conda install -c bioconda -c conda-forge sra-tools pigz curl
+conda install -c bioconda -c conda-forge sra-tools pigz curl 10x_bamtofastq
 ```
 
 !!! tip "Working inside the lab's pixi project?"
-    Both tools are already in the project environment — `pixi install` gives you the
-    Python package *and* `sra-tools`/`pigz` in one step.
+    Every tool is already in the project environment — `pixi install` gives you the
+    Python package *and* `sra-tools`/`pigz`/`bamtofastq` in one step.
 
 ## Configuration
 
@@ -43,4 +45,6 @@ export NCBI_API_KEY="..."           # optional — raises your rate limit
 
 - **[GEO Series tutorial](tutorials/geo-series.md)** — from an accession to downloaded
   FASTQ, step by step.
+- **[10x cellranger BAM → FASTQ](tutorials/tenx-bam.md)** — recover remap-ready FASTQ
+  when a 10x run's `.sra` is broken.
 - **[API reference](reference.md)** — every class and method in full detail.

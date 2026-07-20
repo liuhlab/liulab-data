@@ -11,7 +11,7 @@ from pathlib import Path
 
 import typer
 
-from labdata import BioProject, Run, Series, experiments_for
+from labdata import BioProject, Run, Series, TenxConverter, experiments_for
 from labdata import __version__ as _package_version
 from labdata.exceptions import LabdataError
 from labdata.geo import sratools
@@ -21,6 +21,7 @@ from labdata.ncbi.config import (
     prompt_and_save,
     save_credentials,
 )
+from labdata.tenx import bamtofastq
 
 app = typer.Typer(
     help="Liu Lab data curation, download, and organization utilities.",
@@ -30,6 +31,10 @@ ncbi_app = typer.Typer(help="Manage NCBI E-utilities credentials.", no_args_is_h
 app.add_typer(ncbi_app, name="ncbi")
 geo_app = typer.Typer(help="Download and organize GEO/SRA data.", no_args_is_help=True)
 app.add_typer(geo_app, name="geo")
+tenx_app = typer.Typer(
+    help="10x Genomics special handling (cellranger BAM → FASTQ).", no_args_is_help=True
+)
+app.add_typer(tenx_app, name="tenx")
 
 
 @app.command()
@@ -218,8 +223,12 @@ def geo_experiments(
 # --------------------------------------------------------------------------- #
 
 
-def _run_stage(stage: Callable[[], None]) -> None:
-    """Run one download stage, exiting non-zero on failure so Snakemake sees it."""
+def _run_stage(stage: Callable[[], object]) -> None:
+    """Run one pipeline stage, exiting non-zero on failure so Snakemake sees it.
+
+    The stage's return value is ignored — stages act by their filesystem side effects;
+    only a raised :class:`LabdataError` matters here.
+    """
     try:
         stage()
     except LabdataError as err:
@@ -282,4 +291,117 @@ def geo_original_stage(
     """Download one run's original-format files with curl — a download-only DAG stage (internal)."""
     _run_stage(
         lambda: sratools.download_original_run(Run(srr), srx_dir, retries=retries, backoff=backoff)
+    )
+
+
+# --------------------------------------------------------------------------- #
+# tenx: cellranger BAM → FASTQ
+# --------------------------------------------------------------------------- #
+
+
+@tenx_app.command("bamtofastq")
+def tenx_bamtofastq(
+    accession: str = typer.Argument(
+        ..., help="GEO Series (e.g. GSE208154) or BioProject (e.g. PRJNA…) accession."
+    ),
+    output_dir: Path = typer.Option(
+        Path(),
+        "--output",
+        "-o",
+        help="Parent dir holding the already-downloaded BAMs (a <GSE>/ subtree).",
+    ),
+    cores: int = typer.Option(
+        0, "--cores", min=0, help="Total CPU cores for the DAG (0 = the machine's CPU count)."
+    ),
+    threads_per_run: int = typer.Option(
+        bamtofastq.DEFAULT_THREADS_PER_RUN,
+        "--threads-per-run",
+        min=1,
+        help="Threads for bamtofastq per run (--nthreads).",
+    ),
+    reads_per_fastq: int = typer.Option(
+        bamtofastq.DEFAULT_READS_PER_FASTQ,
+        "--reads-per-fastq",
+        min=1,
+        help="Reads per output FASTQ chunk (bamtofastq --reads-per-fastq).",
+    ),
+    select_srx: list[str] = typer.Option(
+        [],
+        "--select-srx",
+        help="Whitelist of SRX experiment accessions to consider; repeatable, or a "
+        "single value naming a whitelist file. Omit to consider every experiment.",
+    ),
+    all_runs: bool = typer.Option(
+        False,
+        "--all-runs",
+        help="Convert every run of the selected experiments, skipping 10x-BAM auto-detection.",
+    ),
+    from_disk: bool = typer.Option(
+        False,
+        "--from-disk",
+        help="Find runs by scanning the on-disk <SRX>/<SRR>/*.bam tree instead of NCBI "
+        "(no network/credentials — for offline HPC conversion of downloaded BAMs).",
+    ),
+    remove_bam: bool = typer.Option(
+        False,
+        "--remove-bam",
+        help="Delete each run's source BAM once its FASTQ are produced (only after success).",
+    ),
+    quiet: bool = typer.Option(
+        False, "--quiet", "-q", help="Suppress the conversion plan/summary."
+    ),
+) -> None:
+    """Convert a project's already-downloaded cellranger BAMs to FASTQ with bamtofastq.
+
+    Auto-detects which runs carry a 10x cellranger BAM and converts each (the BAM must
+    already be on disk from ``labdata geo download … --original-srx``). Lays the FASTQ
+    out like the download pipeline —
+    ``<output>/<accession>/<SRX>/<SRR>_S1_L00N_R{1,2}_00N.fastq.gz`` — and skips runs
+    already converted, so it is safe to rerun. Exits non-zero if any run fails.
+
+    On an offline HPC compute node, pass ``--from-disk`` so the run list is built by
+    scanning the downloaded BAM tree rather than querying NCBI.
+    """
+    try:
+        results = TenxConverter(accession, output_dir).convert(
+            cores=cores or None,
+            threads_per_run=threads_per_run,
+            reads_per_fastq=reads_per_fastq,
+            select_srx=_resolve_select_srx(select_srx),
+            all_runs=all_runs,
+            from_disk=from_disk,
+            remove_bam=remove_bam,
+            verbose=not quiet,
+        )
+    except LabdataError as err:
+        typer.secho(f"error: {err}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from err
+
+    failed = sorted(acc for acc, ok in results.items() if not ok)
+    if failed:
+        typer.secho(
+            f"{len(failed)} run(s) failed: {', '.join(failed)}", fg=typer.colors.RED, err=True
+        )
+        raise typer.Exit(code=1)
+
+
+@tenx_app.command("_bamtofastq", hidden=True)
+def tenx_bamtofastq_stage(
+    srr: str = typer.Argument(..., help="Run accession (SRR/ERR/DRR)."),
+    srx_dir: Path = typer.Argument(..., help="Experiment directory holding <SRR>/<name>.bam."),
+    threads: int = typer.Option(bamtofastq.DEFAULT_THREADS_PER_RUN, "--threads", min=1),
+    reads_per_fastq: int = typer.Option(
+        bamtofastq.DEFAULT_READS_PER_FASTQ, "--reads-per-fastq", min=1
+    ),
+    remove_bam: bool = typer.Option(False, "--remove-bam"),
+) -> None:
+    """Convert one run's cellranger BAM to FASTQ — the tenx DAG's only stage (internal)."""
+    _run_stage(
+        lambda: bamtofastq.bamtofastq_run(
+            Run(srr),
+            srx_dir,
+            threads=threads,
+            reads_per_fastq=reads_per_fastq,
+            remove_bam=remove_bam,
+        )
     )

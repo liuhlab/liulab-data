@@ -58,6 +58,7 @@ nav:
   - Tutorials:
       - Understanding GEO & SRA: tutorials/understanding-geo.md
       - GEO Series: tutorials/geo-series.md
+      - 10x cellranger BAM → FASTQ: tutorials/tenx-bam.md
   - API reference: reference.md
 
 markdown_extensions:

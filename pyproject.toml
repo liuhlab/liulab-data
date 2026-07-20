@@ -45,10 +45,11 @@ fallback-version = "0.0.0+dev"
 [tool.hatch.build.targets.wheel]
 packages = ["src/labdata"]
 
-# The Snakemake workflow is a data file, not a Python module — force it into the
-# wheel so labdata.geo.pipeline can locate it at runtime via importlib.resources.
+# The Snakemake workflows are data files, not Python modules — force them into the
+# wheel so labdata.{geo,tenx}.pipeline can locate them at runtime via importlib.resources.
 [tool.hatch.build.targets.wheel.force-include]
 "src/labdata/geo/pipeline.smk" = "labdata/geo/pipeline.smk"
+"src/labdata/tenx/pipeline.smk" = "labdata/tenx/pipeline.smk"
 
 # -------- pixi --------
 
@@ -62,10 +63,12 @@ liulab-data = { path = ".", editable = true }
 
 # Runtime deps (conda-forge + bioconda).
 # sra-tools (prefetch/fasterq-dump), pigz, and curl (the original-format download
-# path) are external binaries used by labdata.geo.sratools — they are not importable
-# Python, so they live here only, not in [project.dependencies].
+# path) are external binaries used by labdata.geo.sratools; 10x_bamtofastq is 10x
+# Genomics' cellranger-BAM → FASTQ tool (it installs a `bamtofastq` binary) used by
+# labdata.tenx.bamtofastq. They are not importable Python, so they live here only, not
+# in [project.dependencies].
 # snakemake-minimal is the lightweight conda build of Snakemake (no reporting/
-# remote-provider extras); it orchestrates the download DAG (labdata.geo.pipeline).
+# remote-provider extras); it orchestrates the download and tenx DAGs.
 [tool.pixi.dependencies]
 biopython = ">=1.83"
 pandas = ">=2.0"
@@ -73,6 +76,7 @@ typer = ">=0.12"
 sra-tools = "*"
 pigz = "*"
 curl = "*"
+"10x_bamtofastq" = "*"
 snakemake-minimal = ">=8"
 
 # Python version features

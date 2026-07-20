@@ -25,10 +25,28 @@ from pathlib import Path
 from labdata import Run
 from labdata.exceptions import DownloadError
 from labdata.geo import sratools
+from labdata.tenx import bamtofastq
+
+#: Library subdir + reads bamtofastq emits per BAM in :meth:`FakeTools.run`. Two lanes
+#: with the three 10x reads exercise the flatten step's naming/collision handling.
+_B2F_LIBRARY = "sampledir_0_1_HGV7NDMXX"
+_B2F_FILES = [
+    "bamtofastq_S1_L001_R1_001.fastq.gz",
+    "bamtofastq_S1_L001_R2_001.fastq.gz",
+    "bamtofastq_S1_L001_I1_001.fastq.gz",
+    "bamtofastq_S1_L002_R1_001.fastq.gz",
+    "bamtofastq_S1_L002_R2_001.fastq.gz",
+    "bamtofastq_S1_L002_I1_001.fastq.gz",
+]
 
 
 class FakeTools:
-    """A stand-in for ``sratools._run`` that records and simulates the tools."""
+    """A stand-in for the ``_run`` seams that records and simulates the tools.
+
+    Handles the download tools (``sratools._run``: prefetch/fasterq-dump/pigz/curl) and
+    10x's ``bamtofastq`` (``tenx.bamtofastq._run``), so one recorder can back either
+    seam.
+    """
 
     def __init__(self) -> None:
         self.commands: list[list[str]] = []
@@ -58,6 +76,12 @@ class FakeTools:
             dest = Path(cmd[cmd.index("-o") + 1])
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(b"original-format data")
+        elif tool == "bamtofastq":
+            # bamtofastq <options> <bam> <output-dir>; write the nested per-library tree.
+            library = Path(cmd[-1]) / _B2F_LIBRARY
+            library.mkdir(parents=True, exist_ok=True)
+            for name in _B2F_FILES:
+                (library / name).write_bytes(b"gz")
 
     def tools_used(self) -> set[str]:
         """Return the set of executables that were invoked."""
@@ -128,6 +152,37 @@ def fake_snakemake(argv: list[str], *, verbose: bool) -> int:
         try:
             sratools.download_original_run(
                 Run(srr), srx_dir, retries=config["retries"], backoff=config["backoff"]
+            )
+            done.touch()
+        except DownloadError:
+            returncode = 1
+    return returncode
+
+
+def fake_tenx_snakemake(argv: list[str], *, verbose: bool) -> int:
+    """Drive the tenx bamtofastq stage in-process (a drop-in for ``tenx.pipeline._run_snakemake``).
+
+    For each configured run it skips the whole run if the ``.<SRR>.tenx.done`` marker
+    exists, else runs :func:`labdata.tenx.bamtofastq.bamtofastq_run` and touches the
+    marker. Returns ``1`` if any run's stage raised, mirroring ``snakemake --keep-going``.
+    Assumes ``tenx.bamtofastq._run`` is monkeypatched to a :class:`FakeTools` recorder.
+    """
+    config = json.loads(Path(argv[argv.index("--configfile") + 1]).read_text())
+    output_root = Path(argv[argv.index("--directory") + 1])
+    returncode = 0
+    for srr, srx in config["runs"].items():
+        srx_dir = output_root / srx
+        srx_dir.mkdir(parents=True, exist_ok=True)
+        done = srx_dir / f".{srr}.tenx.done"
+        if done.exists():
+            continue  # Snakemake: final output present -> run nothing
+        try:
+            bamtofastq.bamtofastq_run(
+                Run(srr),
+                srx_dir,
+                threads=config["threads_per_run"],
+                reads_per_fastq=config["reads_per_fastq"],
+                remove_bam=config.get("remove_bam", False),
             )
             done.touch()
         except DownloadError:

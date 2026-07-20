@@ -19,8 +19,9 @@ import labdata.cli as cli_mod
 from labdata import BioProject, Series, experiments_for
 from labdata.exceptions import DownloadError
 from labdata.geo import sratools
+from labdata.tenx import bamtofastq
 from tests import _geodata as g
-from tests._download_fakes import FakeTools, fake_snakemake
+from tests._download_fakes import FakeTools, fake_snakemake, fake_tenx_snakemake
 
 runner = CliRunner()
 
@@ -302,5 +303,95 @@ def test_geo_stage_command_reports_failure_nonzero(
     monkeypatch.setattr(sratools.time, "sleep", lambda _seconds: None)
 
     result = runner.invoke(cli_mod.app, ["geo", "_prefetch", g.SRR1, str(tmp_path)])
+    assert result.exit_code == 1
+    assert "error:" in result.output
+
+
+# --------------------------------------------------------------------------- #
+# tenx: cellranger BAM → FASTQ
+# --------------------------------------------------------------------------- #
+
+
+@pytest.fixture
+def fake_tenx_tools(monkeypatch: pytest.MonkeyPatch) -> FakeTools:
+    """Fake both tenx seams: the bamtofastq subprocess and Snakemake."""
+    tools = FakeTools()
+    monkeypatch.setattr(bamtofastq, "_run", tools.run)
+    monkeypatch.setattr(bamtofastq.pipeline, "_run_snakemake", fake_tenx_snakemake)
+    return tools
+
+
+@pytest.fixture
+def fake_converter(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the command build a TenxConverter over a Series wired to the synthetic graph."""
+
+    def factory(accession: str, output_dir: Path) -> bamtofastq.TenxConverter:
+        return bamtofastq.TenxConverter(Series(accession, client=g.build_client()), output_dir)
+
+    monkeypatch.setattr(cli_mod, "TenxConverter", factory)
+
+
+def _seed_bam(base: Path, accession: str) -> None:
+    run_dir = base / accession
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "possorted_genome_bam.bam").write_bytes(b"bam")
+
+
+def test_tenx_bamtofastq_converts_all_runs(
+    fake_tenx_tools: FakeTools, fake_converter: None, tmp_path: Path
+) -> None:
+    base = tmp_path / g.GSE / g.SRX
+    _seed_bam(base, g.SRR1)
+    _seed_bam(base, g.SRR2)
+
+    result = runner.invoke(
+        cli_mod.app, ["tenx", "bamtofastq", g.GSE, "-o", str(tmp_path), "--all-runs"]
+    )
+
+    assert result.exit_code == 0
+    # Flattened, SRR-prefixed, R1/R2/I1 preserved — globs like the download layout.
+    assert (base / f"{g.SRR1}_S1_L001_R1_001.fastq.gz").exists()
+    assert (base / f"{g.SRR2}_S1_L002_I1_001.fastq.gz").exists()
+    assert "Done: 2 ok, 0 failed." in result.output
+
+
+def test_tenx_bamtofastq_missing_bam_exits_nonzero(
+    fake_tenx_tools: FakeTools, fake_converter: None, tmp_path: Path
+) -> None:
+    # No BAM seeded on disk → the stage fails for every run.
+    result = runner.invoke(
+        cli_mod.app, ["tenx", "bamtofastq", g.GSE, "-o", str(tmp_path), "--all-runs"]
+    )
+    assert result.exit_code == 1
+    assert "run(s) failed" in result.output
+
+
+def test_tenx_bamtofastq_from_disk_removes_bam(fake_tenx_tools: FakeTools, tmp_path: Path) -> None:
+    # --from-disk needs no network, so the real TenxConverter is used (no fake_converter).
+    base = tmp_path / g.GSE
+    _seed_bam(base / g.SRX, g.SRR1)
+    bam = base / g.SRX / g.SRR1 / "possorted_genome_bam.bam"
+
+    result = runner.invoke(
+        cli_mod.app,
+        ["tenx", "bamtofastq", g.GSE, "-o", str(tmp_path), "--from-disk", "--remove-bam"],
+    )
+
+    assert result.exit_code == 0
+    assert (base / g.SRX / f"{g.SRR1}_S1_L001_R1_001.fastq.gz").exists()
+    assert not bam.exists()  # --remove-bam reclaimed the source after conversion
+    assert "Done: 1 ok, 0 failed." in result.output
+
+
+def test_tenx_bamtofastq_stage_converts_one_run(fake_tenx_tools: FakeTools, tmp_path: Path) -> None:
+    _seed_bam(tmp_path, g.SRR_TENX)  # tmp_path plays the SRX dir here
+    result = runner.invoke(cli_mod.app, ["tenx", "_bamtofastq", g.SRR_TENX, str(tmp_path)])
+    assert result.exit_code == 0
+    assert (tmp_path / f"{g.SRR_TENX}_S1_L001_R1_001.fastq.gz").exists()
+
+
+def test_tenx_bamtofastq_stage_reports_failure_nonzero(tmp_path: Path) -> None:
+    # No BAM on disk → the stage exits non-zero with an actionable message.
+    result = runner.invoke(cli_mod.app, ["tenx", "_bamtofastq", g.SRR_TENX, str(tmp_path)])
     assert result.exit_code == 1
     assert "error:" in result.output
