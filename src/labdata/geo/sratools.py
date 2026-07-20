@@ -139,6 +139,29 @@ def _have(tool: str) -> bool:
     return shutil.which(tool) is not None
 
 
+def _verify_gzip(path: Path, *, threads: int = 1) -> None:
+    """Decompress-test ``path``, raising :class:`DownloadError` if it is not intact.
+
+    Runs ``pigz -t`` (or ``gzip -t`` when pigz is absent) over the whole file so a
+    truncated or corrupt ``.gz`` is caught here — at download time — rather than by a
+    downstream reader. A gzip stream cut short by an interrupted write fails this test.
+
+    Parameters
+    ----------
+    path : Path
+        The gzip file to verify.
+    threads : int, default 1
+        Threads passed to ``pigz -t`` (ignored by the ``gzip`` fallback).
+
+    Raises
+    ------
+    DownloadError
+        If the gzip test tool is missing, or it reports ``path`` as corrupt.
+    """
+    test_cmd = ["pigz", "-t", "-p", str(threads)] if _have("pigz") else ["gzip", "-t"]
+    _run([*test_cmd, str(path)])
+
+
 # --------------------------------------------------------------------------- #
 # user-facing progress (a download plan up front, one line per finished run)
 # --------------------------------------------------------------------------- #
@@ -460,10 +483,17 @@ def compress_run(run: Run, srx_dir: Path, *, threads: int = 1, staging: Path | N
         Directory holding the uncompressed FASTQ (defaults to
         ``<srx_dir>/.<SRR>.fq``).
 
+    Every gzipped mate is decompress-tested (:func:`_verify_gzip`) before it is
+    trusted: a freshly compressed file is checked and, on failure, removed rather than
+    left in place, and an already-present file from an interrupted run is re-checked on
+    resume and recompressed if it is truncated. This refuses to leave a corrupt ``.gz``
+    behind, catching the failure here instead of at a downstream reader.
+
     Raises
     ------
     DownloadError
-        If no FASTQ were produced, or a gzip tool is missing/fails.
+        If no FASTQ were produced, a gzip tool is missing/fails, or a compressed mate
+        fails its integrity check.
     """
     accession = run.accession
     staging = staging if staging is not None else _staging_dir(srx_dir, accession)
@@ -474,9 +504,19 @@ def compress_run(run: Run, srx_dir: Path, *, threads: int = 1, staging: Path | N
     for fastq in fastqs:
         final = srx_dir / f"{fastq.name}.gz"
         if final.exists():
-            continue  # per-file resume: this mate is already compressed
+            try:
+                _verify_gzip(final, threads=threads)
+                continue  # per-file resume: this mate is already compressed and intact
+            except DownloadError:
+                logger.warning("existing %s failed gzip check; recompressing", final.name)
+                final.unlink()
         _run([*gzip_cmd, str(fastq)])
         shutil.move(f"{fastq}.gz", str(final))
+        try:
+            _verify_gzip(final, threads=threads)
+        except DownloadError:
+            final.unlink(missing_ok=True)  # never leave a truncated .gz in place
+            raise
     logger.info("compressed %s", accession)
 
 
