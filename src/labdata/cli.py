@@ -6,13 +6,15 @@ translates arguments, dispatches, and chooses an output format.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 import typer
 
-from labdata import BioProject, Series, experiments_for
+from labdata import BioProject, Run, Series, experiments_for
 from labdata import __version__ as _package_version
 from labdata.exceptions import LabdataError
+from labdata.geo import sratools
 from labdata.ncbi.config import (
     NcbiCredentials,
     config_path,
@@ -98,8 +100,21 @@ def geo_download(
     output_dir: Path = typer.Option(
         Path(), "--output", "-o", help="Parent directory; a <GSE>/ subtree is created in it."
     ),
-    n_parallel: int = typer.Option(
-        1, "--parallel", "-j", min=1, help="Maximum runs to download concurrently."
+    ncbi_parallel: int = typer.Option(
+        sratools.DEFAULT_NCBI_PARALLEL,
+        "--ncbi-parallel",
+        "-j",
+        min=1,
+        help="Max concurrent prefetch (NCBI network) jobs; kept low to avoid throttling.",
+    ),
+    cores: int = typer.Option(
+        0, "--cores", min=0, help="Total CPU cores for the DAG (0 = the machine's CPU count)."
+    ),
+    threads_per_run: int = typer.Option(
+        sratools.DEFAULT_THREADS_PER_RUN,
+        "--threads-per-run",
+        min=1,
+        help="Threads for fasterq-dump/pigz per run.",
     ),
     select_srx: list[str] = typer.Option(
         [],
@@ -107,6 +122,14 @@ def geo_download(
         help="Whitelist of SRX experiment accessions to download; repeatable. A "
         "single value that is an existing file is read as a whitelist file (one "
         "accession per line). Omit to download every experiment.",
+    ),
+    original_srx: list[str] = typer.Option(
+        [],
+        "--original-srx",
+        help="SRX experiment accessions to fetch in ORIGINAL FORMAT (submitter's "
+        "own files, download only) instead of the sra-tools path; repeatable, or a "
+        "single value naming a whitelist file. Use when the .sra is missing/useless "
+        "(e.g. a 10X run). Sets the mode only — still subject to --select-srx.",
     ),
     max_size: str = typer.Option(
         "", "--max-size", help="prefetch --max-size, e.g. 500G (defaults to 200G)."
@@ -120,27 +143,40 @@ def geo_download(
     keep_sra: bool = typer.Option(
         False, "--keep-sra", help="Keep each run's .sra file next to its FASTQ."
     ),
+    prefetch_only: bool = typer.Option(
+        False, "--prefetch-only", help="Only prefetch each run's .sra; skip extraction/gzip."
+    ),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Suppress the download plan/progress."),
 ) -> None:
-    """Download FASTQ for a whole GEO Series or BioProject (every SRX/SRR) with sra-tools.
+    """Download FASTQ for a whole GEO Series or BioProject (every SRX/SRR) as a Snakemake DAG.
 
     The accession kind is auto-detected: a GEO Series (``GSE…``) or a BioProject
     (``PRJ…``) both work. Lays the data out as
     ``<output>/<accession>/<SRX>/<SRR>*.fastq.gz`` and skips runs that are already
     complete, so it is safe to rerun. Exits non-zero if any run fails.
 
+    Concurrency is resource-aware: ``--ncbi-parallel`` caps concurrent prefetch (the
+    NCBI network step) while ``--cores`` bounds total CPU across extraction/gzip, so
+    the two overlap. On an HPC allocation, pass ``--cores $SLURM_CPUS_ON_NODE``.
+
     Use ``--select-srx`` (repeatable, or a whitelist file) to download only some of
-    the record's experiments; without it every experiment is downloaded.
+    the record's experiments; without it every experiment is downloaded. Use
+    ``--original-srx`` to fetch specific experiments in original format (download
+    only) — for runs whose ``.sra`` is missing or useless.
     """
     try:
         results = _record_for_download(accession).download(
             output_dir,
-            n_parallel,
+            ncbi_parallel=ncbi_parallel,
+            cores=cores or None,
+            threads_per_run=threads_per_run,
             select_srx=_resolve_select_srx(select_srx),
+            original_srx=_resolve_select_srx(original_srx),
             max_size=max_size or None,
             retries=retries or None,
             backoff=backoff or None,
             keep_sra=keep_sra,
+            prefetch_only=prefetch_only,
             verbose=not quiet,
         )
     except LabdataError as err:
@@ -174,3 +210,76 @@ def geo_experiments(
         raise typer.Exit(code=1) from err
     for experiment in experiments:
         typer.echo(experiment.accession)
+
+
+# --------------------------------------------------------------------------- #
+# hidden per-stage subcommands — the bridge the Snakemake DAG (pipeline.smk)
+# shells back into; not part of the public CLI surface.
+# --------------------------------------------------------------------------- #
+
+
+def _run_stage(stage: Callable[[], None]) -> None:
+    """Run one download stage, exiting non-zero on failure so Snakemake sees it."""
+    try:
+        stage()
+    except LabdataError as err:
+        typer.secho(f"error: {err}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from err
+
+
+@geo_app.command("_prefetch", hidden=True)
+def geo_prefetch_stage(
+    srr: str = typer.Argument(..., help="Run accession (SRR/ERR/DRR)."),
+    srx_dir: Path = typer.Argument(..., help="Experiment directory to fetch into."),
+    max_size: str = typer.Option(sratools.DEFAULT_MAX_SIZE, "--max-size"),
+    retries: int = typer.Option(sratools.DEFAULT_RETRIES, "--retries", min=1),
+    backoff: float = typer.Option(sratools.DEFAULT_BACKOFF, "--backoff", min=0.0),
+) -> None:
+    """Prefetch one run's .sra — the network stage of the download DAG (internal)."""
+    _run_stage(
+        lambda: sratools.prefetch_run(
+            Run(srr), srx_dir, max_size=max_size, retries=retries, backoff=backoff
+        )
+    )
+
+
+@geo_app.command("_extract", hidden=True)
+def geo_extract_stage(
+    srr: str = typer.Argument(..., help="Run accession (SRR/ERR/DRR)."),
+    srx_dir: Path = typer.Argument(..., help="Experiment directory holding the .sra."),
+    threads: int = typer.Option(1, "--threads", min=1),
+    staging: Path = typer.Option(None, "--staging", help="Directory for the uncompressed FASTQ."),
+    keep_sra: bool = typer.Option(False, "--keep-sra"),
+) -> None:
+    """Extract one run's FASTQ with fasterq-dump — a stage of the download DAG (internal)."""
+    _run_stage(
+        lambda: sratools.extract_run(
+            Run(srr), srx_dir, threads=threads, staging=staging, keep_sra=keep_sra
+        )
+    )
+
+
+@geo_app.command("_compress", hidden=True)
+def geo_compress_stage(
+    srr: str = typer.Argument(..., help="Run accession (SRR/ERR/DRR)."),
+    srx_dir: Path = typer.Argument(..., help="Experiment directory the FASTQ.gz go into."),
+    threads: int = typer.Option(1, "--threads", min=1),
+    staging: Path = typer.Option(
+        None, "--staging", help="Directory holding the uncompressed FASTQ."
+    ),
+) -> None:
+    """Gzip one run's FASTQ from staging — the final stage of the download DAG (internal)."""
+    _run_stage(lambda: sratools.compress_run(Run(srr), srx_dir, threads=threads, staging=staging))
+
+
+@geo_app.command("_original", hidden=True)
+def geo_original_stage(
+    srr: str = typer.Argument(..., help="Run accession (SRR/ERR/DRR)."),
+    srx_dir: Path = typer.Argument(..., help="Experiment directory to download into."),
+    retries: int = typer.Option(sratools.DEFAULT_RETRIES, "--retries", min=1),
+    backoff: float = typer.Option(sratools.DEFAULT_BACKOFF, "--backoff", min=0.0),
+) -> None:
+    """Download one run's original-format files with curl — a download-only DAG stage (internal)."""
+    _run_stage(
+        lambda: sratools.download_original_run(Run(srr), srx_dir, retries=retries, backoff=backoff)
+    )

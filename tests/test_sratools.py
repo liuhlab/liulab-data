@@ -1,73 +1,48 @@
-"""Tests for the sra-tools FASTQ downloader (labdata.geo.sratools).
+"""Tests for the per-run sra-tools stages and the record ``download`` API.
 
-The single subprocess seam (``sratools._run``) is monkeypatched with a fake that
-records the commands issued and mimics each tool's filesystem effect — prefetch
-drops a ``.sra``, fasterq-dump writes ``.fastq``, pigz/gzip compress them — so the
-directory layout, gzip choice, cleanup, success flags, and parallelism are all
-exercised without any real tools or network.
+Two seams are faked so the whole download runs without tools or network:
+``sratools._run`` is swapped for the recording :class:`FakeTools`, and
+``pipeline._run_snakemake`` for :func:`fake_snakemake`, which drives the three stages
+in-process while modelling Snakemake's output-based resume and ``temp()`` cleanup. The
+stages (:func:`~labdata.geo.sratools.prefetch_run`, ``extract_run``, ``compress_run``)
+are also exercised directly. Orchestration details (config, markers, resource flags)
+live in ``test_pipeline.py``.
 """
 
 from __future__ import annotations
 
-import json
+import hashlib
 from pathlib import Path
 
 import pytest
 
-from labdata import BioProject, Experiment, Series, SraDownloader
+from labdata import BioProject, Experiment, Run, Series, SraDownloader
 from labdata.exceptions import AccessionError, DownloadError
 from labdata.geo import sratools
+from labdata.ncbi.sdl import FileLocation, RemoteFile
 from tests import _geodata as g
-
-
-class FakeTools:
-    """A stand-in for ``sratools._run`` that records and simulates the tools."""
-
-    def __init__(self) -> None:
-        self.commands: list[list[str]] = []
-
-    def run(self, cmd: list[str], *, cwd: Path | None = None) -> None:
-        self.commands.append(cmd)
-        tool = cmd[0]
-        if tool == "prefetch":
-            accession = cmd[1]
-            out = Path(cmd[cmd.index("-O") + 1])
-            sra_dir = out / accession
-            sra_dir.mkdir(parents=True, exist_ok=True)
-            (sra_dir / f"{accession}.sra").write_bytes(b"sra")
-        elif tool == "fasterq-dump":
-            out = Path(cmd[cmd.index("-O") + 1])
-            accession = Path(cmd[1]).name.replace(".sra", "")
-            for mate in (1, 2):
-                (out / f"{accession}_{mate}.fastq").write_text("@r\nACGT\n+\nIIII\n")
-        elif tool in ("pigz", "gzip"):
-            for arg in cmd[1:]:
-                if arg.endswith(".fastq"):
-                    path = Path(arg)
-                    path.with_suffix(".fastq.gz").write_bytes(b"gz")
-                    path.unlink()
-
-    def tools_used(self) -> set[str]:
-        """Return the set of executables that were invoked."""
-        return {cmd[0] for cmd in self.commands}
-
-    def order_of(self, *tools: str) -> list[str]:
-        """Return the invoked executables, filtered to ``tools``, in call order."""
-        return [cmd[0] for cmd in self.commands if cmd[0] in tools]
+from tests._download_fakes import FakeTools, fake_snakemake
+from tests._fakes import FakeSdlClient
 
 
 @pytest.fixture
 def fake(monkeypatch: pytest.MonkeyPatch) -> FakeTools:
-    """Replace the subprocess seam with a recording fake and default pigz to present."""
+    """Fake both download seams: the sra-tools subprocess and Snakemake."""
     tools = FakeTools()
     monkeypatch.setattr(sratools, "_run", tools.run)
     monkeypatch.setattr(sratools, "_have", lambda tool: True)
     monkeypatch.setattr(sratools.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(sratools.pipeline, "_run_snakemake", fake_snakemake)
     return tools
 
 
 def _experiment() -> Experiment:
     return Experiment(g.SRX, client=g.build_client())
+
+
+# --------------------------------------------------------------------------- #
+# whole-experiment download (stages driven through the faked DAG)
+# --------------------------------------------------------------------------- #
 
 
 def test_download_creates_gzipped_fastq_per_run(fake: FakeTools, tmp_path: Path) -> None:
@@ -81,62 +56,52 @@ def test_download_creates_gzipped_fastq_per_run(fake: FakeTools, tmp_path: Path)
         assert (srx_dir / f"{srr}_2.fastq.gz").exists()
 
 
-def test_download_cleans_up_intermediates_and_marks_success(
-    fake: FakeTools, tmp_path: Path
-) -> None:
+def test_download_reclaims_intermediates_and_marks_done(fake: FakeTools, tmp_path: Path) -> None:
     SraDownloader(_experiment(), tmp_path).download()
     srx_dir = tmp_path / g.SRX
 
-    # Only gzipped FASTQ survive: no .sra, no prefetch dir, no bare .fastq.
+    # temp(): only gzipped FASTQ survive — no .sra dir, no staging, no bare .fastq.
     assert list(srx_dir.glob("*.sra")) == []
-    assert list(srx_dir.glob("*.fastq")) == []
+    assert list(srx_dir.glob("**/*.fastq")) == []
     assert not (srx_dir / g.SRR1).exists()
-    # Each finished run leaves a hidden success flag.
+    assert not (srx_dir / f".{g.SRR1}.fq").exists()
+    # Each finished run leaves a completion marker.
     for srr in (g.SRR1, g.SRR2):
-        assert (srx_dir / f".{srr}.success").exists()
+        assert (srx_dir / f".{srr}.done").exists()
 
 
 def test_keep_sra_preserves_sra_next_to_fastq(fake: FakeTools, tmp_path: Path) -> None:
     SraDownloader(_experiment(), tmp_path).download(keep_sra=True)
     srx_dir = tmp_path / g.SRX
     for srr in (g.SRR1, g.SRR2):
-        # The .sra is moved up beside the gzipped FASTQ instead of being deleted.
+        # The .sra is stashed up beside the gzipped FASTQ instead of being reclaimed.
         assert (srx_dir / f"{srr}.sra").exists()
         assert (srx_dir / f"{srr}_1.fastq.gz").exists()
         # The prefetch download directory is still cleaned up.
         assert not (srx_dir / srr).exists()
 
 
-def test_existing_success_flag_skips_the_run(fake: FakeTools, tmp_path: Path) -> None:
+def test_existing_done_marker_skips_the_run(fake: FakeTools, tmp_path: Path) -> None:
     srx_dir = tmp_path / g.SRX
     srx_dir.mkdir(parents=True)
-    (srx_dir / f".{g.SRR1}.success").touch()
+    (srx_dir / f".{g.SRR1}.done").touch()
 
     result = SraDownloader(_experiment(), tmp_path).download()
 
     assert result == {g.SRR1: True, g.SRR2: True}
-    # The skipped run is never prefetched; the other one still is.
+    # The already-complete run is never prefetched; the other one still is.
     prefetched = [cmd[1] for cmd in fake.commands if cmd[0] == "prefetch"]
     assert g.SRR1 not in prefetched
     assert g.SRR2 in prefetched
 
 
-def test_success_flag_records_each_step_as_json(fake: FakeTools, tmp_path: Path) -> None:
-    SraDownloader(_experiment(), tmp_path).download()
-    flag = tmp_path / g.SRX / f".{g.SRR1}.success"
-    state = json.loads(flag.read_text())
-    # Every pipeline step is recorded, plus the per-file gzip list.
-    assert state["prefetch"] is True
-    assert state["fasterq-dump"] is True
-    assert state["cleanup"] is True
-    assert sorted(state["gzip"]) == [f"{g.SRR1}_1.fastq", f"{g.SRR1}_2.fastq"]
-
-
-def test_recorded_prefetch_is_skipped_on_rerun(fake: FakeTools, tmp_path: Path) -> None:
+def test_prefetched_sra_is_not_refetched_on_resume(fake: FakeTools, tmp_path: Path) -> None:
     srx_dir = tmp_path / g.SRX
-    srx_dir.mkdir(parents=True)
-    # A flag that records only prefetch (e.g. an earlier run died during extraction).
-    (srx_dir / f".{g.SRR1}.success").write_text(json.dumps({"prefetch": True}))
+    # Simulate a run whose prefetch finished (its .sra dir is present) but that was
+    # interrupted before extraction (no .done marker).
+    sra_dir = srx_dir / g.SRR1
+    sra_dir.mkdir(parents=True)
+    (sra_dir / f"{g.SRR1}.sra").write_bytes(b"sra")
 
     SraDownloader(_experiment(), tmp_path).download()
 
@@ -144,43 +109,21 @@ def test_recorded_prefetch_is_skipped_on_rerun(fake: FakeTools, tmp_path: Path) 
     prefetched = [cmd[1] for cmd in fake.commands if cmd[0] == "prefetch"]
     assert g.SRR1 not in prefetched
     extracted = [Path(cmd[1]).name for cmd in fake.commands if cmd[0] == "fasterq-dump"]
-    assert g.SRR1 in extracted
+    assert f"{g.SRR1}.sra" in extracted
     assert (srx_dir / f"{g.SRR1}_1.fastq.gz").exists()
-
-
-def test_recorded_gzip_files_are_not_recompressed(fake: FakeTools, tmp_path: Path) -> None:
-    srx_dir = tmp_path / g.SRX
-    srx_dir.mkdir(parents=True)
-    # prefetch + fasterq-dump done, one mate already gzipped; only the other remains.
-    (srx_dir / f".{g.SRR1}.success").write_text(
-        json.dumps({"prefetch": True, "fasterq-dump": True, "gzip": [f"{g.SRR1}_1.fastq"]})
-    )
-    (srx_dir / f"{g.SRR1}_1.fastq.gz").write_bytes(b"gz")
-    (srx_dir / f"{g.SRR1}_2.fastq").write_text("@r\nACGT\n+\nIIII\n")
-
-    SraDownloader(_experiment(), tmp_path).download()
-
-    # Only the remaining mate is handed to the gzip tool for SRR1.
-    gzipped = [arg for cmd in fake.commands if cmd[0] == "pigz" for arg in cmd[1:]]
-    assert any(arg.endswith(f"{g.SRR1}_2.fastq") for arg in gzipped)
-    assert not any(arg.endswith(f"{g.SRR1}_1.fastq") for arg in gzipped)
 
 
 def test_prefetch_only_stops_after_prefetch(fake: FakeTools, tmp_path: Path) -> None:
     result = SraDownloader(_experiment(), tmp_path).download(prefetch_only=True)
 
     assert result == {g.SRR1: True, g.SRR2: True}
-    # Only prefetch ran — no extraction, compression, or cleanup.
+    # Only prefetch ran — no extraction or compression.
     assert fake.tools_used() == {"prefetch"}
     srx_dir = tmp_path / g.SRX
     for srr in (g.SRR1, g.SRR2):
         # The downloaded .sra is left in place; no FASTQ is produced.
         assert (srx_dir / srr / f"{srr}.sra").exists()
         assert list(srx_dir.glob(f"{srr}*.fastq.gz")) == []
-        # The flag records only the prefetch step (the run is not yet complete).
-        state = json.loads((srx_dir / f".{srr}.success").read_text())
-        assert state["prefetch"] is True
-        assert "fasterq-dump" not in state
 
 
 def test_prefetch_only_then_full_download_resumes(fake: FakeTools, tmp_path: Path) -> None:
@@ -194,6 +137,17 @@ def test_prefetch_only_then_full_download_resumes(fake: FakeTools, tmp_path: Pat
     assert "prefetch" not in fake.tools_used()
     assert "fasterq-dump" in fake.tools_used()
     assert (tmp_path / g.SRX / f"{g.SRR1}_1.fastq.gz").exists()
+
+
+def test_full_download_rerun_short_circuits(fake: FakeTools, tmp_path: Path) -> None:
+    SraDownloader(_experiment(), tmp_path).download()
+    fake.commands.clear()
+
+    result = SraDownloader(_experiment(), tmp_path).download()
+
+    assert result == {g.SRR1: True, g.SRR2: True}
+    # The whole-pipeline success flag short-circuits the rerun — no tools re-run.
+    assert fake.commands == []
 
 
 def test_prefetch_runs_before_fasterq_dump(fake: FakeTools, tmp_path: Path) -> None:
@@ -218,8 +172,8 @@ def test_falls_back_to_gzip_without_pigz(
     assert "pigz" not in fake.tools_used()
 
 
-def test_parallel_downloads_all_runs(fake: FakeTools, tmp_path: Path) -> None:
-    result = SraDownloader(_experiment(), tmp_path).download(n_parallel=2)
+def test_download_all_runs_with_ncbi_parallel(fake: FakeTools, tmp_path: Path) -> None:
+    result = SraDownloader(_experiment(), tmp_path).download(ncbi_parallel=2)
     assert result == {g.SRR1: True, g.SRR2: True}
 
 
@@ -232,6 +186,11 @@ def test_failed_run_records_false_without_aborting(
     monkeypatch.setattr(sratools, "_run", boom)
     result = SraDownloader(_experiment(), tmp_path).download()
     assert result == {g.SRR1: False, g.SRR2: False}
+
+
+# --------------------------------------------------------------------------- #
+# record-level nesting + experiment selection
+# --------------------------------------------------------------------------- #
 
 
 def test_series_download_nests_under_series_then_experiment(
@@ -261,7 +220,6 @@ def test_series_download_select_srx_selects_matching_experiment(
     fake: FakeTools, tmp_path: Path
 ) -> None:
     result = Series(g.GSE, client=g.build_client()).download(tmp_path, select_srx=[g.SRX])
-    # The listed experiment is downloaded in full (both of its runs).
     assert result == {g.SRR1: True, g.SRR2: True}
     assert (tmp_path / g.GSE / g.SRX / f"{g.SRR1}_1.fastq.gz").exists()
 
@@ -316,11 +274,169 @@ def test_bioproject_download_select_srx_selects_matching_experiment(
 def test_series_download_prefetch_only(fake: FakeTools, tmp_path: Path) -> None:
     result = Series(g.GSE, client=g.build_client()).download(tmp_path, prefetch_only=True)
     assert result == {g.SRR1: True, g.SRR2: True}
-    # Series threads prefetch_only down to the runs: only .sra is fetched, no FASTQ.
     assert fake.tools_used() == {"prefetch"}
     srx_dir = tmp_path / g.GSE / g.SRX
     assert (srx_dir / g.SRR1 / f"{g.SRR1}.sra").exists()
     assert list(srx_dir.glob("*.fastq.gz")) == []
+
+
+# --------------------------------------------------------------------------- #
+# original-format download (curl-only, no extract/compress)
+# --------------------------------------------------------------------------- #
+
+
+def _sdl_file(srr: str, name: str, *, md5: str | None) -> RemoteFile:
+    return RemoteFile(
+        name=name,
+        type="bam",
+        size=1,
+        md5=md5,
+        modification_date=None,
+        accession=srr,
+        locations=(
+            FileLocation("s3", "us-east-1", f"https://sra-pub-src-1.s3.amazonaws.com/{name}"),
+        ),
+    )
+
+
+def test_download_original_run_fetches_files(fake: FakeTools, tmp_path: Path) -> None:
+    srx_dir = tmp_path / g.SRX
+    srx_dir.mkdir(parents=True)
+    run = Run(g.SRR1, sdl_client=g.build_sdl_client())
+
+    sratools.download_original_run(run, srx_dir)
+
+    run_dir = srx_dir / g.SRR1
+    assert (run_dir / f"{g.SRR1}_original_R1.fastq.gz").exists()
+    assert (run_dir / f"{g.SRR1}_original_R2.fastq.gz").exists()
+    # Only curl ran — no prefetch/fasterq-dump/pigz, and nothing was extracted.
+    assert fake.tools_used() == {"curl"}
+
+
+def test_download_original_run_skips_present_files(fake: FakeTools, tmp_path: Path) -> None:
+    srx_dir = tmp_path / g.SRX
+    run_dir = srx_dir / g.SRR1
+    run_dir.mkdir(parents=True)
+    # One file already present (no md5 to check) is skipped; the other is fetched.
+    (run_dir / f"{g.SRR1}_original_R1.fastq.gz").write_bytes(b"already here")
+
+    sratools.download_original_run(Run(g.SRR1, sdl_client=g.build_sdl_client()), srx_dir)
+
+    fetched = [Path(cmd[cmd.index("-o") + 1]).name for cmd in fake.commands if cmd[0] == "curl"]
+    assert fetched == [f"{g.SRR1}_original_R2.fastq.gz"]
+
+
+def test_download_original_run_no_files_raises(fake: FakeTools, tmp_path: Path) -> None:
+    srx_dir = tmp_path / g.SRX
+    srx_dir.mkdir(parents=True)
+    # A run whose SDL listing has only the (archive) .sra — no original-format files.
+    only_sra = FakeSdlClient({g.SRR1: [RemoteFile(g.SRR1, "sra", 1, None, None, g.SRR1, ())]})
+    with pytest.raises(DownloadError, match="no original-format files"):
+        sratools.download_original_run(Run(g.SRR1, sdl_client=only_sra), srx_dir)
+
+
+def test_download_original_run_verifies_md5(fake: FakeTools, tmp_path: Path) -> None:
+    srx_dir = tmp_path / g.SRX
+    srx_dir.mkdir(parents=True)
+    # FakeTools' curl writes b"original-format data"; a matching checksum verifies.
+    good_md5 = hashlib.md5(b"original-format data").hexdigest()
+    sdl = FakeSdlClient({g.SRR1: [_sdl_file(g.SRR1, "reads.bam", md5=good_md5)]})
+
+    sratools.download_original_run(Run(g.SRR1, sdl_client=sdl), srx_dir)
+
+    assert (srx_dir / g.SRR1 / "reads.bam").exists()
+
+
+def test_download_original_run_md5_mismatch_raises(fake: FakeTools, tmp_path: Path) -> None:
+    srx_dir = tmp_path / g.SRX
+    srx_dir.mkdir(parents=True)
+    sdl = FakeSdlClient({g.SRR1: [_sdl_file(g.SRR1, "reads.bam", md5="0" * 32)]})
+
+    with pytest.raises(DownloadError, match="md5 mismatch"):
+        sratools.download_original_run(Run(g.SRR1, sdl_client=sdl), srx_dir)
+
+
+def test_series_download_original_srx_fetches_original_only(
+    fake: FakeTools, fake_sdl: None, tmp_path: Path
+) -> None:
+    result = Series(g.GSE, client=g.build_client()).download(tmp_path, original_srx=[g.SRX])
+
+    assert result == {g.SRR1: True, g.SRR2: True}
+    srx_dir = tmp_path / g.GSE / g.SRX
+    for srr in (g.SRR1, g.SRR2):
+        assert (srx_dir / srr / f"{srr}_original_R1.fastq.gz").exists()
+        assert (srx_dir / f".{srr}.original.done").exists()
+    # No sra-tools path was taken, and no gzipped FASTQ / default .done markers exist.
+    assert fake.tools_used() == {"curl"}
+    assert list(srx_dir.glob("*.fastq.gz")) == []
+    assert not (srx_dir / f".{g.SRR1}.done").exists()
+    assert not (srx_dir / f".{g.SRR2}.done").exists()
+
+
+def test_download_original_srx_rejects_non_srx(fake: FakeTools, tmp_path: Path) -> None:
+    with pytest.raises(AccessionError):
+        Series(g.GSE, client=g.build_client()).download(tmp_path, original_srx=[g.SRR1])
+
+
+def test_sradownloader_original_downloads_submitter_files(
+    fake: FakeTools, fake_sdl: None, tmp_path: Path
+) -> None:
+    result = SraDownloader(_experiment(), tmp_path).download(original=True)
+
+    assert result == {g.SRR1: True, g.SRR2: True}
+    srx_dir = tmp_path / g.SRX
+    for srr in (g.SRR1, g.SRR2):
+        assert (srx_dir / srr / f"{srr}_original_R1.fastq.gz").exists()
+        assert (srx_dir / f".{srr}.original.done").exists()
+    assert fake.tools_used() == {"curl"}
+
+
+# --------------------------------------------------------------------------- #
+# individual stages: staging, keep-sra, per-file gzip skip, prefetch retries
+# --------------------------------------------------------------------------- #
+
+
+def test_extract_writes_fastq_to_staging(fake: FakeTools, tmp_path: Path) -> None:
+    srx_dir = tmp_path / g.SRX
+    run = _experiment().runs[0]
+    sratools.prefetch_run(run, srx_dir)
+    sratools.extract_run(run, srx_dir)
+
+    staging = srx_dir / f".{g.SRR1}.fq"
+    assert sorted(p.name for p in staging.glob("*.fastq")) == [
+        f"{g.SRR1}_1.fastq",
+        f"{g.SRR1}_2.fastq",
+    ]
+    # extract keeps the .sra in place (reclaiming it is Snakemake's job, via temp()).
+    assert (srx_dir / g.SRR1 / f"{g.SRR1}.sra").exists()
+
+
+def test_extract_keep_sra_stashes_sra(fake: FakeTools, tmp_path: Path) -> None:
+    srx_dir = tmp_path / g.SRX
+    run = _experiment().runs[0]
+    sratools.prefetch_run(run, srx_dir)
+    sratools.extract_run(run, srx_dir, keep_sra=True)
+    # keep_sra moves the .sra up so it survives the temp() reclaim of the prefetch dir.
+    assert (srx_dir / f"{g.SRR1}.sra").exists()
+
+
+def test_compress_skips_already_gzipped_mate(fake: FakeTools, tmp_path: Path) -> None:
+    srx_dir = tmp_path / g.SRX
+    srx_dir.mkdir(parents=True)
+    staging = srx_dir / f".{g.SRR1}.fq"
+    staging.mkdir()
+    (staging / f"{g.SRR1}_1.fastq").write_text("@r\nACGT\n+\nIIII\n")
+    (staging / f"{g.SRR1}_2.fastq").write_text("@r\nACGT\n+\nIIII\n")
+    # One mate is already compressed into the final dir from an earlier, interrupted run.
+    (srx_dir / f"{g.SRR1}_1.fastq.gz").write_bytes(b"gz")
+
+    sratools.compress_run(_experiment().runs[0], srx_dir, staging=staging)
+
+    # Only the missing mate is handed to the gzip tool.
+    gzipped = [arg for cmd in fake.commands if cmd[0] == "pigz" for arg in cmd[1:]]
+    assert any(arg.endswith(f"{g.SRR1}_2.fastq") for arg in gzipped)
+    assert not any(arg.endswith(f"{g.SRR1}_1.fastq") for arg in gzipped)
+    assert (srx_dir / f"{g.SRR1}_2.fastq.gz").exists()
 
 
 def test_prefetch_passes_max_size_with_default(fake: FakeTools, tmp_path: Path) -> None:
@@ -342,11 +458,7 @@ def test_download_accepts_max_size_override(fake: FakeTools, tmp_path: Path) -> 
 
 
 class FlakyTools(FakeTools):
-    """A fake whose ``prefetch`` fails its first ``fail_times`` calls, then succeeds.
-
-    ``fasterq-dump`` (and everything else) always succeeds, so a test can tell
-    network retries apart from local steps.
-    """
+    """A fake whose ``prefetch`` fails its first ``fail_times`` calls, then succeeds."""
 
     def __init__(self, fail_times: int) -> None:
         super().__init__()
@@ -368,11 +480,9 @@ def test_prefetch_retries_then_succeeds(tmp_path: Path, monkeypatch: pytest.Monk
     monkeypatch.setattr(sratools, "_have", lambda tool: True)
     monkeypatch.setattr(sratools.time, "sleep", lambda _seconds: None)
 
-    # One run only, so the attempt count is unambiguous.
-    experiment = Experiment(g.SRX, client=g.build_client())
-    result = sratools._download_run(experiment.runs[0], tmp_path, retries=3)
+    run = Experiment(g.SRX, client=g.build_client()).runs[0]
+    sratools.prefetch_run(run, tmp_path, retries=3)
 
-    assert result is True
     # Two failures + one success for the single run.
     assert tools.prefetch_attempts == 3
 
@@ -383,14 +493,13 @@ def test_prefetch_gives_up_after_retries(tmp_path: Path, monkeypatch: pytest.Mon
     monkeypatch.setattr(sratools, "_have", lambda tool: True)
     monkeypatch.setattr(sratools.time, "sleep", lambda _seconds: None)
 
-    experiment = Experiment(g.SRX, client=g.build_client())
+    run = Experiment(g.SRX, client=g.build_client()).runs[0]
     with pytest.raises(DownloadError):
-        sratools._download_run(experiment.runs[0], tmp_path, retries=3)
-    # Exactly the configured number of attempts, no more.
+        sratools.prefetch_run(run, tmp_path, retries=3)
     assert tools.prefetch_attempts == 3
 
 
-def test_fasterq_dump_is_not_retried(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_extract_is_not_retried(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     attempts = {"fasterq-dump": 0}
 
     def run(cmd: list[str], *, cwd: Path | None = None) -> None:
@@ -404,11 +513,11 @@ def test_fasterq_dump_is_not_retried(tmp_path: Path, monkeypatch: pytest.MonkeyP
 
     monkeypatch.setattr(sratools, "_run", run)
     monkeypatch.setattr(sratools, "_have", lambda tool: True)
-    monkeypatch.setattr(sratools.time, "sleep", lambda _seconds: None)
 
-    experiment = Experiment(g.SRX, client=g.build_client())
+    run_obj = Experiment(g.SRX, client=g.build_client()).runs[0]
+    sratools.prefetch_run(run_obj, tmp_path)
     with pytest.raises(DownloadError):
-        sratools._download_run(experiment.runs[0], tmp_path, retries=3)
+        sratools.extract_run(run_obj, tmp_path)
     # The local extraction step is run once — retries apply only to prefetch.
     assert attempts["fasterq-dump"] == 1
 
@@ -420,51 +529,81 @@ def test_run_seam_raises_download_error_on_missing_tool() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# user-facing progress output (printed to stderr)
+# disk preflight (rough, non-blocking warning)
 # --------------------------------------------------------------------------- #
 
 
-def test_download_prints_plan_and_per_run_lines(
+def _fake_disk_usage(free: int):
+    from collections import namedtuple
+
+    usage = namedtuple("usage", ["total", "used", "free"])
+    return lambda _path: usage(free * 10, free * 9, free)
+
+
+def test_low_disk_prints_warning(
+    fake: FakeTools,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(sratools.shutil, "disk_usage", _fake_disk_usage(free=100))
+    Series(g.GSE, client=g.build_client()).download(tmp_path)
+    assert "may be needed" in capsys.readouterr().err
+
+
+def test_ample_disk_is_silent_about_space(
+    fake: FakeTools,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(sratools.shutil, "disk_usage", _fake_disk_usage(free=10**12))
+    Series(g.GSE, client=g.build_client()).download(tmp_path)
+    assert "may be needed" not in capsys.readouterr().err
+
+
+# --------------------------------------------------------------------------- #
+# user-facing plan + summary output (per-run progress is emitted by Snakemake)
+# --------------------------------------------------------------------------- #
+
+
+def test_download_prints_plan_and_summary(
     fake: FakeTools, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     Series(g.GSE, client=g.build_client()).download(tmp_path)
     err = capsys.readouterr().err
-    # The plan announces the destination, run/experiment counts, and lists the SRX.
     assert g.GSE in err
     assert "2 runs, 1 experiment" in err
     assert g.SRX in err
-    # One "done" line per freshly downloaded run, plus the final tally.
-    assert f"✓ {g.SRR1}" in err
-    assert f"✓ {g.SRR2}" in err
     assert "Done: 2 ok, 0 failed." in err
 
 
-def test_download_reports_skipped_runs(
+def test_download_plan_reports_already_done_runs(
     fake: FakeTools, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     srx_dir = tmp_path / g.GSE / g.SRX
     srx_dir.mkdir(parents=True)
-    (srx_dir / f".{g.SRR1}.success").touch()
+    (srx_dir / f".{g.SRR1}.done").touch()
 
     Series(g.GSE, client=g.build_client()).download(tmp_path)
     err = capsys.readouterr().err
     assert "1 of 2 already done" in err
-    assert f"• {g.SRR1}" in err
-    assert f"✓ {g.SRR2}" in err
+    assert "Done: 2 ok, 0 failed." in err
 
 
-def test_download_reports_failed_runs(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_download_summary_reports_failed_runs(
+    fake: FakeTools,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     def boom(cmd: list[str], *, cwd: Path | None = None) -> None:
         raise DownloadError("tool exploded")
 
     monkeypatch.setattr(sratools, "_run", boom)
-    monkeypatch.setattr(sratools, "_have", lambda tool: True)
 
     Series(g.GSE, client=g.build_client()).download(tmp_path)
     err = capsys.readouterr().err
-    assert f"✗ {g.SRR1}" in err
     assert "Done: 0 ok, 2 failed." in err
 
 

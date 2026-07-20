@@ -8,7 +8,11 @@ Import name: `labdata`.
 
 Early scaffolding. The first feature is the GEO part: `labdata.Series`, a lazy handle
 on a GEO Series (`GSE000000`) that resolves its linked publication, samples (GSMs), and
-SRA experiments (SRXs) through NCBI Entrez. Zenodo and other databases come later.
+SRA experiments (SRXs) through NCBI Entrez. From there, `labdata geo download` fetches
+the FASTQs — orchestrated as a **Snakemake** DAG (`prefetch → extract → compress`) with
+*resource-aware* concurrency: a dedicated `ncbi` resource caps concurrent NCBI network
+jobs while `--cores` saturates the rest of the machine, so the download link stays busy
+while cores extract and gzip. Zenodo and other databases come later.
 
 ## Development
 

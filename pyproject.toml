@@ -23,6 +23,7 @@ dependencies = [
     "biopython>=1.83",
     "pandas>=2.0",
     "typer>=0.12",
+    "snakemake>=8",   # orchestrates the download DAG (labdata.geo.pipeline)
 ]
 
 [project.urls]
@@ -44,6 +45,11 @@ fallback-version = "0.0.0+dev"
 [tool.hatch.build.targets.wheel]
 packages = ["src/labdata"]
 
+# The Snakemake workflow is a data file, not a Python module — force it into the
+# wheel so labdata.geo.pipeline can locate it at runtime via importlib.resources.
+[tool.hatch.build.targets.wheel.force-include]
+"src/labdata/geo/pipeline.smk" = "labdata/geo/pipeline.smk"
+
 # -------- pixi --------
 
 [tool.pixi.workspace]
@@ -55,15 +61,19 @@ platforms = ["osx-arm64", "linux-64", "osx-64"]
 liulab-data = { path = ".", editable = true }
 
 # Runtime deps (conda-forge + bioconda).
-# sra-tools (prefetch/fasterq-dump) and pigz are external binaries used by
-# labdata.geo.sratools — they are not importable Python, so they live here only,
-# not in [project.dependencies].
+# sra-tools (prefetch/fasterq-dump), pigz, and curl (the original-format download
+# path) are external binaries used by labdata.geo.sratools — they are not importable
+# Python, so they live here only, not in [project.dependencies].
+# snakemake-minimal is the lightweight conda build of Snakemake (no reporting/
+# remote-provider extras); it orchestrates the download DAG (labdata.geo.pipeline).
 [tool.pixi.dependencies]
 biopython = ">=1.83"
 pandas = ">=2.0"
 typer = ">=0.12"
 sra-tools = "*"
 pigz = "*"
+curl = "*"
+snakemake-minimal = ">=8"
 
 # Python version features
 [tool.pixi.feature.py312.dependencies]
