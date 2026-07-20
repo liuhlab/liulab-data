@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://lhqing.github.io/liulab-data/tutorials/geo-series/">
+        <link rel="canonical" href="https://lhqing.github.io/liulab-data/tutorials/tenx-bam/">
       
       
-        <link rel="prev" href="../understanding-geo/">
+        <link rel="prev" href="../geo-series/">
       
       
-        <link rel="next" href="../tenx-bam/">
+        <link rel="next" href="../../reference/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>GEO Series - liulab-data</title>
+        <title>10x cellranger BAM → FASTQ - liulab-data</title>
       
     
     
@@ -80,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#geo-series-from-study-to-fastq" class="md-skip">
+        <a href="#recovering-fastq-from-a-10x-cellranger-bam" class="md-skip">
           Skip to content
         </a>
       
@@ -116,7 +116,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              GEO Series
+              10x cellranger BAM → FASTQ
             
           </span>
         </div>
@@ -368,6 +368,34 @@
                 
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../geo-series/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GEO Series
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
     
   
   
@@ -387,7 +415,7 @@
   <span class="md-ellipsis">
     
   
-    GEO Series
+    10x cellranger BAM → FASTQ
   
 
     
@@ -405,7 +433,7 @@
   <span class="md-ellipsis">
     
   
-    GEO Series
+    10x cellranger BAM → FASTQ
   
 
     
@@ -431,10 +459,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#1-look-up-a-geo-series" class="md-nav__link">
+  <a href="#1-download-the-original-format-bams" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1. Look up a GEO Series
+        1. Download the original-format BAMs
       
     </span>
   </a>
@@ -442,43 +470,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#2-get-the-sra-run-table" class="md-nav__link">
+  <a href="#2-convert-the-bams-to-fastq" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2. Get the SRA run table
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#3-download-all-fastq-files" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        3. Download all FASTQ files
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#4-grab-the-supplementary-files" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        4. Grab the supplementary files
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#going-deeper" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Going deeper
+        2. Convert the BAMs to FASTQ
       
     </span>
   </a>
@@ -489,34 +484,6 @@
   
 </nav>
       
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../tenx-bam/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    10x cellranger BAM → FASTQ
-  
-
-    
-  </span>
-  
-  
-
-      </a>
     </li>
   
 
@@ -583,10 +550,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#1-look-up-a-geo-series" class="md-nav__link">
+  <a href="#1-download-the-original-format-bams" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1. Look up a GEO Series
+        1. Download the original-format BAMs
       
     </span>
   </a>
@@ -594,43 +561,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#2-get-the-sra-run-table" class="md-nav__link">
+  <a href="#2-convert-the-bams-to-fastq" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2. Get the SRA run table
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#3-download-all-fastq-files" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        3. Download all FASTQ files
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#4-grab-the-supplementary-files" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        4. Grab the supplementary files
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#going-deeper" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Going deeper
+        2. Convert the BAMs to FASTQ
       
     </span>
   </a>
@@ -654,7 +588,7 @@
 
 
   
-    <a href="https://github.com/lhqing/liulab-data/edit/main/docs/tutorials/geo-series.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/lhqing/liulab-data/edit/main/docs/tutorials/tenx-bam.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -662,144 +596,66 @@
   
 
 
-<h1 id="geo-series-from-study-to-fastq">GEO Series: from study to FASTQ<a class="headerlink" href="#geo-series-from-study-to-fastq" title="Permanent link">&para;</a></h1>
-<p>This tutorial goes from a GEO accession to downloaded FASTQ in a few short steps,
-using a real study — <a href="https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE47966">GSE47966</a>
-(<em>Global epigenomic reconfiguration during mammalian brain development</em>). First, make
-sure you've <a href="../../">installed the package and set your NCBI email</a>.</p>
-<h2 id="1-look-up-a-geo-series">1. Look up a GEO Series<a class="headerlink" href="#1-look-up-a-geo-series" title="Permanent link">&para;</a></h2>
-<p>Start from any GEO accession (<code>GSE…</code>). Building the handle is instant; reading a
-field is what triggers the lookup.</p>
-<div class="language-python highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">labdata</span><span class="w"> </span><span class="kn">import</span> <span class="n">Series</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">gse</span> <span class="o">=</span> <span class="n">Series</span><span class="p">(</span><span class="s2">&quot;GSE47966&quot;</span><span class="p">)</span>     <span class="c1"># just a handle — no network yet</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">gse</span><span class="o">.</span><span class="n">title</span>         <span class="c1"># &#39;Global epigenomic reconfiguration during mammalian brain development&#39;</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="n">gse</span><span class="o">.</span><span class="n">organism</span>      <span class="c1"># &#39;Homo sapiens; Mus musculus&#39;</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="n">gse</span><span class="o">.</span><span class="n">platforms</span>     <span class="c1"># [Platform(&#39;GPL13112&#39;), Platform(&#39;GPL11154&#39;)]</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="n">gse</span><span class="o">.</span><span class="n">samples</span>       <span class="c1"># [Sample(&#39;GSM1173819&#39;), Sample(&#39;GSM1173773&#39;), ...]   (65 samples)</span>
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="n">gse</span><span class="o">.</span><span class="n">experiments</span>   <span class="c1"># [Experiment(&#39;SRX314994&#39;), Experiment(&#39;SRX314993&#39;), ...]   (65 experiments)</span>
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="n">gse</span><span class="o">.</span><span class="n">url</span>           <span class="c1"># &#39;https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE47966&#39;</span>
+<h1 id="recovering-fastq-from-a-10x-cellranger-bam">Recovering FASTQ from a 10x cellranger BAM<a class="headerlink" href="#recovering-fastq-from-a-10x-cellranger-bam" title="Permanent link">&para;</a></h1>
+<p>Some 10x Genomics studies upload a cellranger BAM as their raw data, and SRA's
+normalized <code>.sra</code> for those runs is unusable — often it kept only one read of the pair,
+so <code>fasterq-dump</code> can't reconstruct the barcodes. The fix is to go back to the
+submitter's <strong>original</strong> BAM and turn <em>that</em> into FASTQ with 10x's own <code>bamtofastq</code>,
+which reads the 10x tags to split the barcode (R1), cDNA (R2), and index (I1) reads
+correctly — ready to remap with STARsolo.</p>
+<p>This is a two-step flow: <strong>download the original BAMs</strong>, then <strong>convert them</strong>.</p>
+<h2 id="1-download-the-original-format-bams">1. Download the original-format BAMs<a class="headerlink" href="#1-download-the-original-format-bams" title="Permanent link">&para;</a></h2>
+<p>Fetch the submitter's files for the affected experiments (see
+<a href="../geo-series/">the GEO Series tutorial's note on original files</a>):</p>
+<div class="language-bash highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>labdata<span class="w"> </span>geo<span class="w"> </span>download<span class="w"> </span>GSE208154<span class="w"> </span>--original-srx<span class="w"> </span>SRX16000000<span class="w"> </span>-o<span class="w"> </span>./data
 </code></pre></div>
-<p>Each linked item (a sample, an experiment, a run) is its own object you can drill
-into the same way. See the <a href="../../reference/">API reference</a> for everything they
-expose.</p>
-<h2 id="2-get-the-sra-run-table">2. Get the SRA run table<a class="headerlink" href="#2-get-the-sra-run-table" title="Permanent link">&para;</a></h2>
-<p>Want the table you'd normally click through on NCBI's <strong>SRA Run Selector</strong> — one row
-per sequencing run, with library and instrument details? Ask for it directly. It
-comes back as a <a href="https://pandas.pydata.org/">pandas</a> <code>DataFrame</code>, so you can filter,
-sort, and export it however you like.</p>
-<div class="language-python highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">table</span> <span class="o">=</span> <span class="n">gse</span><span class="o">.</span><span class="n">make_sra_run_table</span><span class="p">()</span>      <span class="c1"># one row per run (392 in this study)</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">table</span><span class="p">[[</span><span class="s2">&quot;Run&quot;</span><span class="p">,</span> <span class="s2">&quot;Instrument&quot;</span><span class="p">,</span> <span class="s2">&quot;ReadStructure&quot;</span><span class="p">,</span> <span class="s2">&quot;Bases&quot;</span><span class="p">,</span> <span class="s2">&quot;LibraryLayout&quot;</span><span class="p">]]</span><span class="o">.</span><span class="n">head</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span>
+<p>They land under <code>./data/GSE208154/&lt;SRX&gt;/&lt;SRR&gt;/&lt;name&gt;.bam</code>.</p>
+<h2 id="2-convert-the-bams-to-fastq">2. Convert the BAMs to FASTQ<a class="headerlink" href="#2-convert-the-bams-to-fastq" title="Permanent link">&para;</a></h2>
+<div class="language-bash highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>labdata<span class="w"> </span>tenx<span class="w"> </span>bamtofastq<span class="w"> </span>GSE208154<span class="w"> </span>-o<span class="w"> </span>./data<span class="w"> </span>--cores<span class="w"> </span><span class="m">16</span>
 </code></pre></div>
-<div class="language-text highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>         Run           Instrument ReadStructure        Bases LibraryLayout
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>0  SRR907554  Illumina HiSeq 2000            50  10100000000        SINGLE
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>1  SRR907555  Illumina HiSeq 2000            50  10100000000        SINGLE
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>2  SRR907556  Illumina HiSeq 2000            50  10100000000        SINGLE
-<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>...
+<p><code>labdata tenx bamtofastq</code> <strong>auto-detects</strong> which runs carry a 10x BAM (from the SRA
+Data Locator listing) and converts each one that's on disk, driving <code>bamtofastq</code> as a
+Snakemake DAG. The result is laid out <strong>like the download pipeline</strong> — flat under the
+experiment directory, one prefix per run — so a later STARsolo step parses one layout:</p>
+<div class="language-text highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>data/GSE208154/&lt;SRX&gt;/
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>  &lt;SRR&gt;_S1_L001_R1_001.fastq.gz   # barcode + UMI
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>  &lt;SRR&gt;_S1_L001_R2_001.fastq.gz   # cDNA
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>  &lt;SRR&gt;_S1_L001_I1_001.fastq.gz   # sample index
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>  …
 </code></pre></div>
-<p><code>ReadStructure</code> gives the length of each read in a spot, joined with <code>+</code>: a
-single-end 50&nbsp;bp run reads <code>50</code>, while a paired run with a 28&nbsp;bp barcode
-and a 94&nbsp;bp cDNA read reads <code>28+94</code> — a quick way to spot single-cell
-chemistries.</p>
-<div class="language-python highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">table</span><span class="o">.</span><span class="n">to_csv</span><span class="p">(</span><span class="s2">&quot;GSE47966_runs.csv&quot;</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>   <span class="c1"># hand it off to collaborators</span>
-</code></pre></div>
-<h2 id="3-download-all-fastq-files">3. Download all FASTQ files<a class="headerlink" href="#3-download-all-fastq-files" title="Permanent link">&para;</a></h2>
-<p>One call fetches the FASTQ for <strong>every run in the study</strong>, running a
-<a href="https://snakemake.github.io">Snakemake</a> pipeline (<code>prefetch → extract → compress</code>)
-over <a href="https://github.com/ncbi/sra-tools">sra-tools</a> under the hood. Files are organized
-by study → experiment → run and gzipped for you:</p>
-<div class="language-python highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">gse</span><span class="o">.</span><span class="n">download</span><span class="p">(</span><span class="s2">&quot;./fastq&quot;</span><span class="p">,</span> <span class="n">ncbi_parallel</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">cores</span><span class="o">=</span><span class="mi">16</span><span class="p">)</span>   <span class="c1"># ≤3 downloads at once, 16 cores total</span>
-</code></pre></div>
-<p>The two knobs are independent, which is the point: <code>ncbi_parallel</code> caps how many runs
-<code>prefetch</code> from NCBI at once (keep it low to stay friendly with NCBI), while <code>cores</code>
-bounds total CPU for the local extraction/gzip work. So downloads keep the network busy
-while cores chew through already-fetched runs, instead of the two blocking each other.
-On an HPC allocation, set <code>cores</code> to your allotted cores.</p>
-<div class="language-text highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>{&#39;SRR921999&#39;: True, &#39;SRR922000&#39;: True, &#39;SRR922001&#39;: True, ...}     # each run: success?
-</code></pre></div>
-<p>The files land in a tidy tree:</p>
-<div class="language-text highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>fastq/
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>└── GSE47966/
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>    ├── SRX314994/
-<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>    │   ├── SRR921999.fastq.gz
-<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>    │   ├── SRR922000.fastq.gz
-<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>    │   └── ...
-<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>    └── SRX314993/
-<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>        └── ...
-</code></pre></div>
+<p>The <code>R1</code>/<code>R2</code>/<code>I1</code> and lane markers are preserved (STARsolo needs them), while the
+files sit flat beside the experiment's other runs and glob as <code>&lt;SRX&gt;/&lt;SRR&gt;*.fastq.gz</code>,
+just like a normal download.</p>
 <div class="admonition note">
 <p class="admonition-title">Good to know</p>
 <ul>
-<li>This downloads <strong>real sequencing data</strong>, which can be large — point
-  <code>output_dir</code> somewhere with room to spare. If free space looks tight, the
-  download prints a rough warning before it starts (it never blocks).</li>
-<li>GSE47966's runs are single-end, so each gives one <code>.fastq.gz</code>; paired-end runs
-  produce <code>_1</code>/<code>_2</code> files instead.</li>
-<li><strong>Interruptible.</strong> A finished run leaves a <code>.&lt;run&gt;.done</code> marker, so re-running
-  <code>download()</code> <strong>skips what's already done</strong> — an interrupted download resumes
-  without re-fetching SRA data (and <code>prefetch</code> itself resumes a partial <code>.sra</code>).
-  Safe after a Ctrl-C or an HPC walltime kill.</li>
-<li><strong>Modest peak disk.</strong> Snakemake reclaims each intermediate the moment the next
-  step consumes it — a run's <code>.sra</code> the moment its FASTQ is extracted, the
-  uncompressed FASTQ the moment they're gzipped — and drains
-  extraction/compression before fetching more, so only a handful of <code>.sra</code> sit on
-  disk at once. Lower <code>ncbi_parallel</code> to shrink that working set further.</li>
-<li>Pass <code>keep_sra=True</code> to keep each run's <code>.sra</code> next to its FASTQ instead of
-  reclaiming it after extraction (useful for re-extracting later), or
-  <code>prefetch_only=True</code> to just stage the <code>.sra</code> files without extracting.</li>
-<li>Needs <code>sra-tools</code> and <code>pigz</code> on your system (see <a href="../../">Installation</a>);
-  Snakemake comes with <code>liulab-data</code>.</li>
+<li><strong>Conversion-only.</strong> This step reads BAMs that are already on disk; run the
+  original-format download first. Pointing both commands at the same <code>-o</code> directory
+  is intended — they share the <code>&lt;GSE&gt;/&lt;SRX&gt;/&lt;SRR&gt;/</code> layout.</li>
+<li><strong>Interruptible.</strong> A finished run leaves a <code>.&lt;run&gt;.tenx.done</code> marker, so
+  re-running skips what's already converted. Safe after a Ctrl-C or HPC walltime
+  kill.</li>
+<li><code>--cores</code> bounds total CPU across runs; <code>--threads-per-run</code> sets each
+  <code>bamtofastq</code>'s <code>--nthreads</code>. On an HPC allocation, pass <code>--cores $SLURM_CPUS_ON_NODE</code>.</li>
+<li>Auto-detection uses one SDL lookup per run. Pass <code>--all-runs</code> to skip it and
+  convert every run of the selected experiments (e.g. when you already know they're
+  all 10x), or <code>--select-srx</code> to narrow which experiments are considered.</li>
+<li>On an <strong>offline HPC compute node</strong>, pass <code>--from-disk</code>: the run list is built by
+  scanning the downloaded <code>&lt;SRX&gt;/&lt;SRR&gt;/*.bam</code> tree instead of querying NCBI, so no
+  network or credentials are needed.</li>
+<li>Pass <code>--remove-bam</code> to delete each run's source BAM once its FASTQ are produced —
+  it reclaims the large original, and only fires after a run converts successfully
+  (an interrupted run keeps its BAM for the resumed rerun).</li>
+<li>Needs <code>10x_bamtofastq</code> on your system (see <a href="../../">Installation</a>); Snakemake
+  comes with <code>liulab-data</code>.</li>
 </ul>
 </div>
-<div class="admonition tip">
-<p class="admonition-title">Missing or useless <code>.sra</code>? Download the original files</p>
-<p>Occasionally a run's SRA-normalized <code>.sra</code> is gone, or wrong — e.g. a 10X run
-whose <code>.sra</code> kept only one read of a pair. The submitter's <strong>original-format</strong>
-files (what you see under "Data access" in the SRA Run Browser) are still there.
-Name those experiments with <code>original_srx</code> to fetch them as-is instead — download
-only, no extraction:</p>
-<p><div class="language-python highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">gse</span><span class="o">.</span><span class="n">download</span><span class="p">(</span><span class="s2">&quot;./fastq&quot;</span><span class="p">,</span> <span class="n">original_srx</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;SRX34567890&quot;</span><span class="p">])</span>
+<p>From Python, <code>TenxConverter</code> is the equivalent entry point:</p>
+<div class="language-python highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">labdata</span><span class="w"> </span><span class="kn">import</span> <span class="n">TenxConverter</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">TenxConverter</span><span class="p">(</span><span class="s2">&quot;GSE208154&quot;</span><span class="p">,</span> <span class="s2">&quot;./data&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">convert</span><span class="p">(</span><span class="n">cores</span><span class="o">=</span><span class="mi">16</span><span class="p">)</span>
 </code></pre></div>
-<div class="language-bash highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>labdata<span class="w"> </span>geo<span class="w"> </span>download<span class="w"> </span>GSE310667<span class="w"> </span>--original-srx<span class="w"> </span>SRX34567890
-</code></pre></div></p>
-<p>The files land under <code>…/&lt;SRX&gt;/&lt;SRR&gt;/</code> with their original names and are md5-checked
-against NCBI; everything else in the study still takes the normal sra-tools path.
-This only sets the <em>mode</em> — pair it with <code>--select-srx</code>/<code>select_srx</code> (repeatable,
-or a whitelist file) if you also want to narrow <em>which</em> experiments run. Original
-format is heterogeneous, so labdata just downloads it and leaves the processing to
-you. Needs <code>curl</code> in addition to <code>sra-tools</code>/<code>pigz</code>. When the original file is a
-<strong>10x cellranger BAM</strong>, the <a href="../tenx-bam/">10x BAM → FASTQ tutorial</a> turns it back
-into remap-ready FASTQ.</p>
-</div>
-<div class="admonition info">
-<p class="admonition-title">Just one experiment?</p>
-<p><code>Series.download</code> does the whole study. To grab a single experiment instead, use
-<code>SraDownloader</code> — see the <a href="../../reference/">API reference</a>. Pass <code>original=True</code> for
-that experiment's original-format files.</p>
-</div>
-<div class="admonition tip">
-<p class="admonition-title">Have a BioProject instead?</p>
-<p><code>BioProject</code> exposes the same <code>download()</code> — <code>BioProject("PRJNA1027859").download("./fastq")</code>
-lays the FASTQ out identically, under a <code>PRJNA…/</code> directory. The
-<code>labdata geo download</code> command auto-detects which you gave it, so <code>GSE…</code> and
-<code>PRJ…</code> accessions both just work.</p>
-</div>
-<h2 id="4-grab-the-supplementary-files">4. Grab the supplementary files<a class="headerlink" href="#4-grab-the-supplementary-files" title="Permanent link">&para;</a></h2>
-<p>Raw FASTQ isn't the whole story. Authors usually attach <strong>supplementary files</strong> —
-processed matrices, peak calls, bigWigs, READMEs — to the Series. List them and grab
-their download URLs directly:</p>
-<div class="language-python highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">gse</span><span class="o">.</span><span class="n">supplementary_files</span>       <span class="c1"># [&#39;GSE47966_RAW.tar&#39;, &#39;GSE47966_README.txt&#39;, &#39;filelist.txt&#39;]</span>
-<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="n">gse</span><span class="o">.</span><span class="n">supplementary_file_urls</span>   <span class="c1"># full https URLs you can download</span>
-<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="n">gse</span><span class="o">.</span><span class="n">supplementary_http_url</span>    <span class="c1"># the suppl/ directory itself</span>
-</code></pre></div>
-<p>These are often where the <em>useful, ready-to-analyze</em> outputs live — see
-<a href="../understanding-geo/#whats-not-in-geo">what's not in GEO</a> for why they matter.</p>
-<h2 id="going-deeper">Going deeper<a class="headerlink" href="#going-deeper" title="Permanent link">&para;</a></h2>
-<p>This tutorial covers the common path. For the full picture — every property of
-<code>Series</code>, <code>Sample</code>, <code>Platform</code>, <code>Experiment</code>, <code>Run</code>, and <code>BioProject</code>, plus the
-downloader options — head to the <strong><a href="../../reference/">API reference</a></strong>.</p>
+<p>See the <a href="../../reference/">API reference</a> for the full signature.</p>
 
 
 
