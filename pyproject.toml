@@ -79,9 +79,9 @@ curl = "*"
 "10x_bamtofastq" = "*"
 snakemake-minimal = ">=8"
 
-# Python version features
-[tool.pixi.feature.py312.dependencies]
-python = "3.12.*"
+# Python version feature (CI tests on 3.13; the package still supports >=3.12 —
+# see `requires-python` and the ruff/pyright py312 targets, which keep the code
+# 3.12-compatible).
 [tool.pixi.feature.py313.dependencies]
 python = "3.13.*"
 
@@ -107,10 +107,9 @@ mkdocstrings-python = "*"
 ruff = "*"   # used by mkdocstrings to format rendered signatures
 
 [tool.pixi.environments]
-default    = { features = ["py313", "dev", "test", "docs"], solve-group = "default" }
-test-py312 = { features = ["py312", "test"], solve-group = "py312" }
-test-py313 = { features = ["py313", "test"], solve-group = "py313" }
-docs       = { features = ["py313", "docs"], solve-group = "default" }
+default = { features = ["py313", "dev", "test", "docs"], solve-group = "default" }
+test    = { features = ["py313", "test"], solve-group = "default" }
+docs    = { features = ["py313", "docs"], solve-group = "default" }
 
 [tool.pixi.tasks]
 lint      = "ruff check ."

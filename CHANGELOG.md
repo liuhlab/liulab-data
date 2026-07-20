@@ -18,14 +18,14 @@ and this project adheres to [Calendar Versioning](https://calver.org/) using
 
 - Initial pixi scaffold: `pyproject.toml` with `[tool.pixi.*]` manifest, conda-forge +
   bioconda channels, `biopython`/`pandas`/`typer` runtime deps, `osx-arm64` + `linux-64` platforms,
-  py312/py313 environments, and standard tasks (`lint`, `fmt`, `typecheck`, `test`,
-  `check`, `build`, `docs`).
+  `default`/`test`/`docs` py313 environments, and standard tasks (`lint`, `fmt`, `typecheck`,
+  `test`, `check`, `build`, `docs`).
 - Quality gates mirroring liulab-genome: ruff rule set (E, W, F, I, UP, B, C4, SIM, PT,
   PTH, N, D, RUF) with the numpy docstring convention; pyright basic mode targeting
   py3.12; pytest with `--strict-config`, `xfail_strict`, warnings-as-errors, a `network`
   marker deselected by default, and branch coverage. `.pre-commit-config.yaml` with the
   ruff hooks plus pyright as a local pixi-backed hook.
-- GitHub Actions: `ci.yml` (lint/typecheck + pytest matrix over `test-py312/313` + wheel
+- GitHub Actions: `ci.yml` (lint/typecheck + pytest on the py313 `test` env + wheel
   build + strict docs build), `release.yml` (PyPI OIDC trusted publishing on `v*` tags),
   `docs.yml` (MkDocs build + GitHub Pages deploy), and `claude.yml`.
 - `labdata._cache` — cache-directory resolution under `$XDG_CACHE_HOME/liulab-data`

@@ -29,10 +29,10 @@ jobs:
     name: Build & deploy to gh-pages
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0   # mkdocs revision dates / hatch-vcs version need history
-      - uses: prefix-dev/setup-pixi@v0.8.14
+      - uses: prefix-dev/setup-pixi@v0.10.0
         with:
           environments: docs
           locked: true
