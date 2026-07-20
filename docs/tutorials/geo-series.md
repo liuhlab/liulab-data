@@ -59,13 +59,20 @@ table.to_csv("GSE47966_runs.csv", index=False)   # hand it off to collaborators
 
 ## 3. Download all FASTQ files
 
-One call fetches the FASTQ for **every run in the study**, using
-[sra-tools](https://github.com/ncbi/sra-tools) under the hood. Files are organized by
-study → experiment → run and gzipped for you:
+One call fetches the FASTQ for **every run in the study**, running a
+[Snakemake](https://snakemake.github.io) pipeline (`prefetch → extract → compress`)
+over [sra-tools](https://github.com/ncbi/sra-tools) under the hood. Files are organized
+by study → experiment → run and gzipped for you:
 
 ```python
-gse.download("./fastq", n_parallel=4)   # 4 runs at a time
+gse.download("./fastq", ncbi_parallel=3, cores=16)   # ≤3 downloads at once, 16 cores total
 ```
+
+The two knobs are independent, which is the point: `ncbi_parallel` caps how many runs
+`prefetch` from NCBI at once (keep it low to stay friendly with NCBI), while `cores`
+bounds total CPU for the local extraction/gzip work. So downloads keep the network busy
+while cores chew through already-fetched runs, instead of the two blocking each other.
+On an HPC allocation, set `cores` to your allotted cores.
 
 ```text
 {'SRR921999': True, 'SRR922000': True, 'SRR922001': True, ...}     # each run: success?
@@ -86,14 +93,24 @@ fastq/
 
 !!! note "Good to know"
     - This downloads **real sequencing data**, which can be large — point
-      `output_dir` somewhere with room to spare.
+      `output_dir` somewhere with room to spare. If free space looks tight, the
+      download prints a rough warning before it starts (it never blocks).
     - GSE47966's runs are single-end, so each gives one `.fastq.gz`; paired-end runs
       produce `_1`/`_2` files instead.
-    - Each finished run drops a hidden `.<run>.success` marker, so re-running
-      `download()` **skips what's already done** and resumes the rest.
+    - **Interruptible.** A finished run leaves a `.<run>.done` marker, so re-running
+      `download()` **skips what's already done** — an interrupted download resumes
+      without re-fetching SRA data (and `prefetch` itself resumes a partial `.sra`).
+      Safe after a Ctrl-C or an HPC walltime kill.
+    - **Modest peak disk.** Snakemake reclaims each intermediate the moment the next
+      step consumes it — a run's `.sra` the moment its FASTQ is extracted, the
+      uncompressed FASTQ the moment they're gzipped — and drains
+      extraction/compression before fetching more, so only a handful of `.sra` sit on
+      disk at once. Lower `ncbi_parallel` to shrink that working set further.
     - Pass `keep_sra=True` to keep each run's `.sra` next to its FASTQ instead of
-      deleting it after extraction (useful for re-extracting later).
-    - Needs `sra-tools` and `pigz` on your system (see [Installation](../index.md)).
+      reclaiming it after extraction (useful for re-extracting later), or
+      `prefetch_only=True` to just stage the `.sra` files without extracting.
+    - Needs `sra-tools` and `pigz` on your system (see [Installation](../index.md));
+      Snakemake comes with `liulab-data`.
 
 !!! info "Just one experiment?"
     `Series.download` does the whole study. To grab a single experiment instead, use

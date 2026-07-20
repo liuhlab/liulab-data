@@ -1,9 +1,11 @@
 """Tests for the Typer CLI (labdata.cli).
 
-The ``geo download`` command is exercised end to end with both seams faked: the
+The ``geo download`` command is exercised end to end with three seams faked: the
 ``Series`` symbol the command imports is swapped for one that carries a
-:class:`FakeEntrezClient` (no NCBI), and ``sratools._run`` is swapped for the
-recording :class:`FakeTools` (no sra-tools, no network).
+:class:`FakeEntrezClient` (no NCBI), ``sratools._run`` is swapped for the recording
+:class:`FakeTools` (no sra-tools), and ``pipeline._run_snakemake`` is swapped for
+:func:`fake_snakemake` (no Snakemake). The hidden per-stage subcommands the DAG shells
+back into are covered directly with just the tools faked.
 """
 
 from __future__ import annotations
@@ -18,7 +20,7 @@ from labdata import BioProject, Series, experiments_for
 from labdata.exceptions import DownloadError
 from labdata.geo import sratools
 from tests import _geodata as g
-from tests.test_sratools import FakeTools
+from tests._download_fakes import FakeTools, fake_snakemake
 
 runner = CliRunner()
 
@@ -35,11 +37,12 @@ def fake_experiments(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def fake_tools(monkeypatch: pytest.MonkeyPatch) -> FakeTools:
-    """Swap the subprocess seam for the recording fake used by the sratools tests."""
+    """Fake both download seams: the sra-tools subprocess and Snakemake."""
     tools = FakeTools()
     monkeypatch.setattr(sratools, "_run", tools.run)
     monkeypatch.setattr(sratools, "_have", lambda tool: True)
     monkeypatch.setattr(sratools.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(sratools.pipeline, "_run_snakemake", fake_snakemake)
     return tools
 
 
@@ -190,15 +193,75 @@ def test_geo_experiments_bad_accession_exits_nonzero(fake_experiments: None) -> 
     assert "error:" in result.output
 
 
+def test_geo_download_prefetch_only_flag(
+    fake_tools: FakeTools, fake_series: None, tmp_path: Path
+) -> None:
+    result = runner.invoke(
+        cli_mod.app, ["geo", "download", g.GSE, "-o", str(tmp_path), "--prefetch-only"]
+    )
+    assert result.exit_code == 0
+    # Only prefetch ran; the .sra is left in place and no FASTQ is produced.
+    assert fake_tools.tools_used() == {"prefetch"}
+    srx_dir = tmp_path / g.GSE / g.SRX
+    assert (srx_dir / g.SRR1 / f"{g.SRR1}.sra").exists()
+    assert list(srx_dir.glob("*.fastq.gz")) == []
+
+
+def test_geo_download_threads_per_run_reaches_fasterq_dump(
+    fake_tools: FakeTools, fake_series: None, tmp_path: Path
+) -> None:
+    runner.invoke(
+        cli_mod.app,
+        ["geo", "download", g.GSE, "-o", str(tmp_path), "--threads-per-run", "2", "--cores", "4"],
+    )
+    fasterq = next(cmd for cmd in fake_tools.commands if cmd[0] == "fasterq-dump")
+    assert fasterq[fasterq.index("--threads") + 1] == "2"
+
+
 def test_geo_download_exits_nonzero_when_a_run_fails(
-    fake_series: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    fake_tools: FakeTools, fake_series: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def boom(cmd: list[str], *, cwd: Path | None = None) -> None:
         raise DownloadError("tool exploded")
 
     monkeypatch.setattr(sratools, "_run", boom)
-    monkeypatch.setattr(sratools, "_have", lambda tool: True)
 
     result = runner.invoke(cli_mod.app, ["geo", "download", g.GSE, "-o", str(tmp_path)])
     assert result.exit_code == 1
     assert "run(s) failed" in result.output
+
+
+# --------------------------------------------------------------------------- #
+# hidden per-stage subcommands (the bridge the Snakemake DAG shells back into)
+# --------------------------------------------------------------------------- #
+
+
+def test_geo_prefetch_stage_fetches_sra(fake_tools: FakeTools, tmp_path: Path) -> None:
+    result = runner.invoke(cli_mod.app, ["geo", "_prefetch", g.SRR1, str(tmp_path)])
+    assert result.exit_code == 0
+    assert (tmp_path / g.SRR1 / f"{g.SRR1}.sra").exists()
+
+
+def test_geo_stage_commands_run_prefetch_extract_compress(
+    fake_tools: FakeTools, tmp_path: Path
+) -> None:
+    for stage in ("_prefetch", "_extract", "_compress"):
+        result = runner.invoke(cli_mod.app, ["geo", stage, g.SRR1, str(tmp_path)])
+        assert result.exit_code == 0
+    # The chain produces the gzipped FASTQ in the experiment dir (intermediate cleanup
+    # is Snakemake's job via temp(), not the bare subcommands').
+    assert (tmp_path / f"{g.SRR1}_1.fastq.gz").exists()
+
+
+def test_geo_stage_command_reports_failure_nonzero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def boom(cmd: list[str], *, cwd: Path | None = None) -> None:
+        raise DownloadError("prefetch exploded")
+
+    monkeypatch.setattr(sratools, "_run", boom)
+    monkeypatch.setattr(sratools.time, "sleep", lambda _seconds: None)
+
+    result = runner.invoke(cli_mod.app, ["geo", "_prefetch", g.SRR1, str(tmp_path)])
+    assert result.exit_code == 1
+    assert "error:" in result.output

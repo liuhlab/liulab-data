@@ -1,9 +1,10 @@
 # CLAUDE.md — liulab-data contributor & agent agreement
 
-`liulab-data` (import name **`labdata`**) is a lightweight package of data curation,
-download, and organization utilities for the Liu Lab. It starts with GEO/NCBI and will
-grow to cover Zenodo and other data sources. Keep modules general — nothing GEO-specific
-leaks into the package's shared layers (`_cache`, `exceptions`, `ncbi`).
+`liulab-data` (import name **`labdata`**) is a package of data curation, download, and
+organization utilities for the Liu Lab. It starts with GEO/NCBI and will grow to cover
+Zenodo and other data sources. Keep modules general — nothing GEO-specific leaks into the
+package's shared layers (`_cache`, `exceptions`, `ncbi`). Multi-step pipelines (first the
+FASTQ download) run as **Snakemake DAGs** — see the Pipelines invariant.
 
 ## Toolchain
 
@@ -11,8 +12,9 @@ leaks into the package's shared layers (`_cache`, `exceptions`, `ncbi`).
   pip/poetry/uv. `pyproject.toml` is the single source of truth.
 - Build backend: **hatchling** + **hatch-vcs** (version derived from git tags, CalVer
   `YYYY.MM.MICRO`; never hand-edit a version).
-- Platforms: `osx-arm64` (local dev) and `linux-64` (CI). Pure Python — keep it that way
-  unless a native dependency is genuinely required.
+- Platforms: `osx-arm64` (local dev) and `linux-64` (CI). No compiled extensions — keep it
+  that way unless a native dependency is genuinely required (a pure-Python dependency that
+  earns its keep, e.g. Snakemake, is fine).
 
 ## Repository layout (src-layout)
 
@@ -22,10 +24,14 @@ src/labdata/
                        BioProject, SraDownloader, __version__
   _cache.py          cache-dir resolution ($XDG_CACHE_HOME/liulab-data)
   exceptions.py      LabdataError hierarchy
-  cli.py             thin Typer CLI (labdata version, labdata ncbi configure)
+  cli.py             thin Typer CLI (labdata version, labdata ncbi configure,
+                       labdata geo download, + hidden per-stage subcommands)
   ncbi/              NCBI E-utilities: credential config + EntrezClient seam
-  geo/               GEO/SRA object model (records.py) + FASTQ downloader (sratools.py)
-tests/               pytest suite, mirrors src; mocks the EntrezClient seam
+  geo/               GEO/SRA object model (geo_records.py, sra_records.py,
+                       bio_project_records.py, dispatch.py) + FASTQ download:
+                       sratools.py (per-stage tool wrappers), pipeline.py
+                       (Snakemake driver), pipeline.smk (the download DAG)
+tests/               pytest suite, mirrors src; mocks the EntrezClient + subprocess seams
 ```
 
 ## Quality gates (all green before commit)
@@ -40,9 +46,18 @@ tests/               pytest suite, mirrors src; mocks the EntrezClient seam
 
 - **Type annotations on every public function**; NumPy-style docstrings
   (Parameters / Returns / Raises / Examples) on public API.
-- **Network access is concentrated in one seam.** Every NCBI call goes through
-  `labdata.ncbi.EntrezClient`. Domain classes take a `client` argument so tests can
-  substitute a fake — never call `Bio.Entrez` directly from a domain class.
+- **External access is concentrated in seams.** Every NCBI call goes through
+  `labdata.ncbi.EntrezClient` (domain classes take a `client` argument; never call
+  `Bio.Entrez` directly). Sequence data uses two subprocess seams —
+  `sratools._run` (sra-tools/pigz) and `pipeline._run_snakemake`. Tests mock the seams,
+  never the real binaries.
+- **Pipelines are Snakemake DAGs with typed resources.** The download DAG
+  (`prefetch → extract → compress`) lives in `pipeline.smk`, driven by
+  `labdata.geo.pipeline`. labdata owns per-stage logic (tool calls, resume flags, cleanup,
+  `keep_sra`/`prefetch_only`) behind hidden CLI subcommands
+  (`labdata geo _prefetch/_extract/_compress`); Snakemake owns scheduling/resume/retries.
+  An `ncbi` resource caps concurrent network jobs independently of `--cores` (total CPU),
+  keeping the link busy while cores extract/compress. Future pipelines follow this split.
 - **Lazy, cached domain objects.** `Series(...)` is cheap; network happens on first
   property access (`functools.cached_property`) and is cached thereafter.
 - **Accessions are validated at construction** and malformed input raises
