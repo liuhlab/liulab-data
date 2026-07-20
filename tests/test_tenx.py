@@ -29,10 +29,9 @@ def fake(monkeypatch: pytest.MonkeyPatch) -> FakeTools:
 
 
 def _seed_bam(srx_dir: Path, accession: str, name: str = "possorted_genome_bam.bam") -> Path:
-    """Create a fake on-disk original BAM under ``<srx_dir>/<accession>/``."""
-    run_dir = srx_dir / accession
-    run_dir.mkdir(parents=True, exist_ok=True)
-    bam = run_dir / name
+    """Create a fake on-disk original BAM flat in ``srx_dir``, SRR-prefixed."""
+    srx_dir.mkdir(parents=True, exist_ok=True)
+    bam = srx_dir / f"{accession}_{name}"
     bam.write_bytes(b"bam")
     return bam
 
@@ -112,7 +111,7 @@ def test_bamtofastq_run_keeps_bam_on_failure(
 
 def test_bamtofastq_run_missing_bam_raises(fake: FakeTools, tmp_path: Path) -> None:
     srx_dir = tmp_path / "SRX5921017"
-    (srx_dir / g.SRR_TENX).mkdir(parents=True)  # run dir exists but has no .bam
+    srx_dir.mkdir(parents=True)  # experiment dir exists but has no <SRR>_*.bam
     with pytest.raises(DownloadError, match="no cellranger BAM"):
         bamtofastq.bamtofastq_run(Run(g.SRR_TENX), srx_dir)
 

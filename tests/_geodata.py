@@ -188,8 +188,13 @@ SRR_TENX = "SRR20172067"
 
 
 def _original_fastq(srr: str, mate: int) -> RemoteFile:
-    """A synthetic original-format FASTQ entry for ``srr`` (no md5, so no verify)."""
-    name = f"{srr}_original_R{mate}.fastq.gz"
+    """A synthetic original-format FASTQ entry for ``srr`` (no md5, so no verify).
+
+    The submitter's own name has no ``SRR`` prefix (like real originals); the
+    downloader adds the run-accession prefix, so on disk it lands as
+    ``<SRR>_original_R{mate}.fastq.gz``.
+    """
+    name = f"original_R{mate}.fastq.gz"
     return RemoteFile(
         name=name,
         type="fastq",
