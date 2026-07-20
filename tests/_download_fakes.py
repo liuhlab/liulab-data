@@ -2,15 +2,18 @@
 
 :class:`FakeTools` stands in for ``sratools._run`` — it records the commands issued
 and mimics each tool's filesystem effect (prefetch drops a ``.sra``, fasterq-dump
-writes ``.fastq`` into its ``-O`` dir, pigz/gzip compress them).
+writes ``.fastq`` into its ``-O`` dir, pigz/gzip compress them, curl writes the file
+named by its ``-o`` argument).
 
 :func:`fake_snakemake` stands in for ``pipeline._run_snakemake``: it reads the config
-the driver wrote and drives the same three stages in-process, faithfully modelling
+the driver wrote and drives the same stages in-process, faithfully modelling
 Snakemake's output-based scheduling — a run whose final target already exists is
 skipped whole, and each stage runs only if its own output is missing — plus
 ``temp()`` reclamation (the ``.sra`` dir is removed once extract consumes it, the
-FASTQ staging dir once compress consumes it). A run whose stage raises is left
-incomplete and the return code goes non-zero, mirroring ``snakemake --keep-going``.
+FASTQ staging dir once compress consumes it). Original-format runs
+(``config["original_runs"]``) drive the download-only ``original`` stage instead. A
+run whose stage raises is left incomplete and the return code goes non-zero,
+mirroring ``snakemake --keep-going``.
 """
 
 from __future__ import annotations
@@ -51,6 +54,10 @@ class FakeTools:
                     path = Path(arg)
                     path.with_suffix(".fastq.gz").write_bytes(b"gz")
                     path.unlink()
+        elif tool == "curl":
+            dest = Path(cmd[cmd.index("-o") + 1])
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(b"original-format data")
 
     def tools_used(self) -> set[str]:
         """Return the set of executables that were invoked."""
@@ -107,6 +114,21 @@ def fake_snakemake(argv: list[str], *, verbose: bool) -> int:
                 shutil.rmtree(sra_dir, ignore_errors=True)  # temp(): reclaim the .sra
             sratools.compress_run(run, srx_dir, threads=config["threads_per_run"], staging=staging)
             shutil.rmtree(staging, ignore_errors=True)  # temp(): reclaim the FASTQ staging
+            done.touch()
+        except DownloadError:
+            returncode = 1
+
+    # Original-format runs: a single download-only stage producing .original.done.
+    for srr, srx in config.get("original_runs", {}).items():
+        srx_dir = output_root / srx
+        srx_dir.mkdir(parents=True, exist_ok=True)
+        done = srx_dir / f".{srr}.original.done"
+        if done.exists():
+            continue  # Snakemake: final output present -> run nothing
+        try:
+            sratools.download_original_run(
+                Run(srr), srx_dir, retries=config["retries"], backoff=config["backoff"]
+            )
             done.touch()
         except DownloadError:
             returncode = 1

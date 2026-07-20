@@ -144,6 +144,35 @@ def test_geo_download_select_srx_rejects_bad_accession(
     assert "error:" in result.output
 
 
+def test_geo_download_original_srx_fetches_original_format(
+    fake_tools: FakeTools, fake_series: None, fake_sdl: None, tmp_path: Path
+) -> None:
+    result = runner.invoke(
+        cli_mod.app, ["geo", "download", g.GSE, "-o", str(tmp_path), "--original-srx", g.SRX]
+    )
+    assert result.exit_code == 0
+    srx_dir = tmp_path / g.GSE / g.SRX
+    # Original submitter files land under <SRX>/<SRR>/; no sra-tools FASTQ.
+    assert (srx_dir / g.SRR1 / f"{g.SRR1}_original_R1.fastq.gz").exists()
+    assert (srx_dir / f".{g.SRR1}.original.done").exists()
+    assert fake_tools.tools_used() == {"curl"}
+    assert "[original format]" in result.output
+
+
+def test_geo_download_original_srx_reads_whitelist_file(
+    fake_tools: FakeTools, fake_series: None, fake_sdl: None, tmp_path: Path
+) -> None:
+    whitelist = tmp_path / "original.txt"
+    whitelist.write_text(f"# fetch these in original format\n{g.SRX}\n")
+
+    result = runner.invoke(
+        cli_mod.app,
+        ["geo", "download", g.GSE, "-o", str(tmp_path), "--original-srx", str(whitelist)],
+    )
+    assert result.exit_code == 0
+    assert (tmp_path / g.GSE / g.SRX / g.SRR1 / f"{g.SRR1}_original_R1.fastq.gz").exists()
+
+
 def test_geo_download_quiet_suppresses_progress(
     fake_tools: FakeTools, fake_series: None, tmp_path: Path
 ) -> None:
@@ -251,6 +280,16 @@ def test_geo_stage_commands_run_prefetch_extract_compress(
     # The chain produces the gzipped FASTQ in the experiment dir (intermediate cleanup
     # is Snakemake's job via temp(), not the bare subcommands').
     assert (tmp_path / f"{g.SRR1}_1.fastq.gz").exists()
+
+
+def test_geo_original_stage_downloads_submitter_files(
+    fake_tools: FakeTools, fake_sdl: None, tmp_path: Path
+) -> None:
+    result = runner.invoke(cli_mod.app, ["geo", "_original", g.SRR1, str(tmp_path)])
+    assert result.exit_code == 0
+    # The download-only stage lands the submitter files under <srx_dir>/<SRR>/.
+    assert (tmp_path / g.SRR1 / f"{g.SRR1}_original_R1.fastq.gz").exists()
+    assert fake_tools.tools_used() == {"curl"}
 
 
 def test_geo_stage_command_reports_failure_nonzero(

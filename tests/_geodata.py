@@ -186,7 +186,29 @@ def build_runtable_client() -> FakeEntrezClient:
 
 SRR_TENX = "SRR20172067"
 
+
+def _original_fastq(srr: str, mate: int) -> RemoteFile:
+    """A synthetic original-format FASTQ entry for ``srr`` (no md5, so no verify)."""
+    name = f"{srr}_original_R{mate}.fastq.gz"
+    return RemoteFile(
+        name=name,
+        type="fastq",
+        size=1024,
+        md5=None,
+        modification_date="2023-01-01T00:00:00Z",
+        accession=srr,
+        locations=(
+            FileLocation(
+                "s3", "us-east-1", f"https://sra-pub-src-1.s3.amazonaws.com/{srr}/{name}.1"
+            ),
+        ),
+    )
+
+
 _SDL_FILES = {
+    # The two runs of the main synthetic graph, each with original-format FASTQ.
+    SRR1: [_original_fastq(SRR1, 1), _original_fastq(SRR1, 2)],
+    SRR2: [_original_fastq(SRR2, 1), _original_fastq(SRR2, 2)],
     SRR_TENX: [
         RemoteFile(
             name="possorted_genome_bam_TC2_d15_1.bam",

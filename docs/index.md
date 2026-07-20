@@ -14,10 +14,11 @@ pip install liulab-data
 ```
 
 Downloading FASTQ also needs two external tools, [sra-tools](https://github.com/ncbi/sra-tools)
-and [pigz](https://zlib.net/pigz/). Install them from Bioconda/conda-forge:
+and [pigz](https://zlib.net/pigz/) (plus `curl`, for the original-format download path).
+Install them from Bioconda/conda-forge:
 
 ```bash
-conda install -c bioconda -c conda-forge sra-tools pigz
+conda install -c bioconda -c conda-forge sra-tools pigz curl
 ```
 
 !!! tip "Working inside the lab's pixi project?"

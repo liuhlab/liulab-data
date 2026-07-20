@@ -21,6 +21,7 @@ drives it across a whole :class:`~labdata.geo.geo_records.Series` or
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import shutil
@@ -28,6 +29,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Iterable
+from collections.abc import Set as AbstractSet
 from pathlib import Path
 from typing import TYPE_CHECKING, TextIO
 
@@ -60,6 +62,11 @@ DEFAULT_THREADS_PER_RUN = 12
 def _run(cmd: list[str], *, cwd: Path | None = None) -> None:
     """Run an external command, raising :class:`DownloadError` on failure.
 
+    The single external-tool seam for the download: sra-tools (``prefetch``/
+    ``fasterq-dump``), the gzip tools (``pigz``/``gzip``), and ``curl`` (used to
+    fetch original-format files) all go through here, and tests monkeypatch this
+    one function.
+
     Parameters
     ----------
     cmd : list of str
@@ -77,7 +84,7 @@ def _run(cmd: list[str], *, cwd: Path | None = None) -> None:
         subprocess.run(cmd, cwd=cwd, check=True, capture_output=True, text=True)
     except FileNotFoundError as err:
         raise DownloadError(
-            f"{cmd[0]!r} not found — install sra-tools/pigz (e.g. via pixi/conda)"
+            f"{cmd[0]!r} not found — install sra-tools/pigz/curl (e.g. via pixi/conda)"
         ) from err
     except subprocess.CalledProcessError as err:
         raise DownloadError(
@@ -144,13 +151,15 @@ def _print_plan(
     ncbi_parallel: int,
     cores: int,
     output_root: Path,
+    original: AbstractSet[str] = frozenset(),
     stream: TextIO | None = None,
 ) -> None:
     """Print the download plan: destination, run/experiment counts, and a per-SRX list.
 
     Groups ``tasks`` by their experiment directory and notes how many runs are
     already complete (a ``.<SRR>.done`` marker present, and so will be skipped).
-    The per-run progress that follows is emitted by Snakemake as it runs the DAG.
+    Experiments fetched in original format (their run accessions in ``original``)
+    are flagged. The per-run progress that follows is emitted by Snakemake.
     """
     out = stream if stream is not None else sys.stderr
     if not tasks:
@@ -161,7 +170,12 @@ def _print_plan(
     already = 0
     for run, srx_dir in tasks:
         groups.setdefault(srx_dir, []).append(run.accession)
-        if (srx_dir / f".{run.accession}.done").exists():
+        marker = (
+            f".{run.accession}.original.done"
+            if run.accession in original
+            else f".{run.accession}.done"
+        )
+        if (srx_dir / marker).exists():
             already += 1
 
     n_runs = len(tasks)
@@ -175,7 +189,8 @@ def _print_plan(
         flush=True,
     )
     for srx_dir, runs in groups.items():
-        print(f"  {srx_dir.name}: {', '.join(runs)}", file=out, flush=True)
+        tag = "  [original format]" if any(run in original for run in runs) else ""
+        print(f"  {srx_dir.name}: {', '.join(runs)}{tag}", file=out, flush=True)
     if already:
         print(f"  ({already} of {n_runs} already done, will be skipped)", file=out, flush=True)
 
@@ -245,6 +260,7 @@ def _run_plan(
     backoff: float = DEFAULT_BACKOFF,
     keep_sra: bool = False,
     prefetch_only: bool = False,
+    original: AbstractSet[str] = frozenset(),
 ) -> dict[str, bool]:
     """Announce the plan, run the Snakemake DAG, then tally the results.
 
@@ -252,20 +268,28 @@ def _run_plan(
     :meth:`SraDownloader.download`. Scheduling is delegated to
     :func:`labdata.geo.pipeline.run`, which caps concurrent ``prefetch`` at
     ``ncbi_parallel`` while ``cores`` bounds total CPU across extraction and
-    compression. ``verbose=False`` silences the plan/summary *and* Snakemake's
-    own progress.
+    compression. Runs whose accession is in ``original`` are fetched in
+    original format (download only). ``verbose=False`` silences the plan/summary
+    *and* Snakemake's own progress.
     """
     resolved_cores = cores if cores is not None else (os.cpu_count() or 1)
     if verbose:
         _print_plan(
-            label, tasks, ncbi_parallel=ncbi_parallel, cores=resolved_cores, output_root=output_root
+            label,
+            tasks,
+            ncbi_parallel=ncbi_parallel,
+            cores=resolved_cores,
+            output_root=output_root,
+            original=original,
         )
         # Estimate disk only for runs that still need downloading (skip the ones a
         # prior run already finished), so a rerun of a done pipeline stays quiet.
+        # Original-format runs are excluded — their on-disk size is not the SRA
+        # base count the estimate is built from.
         pending = [
             (run, srx_dir)
             for run, srx_dir in tasks
-            if not (srx_dir / f".{run.accession}.done").exists()
+            if run.accession not in original and not (srx_dir / f".{run.accession}.done").exists()
         ]
         if pending:
             _warn_if_low_disk(pending, output_root)
@@ -280,6 +304,7 @@ def _run_plan(
         backoff=backoff,
         keep_sra=keep_sra,
         prefetch_only=prefetch_only,
+        original=original,
         verbose=verbose,
     )
     if verbose and tasks:
@@ -456,8 +481,104 @@ def compress_run(run: Run, srx_dir: Path, *, threads: int = 1, staging: Path | N
 
 
 # --------------------------------------------------------------------------- #
+# original-format download (the alternative to prefetch/extract/compress)
+# --------------------------------------------------------------------------- #
+
+
+def _md5(path: Path) -> str:
+    """Return the hex MD5 digest of ``path``, read in fixed-size chunks."""
+    digest = hashlib.md5()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def download_original_run(
+    run: Run, srx_dir: Path, *, retries: int = DEFAULT_RETRIES, backoff: float = DEFAULT_BACKOFF
+) -> None:
+    r"""Download one run's *original-format* files with ``curl`` — download only.
+
+    The alternative to the ``prefetch → extract → compress`` chain, used when the
+    SRA-normalized ``.sra`` is missing or useless (e.g. a 10X run whose ``.sra``
+    stored only one read) and the submitter's own uploads must be fetched instead.
+    Each original file listed by the SRA Data Locator (:attr:`Run.original_files`)
+    is fetched with ``curl`` into ``<srx_dir>/<SRR>/<name>`` and, when the locator
+    reports a checksum, verified against it. Nothing is extracted or compressed —
+    the original format is heterogeneous and left for a later processing step.
+
+    ``curl`` resumes a partial file (``-C -``) and the whole call is retried with
+    linear backoff, so an interrupted download continues on a rerun rather than
+    starting over. Files already present (and md5-verified, when a checksum is
+    known) are skipped, giving per-file resume across runs.
+
+    Parameters
+    ----------
+    run : Run
+        The run whose original-format files to fetch.
+    srx_dir : Path
+        The (already created) experiment directory; files land under ``<SRR>/``.
+    retries : int, default :data:`DEFAULT_RETRIES`
+        Attempts for each ``curl`` fetch before giving up.
+    backoff : float, default :data:`DEFAULT_BACKOFF`
+        Base seconds for the linear backoff between retries.
+
+    Raises
+    ------
+    DownloadError
+        If the run lists no original-format files, a file has no download URL,
+        ``curl`` is missing or fails, or a downloaded file's md5 does not match the
+        locator's checksum.
+    """
+    accession = run.accession
+    files = run.original_files
+    if not files:
+        raise DownloadError(
+            f"no original-format files listed for {accession!r} — nothing to download"
+        )
+    dest_dir = srx_dir / accession
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    for remote in files:
+        if not remote.url:
+            raise DownloadError(f"no download URL for original file {remote.name!r} ({accession})")
+        dest = dest_dir / remote.name
+        if dest.exists() and (remote.md5 is None or _md5(dest) == remote.md5):
+            continue  # per-file resume: already present (and verified when a checksum is known)
+        _run_retry(
+            ["curl", "-fSL", "-C", "-", "-o", str(dest), remote.url],
+            retries=retries,
+            backoff=backoff,
+        )
+        if remote.md5 is not None and (actual := _md5(dest)) != remote.md5:
+            raise DownloadError(
+                f"md5 mismatch for original file {remote.name!r} ({accession}): "
+                f"expected {remote.md5}, got {actual}"
+            )
+    logger.info("downloaded original files for %s", accession)
+
+
+# --------------------------------------------------------------------------- #
 # record-level download behavior (shared by Series and BioProject)
 # --------------------------------------------------------------------------- #
+
+
+def _validate_srx_whitelist(values: Iterable[str] | None, *, field: str) -> set[str]:
+    """Normalize + validate ``values`` into a set of ``SRX`` accessions (``None`` → empty).
+
+    Each entry is normalized (stripped, upper-cased) and validated as a well-formed
+    SRA *experiment* accession; anything that is not an ``SRX`` accession raises
+    :class:`~labdata.exceptions.AccessionError`. Shared by the ``select_srx`` and
+    ``original_srx`` selectors.
+    """
+    if values is None:
+        return set()
+    wanted: set[str] = set()
+    for entry in values:
+        accession = Experiment(entry).accession  # normalizes + validates the digits
+        if not accession.startswith("SRX"):
+            raise AccessionError(f"{field} expects an SRX accession, got {entry!r}")
+        wanted.add(accession)
+    return wanted
 
 
 class _SraDownloadMixin:
@@ -481,6 +602,7 @@ class _SraDownloadMixin:
         cores: int | None = None,
         threads_per_run: int = DEFAULT_THREADS_PER_RUN,
         select_srx: Iterable[str] | None = None,
+        original_srx: Iterable[str] | None = None,
         max_size: str | None = None,
         retries: int | None = None,
         backoff: float | None = None,
@@ -525,6 +647,16 @@ class _SraDownloadMixin:
             them all. Entries are matched case-insensitively and every one must be
             a well-formed ``SRX`` accession — anything else raises
             :class:`~labdata.exceptions.AccessionError`.
+        original_srx : iterable of str, optional
+            A set of SRA experiment accessions (``SRX…``) to fetch in *original
+            format* instead of the default sra-tools path: every run of a listed
+            experiment has its submitter-uploaded files downloaded as-is (no
+            ``fasterq-dump``/gzip), because its ``.sra`` is missing or useless
+            (e.g. a 10X run whose ``.sra`` stored only one read). This selects the
+            *mode*; it does not by itself widen the selection — an experiment must
+            still survive ``select_srx`` to be downloaded at all. Each entry must
+            be a well-formed ``SRX`` accession or :class:`~labdata.exceptions.AccessionError`
+            is raised.
         max_size : str, optional
             Passed to ``prefetch --max-size`` (defaults to :data:`DEFAULT_MAX_SIZE`);
             raise it for runs that exceed ``prefetch``'s 20G default.
@@ -565,12 +697,19 @@ class _SraDownloadMixin:
             for key, value in {"max_size": max_size, "retries": retries, "backoff": backoff}.items()
             if value is not None
         }
+        # Original-format experiments select the download *mode*, not the selection.
+        original_set = _validate_srx_whitelist(original_srx, field="original_srx")
         base = Path(output_dir) / self.accession
         tasks: list[tuple[Run, Path]] = []
+        original: set[str] = set()
         for experiment in self._selected_experiments(select_srx):
             srx_dir = base / experiment.accession
             srx_dir.mkdir(parents=True, exist_ok=True)
-            tasks.extend((run, srx_dir) for run in experiment.runs)
+            is_original = experiment.accession in original_set
+            for run in experiment.runs:
+                tasks.append((run, srx_dir))
+                if is_original:
+                    original.add(run.accession)
         return _run_plan(
             self.accession,
             tasks,
@@ -581,6 +720,7 @@ class _SraDownloadMixin:
             threads_per_run=threads_per_run,
             keep_sra=keep_sra,
             prefetch_only=prefetch_only,
+            original=original,
             **overrides,
         )
 
@@ -595,12 +735,7 @@ class _SraDownloadMixin:
         """
         if select_srx is None:
             return self.experiments
-        wanted: set[str] = set()
-        for entry in select_srx:
-            accession = Experiment(entry).accession  # normalizes + validates the digits
-            if not accession.startswith("SRX"):
-                raise AccessionError(f"select_srx expects an SRX accession, got {entry!r}")
-            wanted.add(accession)
+        wanted = _validate_srx_whitelist(select_srx, field="select_srx")
         return [experiment for experiment in self.experiments if experiment.accession in wanted]
 
 
@@ -652,13 +787,19 @@ class SraDownloader:
         backoff: float = DEFAULT_BACKOFF,
         keep_sra: bool = False,
         prefetch_only: bool = False,
+        original: bool = False,
         verbose: bool = True,
     ) -> dict[str, bool]:
         """Download every run of the experiment as a resource-aware Snakemake DAG.
 
         Creates :attr:`srx_dir`, then downloads each run's gzipped FASTQ into it.
-        Runs with an existing ``.<SRR>.success`` flag are skipped; a run that fails
+        Runs with an existing ``.<SRR>.done`` marker are skipped; a run that fails
         is recorded as ``False`` without aborting the others.
+
+        Pass ``original=True`` to fetch this experiment's *original-format* files
+        instead — each run's submitter-uploaded files are downloaded as-is into
+        ``<SRX>/<SRR>/`` (no ``fasterq-dump``/gzip), for runs whose ``.sra`` is
+        missing or useless.
 
         Parameters
         ----------
@@ -685,6 +826,9 @@ class SraDownloader:
             Only ``prefetch`` each run's ``.sra`` (into ``<SRX>/<SRR>/``), skipping
             ``fasterq-dump``, gzip, and cleanup. A later full download resumes from
             extraction without re-fetching.
+        original : bool, default False
+            Fetch the experiment's original-format files (download only) instead of
+            the ``prefetch → extract → compress`` chain; see above.
         verbose : bool, default True
             Print a download plan up front and one line per finished run to
             ``stderr``. Set ``False`` to download silently.
@@ -697,6 +841,7 @@ class SraDownloader:
         srx_dir = self.srx_dir
         srx_dir.mkdir(parents=True, exist_ok=True)
         tasks = [(run, srx_dir) for run in self.experiment.runs]
+        original_runs = {run.accession for run in self.experiment.runs} if original else set()
         # output_root is the parent of the SRX dir so the run->srx map (and the
         # Snakefile's ``{srx}`` wildcard) sees the experiment accession as a single
         # path component, matching the whole-record layout.
@@ -713,4 +858,5 @@ class SraDownloader:
             backoff=backoff,
             keep_sra=keep_sra,
             prefetch_only=prefetch_only,
+            original=original_runs,
         )

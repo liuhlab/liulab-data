@@ -23,6 +23,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+from collections.abc import Set as AbstractSet
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -124,6 +125,7 @@ def run(
     backoff: float,
     keep_sra: bool,
     prefetch_only: bool,
+    original: AbstractSet[str] = frozenset(),
     verbose: bool,
 ) -> dict[str, bool]:
     """Download ``(run, srx_dir)`` tasks by running the Snakemake DAG.
@@ -165,6 +167,11 @@ def run(
     prefetch_only : bool
         Stop after ``prefetch`` (targets the ``.prefetched`` markers, skipping the
         extract/compress rules).
+    original : set of str
+        Run accessions to fetch in *original format* (download only, no
+        extract/compress). These are routed to the Snakefile's ``original`` rule via
+        a separate ``original_runs`` config map and produce a distinct
+        ``.<SRR>.original.done`` marker; they are unaffected by ``prefetch_only``.
     verbose : bool
         Show Snakemake's progress.
 
@@ -198,10 +205,16 @@ def run(
 
     control_dir = output_root / CONTROL_DIRNAME
     control_dir.mkdir(parents=True, exist_ok=True)
+    # Partition the not-yet-done runs by mode: default sra-tools runs drive the
+    # prefetch/extract/compress chain; original-format runs drive the download-only
+    # ``original`` rule. The two maps are disjoint.
+    sra_runs = {srr: srx for srr, srx in to_run.items() if srr not in original}
+    original_runs = {srr: srx for srr, srx in to_run.items() if srr in original}
     config = {
         # How the workflow shells back into labdata (env-independent: same Python).
         "labdata": f"{shlex.quote(sys.executable)} -m labdata",
-        "runs": to_run,
+        "runs": sra_runs,
+        "original_runs": original_runs,
         "max_size": max_size,
         "retries": retries,
         "backoff": backoff,
@@ -242,9 +255,12 @@ def run(
     if returncode != 0:
         logger.warning("snakemake exited %d — some runs may have failed", returncode)
 
-    # Read results back from what the DAG produced: the .done marker (full) or the
-    # prefetched .sra (prefetch_only), both under <output_root>/<srx>/.
+    # Read results back from what the DAG produced: the original-format marker for
+    # original runs, else the .done marker (full) or the prefetched .sra
+    # (prefetch_only), all under <output_root>/<srx>/.
     def _present(srr: str, srx: str) -> bool:
+        if srr in original:
+            return (output_root / srx / f".{srr}.original.done").exists()
         if prefetch_only:
             return (output_root / srx / srr / f"{srr}.sra").exists()
         return (output_root / srx / f".{srr}.done").exists()

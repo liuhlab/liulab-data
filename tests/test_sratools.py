@@ -11,15 +11,18 @@ live in ``test_pipeline.py``.
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import pytest
 
-from labdata import BioProject, Experiment, Series, SraDownloader
+from labdata import BioProject, Experiment, Run, Series, SraDownloader
 from labdata.exceptions import AccessionError, DownloadError
 from labdata.geo import sratools
+from labdata.ncbi.sdl import FileLocation, RemoteFile
 from tests import _geodata as g
 from tests._download_fakes import FakeTools, fake_snakemake
+from tests._fakes import FakeSdlClient
 
 
 @pytest.fixture
@@ -275,6 +278,117 @@ def test_series_download_prefetch_only(fake: FakeTools, tmp_path: Path) -> None:
     srx_dir = tmp_path / g.GSE / g.SRX
     assert (srx_dir / g.SRR1 / f"{g.SRR1}.sra").exists()
     assert list(srx_dir.glob("*.fastq.gz")) == []
+
+
+# --------------------------------------------------------------------------- #
+# original-format download (curl-only, no extract/compress)
+# --------------------------------------------------------------------------- #
+
+
+def _sdl_file(srr: str, name: str, *, md5: str | None) -> RemoteFile:
+    return RemoteFile(
+        name=name,
+        type="bam",
+        size=1,
+        md5=md5,
+        modification_date=None,
+        accession=srr,
+        locations=(
+            FileLocation("s3", "us-east-1", f"https://sra-pub-src-1.s3.amazonaws.com/{name}"),
+        ),
+    )
+
+
+def test_download_original_run_fetches_files(fake: FakeTools, tmp_path: Path) -> None:
+    srx_dir = tmp_path / g.SRX
+    srx_dir.mkdir(parents=True)
+    run = Run(g.SRR1, sdl_client=g.build_sdl_client())
+
+    sratools.download_original_run(run, srx_dir)
+
+    run_dir = srx_dir / g.SRR1
+    assert (run_dir / f"{g.SRR1}_original_R1.fastq.gz").exists()
+    assert (run_dir / f"{g.SRR1}_original_R2.fastq.gz").exists()
+    # Only curl ran — no prefetch/fasterq-dump/pigz, and nothing was extracted.
+    assert fake.tools_used() == {"curl"}
+
+
+def test_download_original_run_skips_present_files(fake: FakeTools, tmp_path: Path) -> None:
+    srx_dir = tmp_path / g.SRX
+    run_dir = srx_dir / g.SRR1
+    run_dir.mkdir(parents=True)
+    # One file already present (no md5 to check) is skipped; the other is fetched.
+    (run_dir / f"{g.SRR1}_original_R1.fastq.gz").write_bytes(b"already here")
+
+    sratools.download_original_run(Run(g.SRR1, sdl_client=g.build_sdl_client()), srx_dir)
+
+    fetched = [Path(cmd[cmd.index("-o") + 1]).name for cmd in fake.commands if cmd[0] == "curl"]
+    assert fetched == [f"{g.SRR1}_original_R2.fastq.gz"]
+
+
+def test_download_original_run_no_files_raises(fake: FakeTools, tmp_path: Path) -> None:
+    srx_dir = tmp_path / g.SRX
+    srx_dir.mkdir(parents=True)
+    # A run whose SDL listing has only the (archive) .sra — no original-format files.
+    only_sra = FakeSdlClient({g.SRR1: [RemoteFile(g.SRR1, "sra", 1, None, None, g.SRR1, ())]})
+    with pytest.raises(DownloadError, match="no original-format files"):
+        sratools.download_original_run(Run(g.SRR1, sdl_client=only_sra), srx_dir)
+
+
+def test_download_original_run_verifies_md5(fake: FakeTools, tmp_path: Path) -> None:
+    srx_dir = tmp_path / g.SRX
+    srx_dir.mkdir(parents=True)
+    # FakeTools' curl writes b"original-format data"; a matching checksum verifies.
+    good_md5 = hashlib.md5(b"original-format data").hexdigest()
+    sdl = FakeSdlClient({g.SRR1: [_sdl_file(g.SRR1, "reads.bam", md5=good_md5)]})
+
+    sratools.download_original_run(Run(g.SRR1, sdl_client=sdl), srx_dir)
+
+    assert (srx_dir / g.SRR1 / "reads.bam").exists()
+
+
+def test_download_original_run_md5_mismatch_raises(fake: FakeTools, tmp_path: Path) -> None:
+    srx_dir = tmp_path / g.SRX
+    srx_dir.mkdir(parents=True)
+    sdl = FakeSdlClient({g.SRR1: [_sdl_file(g.SRR1, "reads.bam", md5="0" * 32)]})
+
+    with pytest.raises(DownloadError, match="md5 mismatch"):
+        sratools.download_original_run(Run(g.SRR1, sdl_client=sdl), srx_dir)
+
+
+def test_series_download_original_srx_fetches_original_only(
+    fake: FakeTools, fake_sdl: None, tmp_path: Path
+) -> None:
+    result = Series(g.GSE, client=g.build_client()).download(tmp_path, original_srx=[g.SRX])
+
+    assert result == {g.SRR1: True, g.SRR2: True}
+    srx_dir = tmp_path / g.GSE / g.SRX
+    for srr in (g.SRR1, g.SRR2):
+        assert (srx_dir / srr / f"{srr}_original_R1.fastq.gz").exists()
+        assert (srx_dir / f".{srr}.original.done").exists()
+    # No sra-tools path was taken, and no gzipped FASTQ / default .done markers exist.
+    assert fake.tools_used() == {"curl"}
+    assert list(srx_dir.glob("*.fastq.gz")) == []
+    assert not (srx_dir / f".{g.SRR1}.done").exists()
+    assert not (srx_dir / f".{g.SRR2}.done").exists()
+
+
+def test_download_original_srx_rejects_non_srx(fake: FakeTools, tmp_path: Path) -> None:
+    with pytest.raises(AccessionError):
+        Series(g.GSE, client=g.build_client()).download(tmp_path, original_srx=[g.SRR1])
+
+
+def test_sradownloader_original_downloads_submitter_files(
+    fake: FakeTools, fake_sdl: None, tmp_path: Path
+) -> None:
+    result = SraDownloader(_experiment(), tmp_path).download(original=True)
+
+    assert result == {g.SRR1: True, g.SRR2: True}
+    srx_dir = tmp_path / g.SRX
+    for srr in (g.SRR1, g.SRR2):
+        assert (srx_dir / srr / f"{srr}_original_R1.fastq.gz").exists()
+        assert (srx_dir / f".{srr}.original.done").exists()
+    assert fake.tools_used() == {"curl"}
 
 
 # --------------------------------------------------------------------------- #

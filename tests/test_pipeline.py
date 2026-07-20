@@ -171,6 +171,60 @@ def test_prefetch_only_reads_prefetched_markers(
     assert result == {"SRR9000001": True, "SRR9000002": True}
 
 
+def test_run_partitions_original_runs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    srx_dir = tmp_path / "SRX5921017"
+    _result, _argv, config = _run(
+        {
+            "tasks": _tasks(srx_dir),
+            "output_root": tmp_path,
+            "ncbi_parallel": 4,
+            "cores": 8,
+            "threads_per_run": 4,
+            "max_size": "200G",
+            "retries": 3,
+            "backoff": 5.0,
+            "keep_sra": False,
+            "prefetch_only": False,
+            "original": {"SRR9000002"},
+            "verbose": False,
+        },
+        monkeypatch,
+    )
+    # The default run drives the sra chain; the original one is routed separately.
+    assert config["runs"] == {"SRR9000001": "SRX5921017"}
+    assert config["original_runs"] == {"SRR9000002": "SRX5921017"}
+
+
+def test_run_reads_original_done_markers(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    srx_dir = tmp_path / "SRX5921017"
+
+    def fake(argv: list[str], *, verbose: bool) -> int:
+        output_root = Path(argv[argv.index("--directory") + 1])
+        # The original-format run finishes: its .original.done marker lands.
+        done = output_root / "SRX5921017" / ".SRR9000002.original.done"
+        done.parent.mkdir(parents=True, exist_ok=True)
+        done.touch()
+        return 1
+
+    monkeypatch.setattr(pipeline, "_run_snakemake", fake)
+    result = pipeline.run(
+        _tasks(srx_dir),
+        output_root=tmp_path,
+        ncbi_parallel=4,
+        cores=8,
+        threads_per_run=4,
+        max_size="200G",
+        retries=3,
+        backoff=5.0,
+        keep_sra=False,
+        prefetch_only=False,
+        original={"SRR9000002"},
+        verbose=False,
+    )
+    # Original run present (its .original.done marker); the default run's .done is absent.
+    assert result == {"SRR9000001": False, "SRR9000002": True}
+
+
 def test_snakefile_is_packaged() -> None:
     snakefile = pipeline._snakefile()
     assert snakefile.name == "pipeline.smk"

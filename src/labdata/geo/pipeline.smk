@@ -14,13 +14,15 @@
 # peak disk low; the final <srx>/<srr>_*.fastq.gz land in {srx}/.
 
 LABDATA = config["labdata"]  # e.g. "/path/to/python -m labdata"
-RUNS = config["runs"]  # {srr: srx}
+RUNS = config["runs"]  # {srr: srx} — default sra-tools runs
+ORIGINAL_RUNS = config.get("original_runs", {})  # {srr: srx} — original-format runs
 KEEP_SRA = "--keep-sra" if config["keep_sra"] else ""
 PREFETCH_ONLY = config["prefetch_only"]
 
 SRA_DIR = "{srx}/{srr}"  # prefetch -O {srx} writes {srx}/{srr}/{srr}.sra
 STAGING = "{srx}/.{srr}.fq"  # uncompressed FASTQ staging
 DONE = "{srx}/.{srr}.done"  # completion marker
+ORIGINAL_DONE = "{srx}/.{srr}.original.done"  # original-format completion marker
 
 
 wildcard_constraints:
@@ -29,9 +31,16 @@ wildcard_constraints:
 
 
 def _targets():
-    """Final targets: the .sra dirs under prefetch_only, else the .done markers."""
+    """Final targets: per-run .done (or .sra under prefetch_only) plus .original.done.
+
+    Default runs target their ``.sra`` dir under ``prefetch_only`` else the
+    ``.done`` marker; original-format runs always target ``.original.done`` (their
+    download is a single terminal step, unaffected by ``prefetch_only``).
+    """
     template = SRA_DIR if PREFETCH_ONLY else DONE
-    return [template.format(srx=srx, srr=srr) for srr, srx in RUNS.items()]
+    sra = [template.format(srx=srx, srr=srr) for srr, srx in RUNS.items()]
+    original = [ORIGINAL_DONE.format(srx=srx, srr=srr) for srr, srx in ORIGINAL_RUNS.items()]
+    return sra + original
 
 
 rule all:
@@ -80,3 +89,19 @@ rule compress:
     shell:
         "{LABDATA} geo _compress {wildcards.srr} {wildcards.srx}"
         " --threads {threads} --staging {input}"
+
+
+# Original-format runs bypass the prefetch/extract/compress chain entirely: a single
+# download-only step fetches the submitter's files. It is a network job, so it shares
+# the ``ncbi`` resource budget with prefetch; there is no extract/compress to follow.
+rule original:
+    output:
+        touch(ORIGINAL_DONE),
+    params:
+        retries=config["retries"],
+        backoff=config["backoff"],
+    resources:
+        ncbi=1,
+    shell:
+        "{LABDATA} geo _original {wildcards.srr} {wildcards.srx}"
+        " --retries {params.retries} --backoff {params.backoff}"

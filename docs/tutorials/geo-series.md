@@ -112,9 +112,31 @@ fastq/
     - Needs `sra-tools` and `pigz` on your system (see [Installation](../index.md));
       Snakemake comes with `liulab-data`.
 
+!!! tip "Missing or useless `.sra`? Download the original files"
+    Occasionally a run's SRA-normalized `.sra` is gone, or wrong — e.g. a 10X run
+    whose `.sra` kept only one read of a pair. The submitter's **original-format**
+    files (what you see under "Data access" in the SRA Run Browser) are still there.
+    Name those experiments with `original_srx` to fetch them as-is instead — download
+    only, no extraction:
+
+    ```python
+    gse.download("./fastq", original_srx=["SRX34567890"])
+    ```
+    ```bash
+    labdata geo download GSE310667 --original-srx SRX34567890
+    ```
+
+    The files land under `…/<SRX>/<SRR>/` with their original names and are md5-checked
+    against NCBI; everything else in the study still takes the normal sra-tools path.
+    This only sets the *mode* — pair it with `--select-srx`/`select_srx` (repeatable,
+    or a whitelist file) if you also want to narrow *which* experiments run. Original
+    format is heterogeneous, so labdata just downloads it and leaves the processing to
+    you. Needs `curl` in addition to `sra-tools`/`pigz`.
+
 !!! info "Just one experiment?"
     `Series.download` does the whole study. To grab a single experiment instead, use
-    `SraDownloader` — see the [API reference](../reference.md).
+    `SraDownloader` — see the [API reference](../reference.md). Pass `original=True` for
+    that experiment's original-format files.
 
 !!! tip "Have a BioProject instead?"
     `BioProject` exposes the same `download()` — `BioProject("PRJNA1027859").download("./fastq")`

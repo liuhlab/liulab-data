@@ -123,6 +123,14 @@ def geo_download(
         "single value that is an existing file is read as a whitelist file (one "
         "accession per line). Omit to download every experiment.",
     ),
+    original_srx: list[str] = typer.Option(
+        [],
+        "--original-srx",
+        help="SRX experiment accessions to fetch in ORIGINAL FORMAT (submitter's "
+        "own files, download only) instead of the sra-tools path; repeatable, or a "
+        "single value naming a whitelist file. Use when the .sra is missing/useless "
+        "(e.g. a 10X run). Sets the mode only — still subject to --select-srx.",
+    ),
     max_size: str = typer.Option(
         "", "--max-size", help="prefetch --max-size, e.g. 500G (defaults to 200G)."
     ),
@@ -152,7 +160,9 @@ def geo_download(
     the two overlap. On an HPC allocation, pass ``--cores $SLURM_CPUS_ON_NODE``.
 
     Use ``--select-srx`` (repeatable, or a whitelist file) to download only some of
-    the record's experiments; without it every experiment is downloaded.
+    the record's experiments; without it every experiment is downloaded. Use
+    ``--original-srx`` to fetch specific experiments in original format (download
+    only) — for runs whose ``.sra`` is missing or useless.
     """
     try:
         results = _record_for_download(accession).download(
@@ -161,6 +171,7 @@ def geo_download(
             cores=cores or None,
             threads_per_run=threads_per_run,
             select_srx=_resolve_select_srx(select_srx),
+            original_srx=_resolve_select_srx(original_srx),
             max_size=max_size or None,
             retries=retries or None,
             backoff=backoff or None,
@@ -259,3 +270,16 @@ def geo_compress_stage(
 ) -> None:
     """Gzip one run's FASTQ from staging — the final stage of the download DAG (internal)."""
     _run_stage(lambda: sratools.compress_run(Run(srr), srx_dir, threads=threads, staging=staging))
+
+
+@geo_app.command("_original", hidden=True)
+def geo_original_stage(
+    srr: str = typer.Argument(..., help="Run accession (SRR/ERR/DRR)."),
+    srx_dir: Path = typer.Argument(..., help="Experiment directory to download into."),
+    retries: int = typer.Option(sratools.DEFAULT_RETRIES, "--retries", min=1),
+    backoff: float = typer.Option(sratools.DEFAULT_BACKOFF, "--backoff", min=0.0),
+) -> None:
+    """Download one run's original-format files with curl — a download-only DAG stage (internal)."""
+    _run_stage(
+        lambda: sratools.download_original_run(Run(srr), srx_dir, retries=retries, backoff=backoff)
+    )

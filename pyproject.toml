@@ -61,9 +61,9 @@ platforms = ["osx-arm64", "linux-64", "osx-64"]
 liulab-data = { path = ".", editable = true }
 
 # Runtime deps (conda-forge + bioconda).
-# sra-tools (prefetch/fasterq-dump) and pigz are external binaries used by
-# labdata.geo.sratools — they are not importable Python, so they live here only,
-# not in [project.dependencies].
+# sra-tools (prefetch/fasterq-dump), pigz, and curl (the original-format download
+# path) are external binaries used by labdata.geo.sratools — they are not importable
+# Python, so they live here only, not in [project.dependencies].
 # snakemake-minimal is the lightweight conda build of Snakemake (no reporting/
 # remote-provider extras); it orchestrates the download DAG (labdata.geo.pipeline).
 [tool.pixi.dependencies]
@@ -72,6 +72,7 @@ pandas = ">=2.0"
 typer = ">=0.12"
 sra-tools = "*"
 pigz = "*"
+curl = "*"
 snakemake-minimal = ">=8"
 
 # Python version features
