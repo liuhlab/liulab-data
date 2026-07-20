@@ -433,10 +433,53 @@ def test_compress_skips_already_gzipped_mate(fake: FakeTools, tmp_path: Path) ->
     sratools.compress_run(_experiment().runs[0], srx_dir, staging=staging)
 
     # Only the missing mate is handed to the gzip tool.
-    gzipped = [arg for cmd in fake.commands if cmd[0] == "pigz" for arg in cmd[1:]]
+    gzipped = [arg for cmd in fake.commands if cmd[0] == "pigz" and "-f" in cmd for arg in cmd[1:]]
     assert any(arg.endswith(f"{g.SRR1}_2.fastq") for arg in gzipped)
     assert not any(arg.endswith(f"{g.SRR1}_1.fastq") for arg in gzipped)
     assert (srx_dir / f"{g.SRR1}_2.fastq.gz").exists()
+
+
+def test_compress_verifies_each_gzipped_mate(fake: FakeTools, tmp_path: Path) -> None:
+    srx_dir = tmp_path / g.SRX
+    srx_dir.mkdir(parents=True)
+    staging = srx_dir / f".{g.SRR1}.fq"
+    staging.mkdir()
+    (staging / f"{g.SRR1}_1.fastq").write_text("@r\nACGT\n+\nIIII\n")
+    (staging / f"{g.SRR1}_2.fastq").write_text("@r\nACGT\n+\nIIII\n")
+
+    sratools.compress_run(_experiment().runs[0], srx_dir, staging=staging)
+
+    # Each freshly compressed mate is decompress-tested (pigz -t) before being trusted.
+    tested = [cmd for cmd in fake.commands if cmd[0] == "pigz" and "-t" in cmd]
+    for mate in (1, 2):
+        assert any(arg.endswith(f"{g.SRR1}_{mate}.fastq.gz") for cmd in tested for arg in cmd)
+
+
+def test_compress_rejects_and_removes_corrupt_gzip(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    srx_dir = tmp_path / g.SRX
+    srx_dir.mkdir(parents=True)
+    staging = srx_dir / f".{g.SRR1}.fq"
+    staging.mkdir()
+    (staging / f"{g.SRR1}_1.fastq").write_text("@r\nACGT\n+\nIIII\n")
+
+    def fake_run(cmd: list[str], *, cwd: Path | None = None) -> None:
+        if cmd[0] == "pigz" and "-t" in cmd:  # the integrity check finds truncation
+            raise DownloadError("invalid compressed data--format violated")
+        for arg in cmd[1:]:  # otherwise emulate compression: write the .gz, drop the .fastq
+            if arg.endswith(".fastq"):
+                path = Path(arg)
+                path.with_suffix(".fastq.gz").write_bytes(b"truncated")
+                path.unlink()
+
+    monkeypatch.setattr(sratools, "_run", fake_run)
+    monkeypatch.setattr(sratools, "_have", lambda tool: True)
+
+    with pytest.raises(DownloadError, match="format violated"):
+        sratools.compress_run(_experiment().runs[0], srx_dir, staging=staging)
+    # The truncated file is not left behind for a downstream reader to trip over.
+    assert not (srx_dir / f"{g.SRR1}_1.fastq.gz").exists()
 
 
 def test_prefetch_passes_max_size_with_default(fake: FakeTools, tmp_path: Path) -> None:
