@@ -336,6 +336,12 @@ def tenx_bamtofastq(
         "--all-runs",
         help="Convert every run of the selected experiments, skipping 10x-BAM auto-detection.",
     ),
+    from_disk: bool = typer.Option(
+        False,
+        "--from-disk",
+        help="Find runs by scanning the on-disk <SRX>/<SRR>/*.bam tree instead of NCBI "
+        "(no network/credentials — for offline HPC conversion of downloaded BAMs).",
+    ),
     remove_bam: bool = typer.Option(
         False,
         "--remove-bam",
@@ -352,6 +358,9 @@ def tenx_bamtofastq(
     out like the download pipeline —
     ``<output>/<accession>/<SRX>/<SRR>_S1_L00N_R{1,2}_00N.fastq.gz`` — and skips runs
     already converted, so it is safe to rerun. Exits non-zero if any run fails.
+
+    On an offline HPC compute node, pass ``--from-disk`` so the run list is built by
+    scanning the downloaded BAM tree rather than querying NCBI.
     """
     try:
         results = TenxConverter(accession, output_dir).convert(
@@ -360,6 +369,7 @@ def tenx_bamtofastq(
             reads_per_fastq=reads_per_fastq,
             select_srx=_resolve_select_srx(select_srx),
             all_runs=all_runs,
+            from_disk=from_disk,
             remove_bam=remove_bam,
             verbose=not quiet,
         )

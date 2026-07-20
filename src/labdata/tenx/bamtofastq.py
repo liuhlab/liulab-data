@@ -28,14 +28,11 @@ import subprocess
 import sys
 from collections.abc import Iterable
 from pathlib import Path
-from typing import TYPE_CHECKING, TextIO
+from typing import TextIO
 
 from labdata.exceptions import AccessionError, DownloadError
-from labdata.geo import BioProject, Experiment, Series
+from labdata.geo import BioProject, Experiment, Run, Series
 from labdata.tenx import pipeline
-
-if TYPE_CHECKING:
-    from labdata.geo.sra_records import Run
 
 logger = logging.getLogger(__name__)
 
@@ -325,6 +322,43 @@ def _as_record(accession_or_record: str | Series | BioProject) -> Series | BioPr
     return Series(accession_or_record)
 
 
+def _tasks_from_disk(base: Path, wanted: set[str] | None) -> list[tuple[Run, Path]]:
+    """Build ``(run, srx_dir)`` tasks by scanning ``base`` for on-disk cellranger BAMs.
+
+    Walks ``base/<SRX>/<SRR>/`` and includes every run directory that holds a ``*.bam``,
+    needing no network. Hidden dirs (e.g. the ``.labdata`` control dir) are skipped, as
+    are directory names that are not well-formed ``SRX``/``SRR`` accessions. When
+    ``wanted`` is given, only experiments whose accession is listed are considered.
+
+    Parameters
+    ----------
+    base : Path
+        The ``<output_dir>/<accession>`` root the original-format download wrote into.
+    wanted : set of str or None
+        SRX accessions to keep (``None`` keeps all).
+
+    Returns
+    -------
+    list of (Run, Path)
+        One task per run directory that contains a BAM, in accession order.
+    """
+    if not base.is_dir():
+        return []
+    tasks: list[tuple[Run, Path]] = []
+    for srx_dir in sorted(p for p in base.iterdir() if p.is_dir() and not p.name.startswith(".")):
+        if wanted is not None and srx_dir.name not in wanted:
+            continue
+        for run_dir in sorted(p for p in srx_dir.iterdir() if p.is_dir()):
+            if not any(run_dir.glob("*.bam")):
+                continue
+            try:
+                run = Run(run_dir.name)  # validates the SRR accession shape
+            except AccessionError:
+                continue
+            tasks.append((run, srx_dir))
+    return tasks
+
+
 def _validate_srx_whitelist(values: Iterable[str] | None) -> set[str] | None:
     """Normalize + validate ``values`` into a set of ``SRX`` accessions (``None`` → ``None``).
 
@@ -385,6 +419,7 @@ class TenxConverter:
         reads_per_fastq: int = DEFAULT_READS_PER_FASTQ,
         select_srx: Iterable[str] | None = None,
         all_runs: bool = False,
+        from_disk: bool = False,
         remove_bam: bool = False,
         verbose: bool = True,
     ) -> dict[str, bool]:
@@ -415,6 +450,13 @@ class TenxConverter:
             auto-detection. Use when you know all runs carry a cellranger BAM (e.g. to
             avoid the extra SDL lookups) or to force conversion of a run SDL does not
             flag.
+        from_disk : bool, default False
+            Build the task list by scanning the on-disk tree
+            (``<output_dir>/<accession>/<SRX>/<SRR>/*.bam``) instead of resolving the
+            record through NCBI. This needs no network or NCBI credentials — the point
+            when converting already-downloaded BAMs on an offline HPC compute node.
+            ``select_srx`` still filters by experiment; ``all_runs`` and the SDL
+            auto-detection do not apply (a BAM's presence on disk is the signal).
         remove_bam : bool, default False
             Delete each run's source BAM once its FASTQ are produced, reclaiming the
             large original. Deletion happens only after a run converts successfully.
@@ -426,15 +468,18 @@ class TenxConverter:
         -------
         dict[str, bool]
             Maps each converted run accession to whether its FASTQ are present on
-            completion (empty if the record has no 10x-BAM runs).
+            completion (empty if there are no 10x-BAM runs).
         """
         base = self.output_dir / self.record.accession
-        tasks: list[tuple[Run, Path]] = []
-        for experiment in self._selected_experiments(select_srx):
-            srx_dir = base / experiment.accession
-            for run in experiment.runs:
-                if all_runs or is_tenx_bam_run(run):
-                    tasks.append((run, srx_dir))
+        if from_disk:
+            tasks = _tasks_from_disk(base, _validate_srx_whitelist(select_srx))
+        else:
+            tasks = [
+                (run, base / experiment.accession)
+                for experiment in self._selected_experiments(select_srx)
+                for run in experiment.runs
+                if all_runs or is_tenx_bam_run(run)
+            ]
         for srx_dir in {srx_dir for _, srx_dir in tasks}:
             srx_dir.mkdir(parents=True, exist_ok=True)
         return _run_conversion(

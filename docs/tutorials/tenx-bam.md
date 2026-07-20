@@ -55,6 +55,9 @@ just like a normal download.
     - Auto-detection uses one SDL lookup per run. Pass `--all-runs` to skip it and
       convert every run of the selected experiments (e.g. when you already know they're
       all 10x), or `--select-srx` to narrow which experiments are considered.
+    - On an **offline HPC compute node**, pass `--from-disk`: the run list is built by
+      scanning the downloaded `<SRX>/<SRR>/*.bam` tree instead of querying NCBI, so no
+      network or credentials are needed.
     - Pass `--remove-bam` to delete each run's source BAM once its FASTQ are produced —
       it reclaims the large original, and only fires after a run converts successfully
       (an interrupted run keeps its BAM for the resumed rerun).

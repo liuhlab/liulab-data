@@ -366,6 +366,23 @@ def test_tenx_bamtofastq_missing_bam_exits_nonzero(
     assert "run(s) failed" in result.output
 
 
+def test_tenx_bamtofastq_from_disk_removes_bam(fake_tenx_tools: FakeTools, tmp_path: Path) -> None:
+    # --from-disk needs no network, so the real TenxConverter is used (no fake_converter).
+    base = tmp_path / g.GSE
+    _seed_bam(base / g.SRX, g.SRR1)
+    bam = base / g.SRX / g.SRR1 / "possorted_genome_bam.bam"
+
+    result = runner.invoke(
+        cli_mod.app,
+        ["tenx", "bamtofastq", g.GSE, "-o", str(tmp_path), "--from-disk", "--remove-bam"],
+    )
+
+    assert result.exit_code == 0
+    assert (base / g.SRX / f"{g.SRR1}_S1_L001_R1_001.fastq.gz").exists()
+    assert not bam.exists()  # --remove-bam reclaimed the source after conversion
+    assert "Done: 1 ok, 0 failed." in result.output
+
+
 def test_tenx_bamtofastq_stage_converts_one_run(fake_tenx_tools: FakeTools, tmp_path: Path) -> None:
     _seed_bam(tmp_path, g.SRR_TENX)  # tmp_path plays the SRX dir here
     result = runner.invoke(cli_mod.app, ["tenx", "_bamtofastq", g.SRR_TENX, str(tmp_path)])

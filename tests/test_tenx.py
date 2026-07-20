@@ -236,6 +236,36 @@ def test_convert_all_runs_produces_flattened_fastq(fake: FakeTools, tmp_path: Pa
     assert list(base.glob(f"{g.SRR2}_S1_L001_R1_001.fastq.gz"))
 
 
+def test_convert_from_disk_scans_bam_tree_without_network(fake: FakeTools, tmp_path: Path) -> None:
+    # No client/SDL wired: from_disk must not touch the network. Seed two runs + a
+    # hidden control dir that must be ignored.
+    base = tmp_path / g.GSE
+    _seed_bam(base / g.SRX, g.SRR1)
+    _seed_bam(base / "SRX16206968", g.SRR2)
+    (base / ".labdata").mkdir(parents=True)
+
+    results = bamtofastq.TenxConverter(g.GSE, tmp_path).convert(from_disk=True, verbose=False)
+
+    assert results == {g.SRR1: True, g.SRR2: True}
+    assert list((base / g.SRX).glob(f"{g.SRR1}_S1_L001_R1_001.fastq.gz"))
+
+
+def test_convert_from_disk_respects_select_srx(fake: FakeTools, tmp_path: Path) -> None:
+    base = tmp_path / g.GSE
+    _seed_bam(base / g.SRX, g.SRR1)
+    _seed_bam(base / "SRX16206968", g.SRR2)
+
+    results = bamtofastq.TenxConverter(g.GSE, tmp_path).convert(
+        from_disk=True, select_srx=[g.SRX], verbose=False
+    )
+    assert results == {g.SRR1: True}
+
+
+def test_convert_from_disk_empty_tree_is_noop(fake: FakeTools, tmp_path: Path) -> None:
+    results = bamtofastq.TenxConverter(g.GSE, tmp_path).convert(from_disk=True, verbose=False)
+    assert results == {}
+
+
 def test_convert_no_tenx_runs_is_noop(fake: FakeTools, fake_sdl: None, tmp_path: Path) -> None:
     # The synthetic Series' runs carry FASTQ originals, not BAMs — auto-detect finds none.
     series = Series(g.GSE, client=g.build_client())
