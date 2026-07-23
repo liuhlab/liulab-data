@@ -22,23 +22,24 @@ drives it across a whole :class:`~labdata.geo.geo_records.Series` or
 from __future__ import annotations
 
 import hashlib
+import io
 import logging
 import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
-from collections.abc import Iterable
+from collections import Counter
+from collections.abc import Callable, Iterable, Iterator
 from collections.abc import Set as AbstractSet
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, TextIO
+from typing import TextIO
 
 from labdata.exceptions import AccessionError, DownloadError
 from labdata.geo import pipeline
-from labdata.geo.sra_records import Experiment
-
-if TYPE_CHECKING:
-    from labdata.geo.sra_records import Run
+from labdata.geo.sra_records import Experiment, Run
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,9 @@ DEFAULT_BACKOFF = 5.0
 DEFAULT_NCBI_PARALLEL = 4
 #: Default threads handed to ``fasterq-dump``/``pigz`` for each run.
 DEFAULT_THREADS_PER_RUN = 12
+#: Default number of spots streamed by :func:`stream_run_reads` (a bounded head of a
+#: run — enough to fingerprint chemistry, never the whole file).
+DEFAULT_PREVIEW_SPOTS = 2000
 
 
 # --------------------------------------------------------------------------- #
@@ -92,6 +96,88 @@ def _run(cmd: list[str], *, cwd: Path | None = None) -> None:
         ) from err
 
 
+def _run_capture(
+    cmd: list[str], *, cwd: Path | None = None, env: dict[str, str] | None = None
+) -> bytes:
+    """Run an external command and return its raw ``stdout`` bytes.
+
+    The streaming sibling of :func:`_run`: same ``DownloadError`` translation, but it
+    captures ``stdout`` as bytes (no ``text=True`` decoding) so a caller can consume a
+    tool's output directly — used by :func:`stream_run_reads` to read ``fastq-dump
+    --stdout`` without any file ever touching disk. ``_run`` (which discards ``stdout``)
+    is unchanged; tests monkeypatch this function independently.
+
+    Parameters
+    ----------
+    cmd : list of str
+        The command and its arguments (``cmd[0]`` is the executable).
+    cwd : Path or None
+        Working directory for the command, if any.
+    env : dict of str to str, optional
+        Environment for the child process; ``None`` inherits the parent's.
+
+    Returns
+    -------
+    bytes
+        The command's ``stdout``.
+
+    Raises
+    ------
+    DownloadError
+        If the executable is not installed (``FileNotFoundError``) or it exits with a
+        non-zero status. The captured ``stderr`` is decoded and included in the message.
+    """
+    try:
+        result = subprocess.run(cmd, cwd=cwd, env=env, check=True, capture_output=True)
+    except FileNotFoundError as err:
+        raise DownloadError(
+            f"{cmd[0]!r} not found — install sra-tools/pigz/curl (e.g. via pixi/conda)"
+        ) from err
+    except subprocess.CalledProcessError as err:
+        stderr = err.stderr.decode(errors="replace") if err.stderr else ""
+        raise DownloadError(f"{cmd[0]!r} failed (exit {err.returncode}): {stderr.strip()}") from err
+    return result.stdout
+
+
+def _with_retry[T](call: Callable[[], T], *, label: str, retries: int, backoff: float) -> T:
+    """Call ``call`` with linear backoff, retrying on :class:`DownloadError`.
+
+    The shared retry core behind both :func:`_run_retry` (whole-command network step)
+    and the ``fastq-dump --stdout`` stream in :func:`stream_run_reads`. Attempt *n*
+    sleeps ``backoff * n`` before the next try; the last failure is re-raised.
+
+    Parameters
+    ----------
+    call : callable
+        A zero-argument callable performing one attempt; its result is returned.
+    label : str
+        A short name for the operation, used in the retry warning.
+    retries : int
+        Total attempts before giving up. ``<= 1`` disables retrying.
+    backoff : float
+        Base seconds for the linear backoff.
+
+    Returns
+    -------
+    The value returned by ``call`` on its first successful attempt.
+
+    Raises
+    ------
+    DownloadError
+        If every attempt fails (the last failure is re-raised).
+    """
+    attempts = max(1, retries)
+    for attempt in range(1, attempts + 1):
+        try:
+            return call()
+        except DownloadError:
+            if attempt == attempts:
+                raise
+            logger.warning("%s failed (attempt %d/%d); retrying", label, attempt, attempts)
+            time.sleep(backoff * attempt)
+    raise AssertionError("unreachable: the loop always returns or raises")  # pragma: no cover
+
+
 def _run_retry(
     cmd: list[str],
     *,
@@ -122,16 +208,7 @@ def _run_retry(
     DownloadError
         If every attempt fails (the last failure is re-raised).
     """
-    attempts = max(1, retries)
-    for attempt in range(1, attempts + 1):
-        try:
-            _run(cmd, cwd=cwd)
-            return
-        except DownloadError:
-            if attempt == attempts:
-                raise
-            logger.warning("%s failed (attempt %d/%d); retrying", cmd[0], attempt, attempts)
-            time.sleep(backoff * attempt)
+    _with_retry(lambda: _run(cmd, cwd=cwd), label=cmd[0], retries=retries, backoff=backoff)
 
 
 def _have(tool: str) -> bool:
@@ -160,6 +237,305 @@ def _verify_gzip(path: Path, *, threads: int = 1) -> None:
     """
     test_cmd = ["pigz", "-t", "-p", str(threads)] if _have("pigz") else ["gzip", "-t"]
     _run([*test_cmd, str(path)])
+
+
+# --------------------------------------------------------------------------- #
+# bounded read preview (stream the first N spots of a run, no FASTQ on disk)
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(frozen=True, slots=True)
+class FastqRecord:
+    """One FASTQ record as its four raw byte lines (newlines stripped).
+
+    Congruent with a 4-line FASTQ record so a consumer can write mates back out
+    verbatim with no re-parsing. The lines are stored without their trailing
+    newline; :meth:`to_bytes` re-emits a canonical record.
+
+    Attributes
+    ----------
+    header : bytes
+        The ``@``-prefixed sequence identifier line (e.g. ``b"@SRR1.1.2 …"``).
+    seq : bytes
+        The base sequence.
+    plus : bytes
+        The ``+`` separator line.
+    qual : bytes
+        The quality string.
+    """
+
+    header: bytes
+    seq: bytes
+    plus: bytes
+    qual: bytes
+
+    def to_bytes(self) -> bytes:
+        """Return this record as canonical 4-line FASTQ bytes (trailing newline)."""
+        return b"\n".join((self.header, self.seq, self.plus, self.qual)) + b"\n"
+
+
+@dataclass(frozen=True, slots=True)
+class RunReadPreview:
+    """The first N spots of a run's reads, bucketed by within-spot read index.
+
+    Returned by :func:`stream_run_reads`. ``reads`` maps a **1-based within-spot
+    read index** (the ``.N`` that ``fastq-dump --readids`` appends) to that mate's
+    records in spot order — so a consumer sees the run's read structure (which mate
+    is the cell barcode, which is cDNA) directly, without positional guessing.
+
+    Attributes
+    ----------
+    accession : str
+        The run accession the preview is of (``SRR…``).
+    n_spots_requested : int
+        The ``--maxSpotId`` bound passed to ``fastq-dump``.
+    n_spots_returned : int
+        The number of spots actually streamed (``<= n_spots_requested``; fewer when
+        the run is shorter than the request).
+    reads : dict[int, list[FastqRecord]]
+        Records per within-spot read index, in spot order.
+    read_lengths : dict[int, int]
+        The modal sequence length of each read index (a compact view of geometry).
+    include_technical : bool
+        Whether technical reads (e.g. a separate barcode read) were kept.
+    """
+
+    accession: str
+    n_spots_requested: int
+    n_spots_returned: int
+    reads: dict[int, list[FastqRecord]]
+    read_lengths: dict[int, int]
+    include_technical: bool
+
+    def read_indexes(self) -> list[int]:
+        """Return the within-spot read indexes present, ascending."""
+        return sorted(self.reads)
+
+    def to_fastq_bytes(self, index: int) -> bytes:
+        """Return read ``index``'s records concatenated as FASTQ bytes."""
+        return b"".join(record.to_bytes() for record in self.reads[index])
+
+    def content_hash(self, index: int) -> str:
+        """Return the sha256 of read ``index``'s FASTQ bytes (a reproducible slice id)."""
+        return hashlib.sha256(self.to_fastq_bytes(index)).hexdigest()
+
+
+def _accession_of(run: Run | str) -> str:
+    """Normalize a :class:`Run` or accession string to a validated ``SRR`` accession.
+
+    A bare string is validated (and upper-cased) through :class:`Run`, so a malformed
+    accession raises :class:`~labdata.exceptions.AccessionError` before any tool runs.
+    """
+    return Run(run).accession if isinstance(run, str) else run.accession
+
+
+def _read_index_from_header(header: bytes) -> int:
+    """Return the within-spot read index encoded in a ``fastq-dump --readids`` header.
+
+    ``--readids`` renders each read id as ``<acc>.<spot>.<read>`` (e.g.
+    ``@SRR1.1.2``), so the read index is the trailing dotted integer. Falls back to
+    ``1`` when no read number is present (a single-read spot).
+    """
+    token = header.split(maxsplit=1)[0].lstrip(b"@") if header else b""
+    parts = token.split(b".")
+    if len(parts) >= 3 and parts[-1].isdigit():
+        return int(parts[-1])
+    return 1
+
+
+def _parse_interleaved(stdout: bytes) -> Iterator[tuple[int, FastqRecord]]:
+    """Yield ``(read_index, record)`` for each 4-line record in interleaved FASTQ.
+
+    ``fastq-dump --split-spot --readids`` emits a spot's reads consecutively, each
+    tagged with its ``.N`` read number, so keying on that tag (not on position)
+    keeps mates aligned even when a spot has a variable number of reads. A truncated
+    trailing record (fewer than four lines) is ignored.
+    """
+    stream = io.BytesIO(stdout)
+    while True:
+        header = stream.readline()
+        if not header:
+            return
+        seq = stream.readline()
+        plus = stream.readline()
+        qual = stream.readline()
+        if not qual:
+            return  # a truncated trailing record — drop it
+        record = FastqRecord(
+            header=header.rstrip(b"\r\n"),
+            seq=seq.rstrip(b"\r\n"),
+            plus=plus.rstrip(b"\r\n"),
+            qual=qual.rstrip(b"\r\n"),
+        )
+        yield _read_index_from_header(record.header), record
+
+
+def _dump_spots(
+    accession: str,
+    *,
+    n_spots: int,
+    include_technical: bool,
+    retries: int,
+    backoff: float,
+) -> bytes:
+    """Stream the first ``n_spots`` spots of ``accession`` to memory, no file on disk.
+
+    Runs ``fastq-dump --stdout --maxSpotId N --split-spot --readids`` inside a
+    :class:`~tempfile.TemporaryDirectory` with ``HOME``/``TMPDIR`` redirected into it,
+    so the VDB config and any on-demand cache land there and are reclaimed on exit —
+    no ``.sra`` and no cache survive the call. Classic ``fastq-dump`` **includes**
+    technical reads by default (the inverse of ``fasterq-dump``), so ``--skip-technical``
+    is added only when ``include_technical`` is false. No ``prefetch`` — it has no
+    ``N``-bound and would fetch the whole run.
+    """
+    cmd = ["fastq-dump", "--stdout", "--maxSpotId", str(n_spots), "--split-spot", "--readids"]
+    if not include_technical:
+        cmd.append("--skip-technical")
+    cmd.append(accession)
+    with tempfile.TemporaryDirectory(prefix="labdata-sra-") as tmp:
+        # Redirect everything sra-tools writes (config + on-demand cache) into the temp
+        # dir so it is reclaimed when the block exits — the "no cache survives" guarantee.
+        env = {**os.environ, "HOME": tmp, "TMPDIR": tmp}
+        return _with_retry(
+            lambda: _run_capture(cmd, cwd=Path(tmp), env=env),
+            label="fastq-dump",
+            retries=retries,
+            backoff=backoff,
+        )
+
+
+def iter_run_reads(
+    run: Run | str,
+    *,
+    n_spots: int = DEFAULT_PREVIEW_SPOTS,
+    include_technical: bool = True,
+    retries: int = DEFAULT_RETRIES,
+    backoff: float = DEFAULT_BACKOFF,
+) -> Iterator[tuple[int, FastqRecord]]:
+    """Stream the first ``n_spots`` spots of a run as ``(read_index, record)`` pairs.
+
+    The streaming building block behind :func:`stream_run_reads`: it shells out once
+    (see :func:`_dump_spots`) and yields every read of every streamed spot in emission
+    order, each paired with its within-spot read index. Nothing is written to disk.
+
+    Parameters
+    ----------
+    run : Run or str
+        The run to preview, as a :class:`Run` or a run accession string.
+    n_spots : int, default :data:`DEFAULT_PREVIEW_SPOTS`
+        Upper bound on spots to stream (``fastq-dump --maxSpotId``).
+    include_technical : bool, default True
+        Keep technical reads (e.g. a separate cell-barcode read). Set ``False`` to
+        pass ``--skip-technical``.
+    retries : int, default :data:`DEFAULT_RETRIES`
+        Attempts for the (network-backed) ``fastq-dump`` stream before giving up.
+    backoff : float, default :data:`DEFAULT_BACKOFF`
+        Base seconds for the linear backoff between retries.
+
+    Yields
+    ------
+    tuple[int, FastqRecord]
+        The within-spot read index (1-based) and the record.
+
+    Raises
+    ------
+    DownloadError
+        If ``fastq-dump`` is missing or every attempt fails.
+    AccessionError
+        If ``run`` is a string that is not a well-formed run accession.
+    """
+    accession = _accession_of(run)
+    stdout = _dump_spots(
+        accession,
+        n_spots=n_spots,
+        include_technical=include_technical,
+        retries=retries,
+        backoff=backoff,
+    )
+    yield from _parse_interleaved(stdout)
+
+
+def stream_run_reads(
+    run: Run | str,
+    *,
+    n_spots: int = DEFAULT_PREVIEW_SPOTS,
+    include_technical: bool = True,
+    retries: int = DEFAULT_RETRIES,
+    backoff: float = DEFAULT_BACKOFF,
+) -> RunReadPreview:
+    """Stream the first ``n_spots`` spots of a run into a :class:`RunReadPreview`.
+
+    A bounded, in-memory head of a run — enough to fingerprint its chemistry, never
+    the whole file. Reads are bucketed by within-spot read index (from the ``.N``
+    tag ``--readids`` appends), so the caller sees the run's read structure directly.
+    No FASTQ, ``.sra``, or cache is written: everything the tool produces lives in
+    memory or a temporary directory reclaimed before this returns.
+
+    Parameters
+    ----------
+    run : Run or str
+        The run to preview, as a :class:`Run` or a run accession string.
+    n_spots : int, default :data:`DEFAULT_PREVIEW_SPOTS`
+        Upper bound on spots to stream.
+    include_technical : bool, default True
+        Keep technical reads (the default; a chemistry fingerprint needs the barcode
+        read). Set ``False`` to pass ``--skip-technical``.
+    retries : int, default :data:`DEFAULT_RETRIES`
+        Attempts for the ``fastq-dump`` stream before giving up.
+    backoff : float, default :data:`DEFAULT_BACKOFF`
+        Base seconds for the linear backoff between retries.
+
+    Returns
+    -------
+    RunReadPreview
+        The streamed reads bucketed by read index, with per-index modal lengths and
+        the requested/returned spot counts.
+
+    Raises
+    ------
+    DownloadError
+        If ``fastq-dump`` is missing or every attempt fails.
+    AccessionError
+        If ``run`` is a string that is not a well-formed run accession.
+
+    Examples
+    --------
+    >>> preview = stream_run_reads("SRR9000001", n_spots=2000)  # doctest: +SKIP
+    >>> preview.read_indexes()  # doctest: +SKIP
+    [1, 2]
+    >>> preview.read_lengths  # doctest: +SKIP
+    {1: 28, 2: 94}
+    """
+    accession = _accession_of(run)
+    reads: dict[int, list[FastqRecord]] = {}
+    for index, record in iter_run_reads(
+        run,
+        n_spots=n_spots,
+        include_technical=include_technical,
+        retries=retries,
+        backoff=backoff,
+    ):
+        reads.setdefault(index, []).append(record)
+    read_lengths = {index: _modal_length(records) for index, records in reads.items()}
+    # Every spot emits its first read, so read index 1's count is the spot count; fall
+    # back to the largest bucket if index 1 was filtered out (all-technical + skip).
+    n_returned = len(reads.get(1, [])) or max((len(r) for r in reads.values()), default=0)
+    return RunReadPreview(
+        accession=accession,
+        n_spots_requested=n_spots,
+        n_spots_returned=n_returned,
+        reads=reads,
+        read_lengths=read_lengths,
+        include_technical=include_technical,
+    )
+
+
+def _modal_length(records: list[FastqRecord]) -> int:
+    """Return the most common sequence length among ``records`` (``0`` if empty)."""
+    if not records:
+        return 0
+    counts = Counter(len(record.seq) for record in records)
+    return counts.most_common(1)[0][0]
 
 
 # --------------------------------------------------------------------------- #
