@@ -6,15 +6,19 @@ credentials (``NCBI_EMAIL`` env var or a configured cache file).
 """
 
 import os
+import shutil
 
 import pytest
 
-from labdata import experiments_for
+from labdata import experiments_for, stream_run_reads
 from labdata.geo import BioProject, Experiment, Platform, Run, Sample, Series
 
 pytestmark = pytest.mark.network
 
 _needs_creds = pytest.mark.skipif(not os.environ.get("NCBI_EMAIL"), reason="NCBI_EMAIL not set")
+_needs_fastq_dump = pytest.mark.skipif(
+    shutil.which("fastq-dump") is None, reason="sra-tools (fastq-dump) not installed"
+)
 
 # A fully public GEO Series with a publication, samples, platform, public SRA,
 # a BioProject, and supplementary files — exercises every component.
@@ -112,3 +116,17 @@ def test_live_make_sra_run_table() -> None:
         assert column in table.columns
     # At least one run carries a parsed read structure (e.g. "28+94").
     assert table["ReadStructure"].str.match(r"^\d+(\+\d+)*$").any()
+
+
+@_needs_fastq_dump
+def test_live_stream_run_reads_previews_without_writing_fastq() -> None:
+    # A tiny public run streamed with a small N — bounded, in memory, no file on disk.
+    preview = stream_run_reads("SRR390728", n_spots=100)
+
+    assert 0 < preview.n_spots_returned <= 100
+    assert preview.read_indexes()  # at least one within-spot read index
+    # ``--readids`` tags every header with its ``.N`` read number; a fingerprint needs it.
+    first_index = preview.read_indexes()[0]
+    assert preview.reads[first_index], "the first read index has records"
+    assert preview.reads[first_index][0].header.startswith(b"@SRR390728.")
+    assert len(preview.content_hash(first_index)) == 64

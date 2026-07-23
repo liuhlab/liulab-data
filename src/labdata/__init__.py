@@ -5,12 +5,16 @@ from importlib.metadata import PackageNotFoundError, version
 from labdata.geo import (
     BioProject,
     Experiment,
+    FastqRecord,
     Platform,
     Run,
+    RunReadPreview,
     Sample,
     Series,
     SraDownloader,
     experiments_for,
+    iter_run_reads,
+    stream_run_reads,
 )
 from labdata.ncbi import FileLocation, RemoteFile, SdlClient
 from labdata.tenx import TenxConverter
@@ -23,10 +27,12 @@ except PackageNotFoundError:
 __all__ = [
     "BioProject",
     "Experiment",
+    "FastqRecord",
     "FileLocation",
     "Platform",
     "RemoteFile",
     "Run",
+    "RunReadPreview",
     "Sample",
     "SdlClient",
     "Series",
@@ -34,4 +40,6 @@ __all__ = [
     "TenxConverter",
     "__version__",
     "experiments_for",
+    "iter_run_reads",
+    "stream_run_reads",
 ]

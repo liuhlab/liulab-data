@@ -16,6 +16,16 @@ and this project adheres to [Calendar Versioning](https://calver.org/) using
 
 ### Added
 
+- `labdata.stream_run_reads` (and its building block `iter_run_reads`) — stream the first
+  N spots of an SRA run into memory **without writing any FASTQ, `.sra`, or cache to disk**.
+  Shells out to `fastq-dump --stdout --maxSpotId N --split-spot --readids` inside a
+  `TemporaryDirectory` with `HOME`/`TMPDIR` redirected there and reclaimed on exit, and returns
+  a `RunReadPreview` bucketing reads by their within-spot read index (the `.N` tag), so a
+  consumer sees the run's read structure directly. This is the bounded-fetch primitive seqforge
+  needs to fingerprint a library's chemistry from an accession with no download (see
+  liulab-data #6). Adds the `_run_capture` subprocess seam beside `_run` and a shared
+  `_with_retry` backoff core used by both. Public re-exports: `stream_run_reads`,
+  `iter_run_reads`, `RunReadPreview`, `FastqRecord`.
 - Initial pixi scaffold: `pyproject.toml` with `[tool.pixi.*]` manifest, conda-forge +
   bioconda channels, `biopython`/`pandas`/`typer` runtime deps, `osx-arm64` + `linux-64` platforms,
   `default`/`test`/`docs` py313 environments, and standard tasks (`lint`, `fmt`, `typecheck`,
