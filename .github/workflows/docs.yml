@@ -1,7 +1,7 @@
 name: Docs
 
-# Builds the MkDocs site and pushes it to the `gh-pages` branch on every push
-# to main, via `mkdocs gh-deploy`.
+# Builds the site with zensical and publishes `./site` to the `gh-pages` branch on every
+# push to main. zensical has no `gh-deploy`, so the publish is a separate action.
 #
 # Setup (one-off, by a maintainer):
 #   1. Let this workflow run once so it creates the `gh-pages` branch.
@@ -14,12 +14,12 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# gh-deploy commits and pushes the built site to the gh-pages branch.
+# The deploy force-pushes the gh-pages branch. Nothing else here writes.
 permissions:
   contents: write
 
 # Allow only one concurrent deployment; don't cancel an in-progress one
-# (a push mid-flight could leave gh-pages in a partial state).
+# (a run killed between build and push could leave gh-pages half-written).
 concurrency:
   group: gh-pages
   cancel-in-progress: false
@@ -31,14 +31,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0   # mkdocs revision dates / hatch-vcs version need history
+          fetch-depth: 0   # the env installs labdata editable; hatch-vcs needs history
       - uses: prefix-dev/setup-pixi@v0.10.2
         with:
           environments: docs
           locked: true
-      - name: Configure git identity
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-      - name: mkdocs gh-deploy
-        run: pixi run -e docs mkdocs gh-deploy --force --strict
+      # Writes `./site`. `--clean --strict` live in the task, so CI and a laptop build alike.
+      - run: pixi run docs-build
+      - uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./site
+          publish_branch: gh-pages
+          # One commit, replaced whole each deploy, as `mkdocs gh-deploy --force` did.
+          force_orphan: true

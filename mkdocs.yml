@@ -1,3 +1,8 @@
+# The docs site. Built by zensical (`pixi run docs-build`), which reads this file directly,
+# so the config stays portable back to mkdocs.
+#
+# zensical silently ignores `exclude_docs:`: every file under docs/ is published. Keep the
+# `nav:` explicit; a page meant for agents also needs `search: exclude: true` front matter.
 site_name: liulab-data
 site_description: Data curation, download, and organization utilities for the Liu Lab.
 site_url: https://liuhlab.github.io/liulab-data/
@@ -53,6 +58,8 @@ plugins:
             # pages that inherit it.
             inherited_members: [download]
 
+# A nav entry naming a missing file builds green under zensical, even with `--strict`;
+# conformance rule `nav-target-exists` catches it instead.
 nav:
   - Home: index.md
   - Tutorials:
@@ -60,6 +67,21 @@ nav:
       - GEO Series: tutorials/geo-series.md
       - 10x cellranger BAM → FASTQ: tutorials/tenx-bam.md
   - API reference: reference.md
+
+# What `--strict` catches under zensical: a link to a missing page, a dead anchor, an
+# unresolved mkdocstrings reference. What it misses: a `nav:` entry naming a missing file, an
+# absolute link (`/gone/`), a link with no `.md` extension. The keys below are zensical's own
+# (mkdocs rejects them, so a move back to mkdocs deletes this block). `unresolved_references:`
+# is left off: it reads any bracketed word in prose as a broken link reference.
+validation:
+  links:
+    not_found: warn
+    anchors: warn
+  unresolved_footnotes: true
+  unused_definitions: true
+  unused_footnotes: true
+  shadowed_definitions: true
+  shadowed_footnotes: true
 
 markdown_extensions:
   - admonition

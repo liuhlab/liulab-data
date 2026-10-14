@@ -96,7 +96,10 @@ Two layers, kept strictly separate — never duplicate one in the other:
 - Example **output in narrative pages may be illustrative/faked** — don't hit the
   network or download large data just to produce a snippet — but keep it faithful to the
   real shape (real accessions, real column names, real return types).
-- Build check: `pixi run -e docs mkdocs build --strict` (also runs in CI).
+- The site is built by **zensical** (pinned exactly) from `mkdocs.yml`. Build check:
+  `pixi run docs-build` (`--strict`, also runs in CI); preview with `pixi run docs`.
+  zensical ignores `exclude_docs:` and does not fail a `nav:` entry naming a missing file,
+  so keep `nav:` explicit; conformance rule `nav-target-exists` covers the second gap.
 
 ## Out of scope right now
 

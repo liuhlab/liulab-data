@@ -100,14 +100,21 @@ python-build = "*"
 hatch-vcs = "*"
 ipykernel = "*"   # lets the pixi env back a Jupyter kernel (notebook dev)
 
-# Docs feature
+# Docs feature. zensical reads mkdocs.yml as is. Exact pin: at 0.0.x nothing promises the
+# next patch is compatible, so bump it in a commit of its own and re-run `docs-build`.
 [tool.pixi.feature.docs.dependencies]
-mkdocs-material = "*"
-mkdocstrings-python = "*"
+zensical = "==0.0.57"
+mkdocstrings-python = ">=2.0.7,<3"
 ruff = "*"   # used by mkdocstrings to format rendered signatures
 
+# On the feature, so these resolve in the `docs` environment with no `-e` flag.
+# `serve` ignores `--strict`, hence its absence.
+[tool.pixi.feature.docs.tasks]
+docs = "zensical serve"
+docs-build = "zensical build --clean --strict"
+
 [tool.pixi.environments]
-default = { features = ["py313", "dev", "test", "docs"], solve-group = "default" }
+default = { features = ["py313", "dev", "test"], solve-group = "default" }
 test    = { features = ["py313", "test"], solve-group = "default" }
 docs    = { features = ["py313", "docs"], solve-group = "default" }
 
@@ -123,7 +130,6 @@ conformance = "python scripts/conformance.py"
 check-static = "bash scripts/check.sh lint fmt-check typecheck conformance"
 check     = { depends-on = ["check-static", "test"] }
 build     = "python -m build"
-docs      = "mkdocs serve"
 # Register THIS env's Python as a Jupyter kernel (idempotent). Run once so a
 # standalone Jupyter Lab can pick the "Python (liulab-data)" kernel and import
 # labdata. Re-run after recreating the env (the kernelspec path changes).
