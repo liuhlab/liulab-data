@@ -15,7 +15,7 @@ pip install liulab-data
 
 Downloading FASTQ also needs two external tools, [sra-tools](https://github.com/ncbi/sra-tools)
 and [pigz](https://zlib.net/pigz/) (plus `curl`, for the original-format download path).
-Recovering FASTQ from a 10x cellranger BAM additionally needs
+Recovering FASTQ from a 10x cellranger BAM also needs
 [10x Genomics' bamtofastq](https://github.com/10XGenomics/bamtofastq). Install them from
 Bioconda/conda-forge:
 

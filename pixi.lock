@@ -122,6 +122,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/sqlalchemy-2.0.51-py313h54dd161_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/tk-8.6.13-noxft_h366c992_103.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/tornado-6.5.7-py313h07c4f96_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/vale-3.19.0-hee9eb32_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/wrapt-1.17.3-py313h07c4f96_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/yaml-0.2.5-h280c20c_3.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zeromq-4.3.5-h09e67af_11.conda
@@ -171,6 +172,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/jupyter_client-8.9.1-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/jupyter_core-5.9.1-pyhc90fa1f_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/markdown-it-py-4.2.0-pyhd8ed1ab_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/markdownlint-cli2-0.23.3-h5ac6406_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/matplotlib-inline-0.2.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/mdurl-0.1.2-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/nbformat-5.10.4-pyhd8ed1ab_1.conda
@@ -308,6 +310,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/jupyter_client-8.9.1-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/jupyter_core-5.9.1-pyhc90fa1f_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/markdown-it-py-4.2.0-pyhd8ed1ab_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/markdownlint-cli2-0.23.3-h5ac6406_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/matplotlib-inline-0.2.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/mdurl-0.1.2-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/nbformat-5.10.4-pyhd8ed1ab_1.conda
@@ -456,6 +459,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-64/sqlalchemy-2.0.51-py313h22ab4a2_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/tk-8.6.13-h7142dee_3.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/tornado-6.5.7-py313hf59fe81_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/vale-3.19.0-h046cd21_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/wrapt-1.17.3-py313h585f44e_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/yaml-0.2.5-h4132b18_3.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/zeromq-4.3.5-h84953be_11.conda
@@ -524,6 +528,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/jupyter_client-8.9.1-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/jupyter_core-5.9.1-pyhc90fa1f_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/markdown-it-py-4.2.0-pyhd8ed1ab_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/markdownlint-cli2-0.23.3-h5ac6406_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/matplotlib-inline-0.2.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/mdurl-0.1.2-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/nbformat-5.10.4-pyhd8ed1ab_1.conda
@@ -672,6 +677,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/sqlalchemy-2.0.51-py313h6688731_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/tk-8.6.13-h010d191_3.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/tornado-6.5.7-py313h0997733_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/vale-3.19.0-h59d7663_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/wrapt-1.17.3-py313hcdf3177_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/yaml-0.2.5-h925e9cb_3.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/zeromq-4.3.5-h10816f8_11.conda
@@ -3526,6 +3532,20 @@ packages:
   run_exports: {}
   size: 885824
   timestamp: 1781006802459
+- conda: https://conda.anaconda.org/conda-forge/linux-64/vale-3.19.0-hee9eb32_0.conda
+  sha256: c706c281757f9c096030039a4fe502482e5f195ba6b5f813e451818954ca9b0b
+  md5: a09aaf21e9713a95e5a123a98a467a0e
+  depends:
+  - __glibc >=2.17
+  - libstdcxx >=15
+  - libgcc >=15
+  - __glibc >=2.17,<3.0.a0
+  license: MIT
+  license_family: MIT
+  purls: []
+  run_exports: {}
+  size: 10618764
+  timestamp: 1787833316124
 - conda: https://conda.anaconda.org/conda-forge/linux-64/watchdog-6.0.0-py313hd5f5364_3.conda
   sha256: 30a88c86692c27afb1bd11c969d49a6b7898dd88e37cb6d57e80c312073b9f56
   md5: 94a85d49ad84cb13a92debc3c6b11819
@@ -4347,6 +4367,17 @@ packages:
   run_exports: {}
   size: 69017
   timestamp: 1778169663339
+- conda: https://conda.anaconda.org/conda-forge/noarch/markdownlint-cli2-0.23.3-h5ac6406_0.conda
+  sha256: 45b0913f97baa92310fe259a36e2d21ab7e18ea091ee2cc530774a7d357c4570
+  md5: c65177cc0ce74738af6b25ceb78d2965
+  depends:
+  - nodejs
+  license: MIT
+  license_family: MIT
+  purls: []
+  run_exports: {}
+  size: 2246247
+  timestamp: 1789995027396
 - conda: https://conda.anaconda.org/conda-forge/noarch/matplotlib-inline-0.2.2-pyhd8ed1ab_0.conda
   sha256: 35b43d7343f74452307fd018a1cca92b8f68961ff8e2ab6a81ce0a703c9a3764
   md5: 9acc1c385be401d533ff70ef5b50dae6
@@ -6683,6 +6714,21 @@ packages:
   run_exports: {}
   size: 886027
   timestamp: 1781007192525
+- conda: https://conda.anaconda.org/conda-forge/osx-64/vale-3.19.0-h046cd21_0.conda
+  sha256: 6bf7e4ebf6a0f289781b048722f57f439cf59b42df7780ced2a953ede8e3a12e
+  md5: c53aa6750ee2debc8572904283cd0467
+  depends:
+  - __osx >=12
+  - libcxx >=21
+  - __osx >=12.3
+  constrains:
+  - __osx >=10.12
+  license: MIT
+  license_family: MIT
+  purls: []
+  run_exports: {}
+  size: 10627301
+  timestamp: 1787833424715
 - conda: https://conda.anaconda.org/conda-forge/osx-64/watchdog-6.0.0-py313h22ab4a2_3.conda
   sha256: f8dd0c17d378713411515d38aa4116b368e9f35872064a64f4706130bf4f52e8
   md5: c3488959dc2e0d9b7c6e91e42fa7a097
@@ -8027,6 +8073,19 @@ packages:
   run_exports: {}
   size: 889689
   timestamp: 1781007967544
+- conda: https://conda.anaconda.org/conda-forge/osx-arm64/vale-3.19.0-h59d7663_0.conda
+  sha256: 739235d8eef01337fc679cb60fdce777367948dc10effd1e90e4a739edf57cc6
+  md5: c3e12383a8ff52e878e3e3d5c31954a6
+  depends:
+  - libcxx >=21
+  - __osx >=12
+  - __osx >=12.3
+  license: MIT
+  license_family: MIT
+  purls: []
+  run_exports: {}
+  size: 9821927
+  timestamp: 1787833317619
 - conda: https://conda.anaconda.org/conda-forge/osx-arm64/watchdog-6.0.0-py313h6688731_3.conda
   sha256: 306ef968c4d5fef96430f6169c819366baa36c7c3e701933282fca43cba67548
   md5: 90e28468c1fb2ade60be2535cbe25e5d

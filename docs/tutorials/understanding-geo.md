@@ -38,7 +38,7 @@ A few things worth remembering:
 - **`SRR` (the run) is what you actually download** — FASTQ files live at the run
   level.
 - You'll also see **`SAMN…` (BioSample)** — e.g. `SAMN02206500` — the SRA-side name for
-  the biological material behind a `GSM`. `labdata` surfaces it as a `BioSample` field
+  the biological material behind a `GSM`. `labdata` reports it as a `BioSample` field
   (e.g. a column in the run table) rather than a separate class.
 
 ## How `labdata` reaches this data

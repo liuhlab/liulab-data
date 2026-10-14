@@ -18,7 +18,7 @@ FASTQ download) run as **Snakemake DAGs** — see the Pipelines invariant.
 
 ## Repository layout (src-layout)
 
-```
+```text
 src/labdata/
   __init__.py        public API: Series, Sample, Platform, Experiment, Run,
                        BioProject, SraDownloader, __version__
@@ -39,12 +39,15 @@ scripts/conformance.py  the lab template's rules, checked against this repo
 ## Quality gates (all green before commit)
 
 `pixi run check` = `check-static` + `test`. `check-static` runs `scripts/check.sh` over
-`lint`, `fmt-check`, `typecheck` and `conformance`; the step list lives in that task alone.
+`lint`, `fmt-check`, `typecheck`, `vale`, `markdownlint` and `conformance`; the step list
+lives in that task alone.
 `check.sh` runs every step at once and reports **all** failures, so read to the bottom.
 CI runs `check-static` in one job and `test` in another.
 
 - **ruff** (lint + format), NumPy docstring convention, 100-col lines.
 - **pyright** `standard` mode, pinned; Python 3.13 floor.
+- **vale** (language) and **markdownlint** (structure) on every Markdown file; the writing
+  rules and word caps are in `docs/agents/writing.md`.
 - **conformance** (`scripts/conformance.py`): the lab template's rules. Waivers go in
   `[tool.liulab.waived]`, per rule, with a reason.
 - **pytest** strict markers/config, `xfail_strict`, warnings-as-errors, branch coverage.

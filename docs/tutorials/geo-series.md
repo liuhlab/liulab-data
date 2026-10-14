@@ -112,29 +112,6 @@ fastq/
     - Needs `sra-tools` and `pigz` on your system (see [Installation](../index.md));
       Snakemake comes with `liulab-data`.
 
-!!! tip "Missing or useless `.sra`? Download the original files"
-    Occasionally a run's SRA-normalized `.sra` is gone, or wrong — e.g. a 10X run
-    whose `.sra` kept only one read of a pair. The submitter's **original-format**
-    files (what you see under "Data access" in the SRA Run Browser) are still there.
-    Name those experiments with `original_srx` to fetch them as-is instead — download
-    only, no extraction:
-
-    ```python
-    gse.download("./fastq", original_srx=["SRX34567890"])
-    ```
-    ```bash
-    labdata geo download GSE310667 --original-srx SRX34567890
-    ```
-
-    The files land under `…/<SRX>/<SRR>/` with their original names and are md5-checked
-    against NCBI; everything else in the study still takes the normal sra-tools path.
-    This only sets the *mode* — pair it with `--select-srx`/`select_srx` (repeatable,
-    or a whitelist file) if you also want to narrow *which* experiments run. Original
-    format is heterogeneous, so labdata just downloads it and leaves the processing to
-    you. Needs `curl` in addition to `sra-tools`/`pigz`. When the original file is a
-    **10x cellranger BAM**, the [10x BAM → FASTQ tutorial](tenx-bam.md) turns it back
-    into remap-ready FASTQ.
-
 !!! info "Just one experiment?"
     `Series.download` does the whole study. To grab a single experiment instead, use
     `SraDownloader` — see the [API reference](../reference.md). Pass `original=True` for
@@ -145,6 +122,30 @@ fastq/
     lays the FASTQ out identically, under a `PRJNA…/` directory. The
     `labdata geo download` command auto-detects which you gave it, so `GSE…` and
     `PRJ…` accessions both just work.
+
+### When the `.sra` is missing or useless
+
+Sometimes a run's SRA-normalized `.sra` is gone or wrong. For example, a 10X run's `.sra`
+may keep only one read of a pair. The submitter's **original-format** files (listed under
+"Data access" in the SRA Run Browser) are still there. Name those experiments with
+`original_srx` to fetch them as-is. This downloads only; it does not extract:
+
+```python
+gse.download("./fastq", original_srx=["SRX34567890"])
+```
+
+```bash
+labdata geo download GSE310667 --original-srx SRX34567890
+```
+
+The files land under `…/<SRX>/<SRR>/` with their original names and are md5-checked
+against NCBI. Everything else in the study still takes the normal sra-tools path.
+This only sets the *mode*. To also narrow *which* experiments run, add
+`--select-srx`/`select_srx` (repeatable, or a whitelist file). Original format varies
+from study to study, so labdata downloads it and leaves the processing to you. It needs
+`curl` in addition to `sra-tools`/`pigz`. When the original file is a
+**10x cellranger BAM**, the [10x BAM → FASTQ tutorial](tenx-bam.md) turns it back
+into remap-ready FASTQ.
 
 ## 4. Grab the supplementary files
 
