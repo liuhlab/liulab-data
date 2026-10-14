@@ -34,7 +34,7 @@ BATCH = 100
 RUN_FIELDS = [
     "study_key", "srp", "bioproject", "srx", "srx_alias", "srs", "sample_alias", "sample_geo",
     "biosample", "taxid", "strategy", "source", "selection", "layout", "instrument",
-    "library_name", "srr", "srr_alias", "spots", "bases", "size", "published", "is_public",
+    "library_name", "nominal_length", "srr", "srr_alias", "spots", "bases", "size", "published", "is_public",
 ]  # fmt: skip
 
 
@@ -121,6 +121,9 @@ def runs_of(pkg: ElementTree.Element, key: str) -> list[dict[str, Any]]:
         "layout": layout[0].tag if layout is not None and len(layout) else "",
         "instrument": txt(exp, ".//INSTRUMENT_MODEL"),
         "library_name": txt(lib, "LIBRARY_NAME"),
+        "nominal_length": layout[0].get("NOMINAL_LENGTH", "")
+        if layout is not None and len(layout)
+        else "",
     }
     return [
         {

@@ -28,7 +28,7 @@ COLUMNS = [
     "acc", "experiment", "sample_acc", "biosample", "sra_study", "bioproject", "assay_type",
     "librarysource", "libraryselection", "librarylayout", "instrument", "library_name",
     "sample_name", "organism", "center_name", "consent", "releasedate", "mbases", "mbytes",
-    "avgspotlen", "attributes",
+    "avgspotlen", "insertsize", "attributes",
 ]  # fmt: skip
 
 # live_runs.tsv field -> Parquet column, compared ignoring case and spaces.
@@ -113,6 +113,11 @@ def main() -> None:
         numeric["avgspotlen_eq_round"] += bool(spots) and pq["avgspotlen"] == round(bases / spots)
         numeric["avgspotlen_eq_floor"] += bool(spots) and pq["avgspotlen"] == bases // spots
         numeric["runs_with_counts"] += bool(spots)
+        numeric["nominal_length_in_xml"] += bool(run.get("nominal_length"))
+        numeric["insertsize_nonzero_in_parquet"] += bool(pq["insertsize"])
+        numeric["insertsize_eq_nominal_length"] += bool(run.get("nominal_length")) and str(
+            pq["insertsize"]
+        ) == str(run.get("nominal_length"))
         numeric["releasedate_eq_published_day"] += str(pq["releasedate"]) == run["published"][:10]
         bs = biosamples.get(run["biosample"])
         if bs is not None:
