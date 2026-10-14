@@ -9,7 +9,9 @@ labdata mirrors each source's own records faithfully: GEO SuperSeries, Series, S
 Platform; SRA study, experiment and run; BioProject; BioSample. It keeps every link the sources
 carry between them, such as SubSeries to SuperSeries, Series to BioProject, GEO sample to SRA
 experiment, and record to PubMed ID. It draws no study boundary. Grouping records into studies
-happens downstream in seqforge, where an LLM reads the content and the paper.
+happens downstream in seqforge. Whether a model does that grouping is proposed in seqforge's
+[Metadata for all of GEO](https://github.com/liuhlab/seqforge/discussions/500) discussion and
+not yet decided.
 
 ## Why
 
