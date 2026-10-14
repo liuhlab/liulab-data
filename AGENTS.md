@@ -44,7 +44,7 @@ scripts/conformance.py  the lab template's rules, checked against this repo
 CI runs `check-static` in one job and `test` in another.
 
 - **ruff** (lint + format), NumPy docstring convention, 100-col lines.
-- **pyright** basic mode, py3.12 baseline.
+- **pyright** `standard` mode, pinned; Python 3.13 floor.
 - **conformance** (`scripts/conformance.py`): the lab template's rules. Waivers go in
   `[tool.liulab.waived]`, per rule, with a reason.
 - **pytest** strict markers/config, `xfail_strict`, warnings-as-errors, branch coverage.

@@ -4,7 +4,7 @@ description = "Data curation, download, and organization utilities for the Liu L
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 authors = [{ name = "Liu Lab" }]
 keywords = ["bioinformatics", "data-curation", "geo", "ncbi", "entrez"]
 classifiers = [
@@ -13,7 +13,6 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Bio-Informatics",
     "Typing :: Typed",
@@ -80,9 +79,7 @@ snakemake-minimal = ">=8"
 # For conformance, which parses mkdocs.yml and the workflows.
 pyyaml = "*"
 
-# Python version feature (CI tests on 3.13; the package still supports >=3.12 —
-# see `requires-python` and the ruff/pyright py312 targets, which keep the code
-# 3.12-compatible).
+# The interpreter. `requires-python` is the floor; ruff and pyright take their target from it.
 [tool.pixi.feature.py313.dependencies]
 python = "3.13.*"
 
@@ -95,7 +92,8 @@ hypothesis = "*"
 # Dev tooling feature
 [tool.pixi.feature.dev.dependencies]
 ruff = "*"
-pyright = "*"
+# Exact: Pylance is pyright, so the editor and CI must give one verdict.
+pyright = "==1.1.411"
 python-build = "*"
 hatch-vcs = "*"
 ipykernel = "*"   # lets the pixi env back a Jupyter kernel (notebook dev)
@@ -134,7 +132,7 @@ register-kernel = "python -m ipykernel install --user --name liulab-data --displ
 [tool.ruff]
 line-length = 100
 src = ["src", "tests", "scripts"]
-target-version = "py312"
+# No `target-version`: ruff infers it from `requires-python`.
 extend-exclude = [".pixi", "site", "build", "dist"]
 
 [tool.ruff.lint]
@@ -181,10 +179,23 @@ include = ["src", "tests", "scripts"]
 exclude = ["**/__pycache__", "**/.pixi"]
 venvPath = ".pixi/envs"
 venv = "default"
-pythonVersion = "3.12"
-typeCheckingMode = "basic"
+# No `pythonVersion`: taken from the interpreter in the environment above.
+typeCheckingMode = "standard"
+# Not redundant: `standard` does not check that a parameter is annotated at all. `Any`
+# satisfies it, so the fix is always in the file you are editing. Scoped off `tests/` below.
+reportMissingParameterType = "error"
+# Deliberately NOT `reportUnknownParameterType`: it also fails annotated parameters and
+# inferred return types whose types an untyped dependency owns. Not a bar a lab repo can meet.
 useLibraryCodeForTypes = true
 reportMissingTypeStubs = "none"
+
+# `tests/` back to plain `standard`. A fixture's type is pytest's, not the author's, and a
+# test signature promises a caller nothing. `src` keeps it.
+[[tool.pyright.executionEnvironments]]
+root = "tests"
+# The tests import their helpers as the `tests` package, so resolve from the repo root.
+extraPaths = ["."]
+reportMissingParameterType = "none"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
