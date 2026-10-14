@@ -121,23 +121,28 @@ def fetch_file(url: str, out: Path) -> None:
     name = url.rsplit("/", 1)[1]
     dest = out / name
     before = out / f"{name}.headers.before"
-    now = head(url)
-    if before.exists():
-        first = _parse_headers(before.read_text())
-        if first.get("last-modified") != now.get("last-modified"):
-            raise FetchError(
-                f"{url} changed since this snapshot began "
-                f"({first.get('last-modified')} -> {now.get('last-modified')}); use a new --date"
-            )
-    else:
-        before.write_text("".join(f"{k}: {v}\n" for k, v in now.items()))
-    size = int(now["content-length"])
     sha_file = out / f"{name}.sha256"
-    if dest.exists() and dest.stat().st_size == size and sha_file.exists():
+    if before.exists() and sha_file.exists():
+        # A finished snapshot is checked against itself, not against today's remote file.
+        now = _parse_headers(before.read_text())
+        if dest.stat().st_size != int(now["content-length"]):
+            raise FetchError(f"{dest}: size differs from the recorded Content-Length")
         log(f"{name}: present, verifying sha256")
         if sha256(dest) != sha_file.read_text().split()[0]:
             raise FetchError(f"{dest} does not match {sha_file}")
     else:
+        now = head(url)
+        if before.exists():
+            first = _parse_headers(before.read_text())
+            if first.get("last-modified") != now.get("last-modified"):
+                raise FetchError(
+                    f"{url} changed since this snapshot began "
+                    f"({first.get('last-modified')} -> {now.get('last-modified')}); "
+                    "use a new --date"
+                )
+        else:
+            before.write_text("".join(f"{k}: {v}\n" for k, v in now.items()))
+        size = int(now["content-length"])
         log(f"{name}: fetching {size} bytes")
         download(url, dest)
         if dest.stat().st_size != size:
@@ -153,7 +158,13 @@ def fetch_file(url: str, out: Path) -> None:
             "url": url,
             "last_modified": now.get("last-modified"),
             "etag": now.get("etag"),
-            "files": [{"name": name, "bytes": size, "sha256": sha_file.read_text().split()[0]}],
+            "files": [
+                {
+                    "name": name,
+                    "bytes": dest.stat().st_size,
+                    "sha256": sha_file.read_text().split()[0],
+                }
+            ],
         },
     )
 
