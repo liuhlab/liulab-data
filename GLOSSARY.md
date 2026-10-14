@@ -6,8 +6,9 @@ Vocabulary for curating public sequencing metadata for the lab.
 
 ### Study
 
-A logical grouping of experiments and samples, set by their authors, that is read and understood
-as a whole. A GEO Series bounds a study when one exists; an SRA-only submission with a paper can
-form a study around that paper. GEO is one source of studies, not the definition.
+The unit at which a set of experiments and samples is understood together: why there are this
+many, how they relate, and what biology they teach. It is decided by reading the content and the
+paper. No single source container (a GEO SuperSeries or Series, a BioProject) is a study, and
+labdata stores none.
 
 _Avoid_: series, project, dataset (each names one source's container, not the study)
