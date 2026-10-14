@@ -10,9 +10,9 @@ FASTQ download) run as **Snakemake DAGs** — see the Pipelines invariant.
 
 - **pixi** (conda-forge + bioconda) is the only supported toolchain. Do not use bare
   pip/poetry/uv. `pyproject.toml` is the single source of truth.
-- Build backend: **hatchling** + **hatch-vcs** (version derived from git tags, CalVer
-  `YYYY.MM.MICRO`; never hand-edit a version).
-- Platforms: `osx-arm64` (local dev) and `linux-64` (CI). No compiled extensions — keep it
+- Build backend: **hatchling** + **hatch-vcs**. The version comes from the newest git tag,
+  CalVer `vYYYY.M.PATCH`. Never hand-edit a version.
+- Platforms: `osx-arm64` (local dev), `linux-64` (CI) and `osx-64`. No compiled extensions — keep it
   that way unless a native dependency is genuinely required (a pure-Python dependency that
   earns its keep, e.g. Snakemake, is fine).
 
@@ -101,8 +101,32 @@ Two layers, kept strictly separate — never duplicate one in the other:
   real shape (real accessions, real column names, real return types).
 - The site is built by **zensical** (pinned exactly) from `mkdocs.yml`. Build check:
   `pixi run docs-build` (`--strict`, also runs in CI); preview with `pixi run docs`.
-  zensical ignores `exclude_docs:` and does not fail a `nav:` entry naming a missing file,
-  so keep `nav:` explicit; conformance rule `nav-target-exists` covers the second gap.
+  zensical ignores `exclude_docs:`, so keep `nav:` explicit.
+
+## Comments and docstrings are short
+
+Nothing checks these, so the rule is on you. A docstring says what a thing does and what it
+promises. A comment says why a line is surprising. Neither is a notebook.
+
+Write only what stays true. Leave out:
+
+- **Measurements**: sizes, counts, timings. They go stale by the next release.
+- **The environment**: hostnames, absolute paths, package versions, what a tool printed.
+- **What the code already says**: prose restating the lines below.
+- **History**: what a previous version did, what was tried, which ticket decided it.
+
+A fact that must survive lives where it is checked:
+
+| The fact | Where it lives |
+| --- | --- |
+| What the code does | a test pins it |
+| A decision and its trade-off | an ADR in `docs/adr/` |
+| Vocabulary | `GLOSSARY.md` |
+| What is still open | an issue |
+| A measurement | nowhere: delete it |
+
+Keep a docstring to its contract: Parameters, Returns, Raises, one example if it earns its
+keep. Say the surprising thing in one sentence and stop.
 
 ## Out of scope right now
 

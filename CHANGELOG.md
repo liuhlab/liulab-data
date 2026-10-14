@@ -4,9 +4,17 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Calendar Versioning](https://calver.org/) using
-`YYYY.MM.MICRO` (e.g. `2026.6.0`).
+tags of the form `vYYYY.M.PATCH` (e.g. `v2026.6.0`).
 
 ## [Unreleased]
+
+### Changed
+
+- Python 3.13 is now the minimum; 3.12 is no longer supported.
+- Releases publish to PyPI when a GitHub Release is published, not when a tag is pushed.
+- The repository moved to `liuhlab/liulab-data`. Project URLs and the HTTP User-Agent
+  point there.
+- The docs site is built with zensical instead of MkDocs.
 
 ### Fixed
 

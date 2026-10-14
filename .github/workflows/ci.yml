@@ -69,7 +69,6 @@ jobs:
           environments: docs
           locked: true
       # `docs-build` is a task on the `docs` feature, so no `-e` flag is needed. It carries
-      # `--strict`, which catches dead links but not a `nav:` entry naming a missing file
-      # (conformance does that). Publishing is `docs.yml`, on `main`.
+      # `--strict`. Publishing is `docs.yml`, on `main`.
       - name: docs-build
         run: pixi run docs-build

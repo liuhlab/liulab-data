@@ -1,6 +1,9 @@
 """Tests for labdata.geo._web — directory-listing parse and 404 handling."""
 
+import io
 import urllib.error
+import urllib.request
+from email.message import Message
 
 import pytest
 
@@ -55,10 +58,6 @@ def test_list_directory_other_http_error_propagates(monkeypatch: pytest.MonkeyPa
 
 
 def test_fetch_text_identifies_the_repo(monkeypatch: pytest.MonkeyPatch) -> None:
-    import io
-    import urllib.request
-    from email.message import Message
-
     seen: dict[str, str | None] = {}
 
     class _Response(io.BytesIO):

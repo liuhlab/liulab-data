@@ -46,7 +46,7 @@ export NCBI_EMAIL="you@lab.org"
 export NCBI_API_KEY="..."                     # optional
 ```
 
-See [`CLAUDE.md`](./CLAUDE.md) for the full contributor/agent working agreement.
+See [`AGENTS.md`](./AGENTS.md) for the full contributor/agent working agreement.
 
 ## License
 

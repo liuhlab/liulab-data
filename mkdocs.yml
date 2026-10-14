@@ -68,11 +68,9 @@ nav:
       - 10x cellranger BAM → FASTQ: tutorials/tenx-bam.md
   - API reference: reference.md
 
-# What `--strict` catches under zensical: a link to a missing page, a dead anchor, an
-# unresolved mkdocstrings reference. What it misses: a `nav:` entry naming a missing file, an
-# absolute link (`/gone/`), a link with no `.md` extension. The keys below are zensical's own
-# (mkdocs rejects them, so a move back to mkdocs deletes this block). `unresolved_references:`
-# is left off: it reads any bracketed word in prose as a broken link reference.
+# `--strict` misses an absolute link (`/gone/`) and a link with no `.md` extension; check
+# those by hand. The keys below are zensical's own and mkdocs rejects them.
+# `unresolved_references:` is left off: it reads any bracketed word in prose as a broken link.
 validation:
   links:
     not_found: warn

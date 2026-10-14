@@ -43,5 +43,5 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./site
           publish_branch: gh-pages
-          # One commit, replaced whole each deploy, as `mkdocs gh-deploy --force` did.
+          # One commit, replaced whole each deploy.
           force_orphan: true
