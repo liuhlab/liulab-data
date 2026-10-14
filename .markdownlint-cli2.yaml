@@ -1,0 +1,35 @@
+# markdownlint reads structure; vale reads language. Both are steps of `check-static`.
+#
+# There is deliberately no `ignores:` list. It used to exist only to mirror a second list
+# of excluded paths kept elsewhere, and two lists that must agree are a drift waiting to
+# happen. Every markdown file in the repo is linted, agent-facing ones included.
+#
+# `gitignore: true` is not that list coming back: it delegates to the one exclusion list
+# the repo already has, so `.pixi/`, `site/`, `dist/` and `build/` are skipped without
+# anything new to keep in sync. It is load-bearing — without it the glob below walks
+# `.pixi/envs/`, finds 376 markdown files shipped inside node_modules and reports 5010
+# issues in other people's READMEs.
+gitignore: true
+
+# The glob lives here rather than on the pixi task line so that the file set does not
+# depend on whether the task shell expands `**` before markdownlint-cli2 sees it.
+globs:
+  - "**/*.md"
+
+config:
+  default: true
+  # Scoped, not disabled. A hard tab in prose is an accident; inside a fenced block it is the
+  # content — `docs/research/` quotes a tab-indented record verbatim, the reason `Lab.Jargon`,
+  # `Lab.Readability` and the agent-docs table already exempt it.
+  MD010:
+    code_blocks: false
+  # The formatter owns line length in code and nothing owns it in prose. Wrapping is a
+  # matter of taste, and tables and long links routinely exceed any limit, so MD013 would
+  # fire on every one of them.
+  MD013: false
+  # Scoped, not disabled. A Keep a Changelog file gives every release the same section
+  # names, so `### Added` recurs once per release by design and the default fails a
+  # correct changelog on its SECOND release. `siblings_only` still fails one release
+  # repeating its own section, which is the duplicate that is a real mistake.
+  MD024:
+    siblings_only: true

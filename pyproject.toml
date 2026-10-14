@@ -99,6 +99,9 @@ pyright = "*"
 python-build = "*"
 hatch-vcs = "*"
 ipykernel = "*"   # lets the pixi env back a Jupyter kernel (notebook dev)
+# Exact: the jargon map and the grade-11 number were measured against this version.
+vale = "3.19.0.*"
+markdownlint-cli2 = "*"
 
 # Docs feature
 [tool.pixi.feature.docs.dependencies]
@@ -118,9 +121,14 @@ fmt-check = "ruff format --check ."
 typecheck = "pyright"
 test      = "pytest"
 test-cov  = "pytest --cov=labdata --cov-report=term-missing"
+# `.`, never an absolute path: an absolute path matches no `.vale.ini` section and exits 0.
+# The globs stop vale walking trees it never lints — check.sh runs steps concurrently, and a
+# walk of .pixi/ races pytest writing __pycache__ there.
+vale = "vale --glob='!{.pixi,site,dist,build}/**' ."
+markdownlint = "markdownlint-cli2"
 conformance = "python scripts/conformance.py"
 # The static step list lives here and nowhere else; `check.sh` takes it as arguments.
-check-static = "bash scripts/check.sh lint fmt-check typecheck conformance"
+check-static = "bash scripts/check.sh lint fmt-check typecheck vale markdownlint conformance"
 check     = { depends-on = ["check-static", "test"] }
 build     = "python -m build"
 docs      = "mkdocs serve"
