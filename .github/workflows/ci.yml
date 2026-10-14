@@ -18,8 +18,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # A real checkout, not a source archive: `conformance` shells out to `git ls-files`.
-      - uses: actions/checkout@v5
-      - uses: prefix-dev/setup-pixi@v0.10.0
+      - uses: actions/checkout@v7
+      - uses: prefix-dev/setup-pixi@v0.10.2
         with:
           environments: default
           locked: true
@@ -30,8 +30,8 @@ jobs:
     name: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: prefix-dev/setup-pixi@v0.10.0
+      - uses: actions/checkout@v7
+      - uses: prefix-dev/setup-pixi@v0.10.2
         with:
           environments: test
           locked: true
@@ -42,10 +42,10 @@ jobs:
     name: build wheel + sdist
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0   # hatch-vcs needs full history to derive a version
-      - uses: prefix-dev/setup-pixi@v0.10.0
+      - uses: prefix-dev/setup-pixi@v0.10.2
         with:
           environments: default
           locked: true
@@ -61,10 +61,10 @@ jobs:
     name: docs build (no deploy)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: prefix-dev/setup-pixi@v0.10.0
+      - uses: prefix-dev/setup-pixi@v0.10.2
         with:
           environments: docs
           locked: true

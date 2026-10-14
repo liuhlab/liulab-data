@@ -1,8 +1,8 @@
 site_name: liulab-data
 site_description: Data curation, download, and organization utilities for the Liu Lab.
-site_url: https://lhqing.github.io/liulab-data/
-repo_url: https://github.com/lhqing/liulab-data
-repo_name: lhqing/liulab-data
+site_url: https://liuhlab.github.io/liulab-data/
+repo_url: https://github.com/liuhlab/liulab-data
+repo_name: liuhlab/liulab-data
 edit_uri: edit/main/docs/
 
 theme:

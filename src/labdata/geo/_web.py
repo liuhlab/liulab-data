@@ -13,7 +13,7 @@ import urllib.error
 import urllib.request
 from html.parser import HTMLParser
 
-_USER_AGENT = "liulab-data (+https://github.com/lhqing/liulab-data)"
+_USER_AGENT = "liulab-data (+https://github.com/liuhlab/liulab-data)"
 
 
 def fetch_text(url: str, *, timeout: float = 30.0) -> str:

@@ -1,9 +1,12 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*'
+  # Publishing a GitHub Release is the deliberate act that publishes to PyPI. Never a tag
+  # push: pushing `v0.0.0` (or any tag) must not fire a publish.
+  release:
+    types: [published]
+  # Re-run a release whose publish failed for a reason outside the code.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -13,10 +16,10 @@ jobs:
     name: Build distribution
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0   # hatch-vcs reads the tag from history
-      - uses: prefix-dev/setup-pixi@v0.10.0
+      - uses: prefix-dev/setup-pixi@v0.10.2
         with:
           environments: default
           locked: true
