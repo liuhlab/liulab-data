@@ -13,21 +13,18 @@ permissions:
   contents: read
 
 jobs:
-  lint:
-    name: lint + typecheck
+  # ruff, pyright and conformance, all at once, all reported.
+  check:
     runs-on: ubuntu-latest
     steps:
+      # A real checkout, not a source archive: `conformance` shells out to `git ls-files`.
       - uses: actions/checkout@v5
       - uses: prefix-dev/setup-pixi@v0.10.0
         with:
           environments: default
           locked: true
-      - name: ruff (lint)
-        run: pixi run -e default lint
-      - name: ruff format check
-        run: pixi run -e default fmt-check
-      - name: pyright
-        run: pixi run -e default typecheck
+      # `check-static`, not `check`: pytest is the `test` job below, in its own environment.
+      - run: pixi run check-static
 
   test:
     name: test
