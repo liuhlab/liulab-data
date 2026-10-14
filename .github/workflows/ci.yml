@@ -13,28 +13,25 @@ permissions:
   contents: read
 
 jobs:
-  lint:
-    name: lint + typecheck
+  # ruff, pyright and conformance, all at once, all reported.
+  check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: prefix-dev/setup-pixi@v0.10.0
+      # A real checkout, not a source archive: `conformance` shells out to `git ls-files`.
+      - uses: actions/checkout@v7
+      - uses: prefix-dev/setup-pixi@v0.10.2
         with:
           environments: default
           locked: true
-      - name: ruff (lint)
-        run: pixi run -e default lint
-      - name: ruff format check
-        run: pixi run -e default fmt-check
-      - name: pyright
-        run: pixi run -e default typecheck
+      # `check-static`, not `check`: pytest is the `test` job below, in its own environment.
+      - run: pixi run check-static
 
   test:
     name: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: prefix-dev/setup-pixi@v0.10.0
+      - uses: actions/checkout@v7
+      - uses: prefix-dev/setup-pixi@v0.10.2
         with:
           environments: test
           locked: true
@@ -45,10 +42,10 @@ jobs:
     name: build wheel + sdist
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0   # hatch-vcs needs full history to derive a version
-      - uses: prefix-dev/setup-pixi@v0.10.0
+      - uses: prefix-dev/setup-pixi@v0.10.2
         with:
           environments: default
           locked: true
@@ -64,12 +61,14 @@ jobs:
     name: docs build (no deploy)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: prefix-dev/setup-pixi@v0.10.0
+      - uses: prefix-dev/setup-pixi@v0.10.2
         with:
           environments: docs
           locked: true
-      - name: mkdocs build --strict
-        run: pixi run -e docs mkdocs build --strict
+      # `docs-build` is a task on the `docs` feature, so no `-e` flag is needed. It carries
+      # `--strict`. Publishing is `docs.yml`, on `main`.
+      - name: docs-build
+        run: pixi run docs-build

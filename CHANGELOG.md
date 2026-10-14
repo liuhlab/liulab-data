@@ -4,9 +4,17 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Calendar Versioning](https://calver.org/) using
-`YYYY.MM.MICRO` (e.g. `2026.6.0`).
+tags of the form `vYYYY.M.PATCH` (e.g. `v2026.6.0`).
 
 ## [Unreleased]
+
+### Changed
+
+- Python 3.13 is now the minimum; 3.12 is no longer supported.
+- Releases publish to PyPI when a GitHub Release is published, not when a tag is pushed.
+- The repository moved to `liuhlab/liulab-data`. Project URLs and the HTTP User-Agent
+  point there.
+- The docs site is built with zensical instead of MkDocs.
 
 ### Fixed
 
@@ -50,7 +58,7 @@ and this project adheres to [Calendar Versioning](https://calver.org/) using
     `esearch`/`esummary`/`esummary_many`/`elink`/`efetch` helpers — the single network
     seam for the package. `esummary_many` fetches summaries for a whole UID list in one
     batched (chunked) request, `efetch` returns raw text (e.g. the SRA `runinfo` CSV),
-    and every helper's result is memoized per client instance so records sharing a
+    and every helper's result is cached per client instance so records sharing a
     client never repeat a request (`clear_cache()` drops the memo).
 - `labdata.geo` — a lazy GEO/SRA object model in `labdata/geo/records.py`, exported at
   the top level: `Series` (GSE), `Sample` (GSM), `Platform` (GPL), `Experiment` (SRX),
@@ -87,7 +95,7 @@ and this project adheres to [Calendar Versioning](https://calver.org/) using
     — parallelized at the run (`SRR`) level via a thread pool; a failed run is recorded
     `False` without aborting the batch. Every
     subprocess goes through the single `_run` seam (mocked in tests — no live tools or
-    network in CI), failures surface as a new `DownloadError`. `sra-tools` and `pigz` are
+    network in CI), failures are reported as a new `DownloadError`. `sra-tools` and `pigz` are
     added to the pixi/conda deps (external binaries, not in `[project.dependencies]`).
   - `BioProject` (Entrez `bioproject`, v2.0 `DocumentSummarySet`) exposes `title`,
     `name`, `description`, `organism`, `data_type`, `registration_date`, `submitter`,

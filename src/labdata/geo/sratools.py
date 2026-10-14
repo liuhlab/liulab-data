@@ -34,6 +34,7 @@ from collections import Counter
 from collections.abc import Callable, Iterable, Iterator
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path
 from typing import TextIO
 
@@ -1020,7 +1021,9 @@ class _SraDownloadMixin:
     """
 
     accession: str
-    experiments: list[Experiment]
+
+    # Typed as the descriptor both subclasses supply, so pyright accepts their override.
+    experiments: cached_property[list[Experiment]]
 
     def download(
         self,

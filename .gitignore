@@ -33,6 +33,7 @@ coverage.xml
 
 # Docs build
 site/
+.cache/
 
 # Editors / OS
 .idea/
@@ -45,8 +46,9 @@ site/
 .env.*
 !.env.example
 
-# Claude Code local settings (project-wide settings.json may be committed)
+# Claude Code machine-local files (project-wide settings.json may be committed)
 .claude/settings.local.json
+.claude/worktrees/
 
 # playground contains manual test code
 playground/

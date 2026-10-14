@@ -1,9 +1,133 @@
-# AGENTS
+# AGENTS.md — liulab-data contributor & agent agreement
 
-All contributor and agent guidance for this repository lives in [`CLAUDE.md`](./CLAUDE.md).
+`liulab-data` (import name **`labdata`**) is a package of data curation, download, and
+organization utilities for the Liu Lab. It starts with GEO/NCBI and will grow to cover
+Zenodo and other data sources. Keep modules general — nothing GEO-specific leaks into the
+package's shared layers (`_cache`, `exceptions`, `ncbi`). Multi-step pipelines (first the
+FASTQ download) run as **Snakemake DAGs** — see the Pipelines invariant.
 
-That file is the single source of truth for: toolchain (pixi), repository layout,
-coding standards, the NCBI/Entrez access contract, accession-handling invariants,
-testing rules, documentation rules, versioning, and PR scope.
+## Toolchain
 
-Read it before making any change.
+- **pixi** (conda-forge + bioconda) is the only supported toolchain. Do not use bare
+  pip/poetry/uv. `pyproject.toml` is the single source of truth.
+- Build backend: **hatchling** + **hatch-vcs**. The version comes from the newest git tag,
+  CalVer `vYYYY.M.PATCH`. Never hand-edit a version.
+- Platforms: `osx-arm64` (local dev), `linux-64` (CI) and `osx-64`. No compiled extensions — keep it
+  that way unless a native dependency is genuinely required (a pure-Python dependency that
+  earns its keep, e.g. Snakemake, is fine).
+
+## Repository layout (src-layout)
+
+```text
+src/labdata/
+  __init__.py        public API: Series, Sample, Platform, Experiment, Run,
+                       BioProject, SraDownloader, __version__
+  _cache.py          cache-dir resolution ($XDG_CACHE_HOME/liulab-data)
+  exceptions.py      LabdataError hierarchy
+  cli.py             thin Typer CLI (labdata version, labdata ncbi configure,
+                       labdata geo download, + hidden per-stage subcommands)
+  ncbi/              NCBI E-utilities: credential config + EntrezClient seam
+  geo/               GEO/SRA object model (geo_records.py, sra_records.py,
+                       bio_project_records.py, dispatch.py) + FASTQ download:
+                       sratools.py (per-stage tool wrappers), pipeline.py
+                       (Snakemake driver), pipeline.smk (the download DAG)
+tests/               pytest suite, mirrors src; mocks the EntrezClient + subprocess seams
+scripts/check.sh     the gate runner
+scripts/conformance.py  the lab template's rules, checked against this repo
+```
+
+## Quality gates (all green before commit)
+
+`pixi run check` = `check-static` + `test`. `check-static` runs `scripts/check.sh` over
+`lint`, `fmt-check`, `typecheck`, `vale`, `markdownlint` and `conformance`; the step list
+lives in that task alone.
+`check.sh` runs every step at once and reports **all** failures, so read to the bottom.
+CI runs `check-static` in one job and `test` in another.
+
+- **ruff** (lint + format), NumPy docstring convention, 100-col lines.
+- **pyright** `standard` mode, pinned; Python 3.13 floor.
+- **vale** (language) and **markdownlint** (structure) on every Markdown file; the writing
+  rules and word caps are in `docs/agents/writing.md`.
+- **conformance** (`scripts/conformance.py`): the lab template's rules. Waivers go in
+  `[tool.liulab.waived]`, per rule, with a reason.
+- **pytest** strict markers/config, `xfail_strict`, warnings-as-errors, branch coverage.
+
+## Conventions / invariants
+
+- **Type annotations on every public function**; NumPy-style docstrings
+  (Parameters / Returns / Raises / Examples) on public API.
+- **External access is concentrated in seams.** Every NCBI call goes through
+  `labdata.ncbi.EntrezClient` (domain classes take a `client` argument; never call
+  `Bio.Entrez` directly). Sequence data uses two subprocess seams —
+  `sratools._run` (sra-tools/pigz) and `pipeline._run_snakemake`. Tests mock the seams,
+  never the real binaries.
+- **Pipelines are Snakemake DAGs with typed resources.** The download DAG
+  (`prefetch → extract → compress`) lives in `pipeline.smk`, driven by
+  `labdata.geo.pipeline`. labdata owns per-stage logic (tool calls, resume flags, cleanup,
+  `keep_sra`/`prefetch_only`) behind hidden CLI subcommands
+  (`labdata geo _prefetch/_extract/_compress`); Snakemake owns scheduling/resume/retries.
+  An `ncbi` resource caps concurrent network jobs independently of `--cores` (total CPU),
+  keeping the link busy while cores extract/compress. Future pipelines follow this split.
+- **Lazy, cached domain objects.** `Series(...)` is cheap; network happens on first
+  property access (`functools.cached_property`) and is cached thereafter.
+- **Accessions are validated at construction** and malformed input raises
+  `AccessionError` (a `ValueError` subclass).
+- **Credentials**: resolve via env (`NCBI_EMAIL`/`NCBI_API_KEY`) → cache file
+  (`~/.cache/liulab-data/ncbi.toml`) → interactive prompt. Never hang a non-interactive
+  process — raise `CredentialsError` with an actionable message instead.
+
+## Testing
+
+- No live network in CI. Mock the `EntrezClient` seam with canned responses; assert
+  laziness (the client is hit once, then served from cache).
+- Live tests against real NCBI are marked `@pytest.mark.network` and deselected by
+  default (`-m "not network"`); run them explicitly with `pixi run test -m network`.
+
+## Documentation
+
+Two layers, kept strictly separate — never duplicate one in the other:
+
+- **Narrative pages** (`docs/*.md`, e.g. `index.md`) are for **human readers**.
+  Task-oriented and short: show the common path with simple, copy-pasteable demos and
+  example output. Aim for the *minimum* an end user needs to get going; favor easy,
+  plain language over completeness. Do **not** spell out per-class/method/parameter
+  behavior in prose — link to the API reference for "going deeper".
+- **API reference** (`docs/reference.md`) is **auto-generated from docstrings** via
+  mkdocstrings (NumPy style). This is the single home for exhaustive per-symbol detail
+  (`Series`, `Sample`, `Experiment`, `Run`, the downloader, …). Keep docstrings good and
+  the reference takes care of itself.
+- Example **output in narrative pages may be illustrative/faked** — don't hit the
+  network or download large data just to produce a snippet — but keep it faithful to the
+  real shape (real accessions, real column names, real return types).
+- The site is built by **zensical** (pinned exactly) from `mkdocs.yml`. Build check:
+  `pixi run docs-build` (`--strict`, also runs in CI); preview with `pixi run docs`.
+  zensical ignores `exclude_docs:`, so keep `nav:` explicit.
+
+## Comments and docstrings are short
+
+Nothing checks these, so the rule is on you. A docstring says what a thing does and what it
+promises. A comment says why a line is surprising. Neither is a notebook.
+
+Write only what stays true. Leave out:
+
+- **Measurements**: sizes, counts, timings. They go stale by the next release.
+- **The environment**: hostnames, absolute paths, package versions, what a tool printed.
+- **What the code already says**: prose restating the lines below.
+- **History**: what a previous version did, what was tried, which ticket decided it.
+
+A fact that must survive lives where it is checked:
+
+| The fact | Where it lives |
+| --- | --- |
+| What the code does | a test pins it |
+| A decision and its trade-off | an ADR in `docs/adr/` |
+| Vocabulary | `GLOSSARY.md` |
+| What is still open | an issue |
+| A measurement | nowhere: delete it |
+
+Keep a docstring to its contract: Parameters, Returns, Raises, one example if it earns its
+keep. Say the surprising thing in one sentence and stop.
+
+## Out of scope right now
+
+- Zenodo and non-NCBI data sources — GEO/SRA first; the rest come later.

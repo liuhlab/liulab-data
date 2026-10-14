@@ -1,6 +1,9 @@
 """Tests for labdata.geo._web — directory-listing parse and 404 handling."""
 
+import io
 import urllib.error
+import urllib.request
+from email.message import Message
 
 import pytest
 
@@ -52,3 +55,18 @@ def test_list_directory_other_http_error_propagates(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(web, "fetch_text", raise_500)
     with pytest.raises(urllib.error.HTTPError):
         web.list_directory("https://example/suppl/")
+
+
+def test_fetch_text_identifies_the_repo(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: dict[str, str | None] = {}
+
+    class _Response(io.BytesIO):
+        headers = Message()
+
+    def fake_urlopen(request: urllib.request.Request, timeout: float) -> _Response:
+        seen["ua"] = request.get_header("User-agent")
+        return _Response(b"ok")
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    assert web.fetch_text("https://example/") == "ok"
+    assert seen["ua"] == "liulab-data (+https://github.com/liuhlab/liulab-data)"

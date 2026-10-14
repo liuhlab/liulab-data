@@ -31,7 +31,7 @@ Data Locator listing) and converts each one that's on disk, driving `bamtofastq`
 Snakemake DAG. The result is laid out **like the download pipeline** — flat under the
 experiment directory, one prefix per run — so a later STARsolo step parses one layout:
 
-```
+```text
 data/GSE208154/<SRX>/
   <SRR>_S1_L001_R1_001.fastq.gz   # barcode + UMI
   <SRR>_S1_L001_R2_001.fastq.gz   # cDNA
