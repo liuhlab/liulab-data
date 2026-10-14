@@ -52,7 +52,13 @@ def main() -> None:
     summary = {
         "parquet_runs": con.execute("SELECT count(*) FROM pq").fetchone(),
         "by_status_visibility_prefix_loaded": [
-            dict(zip(["status", "visibility", "prefix", "loaded", "runs", "in_parquet"], r))
+            dict(
+                zip(
+                    ["status", "visibility", "prefix", "loaded", "runs", "in_parquet"],
+                    r,
+                    strict=True,
+                )
+            )
             for r in by_kind
         ],
         "live_public_missing_by_year": missing_years,
