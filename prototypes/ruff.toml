@@ -1,0 +1,5 @@
+# PROTOTYPE code is throwaway: held to syntax and undefined-name checks only.
+line-length = 100
+
+[lint]
+select = ["E9", "F"]
