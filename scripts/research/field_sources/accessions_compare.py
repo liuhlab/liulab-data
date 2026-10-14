@@ -41,9 +41,11 @@ def main() -> None:
         if not m:
             continue
         gsm, rest = m.groups()
-        if r["Type"] == "EXPERIMENT" and (rest == "" or rest.startswith(": ")):
+        if not (rest == "" or rest.startswith(": ") or re.fullmatch(r"_r?\d+", rest)):
+            continue
+        if r["Type"] == "EXPERIMENT":
             exp_alias.setdefault(gsm, set()).add(r["Accession"])
-        elif r["Type"] == "RUN" and re.fullmatch(r"_\d+", rest):
+        elif r["Type"] == "RUN":
             run_alias.setdefault(gsm, set()).add(r["Experiment"])
         elif r["Type"] == "SAMPLE" and rest == "":
             sample_alias.setdefault(gsm, set()).add(r["Accession"])

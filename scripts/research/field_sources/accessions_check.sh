@@ -3,8 +3,9 @@
 #   accessions_rows.tsv     rows whose Accession is in TARGETS or whose Alias names a GSM in GSMS
 #   accessions_tally.tsv    row counts by Type, Status and Visibility
 #   accessions_gsm.tsv      route, SRX count, number of GSMs: how many experiments each GSM
-#                           reaches through the EXPERIMENT alias ("GSMn" or "GSMn: title"),
-#                           the RUN alias ("GSMn_k") and either
+#                           reaches through the EXPERIMENT alias, the RUN alias and either.
+#                           An alias counts when it is "GSMn", "GSMn: title", "GSMn_k" or
+#                           "GSMn_rk"; GEO has used each form for experiments and runs.
 # Usage: accessions_check.sh BULK_ROOT DATE TARGETS GSMS OUT
 set -euo pipefail
 bulk=$1 date=$2 targets=$3 gsms=$4 out=$5
@@ -22,10 +23,11 @@ NR == 1 { print > (O "/accessions_rows.tsv"); next }
   tally[$7 OFS $3 OFS $9]++
   if (g == "") next
   rest = substr($10, length(g) + 1)
-  if ($7 == "EXPERIMENT" && (rest == "" || rest ~ /^: /)) {
+  if (!(rest == "" || rest ~ /^: / || rest ~ /^_r?[0-9]+$/)) next
+  if ($7 == "EXPERIMENT") {
     if (!((g, $1) in se)) { se[g, $1] = 1; ne[g]++ }
     if (!((g, $1) in su)) { su[g, $1] = 1; nu[g]++ }
-  } else if ($7 == "RUN" && rest ~ /^_[0-9]+$/) {
+  } else if ($7 == "RUN") {
     if (!((g, $11) in sr)) { sr[g, $11] = 1; nr[g]++ }
     if (!((g, $11) in su)) { su[g, $11] = 1; nu[g]++ }
   }
