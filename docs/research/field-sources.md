@@ -14,10 +14,14 @@ Only metadata was read. Each table row has a mark:
 
 - **measured**: a live probe or a bulk query printed it on 2026-10-14.
 - **read**: an official page, a schema or an earlier note says it.
-- **to-verify**: needs the bulk GEO family SOFT files, which were still downloading.
+- **to-verify**: needs a check not yet run. No row has this mark now.
 
 ## Answer
 
+- **The bulk GEO dump finds studies; SOFT describes them.** The esummary dump of all 298,404
+  Series matches live family SOFT on title, summary, organism, platform, type, sample count,
+  PubMed IDs, public date and the GSM list for 90 of 90 Series. It never carries SuperSeries
+  links and has no sample fields beyond titles, so family SOFT is still needed.
 - **GEO wins on text, SRA wins on reads.** For a study with a GEO Series, the family SOFT file
   is the source for every text field. That covers titles, summary, design, characteristics,
   protocols, PubMed IDs, dates and SuperSeries links. SRA is the source for library layout,
@@ -126,7 +130,8 @@ The seqforge column says what seqforge's `fetch_records` reads **today** and wha
 | Access | – | Accessions `Visibility`, Parquet `consent` | Accessions. 1,746,336 live runs are controlled access | measured |
 
 Mark counts across the 46 rows: 42 measured, 4 read, 0 to-verify. The GEO rows rest on family
-SOFT files fetched live; comparing them with the bulk GEO copy is still to do.
+SOFT files fetched live. The bulk GEO download is an esummary dump, not SOFT; the section on it
+below says which Series rows it can serve.
 
 ## Two probed studies
 
@@ -275,6 +280,51 @@ the Parquet's 43,762,704 runs with the 43,022,633 live public runs in `SRA_Acces
 mostly from 2021 on. One of the 91 sampled runs, SRR925577 (GSM1180151, 2013), is among them.
 Every Parquet run appears in `SRA_Accessions.tab`.
 
+## The bulk GEO Series dump
+
+The bulk GEO download is `esummary db=gds` for every Series (`gse[ETYP]`), version 2.0 JSON,
+one record per line. Its manifest lists 298,404 query IDs and 298,404 records. The script
+`scripts/research/field_sources/geo_esummary_check.py` streamed it and compared the 90 Series
+of the GSM sample with live family SOFT and live `esummary`.
+
+**Coverage.** The dump holds 298,404 distinct Series. Live Entrez counted 298,404 the same day,
+and all 90 sampled Series are present. Live `esummary` returned the same value for every field
+of all 90 records, so nothing changed between the download and the check.
+
+**Per field, dump against live family SOFT, 90 Series.**
+
+| Field | Dump field | Same | Other |
+| --- | --- | ---: | --- |
+| Title | `title` | 90 | |
+| Summary | `summary` | 90 | none truncated |
+| Organisms | `taxon` against the samples' organisms | 90 | |
+| Platforms (GPL) | `gpl` | 90 | |
+| Series type | `gdstype` | 90 | |
+| Sample count | `n_samples` | 90 | |
+| PubMed IDs | `pubmedids` | 90 | |
+| BioProject | `bioproject` | 85 | 5 where the dump has a BioProject and SOFT has none, among them three Roadmap Series (the umbrella PRJNA34535) and GSE53690 |
+| SuperSeries and SubSeries | `relations` | 49 | 41 missing: `relations` is empty in all 298,404 records |
+| Public date | `pdat` against `Series_status` | 90 | |
+| GSM list | `samples[].accession` | 90 | |
+| GSM titles | `samples[].title` | 90 | |
+
+Across the whole dump: every record has a summary; 232,148 have PubMed IDs; 298,229 have a
+BioProject; 80,415 have an SRA link in `extrelations`; and the sample list length equals
+`n_samples` in 298,141 records. Three summaries end in `...`; they were not checked against
+SOFT.
+
+**What the dump serves and what still needs SOFT.**
+
+- **The dump is enough to find studies.** It can list every Series with its title, summary,
+  organisms, platforms, assay type, sample count, PubMed IDs, BioProject, public date and GSM
+  accessions and titles.
+- **SOFT is still needed** for the overall design, contributors, SuperSeries and SubSeries
+  links, the submission and last-update dates, and every sample field beyond the title. That
+  covers characteristics, source, protocols, library fields, data processing and the SRA and
+  BioSample relations.
+- **The dump cannot detect change.** It has no last-update date; the `[UDAT]` search remains
+  the change feed (discussion #17).
+
 ## Scripts behind the numbers
 
 All under `scripts/research/` on this branch:
@@ -288,10 +338,7 @@ All under `scripts/research/` on this branch:
 | `field_sources/accessions_check.sh`, `accessions_compare.py` | the bulk alias join, run counts and status tallies |
 | `field_sources/xml_check.py` | bulk BioProject and BioSample against live |
 | `field_sources/soft_relations.py` | the `!Sample_relation` survey and the GSE20301 and GSE19456 spot checks |
-
-## Still to verify
-
-- That the bulk GEO family SOFT files, once downloaded, equal the files fetched live here.
+| `field_sources/geo_esummary_check.py` | the bulk GEO esummary dump against live SOFT and esummary |
 
 ## Sources
 
