@@ -45,7 +45,7 @@ lives in that task alone.
 CI runs `check-static` in one job and `test` in another.
 
 - **ruff** (lint + format), NumPy docstring convention, 100-col lines.
-- **pyright** basic mode, py3.12 baseline.
+- **pyright** `standard` mode, pinned; Python 3.13 floor.
 - **vale** (language) and **markdownlint** (structure) on every Markdown file; the writing
   rules and word caps are in `docs/agents/writing.md`.
 - **conformance** (`scripts/conformance.py`): the lab template's rules. Waivers go in
