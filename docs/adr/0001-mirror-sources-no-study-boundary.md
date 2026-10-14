@@ -33,4 +33,5 @@ is a programmatic store with no LLM in it.
   themselves, on demand.
 - Cross-source joins, such as GEO sample to SRA experiment, stay labdata's job: they are links,
   not boundaries.
-- Whether common fields share one name across sources is still open.
+- Each source keeps its own field names; there is no shared-name layer. Downstream needs to know
+  which source a value came from, and a shared name would be a second copy that can drift.
