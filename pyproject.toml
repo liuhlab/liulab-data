@@ -27,9 +27,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/lhqing/liulab-data"
-Issues = "https://github.com/lhqing/liulab-data/issues"
-Changelog = "https://github.com/lhqing/liulab-data/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/liuhlab/liulab-data"
+Issues = "https://github.com/liuhlab/liulab-data/issues"
+Changelog = "https://github.com/liuhlab/liulab-data/blob/main/CHANGELOG.md"
 
 [project.scripts]
 labdata = "labdata.cli:app"
@@ -40,7 +40,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.version]
 source = "vcs"
-fallback-version = "0.0.0+dev"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/labdata"]
