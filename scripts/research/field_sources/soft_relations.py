@@ -93,6 +93,7 @@ def main() -> None:
     shapes: Counter[str] = Counter()
     skipped: list[str] = []
     family: dict[str, dict[str, list[str]]] = {}
+    per_series: dict[str, list[int]] = {}
     for gse in series:
         num = gse[3:]
         stub = f"GSE{num[:-3]}nnn" if len(num) > 3 else "GSEnnn"
@@ -100,7 +101,18 @@ def main() -> None:
         if raw is None:
             skipped.append(gse)
             continue
-        for gsm, keys in samples(gzip.decompress(raw).decode("utf-8", "replace")).items():
+        fam = samples(gzip.decompress(raw).decode("utf-8", "replace"))
+        sra_type = [k for k in fam.values() if (k.get("Sample_type") or [""])[0] == "SRA"]
+        per_series[gse] = [
+            len(fam),
+            len(sra_type),
+            sum(any(r.startswith("SRA:") for r in k.get("Sample_relation", [])) for k in sra_type),
+            sum(
+                any(r.startswith("BioSample:") for r in k.get("Sample_relation", []))
+                for k in fam.values()
+            ),
+        ]
+        for gsm, keys in fam.items():
             family.setdefault(gsm, keys)
     for gsm, keys in family.items():
         year = (keys.get("Sample_submission_date") or ["? ????"])[0][-4:]
@@ -137,6 +149,9 @@ def main() -> None:
     summary: dict[str, Any] = {
         "series": len(series),
         "series_skipped": skipped,
+        "series_all_sra_type_linked": sum(v[1] == v[2] for v in per_series.values()),
+        "series_with_sra_type": sum(v[1] > 0 for v in per_series.values()),
+        "series_with_gaps": {g: v for g, v in per_series.items() if v[1] != v[2]},
         "samples": len(family),
         "by_submission_year": {y: dict(c) for y, c in sorted(by_year.items())},
         "relation_shapes": shapes.most_common(25),
