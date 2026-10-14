@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import re
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -45,6 +46,20 @@ PAIRS = {
     "library_name": "library_name",
     "sample_alias": "sample_name",
 }
+
+
+SAMPLE_KEY = re.compile(r"_sam(_ss_dpl\d+)?$")
+NULLS = {"not applicable", "missing", "not collected", "na", "n/a", "none", "unknown"}
+
+
+def key(name: str | None) -> str:
+    """Normalise an attribute name the way the Parquet column keys appear to."""
+    return re.sub(r"[^a-z0-9]+", "_", (name or "").lower()).strip("_")
+
+
+def pq_key(name: str) -> str:
+    """Strip the Parquet ``_sam`` and ``_sam_ss_dplN`` suffixes from a sample attribute key."""
+    return SAMPLE_KEY.sub("", name)
 
 
 def norm(value: Any) -> str:
@@ -95,30 +110,41 @@ def main() -> None:
         bases, spots = int(run["bases"] or 0), int(run["spots"] or 0)
         numeric["mbases_eq_round"] += pq["mbases"] == round(bases / 1e6)
         numeric["mbases_eq_floor"] += pq["mbases"] == bases // 1_000_000
-        numeric["avgspotlen_eq"] += bool(spots) and pq["avgspotlen"] == round(bases / spots)
+        numeric["avgspotlen_eq_round"] += bool(spots) and pq["avgspotlen"] == round(bases / spots)
+        numeric["avgspotlen_eq_floor"] += bool(spots) and pq["avgspotlen"] == bases // spots
+        numeric["runs_with_counts"] += bool(spots)
         numeric["releasedate_eq_published_day"] += str(pq["releasedate"]) == run["published"][:10]
         bs = biosamples.get(run["biosample"])
         if bs is not None:
-            pq_pairs = {(norm(a["k"]), norm(a["v"])) for a in pq["attributes"] or []}
-            bs_pairs = {(norm(n), norm(v)) for n, _h, v in bs["attributes"]}
-            bs_harm = {(norm(h), norm(v)) for _n, h, v in bs["attributes"] if h}
+            pq_all = [(a["k"], a["v"]) for a in pq["attributes"] or []]
+            pq_pairs = {(pq_key(k), v) for k, v in pq_all if SAMPLE_KEY.search(k)}
+            bs_pairs = {(key(n), v) for n, _h, v in bs["attributes"]}
+            bs_harm = {(key(h), v) for _n, h, v in bs["attributes"] if h}
+            attrs["bs_pairs_dropped_not_applicable"] += sum(
+                norm(v) in NULLS for _k, v in bs_pairs - pq_pairs
+            )
             attrs["runs_with_biosample"] += 1
             attrs["bs_attr_pairs"] += len(bs_pairs)
             attrs["bs_raw_pairs_in_parquet"] += len(bs_pairs & pq_pairs)
             attrs["bs_harmonized_pairs_in_parquet"] += len(bs_harm & pq_pairs)
             attrs["parquet_pairs"] += len(pq_pairs)
-            keys = {k for k, _v in pq_pairs}
-            attrs["parquet_keys_with_sam_suffix"] += sum(k.endswith("_sam") for k in keys)
+            attrs["parquet_sex_calc"] += any(k == "sex_calc" for k, _v in pq_all)
+            attrs["parquet_geo_accession_exp_is_gsm"] += any(
+                k == "geo_accession_exp" and v == run["sample_geo"] for k, v in pq_all
+            )
 
     totals = con.execute(
         "SELECT count(*), count(DISTINCT experiment), "
         "count(*) FILTER (WHERE sample_name LIKE 'GSM%'), "
         "count(*) FILTER (WHERE library_name LIKE 'GSM%'), "
         "count(*) FILTER (WHERE center_name = 'GEO'), "
-        "count(DISTINCT sample_name) FILTER (WHERE sample_name LIKE 'GSM%') "
+        "count(DISTINCT sample_name) FILTER (WHERE sample_name LIKE 'GSM%'), "
+        "count(*) FILTER (WHERE len(list_filter(attributes, x -> x.k = 'geo_accession_exp')) > 0), "
+        "count(*) FILTER (WHERE list_contains(list_transform(list_filter(attributes, "
+        "x -> x.k = 'geo_accession_exp'), x -> x.v), sample_name)), "
+        "count(*) FILTER (WHERE consent = 'public') "
         "FROM m"
     ).fetchone()
-    consent = con.execute("SELECT consent, count(*) FROM m GROUP BY 1 ORDER BY 2 DESC").fetchall()
     attr_keys = con.execute(
         f"SELECT a.k, count(*) FROM (SELECT unnest(attributes) AS a FROM m WHERE acc IN ({accs})) "
         "GROUP BY 1 ORDER BY 2 DESC LIMIT 25"
@@ -141,12 +167,14 @@ def main() -> None:
                     "runs_library_name_gsm",
                     "runs_center_geo",
                     "distinct_gsm_sample_names",
+                    "runs_with_geo_accession_exp",
+                    "runs_geo_accession_exp_eq_sample_name",
+                    "runs_consent_public",
                 ],
                 totals or [],
                 strict=True,
             )
         ),
-        "consent": consent,
     }
     (args.out / "parquet_summary.json").write_text(json.dumps(summary, indent=1, default=str))
     print(json.dumps(summary, indent=1, default=str))
