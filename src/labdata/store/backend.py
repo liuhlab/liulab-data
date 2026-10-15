@@ -7,6 +7,7 @@ cache folder, never the store.
 
 from __future__ import annotations
 
+import json
 from collections import Counter
 from collections.abc import Collection
 from pathlib import Path
@@ -41,6 +42,7 @@ class DuckDbBackend:
         self._by_from = _quote(str(build / "links_by_from.parquet"))
         self._by_to = _quote(str(build / "links_by_to.parquet"))
         self._holdings = _quote(str(build / "holdings.parquet"))
+        self._known = _quote(str(build / "known.parquet"))
 
     def get_many(self, accessions: Collection[str]) -> dict[str, RecordRow]:
         """Return the held records among ``accessions``; absent ones are left out."""
@@ -81,6 +83,24 @@ class DuckDbBackend:
             f"WHERE accession IN (SELECT unnest({_list(accessions)}))"
         ).fetchall()
         return {row[0] for row in rows}
+
+    def known_many(self, accessions: Collection[str]) -> dict[str, str]:
+        """Return which of ``accessions`` a snapshot lists, each with its snapshot date."""
+        self.calls["known_many"] += 1
+        rows = self._con.execute(
+            f"SELECT accession, max(snapshot_date) FROM read_parquet({self._known}) "
+            f"WHERE accession IN (SELECT unnest({_list(accessions)})) GROUP BY accession"
+        ).fetchall()
+        return {row[0]: row[1] for row in rows}
+
+    def snapshot_dates(self) -> dict[str, str]:
+        """Return each snapshot source's date, read from ``known.parquet``'s metadata."""
+        self.calls["snapshot_dates"] += 1
+        rows = self._con.execute(
+            f"SELECT decode(value) FROM parquet_kv_metadata({self._known}) "
+            "WHERE decode(key) = 'snapshot_dates'"
+        ).fetchall()
+        return json.loads(rows[0][0]) if rows else {}
 
     def raw_many(self, accessions: Collection[str]) -> dict[str, tuple[str, str]]:
         """Return each held accession's raw text and content hash."""

@@ -19,6 +19,7 @@ Reads the six packages from ``tests/data/sra_package/``. Writes, next to this sc
 from __future__ import annotations
 
 import gzip
+import json
 import re
 import subprocess
 import time
@@ -85,8 +86,19 @@ def one(pattern: str, text: str, group: int) -> str:
     return match[group]
 
 
+def write_geo_series() -> None:
+    """Write the geo-series snapshot: one real Series record."""
+    url = f"{EUTILS}/esummary.fcgi?db=gds&id=200019970&retmode=json&version=2.0"
+    record = json.loads(get(url))["result"]["200019970"]
+    line = json.dumps(record, separators=(",", ":")) + "\n"
+    out = HERE / "snapshots" / "geo-series" / DATE / "gds_gse_esummary.jsonl.gz"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_bytes(gzip.compress(line.encode(), mtime=0))
+
+
 def main() -> None:
     """Fetch and write every fixture file."""
+    write_geo_series()
     folder = HERE.parent / "sra_package"
     packages = "".join((folder / f"{srx}.xml").read_text(encoding="utf-8") for srx in SRX)
 

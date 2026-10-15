@@ -150,3 +150,20 @@ class RawText:
 
     text: str
     content_hash: str
+
+
+@dataclass(frozen=True, slots=True)
+class Partial[T]:
+    """A walk's result with ``partial=True``: the held part and what it could not reach.
+
+    Parameters
+    ----------
+    held : T
+        What the default call would return, built from held records only.
+    missing : tuple of str
+        Every accession the walk reached but the store does not hold, sorted. Empty when
+        nothing was missing.
+    """
+
+    held: T
+    missing: tuple[str, ...]
