@@ -6,7 +6,6 @@ Fixtures are the Series' real family SOFT (data tables trimmed) and its real
 
 from __future__ import annotations
 
-import shutil
 import urllib.error
 from email.message import Message
 from pathlib import Path
@@ -20,6 +19,7 @@ from labdata.store.build import build
 from labdata.store.fetch import fetch
 from labdata.store.model import SupplementaryFile
 from tests._fakes import FakeEntrezClient
+from tests._slices import copy_snapshots
 
 _DATA = Path(__file__).parent / "data" / "geo_slice"
 _GEO = "https://ftp.ncbi.nlm.nih.gov/geo"
@@ -51,7 +51,7 @@ def _isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
 
 def _root(path: Path) -> Path:
-    shutil.copytree(_DATA / "snapshots", path / "snapshots")
+    copy_snapshots(_DATA / "snapshots", path)
     (path / "labdata-store.toml").write_text("format_version = 1\n", encoding="utf-8")
     return path
 

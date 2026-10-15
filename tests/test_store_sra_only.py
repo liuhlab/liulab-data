@@ -10,7 +10,6 @@ import hashlib
 import inspect
 import json
 import os
-import shutil
 import socket
 import subprocess
 import sys
@@ -34,6 +33,7 @@ from labdata.store import Store, open_store, raw
 from labdata.store.build import build
 from labdata.store.fetch import fetch
 from tests._fakes import ExplodingEntrezClient, FakeEntrezClient
+from tests._slices import copy_snapshots
 
 _DATA = Path(__file__).parent / "data"
 _SNAPSHOTS = _DATA / "prjna1027859" / "snapshots"
@@ -66,7 +66,7 @@ def _isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 def root(tmp_path: Path) -> Path:
     """A store root holding the fixture snapshots and no build yet."""
     path = tmp_path / "store"
-    shutil.copytree(_SNAPSHOTS, path / "snapshots")
+    copy_snapshots(_SNAPSHOTS, path)
     (path / "labdata-store.toml").write_text("format_version = 1\n", encoding="utf-8")
     return path
 

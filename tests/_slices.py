@@ -12,6 +12,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from labdata.store import extract
 from labdata.store.build import build
 from labdata.store.fetch import fetch
 from tests._fakes import FakeEntrezClient
@@ -93,9 +94,16 @@ SLICES = {
 }
 
 
+def copy_snapshots(snapshots: Path, root: Path) -> None:
+    """Copy a fixture's snapshots into ``root`` and extract each, as an operator would."""
+    shutil.copytree(snapshots, root / "snapshots")
+    for source in extract.SOURCES:
+        extract.extract(root, source, workers=1)
+
+
 def new_root(path: Path, slice_name: str) -> Path:
     """Make a store root at ``path`` holding one fixture's snapshots and no build."""
-    shutil.copytree(SLICES[slice_name][0], path / "snapshots")
+    copy_snapshots(SLICES[slice_name][0], path)
     (path / "labdata-store.toml").write_text("format_version = 1\n", encoding="utf-8")
     return path
 

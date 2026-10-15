@@ -23,6 +23,7 @@ from labdata.store import Store, open_store, raw
 from labdata.store.build import build
 from labdata.store.fetch import fetch
 from tests._fakes import ExplodingEntrezClient, FakeEntrezClient
+from tests._slices import copy_snapshots
 
 _DATA = Path(__file__).parent / "data" / "geo_slice"
 _SERIES = ["GSE246310", "GSE153830", "GSE19456", "GSE233931", "GSE233685", "GSE20301", "GSE28770"]
@@ -67,7 +68,7 @@ def _isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 def root(tmp_path: Path) -> Path:
     """A store root holding the fixture snapshots and no build yet."""
     path = tmp_path / "store"
-    shutil.copytree(_DATA / "snapshots", path / "snapshots")
+    copy_snapshots(_DATA / "snapshots", path)
     (path / "labdata-store.toml").write_text("format_version = 1\n", encoding="utf-8")
     return path
 
@@ -76,7 +77,7 @@ def root(tmp_path: Path) -> Path:
 def built(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """One fetch and build of every thin-slice Series, shared by the read-only checks."""
     path = tmp_path_factory.mktemp("geo") / "store"
-    shutil.copytree(_DATA / "snapshots", path / "snapshots")
+    copy_snapshots(_DATA / "snapshots", path)
     (path / "labdata-store.toml").write_text("format_version = 1\n", encoding="utf-8")
     fetch(path, _SERIES, client=_client(), today="2026-10-14")
     build(path, "b1")

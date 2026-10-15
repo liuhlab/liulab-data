@@ -160,25 +160,29 @@ def store_build(
     typer.echo(f"Built {out} and switched the store to it")
 
 
-@store_app.command("index-known")
-def store_index_known(
-    source: str = typer.Option(..., help="geo-series, sra-accessions, bioproject or biosample."),
+@store_app.command("extract")
+def store_extract(
+    source: str = typer.Option(..., help="biosample, bioproject, sra-accessions or geo-series."),
+    workers: int | None = typer.Option(
+        None, min=1, help="Parallel workers; default: SLURM_CPUS_ON_NODE, then the CPU count."
+    ),
     root: Path | None = typer.Option(
         None, help="Store root; default: LABDATA_STORE, then pointer."
     ),
 ) -> None:
-    """Index one snapshot's accessions for known.parquet; skipped if already done.
+    """Extract one snapshot into Parquet parts for `labdata store build`; resumes a killed run.
 
-    Run one job per source in parallel; `labdata store build` then merges them.
+    Run once per source after a new snapshot lands. Set RAY_ADDRESS to use a running Ray
+    cluster instead of starting one on this node.
     """
-    from labdata.store.known import index_source
+    from labdata.store.extract import extract
 
     store = open_store(root)
     try:
-        out = index_source(store.root, source)
+        out = extract(store.root, source, workers=workers)
     except ValueError as err:
         raise typer.BadParameter(str(err), param_hint="--source") from err
-    typer.echo(f"Indexed {source}: {out}")
+    typer.echo(f"Extracted {source}: {out}")
 
 
 def _record_for_download(accession: str) -> Series | BioProject:

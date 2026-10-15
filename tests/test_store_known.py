@@ -6,20 +6,17 @@ geo-series snapshot, so it is known but not held.
 
 from __future__ import annotations
 
-import shutil
-from collections.abc import Iterator
 from pathlib import Path
 
 import pyarrow.parquet as pq
 import pytest
-from typer.testing import CliRunner
 
-from labdata.cli import app
 from labdata.exceptions import AccessionError, NotFound, NotMirrored
-from labdata.store import Partial, Store, known, open_store
+from labdata.store import Partial, Store, open_store
 from labdata.store.build import build
 from labdata.store.fetch import fetch
 from tests._fakes import FakeEntrezClient
+from tests._slices import copy_snapshots
 
 _DATA = Path(__file__).parent / "data"
 _SNAPSHOTS = _DATA / "prjna1027859" / "snapshots"
@@ -35,7 +32,7 @@ def _isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
 def _root(tmp_path: Path) -> Path:
     root = tmp_path / "store"
-    shutil.copytree(_SNAPSHOTS, root / "snapshots")
+    copy_snapshots(_SNAPSHOTS, root)
     (root / "labdata-store.toml").write_text("format_version = 1\n", encoding="utf-8")
     return root
 
@@ -126,53 +123,3 @@ def test_partial_has_an_empty_missing_list_when_all_is_held(store: Store) -> Non
     walk = store.experiments_for(_PROJECT, partial=True)
     assert [e.accession for e in walk.held] == _SRX
     assert walk.missing == ()
-
-
-# ---------------------------------------------------------------- resumable indexing
-
-
-def test_a_rerun_skips_a_source_already_indexed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    root = _root(tmp_path)
-    out = known.index_source(root, "geo-series")
-    assert out == root / "work" / "known" / "geo-series-2026-10-14.parquet"
-
-    def fail(*args: object) -> None:
-        raise AssertionError("the snapshot was read again")
-
-    monkeypatch.setattr(known.snapshots, "accessions", fail)
-    assert known.index_source(root, "geo-series") == out
-
-
-def test_a_killed_index_leaves_no_file_and_a_rerun_finishes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    root = _root(tmp_path)
-    real = known.snapshots.accessions
-
-    def killed(snap: object, source: str) -> Iterator[str]:
-        yield "SRX1"
-        raise KeyboardInterrupt
-
-    monkeypatch.setattr(known.snapshots, "accessions", killed)
-    monkeypatch.setattr(known, "_BATCH", 1)
-    with pytest.raises(KeyboardInterrupt):
-        known.index_source(root, "sra-accessions")
-    assert list((root / "work" / "known").iterdir()) == []
-    monkeypatch.setattr(known.snapshots, "accessions", real)
-    out = known.index_source(root, "sra-accessions")
-    assert "SRX24283130" in pq.read_table(out).column("accession").to_pylist()
-
-
-def test_the_index_known_command_does_one_source(tmp_path: Path) -> None:
-    root = _root(tmp_path)
-    runner = CliRunner()
-    done = runner.invoke(
-        app, ["store", "index-known", "--source", "bioproject", "--root", str(root)]
-    )
-    assert done.exit_code == 0, done.output
-    files = [p.name for p in (root / "work" / "known").iterdir()]
-    assert files == ["bioproject-2026-10-14.parquet"]
-    bad = runner.invoke(app, ["store", "index-known", "--source", "nope", "--root", str(root)])
-    assert bad.exit_code != 0
