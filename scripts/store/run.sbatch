@@ -7,9 +7,8 @@
 # The run resumes where it stopped, so a preempted job is requeued and carries on. Every
 # Slurm option here can be overridden on the sbatch command line.
 #
-# Memory: the build holds about one chunk per worker plus DuckDB's cap, and the snapshot
-# extract can run beside the E-utilities lane, each with its own DuckDB. Two caps and the
-# workers fit in the request with room to spare.
+# Memory: the run reads the job's allocation and splits it among the steps that can run at
+# once; each step caps DuckDB and Ray inside its share. Ask for more memory, not a cap.
 #SBATCH --job-name=labdata-run
 #SBATCH --partition=cpu_preemptible
 #SBATCH --requeue
@@ -21,7 +20,6 @@
 
 set -euo pipefail
 : "${LABDATA_STORE:?set LABDATA_STORE to the store root}"
-export LABDATA_DUCKDB_MEMORY="${LABDATA_DUCKDB_MEMORY:-64GB}"
 repo="${LABDATA_REPO:-${SLURM_SUBMIT_DIR:-$PWD}}"
 
 echo "$(date -u +%FT%TZ) job ${SLURM_JOB_ID:-local} restart ${SLURM_RESTART_COUNT:-0} on $(hostname)"

@@ -19,6 +19,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -50,10 +51,18 @@ PART_BYTES = 1 << 28
 #: Rows per row group of a part, so a reader holds a few thousand records, not a whole part.
 ROW_GROUP_ROWS = 4096
 
-#: The share of the job's or machine's memory DuckDB may use; the rest is for Python.
-MEMORY_SHARE = 0.75
+#: The memory (MB) and threads a pipeline step was given; set by the pipeline for each step.
+MEMORY_ENV = "LABDATA_MEMORY_MB"
+THREADS_ENV = "LABDATA_THREADS"
+
+#: The share of a step's memory DuckDB may use.
+MEMORY_SHARE = 0.5
+#: The share of a step's memory Ray's object store may use. The rest is for Python.
+OBJECT_STORE_SHARE = 0.2
 
 _PLAN = "_plan.json"
+_RAY_MIN_STORE = 100 << 20
+_RAY_MAC_STORE = 2 << 30
 _CHUNK = 1 << 24
 _BIOPROJECT_KEY = re.compile(rb'<ArchiveID\b[^>]*?\baccession="(PRJ[A-Z]+\d+)"')
 _BIOSAMPLE_KEY = re.compile(rb'<BioSample\b[^>]*?\baccession="(SAM[A-Z]+\d+)"')
@@ -183,19 +192,31 @@ def sql_string(text: str) -> str:
     return "'" + text.replace("'", "''") + "'"
 
 
-def duckdb_memory() -> str:
-    """Return DuckDB's memory cap: ``LABDATA_DUCKDB_MEMORY``, else a share of the allocation.
+def step_memory_mb() -> int:
+    """Return this step's memory in MB: ``LABDATA_MEMORY_MB``, else :func:`allocation_mb`."""
+    given = os.environ.get(MEMORY_ENV, "")
+    return int(given) if given.isdigit() and int(given) > 0 else allocation_mb()
 
-    The allocation is ``SLURM_MEM_PER_NODE`` (MB) inside a Slurm job, else the cgroup limit or
-    the machine's memory, whichever is smaller.
-    """
+
+def step_threads() -> int:
+    """Return this step's threads: ``LABDATA_THREADS``, else :func:`default_workers`."""
+    given = os.environ.get(THREADS_ENV, "")
+    return int(given) if given.isdigit() and int(given) > 0 else default_workers()
+
+
+def duckdb_memory() -> str:
+    """Return DuckDB's memory cap: ``LABDATA_DUCKDB_MEMORY``, else a share of the step's memory."""
     override = os.environ.get("LABDATA_DUCKDB_MEMORY")
     if override:
         return override
-    return f"{max(int(_allocation_mb() * MEMORY_SHARE), 256)}MB"
+    return f"{max(int(step_memory_mb() * MEMORY_SHARE), 256)}MB"
 
 
-def _allocation_mb() -> int:
+def allocation_mb() -> int:
+    """Return the job's memory in MB: ``SLURM_MEM_PER_NODE`` in a Slurm job.
+
+    Outside one it is the cgroup limit or the machine's memory, whichever is smaller.
+    """
     slurm = os.environ.get("SLURM_MEM_PER_NODE", "")
     if slurm.isdigit() and int(slurm) > 0:
         return int(slurm)
@@ -214,7 +235,7 @@ def _allocation_mb() -> int:
 def connect(root: Path) -> Iterator[duckdb.DuckDBPyConnection]:
     """Yield an in-memory DuckDB with a memory cap that spills to ``<root>/work/tmp/<pid>``.
 
-    It runs on :func:`default_workers` threads. Each process spills to its own folder, removed
+    It runs on :func:`step_threads` threads. Each process spills to its own folder, removed
     on exit. Insertion order is not kept, so a query that needs an order says ``ORDER BY``.
     """
     temp = root / "work" / "tmp" / str(os.getpid())
@@ -225,7 +246,7 @@ def connect(root: Path) -> Iterator[duckdb.DuckDBPyConnection]:
             "memory_limit": duckdb_memory(),
             "temp_directory": str(temp),
             "preserve_insertion_order": False,
-            "threads": default_workers(),
+            "threads": step_threads(),
         },
     )
     try:
@@ -338,7 +359,10 @@ def _blocks(stream: BinaryIO, source: str, part: int) -> Iterator[tuple[int, byt
 
 @contextmanager
 def parallel(workers: int) -> Iterator[None]:
-    """Hold one Ray session for ``workers`` across several :func:`run_parallel` calls."""
+    """Hold one Ray session for ``workers`` across several :func:`run_parallel` calls.
+
+    A session this starts caps its object store at a share of the step's memory.
+    """
     if workers == 1:
         yield
         return
@@ -346,11 +370,13 @@ def parallel(workers: int) -> Iterator[None]:
 
     started = not ray.is_initialized()
     if started:
-        ray.init(
-            num_cpus=None if os.environ.get("RAY_ADDRESS") else workers,
-            include_dashboard=False,
-            log_to_driver=False,
-        )
+        local: dict[str, Any] = {}
+        if not os.environ.get("RAY_ADDRESS"):
+            store = max(int(step_memory_mb() * OBJECT_STORE_SHARE) << 20, _RAY_MIN_STORE)
+            if sys.platform == "darwin":  # Ray refuses a larger store on macOS
+                store = min(store, _RAY_MAC_STORE)
+            local = {"num_cpus": workers, "object_store_memory": store}
+        ray.init(include_dashboard=False, log_to_driver=False, **local)
     try:
         yield
     finally:

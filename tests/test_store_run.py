@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -161,6 +162,49 @@ def test_run_hands_snakemake_the_rounds_dag_and_config(
         "prune": 1,
         "copy": 1,
     }
+
+
+#: Steps the DAG can run at the same time: a snapshot extract has no inputs, so it may run
+#: beside any step before the build.
+_TOGETHER = [
+    ("targets", "extract"),
+    ("geo", "eutils_beside_geo", "extract"),
+    ("eutils_after_geo", "extract"),
+    ("pack", "extract"),
+]
+
+
+def test_steps_that_can_run_together_fit_in_the_jobs_memory(
+    store: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SLURM_MEM_PER_NODE", "100000")
+    planned: dict[str, int] = {}
+    seen: dict[str, str] = {}
+
+    def fake(argv: list[str], *, verbose: bool) -> int:
+        seen["resources"] = argv[argv.index("--resources") + 2]
+        done = subprocess.run(
+            ["snakemake", *argv, "--dry-run"], capture_output=True, text=True, check=True
+        )
+        for block in done.stdout.split("\nrule ")[1:]:
+            rule = block.split(":", 1)[0]
+            if rule == "all":
+                continue
+            mem = int(re.search(r"\bmem_mb=(\d+)", block)[1])  # type: ignore[index]
+            planned[rule] = max(planned.get(rule, 0), mem)
+            if "-m labdata" in block:
+                assert f"LABDATA_MEMORY_MB={mem} " in block  # the step is told its share
+        return 0
+
+    monkeypatch.setattr(pipeline, "_run_snakemake", fake)
+    result = CliRunner().invoke(app, ["store", "run", "--root", str(store), "--cores", "8"])
+    assert result.exit_code == 0, result.output
+    total = int(seen["resources"].removeprefix("mem_mb="))
+    assert total <= 100000
+    assert set(planned) >= {"build", "coverage", *(s for group in _TOGETHER for s in group)}
+    assert max(planned.values()) <= total
+    for group in _TOGETHER:
+        assert sum(planned[s] for s in group) <= total, group
 
 
 def test_run_exits_with_snakemakes_code_when_a_step_fails(
