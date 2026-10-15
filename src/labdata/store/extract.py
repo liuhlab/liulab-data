@@ -47,6 +47,9 @@ DONE = "_DONE"
 #: The default size of one part's byte range.
 PART_BYTES = 1 << 28
 
+#: Rows per row group of a part, so a reader holds a few thousand records, not a whole part.
+ROW_GROUP_ROWS = 4096
+
 #: The share of the job's or machine's memory DuckDB may use; the rest is for Python.
 MEMORY_SHARE = 0.75
 
@@ -211,8 +214,8 @@ def _allocation_mb() -> int:
 def connect(root: Path) -> Iterator[duckdb.DuckDBPyConnection]:
     """Yield an in-memory DuckDB with a memory cap that spills to ``<root>/work/tmp/<pid>``.
 
-    Each process spills to its own folder, removed on exit. Insertion order is not kept, so
-    a query that needs an order says ``ORDER BY``.
+    It runs on :func:`default_workers` threads. Each process spills to its own folder, removed
+    on exit. Insertion order is not kept, so a query that needs an order says ``ORDER BY``.
     """
     temp = root / "work" / "tmp" / str(os.getpid())
     temp.mkdir(parents=True, exist_ok=True)
@@ -222,6 +225,7 @@ def connect(root: Path) -> Iterator[duckdb.DuckDBPyConnection]:
             "memory_limit": duckdb_memory(),
             "temp_directory": str(temp),
             "preserve_insertion_order": False,
+            "threads": default_workers(),
         },
     )
     try:
@@ -398,7 +402,7 @@ def _write_rows(source: str, fh: BinaryIO, start: int, end: int, final: Path) ->
             columns[name].append(value)
     tmp = temp_beside(final)
     try:
-        pq.write_table(pa.table(columns, schema=schema), tmp)
+        pq.write_table(pa.table(columns, schema=schema), tmp, row_group_size=ROW_GROUP_ROWS)
         tmp.replace(final)
     finally:
         tmp.unlink(missing_ok=True)
