@@ -5,7 +5,7 @@ which sets the contact email / API key from
 :func:`labdata.ncbi.config.load_credentials` and exposes small typed helpers
 (``esearch``, ``esummary``, ``esummary_many``, ``elink``) that parse the XML
 handle into plain Python structures, plus ``efetch`` for raw (e.g. CSV)
-responses. Concentrating network access in one seam keeps the rest of the
+responses and ``fetch_text`` for NCBI web pages outside E-utilities. Concentrating network access in one seam keeps the rest of the
 package easy to unit-test by substituting a fake client.
 
 Responses are memoized per client instance, so records that share a client never
@@ -19,6 +19,7 @@ import http.client
 import socket
 import time
 import urllib.error
+import urllib.request
 from collections.abc import Callable
 from typing import Any
 
@@ -44,6 +45,11 @@ _MAX_TRIES = 4
 #: an API key (10 req/s) NCBI occasionally closes a connection early, so backing off
 #: and trying again is the difference between a transient blip and a failed fetch.
 _RETRY_BASE_DELAY = 1.0
+
+#: Socket timeout in seconds for :meth:`EntrezClient.fetch_text`.
+_PAGE_TIMEOUT = 60.0
+
+_USER_AGENT = "liulab-data (+https://github.com/liuhlab/liulab-data)"
 
 #: Connection-level failures worth retrying — the request reached NCBI and the
 #: response, not the query, is what went wrong.
@@ -318,6 +324,33 @@ class EntrezClient:
             cached = self._cache[key] = self._request(
                 lambda: _entrez.efetch(db=db, id=",".join(uids), rettype=rettype, retmode=retmode),
                 self._parse_text,
+            )
+        return cached
+
+    def fetch_text(self, url: str) -> str:
+        """GET an NCBI web page that E-utilities does not serve and return its text.
+
+        Parameters
+        ----------
+        url : str
+            The page URL.
+
+        Returns
+        -------
+        str
+            The response body. Cached per client by URL.
+
+        Raises
+        ------
+        EntrezError
+            If the request fails after the transient-failure retries.
+        """
+        key = ("fetch_text", url)
+        cached = self._cache.get(key)
+        if cached is None:
+            request = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+            cached = self._cache[key] = self._request(
+                lambda: urllib.request.urlopen(request, timeout=_PAGE_TIMEOUT), self._parse_text
             )
         return cached
 

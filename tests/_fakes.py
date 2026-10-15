@@ -26,6 +26,8 @@ class FakeEntrezClient(EntrezClient):
         Maps ``(dbfrom, db, uid)`` to the linked UID list it should return.
     efetch : dict[tuple[str, str], str] or None
         Maps ``(db, rettype)`` to the raw text EFetch should return.
+    pages : dict[str, str] or None
+        Maps a URL to the text ``fetch_text`` should return (empty when unmapped).
     """
 
     def __init__(
@@ -35,12 +37,14 @@ class FakeEntrezClient(EntrezClient):
         esummary: dict[tuple[str, str], dict[str, Any]] | None = None,
         elink: dict[tuple[str, str, str], list[str]] | None = None,
         efetch: dict[tuple[str, str], str] | None = None,
+        pages: dict[str, str] | None = None,
     ) -> None:
         # Intentionally does not call super().__init__ — no credentials, no network.
         self._esearch = esearch or {}
         self._esummary = esummary or {}
         self._elink = elink or {}
         self._efetch = efetch or {}
+        self._pages = pages or {}
         self.calls: list[tuple[str, tuple[Any, ...]]] = []
 
     def esearch(self, db: str, term: str, *, retmax: int = 20) -> list[str]:
@@ -63,6 +67,10 @@ class FakeEntrezClient(EntrezClient):
     def efetch(self, db: str, ids: list[str], *, rettype: str, retmode: str = "text") -> str:
         self.calls.append(("efetch", (db, tuple(str(uid) for uid in ids), rettype)))
         return self._efetch.get((db, rettype), "")
+
+    def fetch_text(self, url: str) -> str:
+        self.calls.append(("fetch_text", (url,)))
+        return self._pages.get(url, "")
 
     def count(self, method: str) -> int:
         """Return how many times ``method`` has been called."""
