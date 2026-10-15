@@ -21,7 +21,8 @@ from labdata.ncbi.config import (
     prompt_and_save,
     save_credentials,
 )
-from labdata.store import save_pointer
+from labdata.ncbi.entrez import EntrezClient
+from labdata.store import open_store, save_pointer
 from labdata.tenx import bamtofastq
 
 app = typer.Typer(
@@ -36,7 +37,9 @@ tenx_app = typer.Typer(
     help="10x Genomics special handling (cellranger BAM → FASTQ).", no_args_is_help=True
 )
 app.add_typer(tenx_app, name="tenx")
-store_app = typer.Typer(help="Point labdata at the shared record store.", no_args_is_help=True)
+store_app = typer.Typer(
+    help="Configure, fetch into and build the shared record store.", no_args_is_help=True
+)
 app.add_typer(store_app, name="store")
 
 
@@ -75,6 +78,49 @@ def store_configure(
     """
     path = save_pointer(root)
     typer.echo(f"Saved store root {root} to {path}")
+
+
+def _store_client() -> EntrezClient:
+    """Return the Entrez client store fetches use; never prompts, so batch jobs never hang."""
+    return EntrezClient(allow_prompt=False)
+
+
+@store_app.command("fetch")
+def store_fetch(
+    accessions: list[str] = typer.Argument(
+        ..., help="BioProject, SRA study or SRA experiment accessions."
+    ),
+    root: Path | None = typer.Option(
+        None, help="Store root; default: LABDATA_STORE, then pointer."
+    ),
+) -> None:
+    r"""Fetch SRA package XML and PubMed accession-field (\[si]) results into raw/.
+
+    A BioProject or SRA study is expanded to its experiments through the newest
+    SRA_Accessions.tab snapshot.
+    """
+    from labdata.store.fetch import fetch as fetch_raw
+
+    store = open_store(root)
+    report = fetch_raw(store.root, accessions, client=_store_client())
+    typer.echo(f"Saved {len(report.experiments)} SRA packages to {store.root / 'raw' / 'sra-xml'}")
+    for accession, pmids in report.pubmed_si.items():
+        typer.echo(f"{accession}[si]: {', '.join(pmids) or 'no PubMed IDs'}")
+
+
+@store_app.command("build")
+def store_build(
+    root: Path | None = typer.Option(
+        None, help="Store root; default: LABDATA_STORE, then pointer."
+    ),
+    build_id: str | None = typer.Option(None, help="Build folder name; default: a UTC timestamp."),
+) -> None:
+    """Build the store's tables from raw/ and snapshots/ with no network, then switch to them."""
+    from labdata.store.build import build as build_store
+
+    store = open_store(root)
+    out = build_store(store.root, build_id)
+    typer.echo(f"Built {out} and switched the store to it")
 
 
 def _record_for_download(accession: str) -> Series | BioProject:
