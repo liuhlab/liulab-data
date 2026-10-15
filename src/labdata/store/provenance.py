@@ -139,9 +139,17 @@ def document_raw(root: Path, source: str) -> Path:
 
 
 def document_build(
-    root: Path, folder: Path, build_id: str, *, built: str | None = None
+    root: Path,
+    folder: Path,
+    build_id: str,
+    *,
+    built: str | None = None,
+    unknown_labels: dict[str, dict[str, int | str]] | None = None,
 ) -> dict[str, Any]:
     """Write a build folder's manifest and README, naming the inputs it was built from.
+
+    ``unknown_labels`` maps each GEO relation label the build kept verbatim to its link count
+    and an example accession; the manifest lists it only when it is not empty.
 
     Returns
     -------
@@ -166,6 +174,7 @@ def document_build(
         ),
         "files": files,
         "inputs": _inputs(root),
+        **({"unknown_relation_labels": unknown_labels} if unknown_labels else {}),
         "produced_by": produced_by("labdata store build"),
         "refresh": (
             "Run `labdata store build`. It writes a new builds/<build-id>/ and then switches "
@@ -369,6 +378,7 @@ def _render(m: dict[str, Any]) -> str:
         "",
         m.get("layout", ""),
         "",
+        *_unknown_section(m.get("unknown_relation_labels") or {}),
         "## How these files were made",
         "",
         f"`{made.get('command')}` at commit `{made.get('commit') or 'unknown'}`"
@@ -380,6 +390,22 @@ def _render(m: dict[str, Any]) -> str:
         "",
     ]
     return "\n".join(lines)
+
+
+def _unknown_section(labels: dict[str, dict[str, Any]]) -> list[str]:
+    if not labels:
+        return []
+    rows = [f"| {label} | {v['links']} | {v['example']} |" for label, v in labels.items()]
+    return [
+        "## Unknown GEO relation labels",
+        "",
+        "Kept verbatim as the relation name, forward, with the value as given.",
+        "",
+        "| Label | Links | Example |",
+        "| --- | --- | --- |",
+        *rows,
+        "",
+    ]
 
 
 def _commit() -> str | None:
