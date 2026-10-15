@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from pathlib import Path
 from typing import Any, NoReturn
 
 from labdata.exceptions import LabdataError
-from labdata.ncbi.entrez import EntrezClient
+from labdata.ncbi.entrez import EntrezClient, FetchedRecords
 from labdata.ncbi.sdl import RemoteFile, SdlClient
 
 
@@ -53,7 +54,21 @@ class OfflineEntrezClient(EntrezClient):
     def fetch_text(self, url: str) -> str:
         _refuse("fetch_text")
 
-    def _request(self, open_handle: Callable[[], Any], parse: Callable[[Any], Any]) -> Any:
+    def efetch_records(
+        self,
+        db: str,
+        ids: list[str],
+        *,
+        rettype: str,
+        retmode: str = "xml",
+        split: Callable[[str], Mapping[str, str]],
+    ) -> FetchedRecords:
+        _refuse("efetch")
+
+    def download(self, url: str, dest: Path) -> int:
+        _refuse("download")
+
+    def _send(self, *args: Any, **kwargs: Any) -> Any:
         _refuse("request")
 
 
