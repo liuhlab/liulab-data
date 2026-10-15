@@ -190,13 +190,17 @@ def test_a_rerun_requests_nothing_saved_and_retries_a_fetch_failed_series(
     assert "GEO site timeout: connections now 2" in caplog.text
     assert re.search(r"soft round 1: \d/3 done, [\d.]+/s, errors \{'timeout': \d\}", caplog.text)
 
-    site.pages[soft_url("GSE3")] = [gzip.compress(soft("GSE3"))]
+    site.pages[soft_url("GSE3")] = [TimeoutError("timed out"), gzip.compress(soft("GSE3"))]
     site.calls.clear()
-    report = geo_lane.run(tmp_path, ["GSE1", "GSE2", "GSE3"], client=client(site), date=DATE)
+    caplog.clear()
+    with caplog.at_level(logging.INFO, logger="labdata.store.geo_lane"):
+        report = geo_lane.run(tmp_path, ["GSE1", "GSE2", "GSE3"], client=client(site), date=DATE)
     assert sorted(site.calls) == sorted(
-        urllib.parse.urlsplit(u).path for u in (soft_url("GSE3"), filelist_url("GSE3"))
+        urllib.parse.urlsplit(u).path
+        for u in (soft_url("GSE3"), soft_url("GSE3"), filelist_url("GSE3"))
     )
     assert (report.held, report.soft_missing, report.fetch_failed) == (2, 1, 0)
+    assert "connections now" not in caplog.text  # one timeout is a stall, not load
 
 
 def test_a_later_round_requests_only_new_series_and_packs_as_one_run_would(

@@ -17,7 +17,7 @@ import logging
 import re
 import threading
 import time
-from collections import Counter
+from collections import Counter, deque
 from collections.abc import Callable, Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -41,6 +41,10 @@ PART_SIZE = 500
 PROGRESS_SECONDS = 60.0
 #: Seconds without a throttle before one connection is added back.
 RECOVER_SECONDS = 300.0
+#: Timeouts among the last ``TIMEOUT_WINDOW`` tries that halve the connections. GEO's site
+#: stalls on the odd request even when idle; only repeated timeouts signal load.
+TIMEOUT_LIMIT = 3
+TIMEOUT_WINDOW = 20
 #: The header lines the stored SOFT starts with.
 SIZE_LINE = "#labdata_original_size = "
 SHA256_LINE = "#labdata_original_sha256 = "
@@ -83,7 +87,7 @@ def run(
     date : str or None
         The fetch date to record; defaults to today's UTC date.
     connections : int
-        Connections kept open; halved on HTTP 429, 503 or a timeout.
+        Connections kept open; halved on HTTP 429, 503 or repeated timeouts.
 
     Returns
     -------
@@ -258,6 +262,7 @@ class _Gate:
     def __init__(self, cap: int) -> None:
         self.cap = self.limit = cap
         self._open = 0
+        self._timeouts: deque[bool] = deque(maxlen=TIMEOUT_WINDOW)
         self._quiet_since = time.monotonic()
         self._cond = threading.Condition()
 
@@ -279,11 +284,18 @@ class _Gate:
             self._open -= 1
             self._cond.notify_all()
 
-    def halve(self, why: str) -> None:
+    def record(self, kind: str | None) -> None:
+        """Note one try's failure kind, or ``None``; halve on a 429, 503 or repeated timeouts."""
         with self._cond:
-            self.limit = max(1, self.limit // 2)
-            self._quiet_since = time.monotonic()
-            logger.warning("GEO site %s: connections now %d", why, self.limit)
+            self._timeouts.append(kind == "timeout")
+            throttled = kind in ("HTTP 429", "HTTP 503")
+            if kind == "timeout" and sum(self._timeouts) >= TIMEOUT_LIMIT:
+                throttled = True
+                self._timeouts.clear()
+            if throttled:
+                self.limit = max(1, self.limit // 2)
+                self._quiet_since = time.monotonic()
+                logger.warning("GEO site %s: connections now %d", kind, self.limit)
 
 
 class _Pool:
@@ -322,6 +334,7 @@ class _Pool:
         attempt = 0
         while True:
             attempt += 1
+            kind = None
             with self._gate:
                 try:
                     got: str | _Gap = self._client.stream(url, consume, tries=1)
@@ -331,9 +344,8 @@ class _Pool:
                     cause = err.__cause__ or err
                     kind = _kind(cause)
                     progress.error(kind)
-                    if kind in ("HTTP 429", "HTTP 503", "timeout"):
-                        self._gate.halve(kind)
                     got = _Gap(gaps.FETCH_FAILED, f"{kind}: {cause}")
+            self._gate.record(kind)
             if not (isinstance(got, _Gap) and got.reason == gaps.FETCH_FAILED) or attempt == TRIES:
                 progress.tick()
                 return got
