@@ -38,6 +38,8 @@ NO_PACKAGE = "no SRA package"
 
 #: The Parquet key-value metadata key of ``gaps.parquet`` holding the snapshot date.
 DATE_KEY = "snapshot_date"
+#: The key holding the round's sample fraction; absent for the whole list.
+FRACTION_KEY = "fraction"
 #: How many failing Series :func:`coverage` names.
 NAMED = 50
 
@@ -116,16 +118,23 @@ def gap_row(series: str, reason: str, fetch_date: str, detail: str = "") -> raw.
     return raw.RawRow(series, f"{reason}\n{line}" if line else reason, fetch_date)
 
 
-def write_gaps(root: Path, build_dir: Path, target_list: Path, date: str) -> dict[str, object]:
+def write_gaps(
+    root: Path, build_dir: Path, target_list: Path, date: str, fraction: float | None = None
+) -> dict[str, object]:
     """Write ``gaps.parquet`` from the target list, ``holdings.parquet`` and ``raw/geo-gaps/``.
+
+    ``fraction`` names the round's sample the target list is, so coverage re-reads the same.
 
     Returns
     -------
     dict
         ``snapshot_date``, ``target`` and ``held`` counts, and ``gaps``: the count by reason,
-        every reason listed.
+        every reason listed; ``fraction`` too for a round's sample.
     """
     out = build_dir / "gaps.parquet"
+    kv = f"{DATE_KEY}: {extract.sql_string(date)}"
+    if fraction is not None:
+        kv += f", {FRACTION_KEY}: {extract.sql_string(repr(fraction))}"
     reasons = ", ".join(extract.sql_string(r) for r in REASONS[:-1])
     with extract.connect(root) as con:
         con.execute(
@@ -141,15 +150,17 @@ def write_gaps(root: Path, build_dir: Path, target_list: Path, date: str) -> dic
             WHERE t.accession NOT IN ({_held_series(build_dir)})
             ORDER BY CAST(substr(t.accession, 4) AS BIGINT)
             ) TO {extract.sql_string(str(out))}
-            (FORMAT parquet, KV_METADATA {{{DATE_KEY}: {extract.sql_string(date)}}})"""
+            (FORMAT parquet, KV_METADATA {{{kv}}})"""
         )
         counts = dict(
             con.execute(f"SELECT reason, count(*) FROM {_read(out)} GROUP BY 1").fetchall()
         )
         target = _count(con, f"SELECT count(DISTINCT accession) FROM {_read(target_list)}")
     by_reason = {reason: int(counts.get(reason, 0)) for reason in REASONS}
-    return {
-        "snapshot_date": date,
+    summary: dict[str, object] = {"snapshot_date": date}
+    if fraction is not None:
+        summary["fraction"] = fraction
+    return summary | {
         "target": target,
         "held": target - sum(by_reason.values()),
         "gaps": by_reason,
@@ -207,7 +218,7 @@ def coverage(root: Path, build_dir: Path) -> Coverage:
     """Check one build against the target list of the snapshot its gaps were made from.
 
     The target list is re-read from the snapshot, so a stale or partial ``gaps.parquet``
-    fails rather than agreeing with itself.
+    fails rather than agreeing with itself. A round's build is checked against its sample.
 
     Raises
     ------
@@ -221,7 +232,8 @@ def coverage(root: Path, build_dir: Path) -> Coverage:
         )
     meta = pq.read_metadata(gaps_file).metadata or {}
     date = meta[DATE_KEY.encode()].decode()
-    target_list = targets.target_list(root, date)
+    fraction = meta.get(FRACTION_KEY.encode())
+    target_list = targets.target_list(root, date, None if fraction is None else float(fraction))
     with extract.connect(root) as con:
         con.execute(f"CREATE VIEW t AS SELECT DISTINCT accession FROM {_read(target_list)}")
         con.execute(f"CREATE VIEW h AS {_held_series(build_dir)}")

@@ -172,16 +172,28 @@ def store_build(
         None, min=1, help="Parallel workers; default: SLURM_CPUS_ON_NODE, then the CPU count."
     ),
     chunk_mb: int = typer.Option(64, min=1, help="MB of source text a worker parses at a time."),
+    fraction: float | None = typer.Option(
+        None, help="Gaps and coverage over this seeded sample of the target list; default: all."
+    ),
 ) -> None:
     """Build the store's tables from raw/ and snapshots/ with no network, then switch to them.
 
     Memory is bounded by about one chunk per worker plus DuckDB's cap
     (LABDATA_DUCKDB_MEMORY, default a share of the job's memory).
     """
+    import logging
+
     from labdata.store.build import build as build_store
 
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     store = open_store(root)
-    out = build_store(store.root, build_id, workers=workers, chunk_bytes=chunk_mb << 20)
+    out = build_store(
+        store.root,
+        build_id,
+        workers=workers,
+        chunk_bytes=chunk_mb << 20,
+        fraction=_fraction(fraction),
+    )
     typer.echo(f"Built {out} and switched the store to it")
 
 
@@ -263,10 +275,75 @@ def store_coverage(
     raise typer.Exit(1)
 
 
+def _fraction(fraction: float | None) -> float | None:
+    from labdata.store import targets
+
+    try:
+        return targets.check_fraction(fraction)
+    except ValueError as err:
+        raise typer.BadParameter(str(err), param_hint="--fraction") from err
+
+
+@store_app.command("run")
+def store_run(
+    fraction: float | None = typer.Option(
+        None, help="Run on this seeded sample of the target list, e.g. 0.01; default: all."
+    ),
+    cores: int | None = typer.Option(
+        None, min=1, help="Cores the steps may use; default: SLURM_CPUS_ON_NODE, then all."
+    ),
+    ncbi: int = typer.Option(2, min=1, help="Network steps that may run at once."),
+    root: Path | None = typer.Option(
+        None, help="Store root; default: LABDATA_STORE, then pointer."
+    ),
+) -> None:
+    """Fetch, pack, build, prune and copy the store in one resumable run.
+
+    Uses the newest snapshot of each source. Rerun the same command to resume: it starts at
+    the first unfinished step and fetches only what is not saved yet. Markers and logs are
+    under work/run/<snapshot date>-<fraction>/.
+    """
+    import logging
+
+    from labdata.store import pipeline
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    code = pipeline.run(open_store(root).root, fraction=_fraction(fraction), cores=cores, ncbi=ncbi)
+    if code:
+        typer.echo(f"The run stopped with steps unfinished (snakemake exit {code}).", err=True)
+        raise typer.Exit(code)
+    typer.echo("The run finished: every step done.")
+
+
+@store_app.command("_targets", hidden=True)
+def store_targets(
+    fraction: float | None = typer.Option(
+        None, help="This seeded sample of the target list; default: all."
+    ),
+    snapshot_date: str | None = typer.Option(
+        None, help="geo-series snapshot date; default: the newest."
+    ),
+    root: Path | None = typer.Option(
+        None, help="Store root; default: LABDATA_STORE, then pointer."
+    ),
+) -> None:
+    """Write the target Series list, or a round's sample of it, under work/targets/."""
+    import pyarrow.parquet as pq
+
+    from labdata.store import targets
+
+    store = open_store(root)
+    path = targets.target_list(store.root, snapshot_date, _fraction(fraction))
+    typer.echo(f"{pq.read_metadata(path).num_rows} target Series in {path}")
+
+
 @store_app.command("_geo", hidden=True)
 def store_geo_lane(
-    series: list[str] = typer.Argument(
+    accessions: list[str] = typer.Argument(
         None, help="GEO Series; default: the target Series list of the snapshot."
+    ),
+    series: Path | None = typer.Option(
+        None, help="Only these GEO Series: a text file, one per line, or a Parquet `accession`."
     ),
     snapshot_date: str | None = typer.Option(
         None, help="geo-series snapshot date; default: the newest."
@@ -284,11 +361,14 @@ def store_geo_lane(
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     store = open_store(root)
-    if not series:
+    series_list = list(accessions or [])
+    if series is not None:
+        series_list += _accession_file(series)
+    elif not series_list:
         path = targets.target_list(store.root, snapshot_date)
         batches = pq.ParquetFile(path).iter_batches(columns=["accession"])
-        series = [gse for batch in batches for gse in batch.column(0).to_pylist()]
-    report = geo_lane.run(store.root, series, client=_store_client())
+        series_list = [gse for batch in batches for gse in batch.column(0).to_pylist()]
+    report = geo_lane.run(store.root, series_list, client=_store_client())
     typer.echo(
         f"GEO lane: {report.held} Series held, {report.filelists} filelists, gaps: "
         f"{report.soft_missing} soft-missing, {report.fetch_failed} fetch-failed"

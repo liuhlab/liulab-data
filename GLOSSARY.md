@@ -50,3 +50,9 @@ _Avoid_: write, save (for `raw/` itself)
 
 A Series on the target Series list that the store does not hold, recorded with a reason. Coverage
 passes when every target Series is either held or a gap with a known reason.
+
+### Round
+
+One run of the full download over a seeded sample of the target Series list, such as 1%. A
+smaller round's sample lies inside every larger one's, and gaps and coverage of a round count only
+its sample.

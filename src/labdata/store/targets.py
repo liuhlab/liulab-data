@@ -4,11 +4,16 @@ A Series is a target when its ``esummary`` ``gdstype`` names high-throughput seq
 whatever its SOFT ``!Series_type`` says. The list is streamed from the snapshot into
 ``<root>/work/targets/geo-series-<date>.parquet`` once per snapshot date; a build or a
 coverage check remakes it when missing.
+
+A round of the full run works through a seeded sample of the list. A Series is in the sample
+of fraction ``f`` when its seeded hash falls below ``f``, so a smaller round's sample lies
+inside every larger one's, whatever the list's order or length.
 """
 
 from __future__ import annotations
 
 import gzip
+import hashlib
 import json
 from collections.abc import Iterator
 from pathlib import Path
@@ -28,13 +33,56 @@ SCHEMA = pa.schema(
 )
 _BATCH = 10_000
 
+#: The seed of every round's sample; changing it would break nesting with earlier rounds.
+SEED = "labdata-round"
+
+
+def in_sample(accession: str, fraction: float) -> bool:
+    """Return whether a Series is in the seeded sample of ``fraction`` of the target list.
+
+    Examples
+    --------
+    >>> in_sample("GSE1", 1.0)
+    True
+    """
+    digest = hashlib.blake2b(f"{SEED}:{accession}".encode(), digest_size=8).digest()
+    return int.from_bytes(digest) < fraction * 2**64
+
+
+def check_fraction(fraction: float | None) -> float | None:
+    """Return ``fraction``, or ``None`` for the whole list (``None`` or ``1``).
+
+    Raises
+    ------
+    ValueError
+        If the fraction is not in (0, 1].
+    """
+    if fraction is None or fraction == 1:
+        return None
+    if not 0 < fraction < 1:
+        raise ValueError(f"a round's fraction must be in (0, 1], not {fraction}")
+    return fraction
+
+
+def fraction_name(fraction: float | None) -> str:
+    """Return the file-name tag of a round's sample: ``all``, or e.g. ``f0.01``."""
+    fraction = check_fraction(fraction)
+    return "all" if fraction is None else f"f{fraction:g}"
+
 
 def is_target(gdstype: str) -> bool:
     """Return whether an ``esummary`` ``gdstype`` puts a Series on the target list."""
     return SEQUENCING in gdstype.lower()
 
 
-def target_list(root: Path, date: str | None = None) -> Path:
+def list_path(root: Path, date: str, fraction: float | None = None) -> Path:
+    """Return where :func:`target_list` writes the list of one snapshot date and fraction."""
+    fraction = check_fraction(fraction)
+    tag = "" if fraction is None else f"-{fraction_name(fraction)}"
+    return root / "work" / "targets" / f"geo-series-{date}{tag}.parquet"
+
+
+def target_list(root: Path, date: str | None = None, fraction: float | None = None) -> Path:
     """Return the target Series list of one ``geo-series`` snapshot, writing it if missing.
 
     Parameters
@@ -43,6 +91,8 @@ def target_list(root: Path, date: str | None = None) -> Path:
         The store root.
     date : str or None
         The snapshot date; defaults to the newest snapshot.
+    fraction : float or None
+        A round's seeded sample of the list (see :func:`in_sample`); ``None`` or ``1`` for all.
 
     Returns
     -------
@@ -54,9 +104,12 @@ def target_list(root: Path, date: str | None = None) -> Path:
     ------
     StoreBuildError
         If the store has no such snapshot.
+    ValueError
+        If the fraction is not in (0, 1].
     """
+    fraction = check_fraction(fraction)
     snap = snapshots.snapshot(root, snapshots.GEO_SERIES, date)
-    out = root / "work" / "targets" / f"geo-series-{snap.date}.parquet"
+    out = list_path(root, snap.date, fraction)
     if out.is_file():
         return out
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -65,6 +118,8 @@ def target_list(root: Path, date: str | None = None) -> Path:
         with pq.ParquetWriter(tmp, SCHEMA) as writer:
             batch: list[tuple[str, str, str]] = []
             for row in _targets(snap.path):
+                if fraction is not None and not in_sample(row[0], fraction):
+                    continue
                 batch.append(row)
                 if len(batch) == _BATCH:
                     writer.write_table(_table(batch))
