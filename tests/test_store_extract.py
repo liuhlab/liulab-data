@@ -17,6 +17,7 @@ from labdata.cli import app
 from labdata.exceptions import StoreBuildError
 from labdata.store import extract, snapshots
 from labdata.store.build import build
+from tests.conftest import Decompressor as _Decompressor
 
 _DATA = Path(__file__).parent / "data"
 _SLICES = ["prjna1027859", "geo_slice", "sra_slice"]
@@ -147,3 +148,20 @@ def test_the_extract_command_does_one_source(tmp_path: Path) -> None:
     assert [p.name for p in (root / "work" / "extract").iterdir()] == ["bioproject-2026-10-14"]
     bad = runner.invoke(app, ["store", "extract", "--source", "nope", "--root", str(root)])
     assert bad.exit_code != 0
+
+
+def test_a_gzip_snapshot_streams_through_the_decompressor_seam(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _root(tmp_path)
+    commands: list[list[str]] = []
+
+    def failing(command: list[str]) -> _Decompressor:
+        commands.append(command)
+        return _Decompressor(command, code=1)
+
+    monkeypatch.setattr(extract, "_popen", failing)
+    with pytest.raises(StoreBuildError, match="failed on .*gds_gse_esummary.jsonl.gz"):
+        extract.extract(root, snapshots.GEO_SERIES, workers=1)
+    assert commands
+    assert commands[0][-1].endswith("gds_gse_esummary.jsonl.gz")

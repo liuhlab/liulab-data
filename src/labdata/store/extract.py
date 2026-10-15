@@ -295,6 +295,11 @@ def _plan(out: Path, size: int | None, part_bytes: int) -> int:
     return part_bytes
 
 
+def _popen(command: list[str]) -> subprocess.Popen[bytes]:
+    """Start a decompressor writing to a pipe; the seam tests replace."""
+    return subprocess.Popen(command, stdout=subprocess.PIPE)
+
+
 @contextmanager
 def _decompressed(path: Path, workers: int) -> Iterator[BinaryIO]:
     """Yield a gzip file's decompressed bytes as a stream from rapidgzip, else pigz."""
@@ -302,7 +307,7 @@ def _decompressed(path: Path, workers: int) -> Iterator[BinaryIO]:
         command = ["rapidgzip", "-d", "-c", "-P", str(workers), str(path)]
     else:
         command = ["pigz", "-dc", str(path)]
-    proc = subprocess.Popen(command, stdout=subprocess.PIPE)
+    proc = _popen(command)
     assert proc.stdout is not None
     try:
         yield cast(BinaryIO, proc.stdout)
