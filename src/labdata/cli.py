@@ -181,8 +181,11 @@ def store_build(
     Memory is bounded by about one chunk per worker plus DuckDB's cap
     (LABDATA_DUCKDB_MEMORY, default a share of the job's memory).
     """
+    import logging
+
     from labdata.store.build import build as build_store
 
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     store = open_store(root)
     out = build_store(
         store.root,
