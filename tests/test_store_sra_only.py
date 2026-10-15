@@ -29,7 +29,7 @@ from labdata.exceptions import (
     NotMirrored,
 )
 from labdata.geo import Experiment
-from labdata.store import Store, open_store, raw
+from labdata.store import Store, open_store, pack, raw
 from labdata.store.build import build
 from labdata.store.fetch import fetch
 from tests._fakes import ExplodingEntrezClient, FakeEntrezClient
@@ -99,7 +99,7 @@ def test_fetch_saves_one_package_per_experiment_listed_in_the_snapshot(root: Pat
     client = _client()
     report = fetch(root, [_PROJECT], client=client, today="2026-10-14")
     assert list(report.experiments) == _SRX
-    rows = _rows(root / "raw" / "sra-xml" / "SRX2428nnnn.parquet")
+    rows = _rows(root / "raw" / "sra-xml" / "SRX24nnnnnn.parquet")
     assert [r["accession"] for r in rows] == _SRX
     for row in rows:
         assert row["raw_text"] in _package(str(row["accession"]))
@@ -117,8 +117,8 @@ def test_fetch_saves_the_pubmed_si_results_an_empty_one_included(root: Path) -> 
     }
     assert rows == {_PROJECT: "39637862", _STUDY: ""}
     assert sorted(p.name for p in (root / "raw" / "pubmed-si").glob("*.parquet")) == [
-        "PRJNA102nnnn.parquet",
-        "SRP50nnnn.parquet",
+        "PRJNA1nnnnnn.parquet",
+        "SRPnnnnnn.parquet",
     ]
 
 
@@ -140,7 +140,7 @@ def test_a_rerun_makes_no_call_and_keeps_the_saved_rows(root: Path) -> None:
     report = fetch(root, [_PROJECT], client=ExplodingEntrezClient(), today="2026-10-14")
     assert list(report.experiments) == _SRX
     assert report.pubmed_si == {_PROJECT: ("39637862",), _STUDY: ()}
-    rows = _rows(root / "raw" / "sra-xml" / "SRX2428nnnn.parquet")
+    rows = _rows(root / "raw" / "sra-xml" / "SRX24nnnnnn.parquet")
     assert [r["fetch_date"] for r in rows] == ["2026-10-13"] * 6
 
 
@@ -151,7 +151,7 @@ def test_a_rerun_after_a_killed_run_fetches_only_the_rest(root: Path) -> None:
     assert [c for c in client.calls if c[0] == "efetch"] == [
         ("efetch", ("sra", tuple(_SRX[1:]), "full"))
     ]
-    rows = _rows(root / "raw" / "sra-xml" / "SRX2428nnnn.parquet")
+    rows = _rows(root / "raw" / "sra-xml" / "SRX24nnnnnn.parquet")
     assert [r["accession"] for r in rows] == _SRX
     assert [r["fetch_date"] for r in rows] == ["2026-10-13"] + ["2026-10-14"] * 5
 
@@ -208,11 +208,11 @@ def test_bioproject_and_biosample_text_come_from_the_snapshots(store: Store) -> 
 
 def test_copies_of_a_study_that_differ_fail_the_build(root: Path) -> None:
     fetch(root, [_PROJECT], client=_client(), today="2026-10-14")
-    from labdata.store import raw
+    from labdata.store import pack, raw
 
     rows = raw.read_rows(root, raw.SRA_XML)
     changed = rows[-1].raw_text.replace("<STUDY_TITLE>A Single", "<STUDY_TITLE>One")
-    raw.write_rows(root, raw.SRA_XML, [raw.RawRow(rows[-1].accession, changed, "2026-10-14")])
+    pack.write_rows(root, raw.SRA_XML, [raw.RawRow(rows[-1].accession, changed, "2026-10-14")])
     with pytest.raises(LabdataError, match=_STUDY):
         build(root, "bad")
 
@@ -344,7 +344,7 @@ def test_a_bioproject_walk_goes_to_sra_only(root: Path) -> None:
     fetch(root, [_PROJECT], client=_client(), today="2026-10-14")
     # A Series the store does not hold names the same BioProject.
     line = f"GSE999999\tbioproject\t1\t{_PROJECT}"
-    raw.write_rows(root, raw.ENTREZ_LINKS, [raw.RawRow("GSE999999", line, "2026-10-14")])
+    pack.write_rows(root, raw.ENTREZ_LINKS, [raw.RawRow("GSE999999", line, "2026-10-14")])
     build(root, "b1")
     store = open_store(root)
     assert store.follow(_PROJECT, "BioProject of")[_PROJECT] == ["GSE999999", _STUDY]
