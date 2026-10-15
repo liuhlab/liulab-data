@@ -22,6 +22,7 @@ from labdata.exceptions import AccessionError, LabdataError, NotFound, NotMirror
 from labdata.store import Store, open_store, raw
 from labdata.store.build import build
 from labdata.store.fetch import fetch
+from labdata.store.model import Link
 from tests._fakes import ExplodingEntrezClient, FakeEntrezClient
 from tests._slices import copy_snapshots
 
@@ -272,12 +273,42 @@ def test_a_rebuild_gives_the_same_tables(built: Path) -> None:
 # ---------------------------------------------------------------- the build checks
 
 
-def test_an_unknown_relation_label_fails_the_build(root: Path) -> None:
+def _with_relation(root: Path, line: str) -> None:
+    """Save GSE233931's family SOFT with one more relation line after its BioProject line."""
     fetch(root, ["GSE233931"], client=_client(), today="2026-10-14")
     [row] = raw.read_rows(root, raw.GEO_SOFT)
-    text = row.raw_text.replace("!Series_relation = BioProject:", "!Series_relation = Mystery:")
+    anchor = "!Series_relation = BioProject:"
+    text = row.raw_text.replace(anchor, f"{line}\n{anchor}", 1)
     raw.write_rows(root, raw.GEO_SOFT, [raw.RawRow(row.accession, text, row.fetch_date)])
-    with pytest.raises(StoreBuildError, match="Mystery"):
+
+
+def test_an_unknown_relation_label_is_kept_verbatim_and_reported(
+    root: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    _with_relation(root, "!Series_relation = Alternative to: GSE999999")
+    with caplog.at_level("WARNING"):
+        out = build(root, "b1")
+    store = open_store(root)
+    assert (
+        Link("Alternative to", "GSE999999", "SOFT", forward=True)
+        in (store.links("GSE233931")["GSE233931"])
+    )
+    assert (
+        Link("Alternative to", "GSE233931", "SOFT", forward=False)
+        in (store.links("GSE999999")["GSE999999"])
+    )
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["unknown_relation_labels"] == {
+        "Alternative to": {"links": 1, "example": "GSE233931"}
+    }
+    assert "Alternative to" in (out / "README.md").read_text()
+    assert "'Alternative to'" in caplog.text
+    assert "GSE233931" in caplog.text
+
+
+def test_a_relation_line_naming_no_accession_fails_the_build(root: Path) -> None:
+    _with_relation(root, "!Series_relation = Alternative to: ")
+    with pytest.raises(StoreBuildError, match="no accession"):
         build(root, "bad")
 
 

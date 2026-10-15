@@ -192,7 +192,7 @@ _TABLE_END = ("!sample_table_end", "!platform_table_end", "!series_table_end")
 
 #: Each GEO ``!…_relation`` label: the relation it states, whether this record is the
 #: link's ``from``, and how the far end is written (``url``, ``accession`` or ``annotation``).
-#: A label not listed here fails the build, so a new one is added on purpose.
+#: A label not listed here is kept as GEO's own relation name, forward, with its value as given.
 SOFT_RELATIONS: dict[str, tuple[str, bool, str]] = {
     "SuperSeries of": ("SuperSeries of", True, "accession"),
     "SubSeries of": ("SuperSeries of", False, "accession"),
@@ -249,8 +249,7 @@ def soft(text: str) -> tuple[list[Parsed], list[LinkRow]]:
     Raises
     ------
     StoreBuildError
-        If a ``!…_relation`` label is not in :data:`SOFT_RELATIONS`, or a relation line
-        names no accession.
+        If a relation line names no accession.
     """
     records: list[Parsed] = []
     links: list[LinkRow] = []
@@ -277,13 +276,10 @@ def _soft_links(accession: str, fields: list[tuple[str, str]]) -> list[LinkRow]:
     for name, value in fields:
         if name.endswith("_relation"):
             label, _, rest = value.partition(": ")
-            if label not in SOFT_RELATIONS:
-                raise StoreBuildError(
-                    f"{accession}: unknown GEO relation label {label!r} in {name}; "
-                    "add it to labdata.store.sources.SOFT_RELATIONS"
-                )
-            relation, forward, form = SOFT_RELATIONS[label]
-            if form == "url":
+            relation, forward, form = SOFT_RELATIONS.get(label, (label, True, "verbatim"))
+            if form == "verbatim":
+                other = rest.strip()
+            elif form == "url":
                 match = _URL_ACCESSION.search(rest)
                 other = match[1] if match else ""
             else:
