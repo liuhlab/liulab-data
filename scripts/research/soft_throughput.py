@@ -8,7 +8,8 @@ file, and FTP. It stops a configuration at the first 429, 503 or error.
 Usage::
 
     python -I soft_throughput.py sample OUTDIR      # write OUTDIR/gse.txt
-    python -I soft_throughput.py run OUTDIR N       # benchmark the first N of them
+    python -I soft_throughput.py run OUTDIR N SKIP  # each configuration fetches N fresh files
+    python -I soft_throughput.py one OUTDIR MODE WORKERS SKIP N
 """
 
 from __future__ import annotations
@@ -150,6 +151,12 @@ def main() -> None:
     cmd, out = sys.argv[1], Path(sys.argv[2])
     if cmd == "sample":
         sample(out)
+        return
+    if cmd == "one":  # one MODE WORKERS SKIP N, e.g. one ftp-session 1 500 50
+        modes = {"https-keepalive": https_keepalive, "ftp-session": ftp_keepalive}
+        mode, w, skip, n = sys.argv[3], int(sys.argv[4]), int(sys.argv[5]), int(sys.argv[6])
+        part = (out / "gse.txt").read_text().split()[skip : skip + n]
+        print(json.dumps({"mode": mode, "workers": w, **run(part, modes[mode], w)}), flush=True)
         return
     n = int(sys.argv[3])
     skip = int(sys.argv[4]) if len(sys.argv) > 4 else 0
