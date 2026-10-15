@@ -11,11 +11,14 @@ rename, so readers never see half a build.
 from __future__ import annotations
 
 import datetime as dt
+import fcntl
 import glob
 import re
 import shutil
 import tomllib
 from collections import defaultdict
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -76,8 +79,39 @@ def build(root: Path, build_id: str | None = None) -> Path:
     Raises
     ------
     StoreBuildError
-        If a snapshot is missing or not extracted, a build of that id exists, or two copies of a record differ.
+        If a snapshot is missing or not extracted, a build of that id exists, two copies of a
+        record differ, or another build of this store is running.
     """
+    with build_lock(root):
+        return _build(root, build_id)
+
+
+@contextmanager
+def build_lock(root: Path) -> Iterator[None]:
+    """Hold the store's build lock, ``<root>/work/build.lock``, for one writer at a time.
+
+    Raises
+    ------
+    StoreBuildError
+        If another process or caller holds it.
+    """
+    lock = root / "work" / "build.lock"
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    with lock.open("a") as fh:
+        try:
+            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise StoreBuildError(
+                f"another build of this store is running (it holds {lock}); "
+                "wait for it to finish, then build again"
+            ) from None
+        try:
+            yield
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+
+
+def _build(root: Path, build_id: str | None) -> Path:
     build_id = build_id or dt.datetime.now(dt.UTC).strftime("%Y%m%dT%H%M%SZ")
     out = root / "builds" / build_id
     if out.exists():
