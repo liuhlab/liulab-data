@@ -3,8 +3,8 @@
 No network. Reads family SOFT, ``elink`` results, SRA packages and ``[si]`` results from
 ``raw/``, and the snapshots only through their extracts (``labdata store extract``). Writes ``builds/<build-id>/``: ``records/<type>.parquet`` (sorted by accession),
 ``links_by_from.parquet``, ``links_by_to.parquet``, ``holdings.parquet``,
-``known.parquet`` and ``supplementary_files.parquet``, with the folder's README and
-manifest. The folder appears by a rename once whole, and the marker switches to it by a
+``known.parquet``, ``supplementary_files.parquet``, ``gaps.parquet`` and ``notes.parquet``,
+with the folder's README and manifest. The folder appears by a rename once whole, and the marker switches to it by a
 rename, so readers never see half a build.
 """
 
@@ -27,7 +27,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from labdata.exceptions import StoreBuildError
-from labdata.store import extract, known, provenance, raw, snapshots, sources, suppl
+from labdata.store import extract, gaps, known, provenance, raw, snapshots, sources, suppl, targets
 from labdata.store._files import temp_beside, toml_line, write_atomic
 from labdata.store.model import RELATIONS
 from labdata.store.root import MARKER
@@ -123,8 +123,10 @@ def _build(root: Path, build_id: str | None) -> Path:
     for folder in sorted(p for p in (root / "raw").glob("*") if p.is_dir()):
         provenance.document_raw(root, folder.name)
 
+    _, geo_date = extract.done_dir(root, snapshots.GEO_SERIES)
+    target_list = targets.target_list(root, geo_date)
     records: dict[str, _Row] = {}
-    links: set[LinkRow] = set()
+    links: set[LinkRow] = set(targets.summary_links(target_list))
     _geo(root, records, links)
     _sra(root, records, links)
     _sra_typed(root, records)
@@ -150,7 +152,25 @@ def _build(root: Path, build_id: str | None) -> Path:
     )
     known.write(root, tmp / "known.parquet")
     suppl.write(root, tmp / "supplementary_files.parquet")
-    provenance.document_build(root, tmp, build_id, unknown_labels=_unknown_labels(links))
+    labels = _unknown_labels(links)
+    coverage = gaps.write_gaps(root, tmp, target_list, geo_date)
+    note_counts = gaps.write_notes(
+        root,
+        tmp,
+        target_list,
+        [
+            gaps.Note(str(v["example"]), gaps.UNKNOWN_LABEL, f"{label}: {v['links']} links")
+            for label, v in labels.items()
+        ],
+    )
+    provenance.document_build(
+        root,
+        tmp,
+        build_id,
+        unknown_labels=labels,
+        target_series=coverage,
+        notes=note_counts,
+    )
     tmp.rename(out)
     _switch(root, build_id)
     return out

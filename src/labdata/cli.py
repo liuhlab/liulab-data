@@ -160,6 +160,39 @@ def store_build(
     typer.echo(f"Built {out} and switched the store to it")
 
 
+@store_app.command("coverage")
+def store_coverage(
+    root: Path | None = typer.Option(
+        None, help="Store root; default: LABDATA_STORE, then pointer."
+    ),
+) -> None:
+    """Print target, held and gap counts of the current build; exit 1 if coverage fails.
+
+    Coverage fails when a target Series is neither held nor a gap, or a gap is unexplained.
+    """
+    from labdata.store.gaps import coverage
+
+    store = open_store(root)
+    build = store.settings.get("build")
+    if not build:
+        raise typer.BadParameter("the store names no build; run `labdata store build`")
+    report = coverage(store.root, store.root / "builds" / str(build))
+    typer.echo(f"Target Series: {report.target} (geo-series snapshot {report.snapshot_date})")
+    typer.echo(f"Held: {report.held}")
+    typer.echo(f"Gaps: {sum(report.gaps.values())}")
+    for reason, count in report.gaps.items():
+        typer.echo(f"  {reason}: {count}")
+    if report.passed:
+        typer.echo("Coverage passes.")
+        return
+    typer.echo(f"Coverage fails for {report.failures} Series:")
+    for accession, problem in report.failing:
+        typer.echo(f"  {accession}: {problem}")
+    if report.failures > len(report.failing):
+        typer.echo(f"  ... and {report.failures - len(report.failing)} more")
+    raise typer.Exit(1)
+
+
 @store_app.command("extract")
 def store_extract(
     source: str = typer.Option(..., help="biosample, bioproject, sra-accessions or geo-series."),
