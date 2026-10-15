@@ -82,6 +82,10 @@ snakemake-minimal = ">=8"
 pyyaml = "*"
 duckdb = ">=1.5.6,<2"
 pyarrow = ">=25.0.0,<26"
+# Parallel snapshot extraction: Ray spreads byte ranges over cores or nodes; rapidgzip
+# decompresses one gzip stream in parallel and seeks in it through an index.
+ray-core = ">=2.59"
+rapidgzip = ">=0.16"
 
 # The interpreter. `requires-python` is the floor; ruff and pyright take their target from it.
 [tool.pixi.feature.py313.dependencies]
