@@ -46,6 +46,7 @@ WIDTHS: dict[str, int] = {
     SRA_XML: 1_000_000,
     PUBMED_SI: 1_000_000,
     ENTREZ_LINKS: 1_000_000,
+    GEO_GAPS: 1_000_000,
 }
 #: Raw text held in memory before it is written as one sorted row group.
 CHUNK_BYTES = 32 << 20
