@@ -152,20 +152,19 @@ def main() -> None:
         sample(out)
         return
     n = int(sys.argv[3])
-    gses = (out / "gse.txt").read_text().split()[:n]
+    skip = int(sys.argv[4]) if len(sys.argv) > 4 else 0
+    # A second fetch of a file is served warm, so each configuration gets its own files.
+    gses = (out / "gse.txt").read_text().split()[skip:]
     plan = [
         ("https-keepalive", https_keepalive, 1),
         ("https-keepalive", https_keepalive, 4),
         ("https-keepalive", https_keepalive, 8),
-        ("https-fresh", https_fresh, 1),
-        ("https-fresh", https_fresh, 8),
         ("ftp-session", ftp_keepalive, 1),
         ("ftp-session", ftp_keepalive, 4),
-        ("ftp-session", ftp_keepalive, 8),
     ]
-    for name, fn, w in plan:
-        _local.__dict__.clear()
-        res = {"mode": name, "workers": w, **run(gses, fn, w)}
+    for i, (name, fn, w) in enumerate(plan):
+        part = gses[i * n : (i + 1) * n]
+        res = {"mode": name, "workers": w, **run(part, fn, w)}
         print(json.dumps(res), flush=True)
         if res["error"]:
             print("stopping: error or throttling sign", flush=True)
