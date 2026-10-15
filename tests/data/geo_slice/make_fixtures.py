@@ -15,7 +15,8 @@ Writes, next to this script:
   accession behind each linked UID, and the PubMed ``[si]`` answers.
 - ``snapshots/``: ``bioproject.xml`` with every BioProject named, rewrapped in the bulk file's
   ``<Package>`` shape; a ``biosample_set.xml.gz`` and an ``SRA_Accessions.tab`` that hold
-  no record of this slice.
+  no record of this slice; a ``gds_gse_esummary.jsonl.gz`` written from the trimmed SOFT,
+  one line per Series named in it, with only the keys the store reads.
 """
 
 from __future__ import annotations
@@ -137,11 +138,36 @@ def si(accession: str) -> list[str]:
     return re.findall(r"<Id>(\d+)</Id>", text)
 
 
+def write_geo_series() -> None:
+    """Write the geo-series snapshot from the trimmed SOFT files."""
+    series: dict[str, dict[str, object]] = {}
+    for path in sorted((HERE / "soft").glob("*.soft")):
+        for entity, accession, block in blocks(path.read_text(encoding="utf-8")):
+            named = re.findall(r"^!Sample_series_id = (GSE\d+)", block, re.M)
+            named += re.findall(r"^!Series_relation = \w+ of: (GSE\d+)", block, re.M)
+            for other in named:
+                series.setdefault(other, {"accession": other})
+            if entity == "SERIES":
+                gsms = re.findall(r"^!Series_sample_id = (\S+)", block, re.M)
+                gpls = re.findall(r"^!Series_platform_id = GPL(\d+)", block, re.M)
+                series[accession] = {
+                    "accession": accession,
+                    "samples": [{"accession": gsm} for gsm in gsms],
+                    "gpl": ";".join(gpls),
+                }
+    text = "".join(json.dumps(series[a]) + "\n" for a in sorted(series))
+    out = HERE / "snapshots" / "geo-series" / DATE / "gds_gse_esummary.jsonl.gz"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_bytes(gzip.compress(text.encode(), mtime=0))
+
+
 def main() -> None:
     """Fetch and write every fixture file."""
     soft: dict[str, str] = {}
     for gse in KEEP:
-        url = f"https://ftp.ncbi.nlm.nih.gov/geo/series/{gse[:-3]}nnn/{gse}/soft/{gse}_family.soft.gz"
+        url = (
+            f"https://ftp.ncbi.nlm.nih.gov/geo/series/{gse[:-3]}nnn/{gse}/soft/{gse}_family.soft.gz"
+        )
         soft[gse] = gzip.decompress(get(url)).decode()
     keep = {gse: None if gsms is None else set(gsms) for gse, gsms in KEEP.items()}
     for gse in FIRST:
@@ -210,6 +236,7 @@ def main() -> None:
         out = snap / folder / DATE / name
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(data)
+    write_geo_series()
 
 
 if __name__ == "__main__":

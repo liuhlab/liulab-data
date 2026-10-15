@@ -137,7 +137,15 @@ class ExplodingEntrezClient(FakeEntrezClient):
         super().__init__()
 
     def __getattribute__(self, name: str) -> Any:
-        if name in {"esearch", "esummary", "esummary_many", "elink", "elink_many", "efetch", "fetch_text"}:
+        if name in {
+            "esearch",
+            "esummary",
+            "esummary_many",
+            "elink",
+            "elink_many",
+            "efetch",
+            "fetch_text",
+        }:
             raise AssertionError(f"unexpected network call: {name}")
         return super().__getattribute__(name)
 

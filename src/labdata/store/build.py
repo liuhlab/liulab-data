@@ -1,6 +1,7 @@
 """Build the store's tables from ``raw/`` and ``snapshots/``, then switch the marker to them.
 
-No network. Writes ``builds/<build-id>/``: ``records/<type>.parquet`` (sorted by accession),
+No network. Reads family SOFT, ``elink`` results, SRA packages and ``[si]`` results from
+``raw/``. Writes ``builds/<build-id>/``: ``records/<type>.parquet`` (sorted by accession),
 ``links_by_from.parquet``, ``links_by_to.parquet``, ``holdings.parquet`` and
 ``known.parquet``.
 """
@@ -82,6 +83,7 @@ def build(root: Path, build_id: str | None = None) -> Path:
 
     records: dict[str, _Row] = {}
     links: set[LinkRow] = set()
+    _geo(root, records, links)
     _sra(root, records, links)
     _sra_typed(root, records)
     _bioprojects(root, records, links)
@@ -111,6 +113,25 @@ def build(root: Path, build_id: str | None = None) -> Path:
 def _number(accession: str) -> int:
     match = _NUMBER.search(accession)
     return int(match[1]) if match else 0
+
+
+def _geo(root: Path, records: dict[str, _Row], links: set[LinkRow]) -> None:
+    """Add GEO records from family SOFT, a GSM or GPL from its lowest-numbered Series."""
+    rows = sorted(raw.read_rows(root, raw.GEO_SOFT), key=lambda r: _number(r.accession))
+    for row in rows:
+        parsed, stated = sources.soft(row.raw_text)
+        links.update(stated)
+        for record in parsed:
+            held = records.get(record.accession)
+            if held is None:
+                records[record.accession] = _Row(record, row.fetch_date)
+            elif held.parsed.raw_text != record.raw_text:
+                raise StoreBuildError(
+                    f"copies of {record.accession} differ between family SOFT files "
+                    f"(kept the copy in the lowest-numbered Series; {row.accession} differs)"
+                )
+    for row in raw.read_rows(root, raw.ENTREZ_LINKS):
+        links.update(sources.entrez_links(row.raw_text))
 
 
 def _sra(root: Path, records: dict[str, _Row], links: set[LinkRow]) -> None:

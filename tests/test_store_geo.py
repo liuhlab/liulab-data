@@ -18,7 +18,7 @@ import pytest
 from typer.testing import CliRunner
 
 from labdata.cli import app
-from labdata.exceptions import LabdataError, NotMirrored, StoreBuildError
+from labdata.exceptions import AccessionError, LabdataError, NotFound, NotMirrored, StoreBuildError
 from labdata.store import Store, open_store, raw
 from labdata.store.build import build
 from labdata.store.fetch import fetch
@@ -30,9 +30,7 @@ _SUBSERIES = ["GSE246307", "GSE246308", "GSE246309"]
 
 
 def _soft_url(gse: str) -> str:
-    return (
-        f"https://ftp.ncbi.nlm.nih.gov/geo/series/{gse[:-3]}nnn/{gse}/soft/{gse}_family.soft.gz"
-    )
+    return f"https://ftp.ncbi.nlm.nih.gov/geo/series/{gse[:-3]}nnn/{gse}/soft/{gse}_family.soft.gz"
 
 
 def _soft(gse: str) -> str:
@@ -123,7 +121,9 @@ def test_fetch_packs_family_soft_per_thousand_series_folder(built: Path) -> None
 
 
 def test_fetch_saves_the_entrez_links_per_series_as_text(built: Path) -> None:
-    rows = {r["accession"]: r["raw_text"] for r in _rows(built / "raw/entrez-links/GSE19nnn.parquet")}
+    rows = {
+        r["accession"]: r["raw_text"] for r in _rows(built / "raw/entrez-links/GSE19nnn.parquet")
+    }
     assert rows["GSE19456"].splitlines() == [
         "GSE19456\tbioproject\t120321\tPRJNA120321",
         "GSM484820\tsra\t20038\tSRX018673",
@@ -210,7 +210,9 @@ def test_fields_keep_repeats_in_source_order(store: Store) -> None:
 
 def test_every_record_hash_recomputes_from_raw(store: Store, built: Path) -> None:
     held = [r["accession"] for r in _rows(built / "builds" / "b1" / "holdings.parquet")]
-    for accession, text in store.raw(held).items():
+    texts = store.raw(held)
+    assert sorted(texts) == held
+    for text in texts.values():
         assert hashlib.sha256(text.text.encode()).hexdigest() == text.content_hash
 
 
@@ -227,7 +229,7 @@ def test_a_rebuild_gives_the_same_tables(built: Path) -> None:
 def test_an_unknown_relation_label_fails_the_build(root: Path) -> None:
     fetch(root, ["GSE233931"], client=_client(), today="2026-10-14")
     [row] = raw.read_rows(root, raw.GEO_SOFT)
-    text = row.raw_text.replace("!Series_relation = SRA:", "!Series_relation = Mystery:")
+    text = row.raw_text.replace("!Series_relation = BioProject:", "!Series_relation = Mystery:")
     raw.write_rows(root, raw.GEO_SOFT, [raw.RawRow(row.accession, text, row.fetch_date)])
     with pytest.raises(StoreBuildError, match="Mystery"):
         build(root, "bad")
@@ -246,9 +248,7 @@ def test_copies_of_a_sample_that_differ_fail_the_build(root: Path) -> None:
 
 
 def test_superseries_links_each_subseries_once_from_soft(store: Store) -> None:
-    assert _sources(store, "GSE246310", "SuperSeries of") == {
-        sub: ["SOFT"] for sub in _SUBSERIES
-    }
+    assert _sources(store, "GSE246310", "SuperSeries of") == {sub: ["SOFT"] for sub in _SUBSERIES}
     assert store.follow("GSE246308", "SubSeries of") == {"GSE246308": ["GSE246310"]}
 
 
@@ -274,9 +274,7 @@ def test_a_sample_in_a_subseries_and_the_superseries_takes_the_subseries_text(
 
 
 def test_the_series_bioproject_differs_from_its_studies_bioproject(store: Store) -> None:
-    assert _sources(store, "GSE153830", "BioProject") == {
-        "PRJNA644323": ["Entrez link", "SOFT"]
-    }
+    assert _sources(store, "GSE153830", "BioProject") == {"PRJNA644323": ["Entrez link", "SOFT"]}
     [experiment] = store.experiments_for("GSE153830")
     assert store.follow(experiment.study, "BioProject") == {experiment.study: ["PRJNA644324"]}
 
@@ -297,6 +295,13 @@ def test_following_series_reaches_a_series_not_held(store: Store) -> None:
     assert store.follow("GSM484820", "series") == {"GSM484820": ["GSE19456", "GSE19970"]}
     with pytest.raises(NotMirrored, match="GSE19970"):
         store.open("GSE19970")
+
+
+def test_absent_and_malformed_geo_accessions(store: Store) -> None:
+    with pytest.raises(NotFound, match="2026-10-14"):
+        store.open("GSE1")
+    with pytest.raises(AccessionError):
+        store.open("GSE")
 
 
 # ---------------------------------------------------------------- records 7, 8

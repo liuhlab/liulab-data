@@ -26,6 +26,7 @@ from labdata.geo.sra_records import Experiment, experiments_from_package_xml
 from labdata.store import snapshots
 from labdata.store._offline import OfflineEntrezClient, OfflineSdlClient
 from labdata.store.model import (
+    ANNOTATION,
     PAPER,
     RELATIONS,
     Link,
@@ -108,8 +109,14 @@ class Store:
         valid: list[str] = []
         for accession in order:
             try:
-                if kind_of(accession) == PAPER:
+                kind = kind_of(accession)
+                if kind == PAPER:
                     raise AccessionError(f"{accession} is a paper, not a record; follow 'PubMed'")
+                if kind == ANNOTATION:
+                    raise AccessionError(
+                        f"{accession} is a GEO named annotation, not a record; "
+                        "follow 'Named Annotation'"
+                    )
                 valid.append(accession)
             except AccessionError as err:
                 out[accession] = err

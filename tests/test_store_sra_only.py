@@ -32,7 +32,7 @@ from labdata.geo import Experiment
 from labdata.store import Store, open_store
 from labdata.store.build import build
 from labdata.store.fetch import fetch
-from tests._fakes import FakeEntrezClient
+from tests._fakes import ExplodingEntrezClient, FakeEntrezClient
 
 _DATA = Path(__file__).parent / "data"
 _SNAPSHOTS = _DATA / "prjna1027859" / "snapshots"
@@ -133,12 +133,25 @@ def test_fetch_fails_when_a_package_never_comes_back(root: Path) -> None:
         fetch(root, [_PROJECT], client=_client(SRX24283133=99), today="2026-10-14")
 
 
-def test_a_second_fetch_rewrites_the_bucket_without_duplicates(root: Path) -> None:
+def test_a_rerun_makes_no_call_and_keeps_the_saved_rows(root: Path) -> None:
     fetch(root, [_PROJECT], client=_client(), today="2026-10-13")
-    fetch(root, ["SRX24283130"], client=_client(), today="2026-10-14")
+    report = fetch(root, [_PROJECT], client=ExplodingEntrezClient(), today="2026-10-14")
+    assert list(report.experiments) == _SRX
+    assert report.pubmed_si == {_PROJECT: ("39637862",), _STUDY: ()}
+    rows = _rows(root / "raw" / "sra-xml" / "SRX2428nnnn.parquet")
+    assert [r["fetch_date"] for r in rows] == ["2026-10-13"] * 6
+
+
+def test_a_rerun_after_a_killed_run_fetches_only_the_rest(root: Path) -> None:
+    fetch(root, ["SRX24283130"], client=_client(), today="2026-10-13")
+    client = _client()
+    fetch(root, [_PROJECT], client=client, today="2026-10-14")
+    assert [c for c in client.calls if c[0] == "efetch"] == [
+        ("efetch", ("sra", tuple(_SRX[1:]), "full"))
+    ]
     rows = _rows(root / "raw" / "sra-xml" / "SRX2428nnnn.parquet")
     assert [r["accession"] for r in rows] == _SRX
-    assert [r["fetch_date"] for r in rows] == ["2026-10-14"] + ["2026-10-13"] * 5
+    assert [r["fetch_date"] for r in rows] == ["2026-10-13"] + ["2026-10-14"] * 5
 
 
 # ---------------------------------------------------------------- build
