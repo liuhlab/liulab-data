@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -163,6 +164,49 @@ def test_run_hands_snakemake_the_rounds_dag_and_config(
     }
 
 
+#: Steps the DAG can run at the same time: a snapshot extract has no inputs, so it may run
+#: beside any step before the build.
+_TOGETHER = [
+    ("targets", "extract"),
+    ("geo", "eutils_beside_geo", "extract"),
+    ("eutils_after_geo", "extract"),
+    ("pack", "extract"),
+]
+
+
+def test_steps_that_can_run_together_fit_in_the_jobs_memory(
+    store: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SLURM_MEM_PER_NODE", "100000")
+    planned: dict[str, int] = {}
+    seen: dict[str, str] = {}
+
+    def fake(argv: list[str], *, verbose: bool) -> int:
+        seen["resources"] = argv[argv.index("--resources") + 2]
+        done = subprocess.run(
+            ["snakemake", *argv, "--dry-run"], capture_output=True, text=True, check=True
+        )
+        for block in done.stdout.split("\nrule ")[1:]:
+            rule = block.split(":", 1)[0]
+            if rule == "all":
+                continue
+            mem = int(re.search(r"\bmem_mb=(\d+)", block)[1])  # type: ignore[index]
+            planned[rule] = max(planned.get(rule, 0), mem)
+            if "-m labdata" in block:
+                assert f"LABDATA_MEMORY_MB={mem} " in block  # the step is told its share
+        return 0
+
+    monkeypatch.setattr(pipeline, "_run_snakemake", fake)
+    result = CliRunner().invoke(app, ["store", "run", "--root", str(store), "--cores", "8"])
+    assert result.exit_code == 0, result.output
+    total = int(seen["resources"].removeprefix("mem_mb="))
+    assert total <= 100000
+    assert set(planned) >= {"build", "coverage", *(s for group in _TOGETHER for s in group)}
+    assert max(planned.values()) <= total
+    for group in _TOGETHER:
+        assert sum(planned[s] for s in group) <= total, group
+
+
 def test_run_exits_with_snakemakes_code_when_a_step_fails(
     store: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -176,3 +220,53 @@ def test_run_refuses_a_fraction_outside_zero_to_one(store: Path) -> None:
     result = CliRunner().invoke(app, ["store", "run", "--root", str(store), "--fraction", "2"])
     assert result.exit_code == 2
     assert "fraction" in result.output
+
+
+def test_a_lane_that_left_items_failed_runs_again_on_the_next_submit(
+    store: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    site = Site({soft_url("GSE1"): [TimeoutError("timed out")]})
+    monkeypatch.setattr(cli, "_store_client", lambda: client(site))
+    monkeypatch.setattr("labdata.store.geo_lane._sleep", lambda _s: None)
+    work = store / "work" / "run" / f"{_DATE}-all"
+    work.mkdir(parents=True)
+    marker = work / "geo.failed"
+    args = ["store", "_geo", "GSE1", "--failed-marker", str(marker), "--root", str(store)]
+    result = CliRunner().invoke(app, args)
+    assert result.exit_code == 0, result.output
+    assert marker.is_file()
+    for name in ("geo", "eutils-beside-geo", "eutils"):
+        (work / f"{name}.done").touch()
+    monkeypatch.setattr(pipeline, "_run_snakemake", lambda argv, *, verbose: 0)
+
+    assert CliRunner().invoke(app, ["store", "run", "--root", str(store)]).exit_code == 0
+    assert not (work / "geo.done").exists()
+    assert (work / "eutils.done").exists()
+
+    site.pages[soft_url("GSE1")] = [gzip.compress(soft("GSE1"))]
+    assert CliRunner().invoke(app, args).exit_code == 0
+    assert not marker.exists()
+
+
+def test_prune_and_copy_wait_for_coverage_to_pass(
+    store: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: dict[str, dict[str, int]] = {}
+
+    def fake(argv: list[str], *, verbose: bool) -> int:
+        work = Path(argv[argv.index("--directory") + 1])
+        target_list = Path(json.loads((work / "config.json").read_text())["targets"])
+        target_list.parent.mkdir(parents=True, exist_ok=True)
+        target_list.touch()
+        extracts = [f"extract-{s}" for s in ("biosample", "bioproject", "sra-accessions")]
+        for marker in [*extracts, "extract-geo-series", "geo", "eutils-beside-geo", "eutils"]:
+            (work / f"{marker}.done").touch()
+        (work / "pack.done").touch()
+        (work / "build.done").touch()
+        seen["jobs"] = _dry_run([*argv, "copy.done"])
+        return 0
+
+    monkeypatch.setattr(pipeline, "_run_snakemake", fake)
+    result = CliRunner().invoke(app, ["store", "run", "--root", str(store)])
+    assert result.exit_code == 0, result.output
+    assert seen["jobs"] == {"coverage": 1, "prune": 1, "copy": 1}

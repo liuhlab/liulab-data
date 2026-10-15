@@ -38,8 +38,7 @@ GEO_FILELIST = "geo-filelist"
 #: reason, then any detail after a newline (see :mod:`labdata.store.gaps`).
 GEO_GAPS = "geo-gaps"
 
-#: Accession numbers per bucket, a power of ten per source, set from the pilot store's
-#: Parquet bytes so a full-scale bucket file lands at about 50 MB to 1 GB.
+#: Accession numbers per bucket, a power of ten per source.
 WIDTHS: dict[str, int] = {
     GEO_SOFT: 10_000,
     GEO_FILELIST: 100_000,
@@ -48,10 +47,10 @@ WIDTHS: dict[str, int] = {
     ENTREZ_LINKS: 1_000_000,
     GEO_GAPS: 1_000_000,
 }
-#: Raw text held in memory before it is written as one sorted row group.
-CHUNK_BYTES = 32 << 20
+#: Raw text sorted in memory as one chunk before it is written.
+SORT_CHUNK_BYTES = 32 << 20
 #: Most rows sorted as one chunk.
-CHUNK_ROWS = 10_000
+SORT_CHUNK_ROWS = 10_000
 #: Row groups one chunk is written as.
 GROUPS_PER_CHUNK = 8
 #: The parquet key listing the accessions a part's piece asked for, one per line.
@@ -215,7 +214,7 @@ def write_part(
     rows: Iterable[RawRow],
     *,
     record_asked: bool = True,
-    chunk_bytes: int = CHUNK_BYTES,
+    chunk_bytes: int = SORT_CHUNK_BYTES,
 ) -> Path:
     """Write one piece's rows as a part file, chunk by chunk, renamed into place when whole.
 
@@ -246,7 +245,7 @@ def write_part(
 
 
 def write_sorted_runs(
-    path: Path, rows: Iterable[RawRow], schema: pa.Schema, *, chunk_bytes: int = CHUNK_BYTES
+    path: Path, rows: Iterable[RawRow], schema: pa.Schema, *, chunk_bytes: int = SORT_CHUNK_BYTES
 ) -> None:
     """Write rows to ``path`` one chunk at a time, each chunk sorted by accession.
 
@@ -262,7 +261,7 @@ def write_sorted_runs(
             for row in rows:
                 chunk.append(row)
                 size += len(row.raw_text)
-                if size >= chunk_bytes or len(chunk) >= CHUNK_ROWS:
+                if size >= chunk_bytes or len(chunk) >= SORT_CHUNK_ROWS:
                     _write_chunk(writer, chunk, schema, chunk_bytes)
                     chunk, size = [], 0
             if chunk:

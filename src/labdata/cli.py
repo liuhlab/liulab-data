@@ -264,6 +264,7 @@ def store_coverage(
     typer.echo(f"Gaps: {sum(report.gaps.values())}")
     for reason, count in report.gaps.items():
         typer.echo(f"  {reason}: {count}")
+    typer.echo(f"SRA experiments fetch-failed: {report.failed_experiments} (not Series gaps)")
     if report.passed:
         typer.echo("Coverage passes.")
         return
@@ -348,6 +349,9 @@ def store_geo_lane(
     snapshot_date: str | None = typer.Option(
         None, help="geo-series snapshot date; default: the newest."
     ),
+    failed_marker: Path | None = typer.Option(
+        None, help="Write this file when items are left failed, remove it when none are."
+    ),
     root: Path | None = typer.Option(
         None, help="Store root; default: LABDATA_STORE, then pointer."
     ),
@@ -373,6 +377,8 @@ def store_geo_lane(
         f"GEO lane: {report.held} Series held, {report.filelists} filelists, gaps: "
         f"{report.soft_missing} soft-missing, {report.fetch_failed} fetch-failed"
     )
+    left = report.fetch_failed + report.held - report.filelists
+    _mark_failed(failed_marker, left)
 
 
 @store_app.command("extract")
@@ -406,6 +412,9 @@ def store_eutils(
         None, help="Only these GEO Series: a text file, one per line, or a Parquet `accession`."
     ),
     date: str | None = typer.Option(None, help="SRA_Accessions.tab snapshot date."),
+    failed_marker: Path | None = typer.Option(
+        None, help="Write this file when items are left failed, remove it when none are."
+    ),
     root: Path | None = typer.Option(
         None, help="Store root; default: LABDATA_STORE, then pointer."
     ),
@@ -426,6 +435,17 @@ def store_eutils(
         f"SRA packages: {report.fetched} saved, {report.missing} with none, "
         f"{report.failed} to retry"
     )
+    _mark_failed(failed_marker, report.failed)
+
+
+def _mark_failed(marker: Path | None, failed: int) -> None:
+    """Write ``marker`` with the count of items left failed, or remove it when none are."""
+    if marker is None:
+        return
+    if failed:
+        marker.write_text(f"{failed}\n")
+    else:
+        marker.unlink(missing_ok=True)
 
 
 def _accession_file(path: Path) -> list[str]:

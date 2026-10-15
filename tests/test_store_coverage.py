@@ -11,11 +11,13 @@ import pyarrow.parquet as pq
 import pytest
 from typer.testing import CliRunner
 
+import labdata.ncbi.entrez as entrez_mod
 from labdata.cli import app
-from labdata.store import extract, open_store, pack, raw
+from labdata.store import eutils, extract, open_store, pack, raw
 from labdata.store.build import build
 from labdata.store.gaps import FETCH_FAILED, SOFT_MISSING, gap_row
 from labdata.store.model import Link
+from tests.test_store_eutils import _client, _Ncbi
 
 _DATA = Path(__file__).parent / "data" / "geo_slice"
 _DATE = "2026-10-14"
@@ -141,3 +143,21 @@ def test_a_rounds_build_and_coverage_cover_only_its_sample(root: Path) -> None:
     assert "Target Series: 2" in output
     assert "Held: 1" in output
     assert "soft-missing: 0" in output
+
+
+def test_experiments_whose_package_fetch_failed_are_noted_and_counted(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(entrez_mod.time, "sleep", lambda _s: None)
+    pack.write_rows(root, raw.GEO_GAPS, [gap_row("GSE28772", FETCH_FAILED, _DATE)])
+    listed = eutils.experiment_list(root)
+    down = _Ncbi(known=set(), broken_calls=1 << 30)
+    assert eutils.fetch_packages(root, listed, client=_client(down), date=_DATE).failed == 9
+    out = build(root, "b1")
+    failed = [n["accession"] for n in _rows(out / "notes.parquet") if n["kind"] == FETCH_FAILED]
+    assert len(failed) == 9
+    assert "SRX8670456" in failed
+    code, output = _coverage(root)
+    assert code == 0, output
+    assert "fetch-failed: 1\n" in output  # the Series gap only
+    assert "SRA experiments fetch-failed: 9" in output

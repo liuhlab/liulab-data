@@ -38,7 +38,8 @@ labdata store copy
 ```
 
 `prune` deletes builds and snapshots the current build no longer reads. It keeps each one for
-24 hours after it goes out of use, so a reader can finish.
+a while after it goes out of use, so a reader can finish. The
+[API reference](../reference.md) gives the time.
 
 `copy` sends the marker file, the current snapshots, `raw/` and the current build, and deletes
 anything else in the bucket's copy. It will not run unless the current build is complete. When

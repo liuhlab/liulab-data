@@ -3,7 +3,8 @@
 The DAG lives in the packaged ``pipeline.smk``. Each step is a ``labdata store`` subcommand,
 so labdata owns what a step does and Snakemake owns the order and the resume: a step's
 marker appears only when the step exits cleanly, and a rerun starts at the first step
-without one. An ``ncbi`` resource caps the network steps apart from ``--cores``.
+    without one. An ``ncbi`` resource caps the network steps apart from ``--cores``, and a
+``mem_mb`` resource keeps the steps that run at once inside the job's memory.
 
 A round's markers, logs and Snakemake state sit in ``<root>/work/run/<round>/``, where the
 round names the ``geo-series`` snapshot date and the sample fraction, e.g.
@@ -30,6 +31,32 @@ logger = logging.getLogger(__name__)
 
 #: Network steps that may run at once: the GEO lane and the E-utilities lane.
 NCBI_STEPS = 2
+
+#: The share of the job's memory the steps may hold at once; the rest is for Snakemake.
+STEPS_SHARE = 0.9
+
+#: The lanes whose ``<lane>.failed`` file sends them back to work on the next run.
+LANES = ("geo", "eutils")
+
+
+def memory_plan(total_mb: int) -> dict[str, int]:
+    """Return each step's memory in MB, so the steps that can run at once fit in ``total_mb``.
+
+    The fetch lanes, the target list and pack run beside a snapshot extract and take a small
+    share each; the extract takes the rest. The build and coverage run alone with all of it.
+    """
+    geo, lane = total_mb // 16, total_mb // 8
+    return {
+        "targets": lane,
+        "geo": geo,
+        "eutils": lane,
+        "pack": lane,
+        "extract": total_mb - geo - lane,
+        "build": total_mb,
+        "coverage": total_mb,
+        "prune": lane,
+        "copy": lane,
+    }
 
 
 def round_dir(root: Path, date: str, fraction: float | None) -> Path:
@@ -58,7 +85,8 @@ def run(
 
     The round uses the newest snapshot of every source and records their dates in
     ``run.json`` in its folder. A rerun of the same round resumes at the first unfinished
-    step; the fetch steps skip every item already saved, by this round or a smaller one.
+    step; the fetch steps skip every item already saved, by this round or a smaller one. A
+    fetch lane that left items failed runs again, and so does every step after it.
 
     Parameters
     ----------
@@ -92,7 +120,12 @@ def run(
     geo_date = dates[snapshots.GEO_SERIES]
     work = round_dir(root, geo_date, fraction)
     work.mkdir(parents=True, exist_ok=True)
+    for lane in LANES:
+        if (work / f"{lane}.failed").is_file():
+            logger.info("the %s lane left items failed last time; it runs again", lane)
+            (work / f"{lane}.done").unlink(missing_ok=True)
     cores = cores or extract.default_workers()
+    memory = int(extract.allocation_mb() * STEPS_SHARE)
     labdata = f"{shlex.quote(sys.executable)} -m labdata"
     config = {
         "labdata": labdata,
@@ -101,6 +134,7 @@ def run(
         "snapshots": dates,
         "targets": str(targets.list_path(root, geo_date, fraction)),
         "copy": bool(store.settings.get(gcs.COPY_TO_KEY)),
+        "mem_mb": memory_plan(memory),
     }
     config_path = work / "config.json"
     config_path.write_text(json.dumps(config, indent=2, sort_keys=True) + "\n")
@@ -117,6 +151,7 @@ def run(
         str(cores),
         "--resources",
         f"ncbi={ncbi}",
+        f"mem_mb={memory}",
         "--configfile",
         str(config_path),
         "--printshellcmds",

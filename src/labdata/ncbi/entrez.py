@@ -134,7 +134,7 @@ def _backoff(attempt: int) -> float:
     return min(60.0, 2.0**attempt) * random.uniform(0.5, 1.0)
 
 
-def _retry_after(err: BaseException) -> float:
+def retry_after(err: BaseException) -> float:
     """Return the seconds a throttled reply asked us to wait, or zero."""
     headers = getattr(err, "headers", None)
     value = headers.get("Retry-After") if headers is not None else None
@@ -689,7 +689,7 @@ class EntrezClient:
                 wait = _backoff(attempt - 1)
                 status = getattr(err, "code", None)
                 if status in _THROTTLED:
-                    wait = max(wait, _retry_after(err))
+                    wait = max(wait, retry_after(err))
                     if limiter:
                         limiter.halve()
                 retry = _is_transient(err)

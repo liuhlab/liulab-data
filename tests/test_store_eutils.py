@@ -129,6 +129,7 @@ class _Ncbi:
     known: set[str]
     left_out: set[str] = field(default_factory=set)
     broken: set[str] = field(default_factory=set)
+    broken_calls: int = 0
     delay: float = 0.0
     kill_after: int | None = None
     slow: set[str] = field(default_factory=set)
@@ -160,6 +161,9 @@ class _Ncbi:
 
     def _answer(self, ids: list[str]) -> _Reply:
         if set(ids) & self.broken:
+            return _Reply(b"", 500)
+        if self.broken_calls:
+            self.broken_calls -= 1
             return _Reply(b"", 500)
         served = [i for i in ids if i in self.known and i not in self.left_out]
         self.left_out -= set(ids)  # left out once, served when asked again
@@ -217,6 +221,18 @@ def test_a_batch_that_fails_is_fetched_again_on_the_next_run(
     again = _Ncbi(known={"SRX1", "SRX7"})
     assert _run(root, again).fetched == 1
     assert again.asked == [["SRX7"]]
+
+
+def test_a_batch_that_fails_is_asked_again_before_the_lane_ends(
+    tmp_path: Path, no_backoff: None
+) -> None:
+    root = _store(tmp_path, _geo(("SRX1", "live")))
+    ncbi = _Ncbi(known={"SRX1"}, broken_calls=entrez_mod._MAX_TRIES)
+
+    report = _run(root, ncbi)
+
+    assert (report.fetched, report.failed) == (1, 0)
+    assert _packed(root, raw.SRA_XML) == {"SRX1": _package("SRX1")}
 
 
 def test_eight_calls_stay_in_flight_under_the_rate_cap(tmp_path: Path) -> None:

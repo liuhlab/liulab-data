@@ -31,6 +31,9 @@ src/labdata/
                        bio_project_records.py, dispatch.py) + FASTQ download:
                        sratools.py (per-stage tool wrappers), pipeline.py
                        (Snakemake driver), pipeline.smk (the download DAG)
+  store/             the source record store: fetch lanes (geo_lane.py, eutils.py),
+                       raw/ pieces and pack, snapshot extract, build, gaps, prune,
+                       GCS copy (gcs.py); pipeline.py + pipeline.smk (the full-run DAG)
 tests/               pytest suite, mirrors src; mocks the EntrezClient + subprocess seams
 scripts/check.sh     the gate runner
 scripts/conformance.py  the lab template's rules, checked against this repo
@@ -58,16 +61,20 @@ CI runs `check-static` in one job and `test` in another.
   (Parameters / Returns / Raises / Examples) on public API.
 - **External access is concentrated in seams.** Every NCBI call goes through
   `labdata.ncbi.EntrezClient` (domain classes take a `client` argument; never call
-  `Bio.Entrez` directly). Sequence data uses two subprocess seams —
-  `sratools._run` (sra-tools/pigz) and `pipeline._run_snakemake`. Tests mock the seams,
-  never the real binaries.
+  `Bio.Entrez` directly); its HTTP goes through `ncbi._http.HttpTransport`, which tests
+  replace with a fake transport. Subprocess seams: `sratools._run` (sra-tools/pigz),
+  `geo.pipeline._run_snakemake` and `store.pipeline._run_snakemake` (Snakemake),
+  `store.gcs._run_rclone` (rclone) and `store.extract._popen` (rapidgzip/pigz). Tests mock
+  the seams, never the real binaries.
 - **Pipelines are Snakemake DAGs with typed resources.** The download DAG
   (`prefetch → extract → compress`) lives in `pipeline.smk`, driven by
   `labdata.geo.pipeline`. labdata owns per-stage logic (tool calls, resume flags, cleanup,
   `keep_sra`/`prefetch_only`) behind hidden CLI subcommands
   (`labdata geo _prefetch/_extract/_compress`); Snakemake owns scheduling/resume/retries.
   An `ncbi` resource caps concurrent network jobs independently of `--cores` (total CPU),
-  keeping the link busy while cores extract/compress. Future pipelines follow this split.
+  keeping the link busy while cores extract/compress. The store DAG adds a `mem_mb` resource:
+  each step gets its share as `LABDATA_MEMORY_MB` and caps DuckDB and Ray inside it.
+  Future pipelines follow this split.
 - **Lazy, cached domain objects.** `Series(...)` is cheap; network happens on first
   property access (`functools.cached_property`) and is cached thereafter.
 - **Accessions are validated at construction** and malformed input raises

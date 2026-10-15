@@ -3,8 +3,9 @@
 Each Series' family SOFT is streamed over a few kept-open HTTPS connections with its sample
 and platform data tables stripped on the way; the stored text starts with the original
 file's size and sha256. Every Series and SubSeries met is fetched whatever its SOFT type.
-A SOFT 404 or exhausted retries is saved as a ``raw/geo-gaps/`` row; a ``fetch-failed``
-Series is fetched again on the next run, a ``soft-missing`` one is not. Each held Series
+A SOFT 404 or exhausted retries is saved as a ``raw/geo-gaps/`` row. A ``fetch-failed``
+Series is asked once more before the lane ends, and again on the next run; a
+``soft-missing`` one is not. Each held Series
 then gets its ``filelist.txt``, a 404 saved as an empty text. Results are written as parts
 for the pack step; a saved item makes no request.
 """
@@ -27,7 +28,7 @@ from pathlib import Path
 import pyarrow.parquet as pq
 
 from labdata.exceptions import EntrezError, PageNotFound
-from labdata.ncbi.entrez import EntrezClient
+from labdata.ncbi.entrez import EntrezClient, retry_after
 from labdata.store import gaps, raw
 from labdata.store import progress as progress_lines
 from labdata.store.fetch import filelist_url, soft_url
@@ -37,7 +38,7 @@ CONNECTIONS = 4
 #: Tries per file before a Series is a ``fetch-failed`` gap.
 TRIES = 4
 #: Most rows one part holds, so a cut-off run loses little.
-PART_SIZE = 500
+ROWS_PER_PART = 500
 #: Seconds between progress lines.
 PROGRESS_SECONDS = progress_lines.EVERY
 #: Seconds without a throttle before one connection is added back.
@@ -98,15 +99,22 @@ def run(
     date = date or dt.datetime.now(dt.UTC).date().isoformat()
     todo = sorted({s.strip().upper() for s in series})
     seen: set[str] = set()
+    retried = False
     with _Pool(client, connections) as pool:
         rounds = 0
         while todo:
             rounds += 1
             seen |= set(todo)
-            _fetch_soft(root, pool, todo, date, f"Series SOFT, round {rounds}")
+            what = "retry of failed" if retried else f"round {rounds}"
+            _fetch_soft(root, pool, todo, date, f"Series SOFT, {what}")
             todo = sorted(_named_subseries(root, set(todo)) - seen)
+            if not todo and not retried:
+                retried = True
+                todo = sorted(_failed(root, seen - _soft_held(root, seen)))
         held = sorted(_soft_held(root, seen))
         _fetch_filelists(root, pool, held, date)
+        if len(_accessions(root, raw.GEO_FILELIST, set(held))) < len(held):
+            _fetch_filelists(root, pool, held, date)
     reasons = Counter(text.split("\n", 1)[0] for text in _gap_texts(root, seen - set(held)))
     return LaneReport(
         held=len(held),
@@ -208,8 +216,9 @@ def _fetch_parts(
 ) -> None:
     """Fetch every piece's items in one stream; save each bucket's rows and gap rows as parts.
 
-    A bucket's rows are written once :data:`PART_SIZE` rows or ``raw.CHUNK_BYTES`` of text
-    are held, or the bucket is done, so the connections never wait on a part's slowest file.
+    A bucket's rows are written once :data:`ROWS_PER_PART` rows or ``raw.SORT_CHUNK_BYTES``
+    of text are held, or the bucket is done, so the connections never wait on a part's
+    slowest file.
     """
     if not pieces:
         return
@@ -239,8 +248,8 @@ def _fetch_parts(
             size[bucket] += len(row.raw_text) if row else 0
             if (
                 left[bucket] == 0
-                or len(rows) + len(gap_rows) >= PART_SIZE
-                or size[bucket] >= raw.CHUNK_BYTES
+                or len(rows) + len(gap_rows) >= ROWS_PER_PART
+                or size[bucket] >= raw.SORT_CHUNK_BYTES
             ):
                 flush(bucket)
 
@@ -276,6 +285,12 @@ def _named_subseries(root: Path, accessions: set[str]) -> set[str]:
                 if gse in accessions:
                     named.update(_SUBSERIES.findall(text))
     return named
+
+
+def _failed(root: Path, accessions: set[str]) -> set[str]:
+    """Return which of ``accessions`` the saved gap rows mark ``fetch-failed``."""
+    gap_rows = raw.saved(root, raw.GEO_GAPS, accessions) if accessions else {}
+    return {a for a, text in gap_rows.items() if text.split("\n", 1)[0] == gaps.FETCH_FAILED}
 
 
 def _gap_texts(root: Path, accessions: set[str]) -> list[str]:
@@ -378,6 +393,7 @@ class _Pool:
         while True:
             attempt += 1
             kind = None
+            wait = min(60.0, 2.0**attempt)
             with self._gate:
                 try:
                     got: str | _Gap = self._client.stream(url, consume, tries=1)
@@ -386,13 +402,14 @@ class _Pool:
                 except EntrezError as err:
                     cause = err.__cause__ or err
                     kind = _kind(cause)
+                    wait = max(wait, retry_after(cause))
                     progress.add(0, **{kind: 1})
                     got = _Gap(gaps.FETCH_FAILED, f"{kind}: {cause}")
             self._gate.record(kind)
             if not (isinstance(got, _Gap) and got.reason == gaps.FETCH_FAILED) or attempt == TRIES:
                 progress.add(1)
                 return got
-            _sleep(min(60.0, 2.0**attempt))
+            _sleep(wait)
 
 
 def _kind(err: BaseException) -> str:

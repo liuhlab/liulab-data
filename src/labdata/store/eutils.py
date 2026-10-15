@@ -36,7 +36,7 @@ BATCH = 300
 #: ``efetch`` calls in flight.
 INFLIGHT = 8
 #: Experiments per part: a bucket's piece is saved in parts this size.
-PART_SIZE = 6_000
+EXPERIMENTS_PER_PART = 6_000
 #: Parts with calls in flight at once.
 OPEN_PARTS = 4
 
@@ -102,7 +102,7 @@ def experiment_list(
     if wanted is not None:
         samples = _samples(root, folder / "samples.parquet", wanted)
         geo = f"geo AND gsm IN (SELECT accession FROM read_parquet('{samples}'))"
-    out = folder / f"experiments-{snap.date}.parquet"
+    out = list_path(root, snap.date)
     tmp = temp_beside(out)
     try:
         with extract.connect(root) as con:
@@ -129,6 +129,11 @@ def experiment_list(
     finally:
         tmp.unlink(missing_ok=True)
     return out
+
+
+def list_path(root: Path, date: str) -> Path:
+    """Return where :func:`experiment_list` writes the list for one tab snapshot date."""
+    return root / "work" / "eutils" / f"experiments-{date}.parquet"
 
 
 def _tab_experiments(snap: snapshots.Snapshot, out: Path) -> Path:
@@ -265,7 +270,7 @@ def fetch_packages(
     date: str,
     batch: int = BATCH,
     inflight: int = INFLIGHT,
-    part_size: int = PART_SIZE,
+    part_size: int = EXPERIMENTS_PER_PART,
     log_every: float = EVERY,
 ) -> LaneReport:
     """Fetch the package of every listed experiment no part or raw bucket holds yet.
@@ -291,9 +296,28 @@ def fetch_packages(
     Returns
     -------
     LaneReport
-        Counts for this run. An experiment whose call failed is not saved, so the next run
-        asks for it again; one NCBI has no package for is saved as asked, with a gap row.
+        Counts for this run. An experiment whose call failed is asked once more before the
+        lane ends; if that fails too it is not saved, so the next run asks for it again. One
+        NCBI has no package for is saved as asked, with an empty text.
     """
+    first = _fetch_once(root, experiments, client, date, batch, inflight, part_size, log_every)
+    if not first.failed:
+        return first
+    logger.info("asking again for the %d experiments whose calls failed", first.failed)
+    last = _fetch_once(root, experiments, client, date, batch, inflight, part_size, log_every)
+    return LaneReport(first.fetched + last.fetched, first.missing + last.missing, last.failed)
+
+
+def _fetch_once(
+    root: Path,
+    experiments: Path,
+    client: EntrezClient,
+    date: str,
+    batch: int,
+    inflight: int,
+    part_size: int,
+    log_every: float,
+) -> LaneReport:
     spill = root / "work" / "eutils" / "spill"
     shutil.rmtree(spill, ignore_errors=True)
     total = sum(len(p.todo) for _, pieces in _pieces(root, experiments) for p in pieces)
