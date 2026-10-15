@@ -84,6 +84,8 @@ duckdb = ">=1.5.6,<2"
 pyarrow = ">=25.0.0,<26"
 # Parallel snapshot extraction: Ray spreads byte ranges over cores or nodes.
 ray-core = ">=2.59"
+# Copies the store to a bucket (`labdata store copy`), through labdata.store.gcs.
+rclone = "*"
 
 # rapidgzip decompresses one gzip stream on many cores. conda-forge has no osx-arm64 build,
 # so there the extract falls back to pigz.

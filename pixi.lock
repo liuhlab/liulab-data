@@ -169,6 +169,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/pyzmq-27.1.0-py312hda471dd_3.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/rapidgzip-0.16.0-py313hbdba758_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/ray-core-2.59.0-py313h661bcff_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/rclone-1.75.2-h519d9b9_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/re2-2025.11.05-h94463f1_2.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/readline-8.3-h853b02a_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/rpds-py-2026.6.3-py313hafbe609_0.conda
@@ -571,6 +572,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-64/pyzmq-27.1.0-py312h2ac7433_3.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/rapidgzip-0.16.0-py313h95728b0_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/ray-core-2.59.0-py313h0f768e7_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/rclone-1.75.2-h1762f63_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/re2-2025.11.05-hcc9a9c6_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/readline-8.3-h68b038d_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/rpds-py-2026.6.3-py313he4ad68c_0.conda
@@ -849,6 +851,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/pyyaml-6.0.3-py313h65a2061_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/pyzmq-27.1.0-py312h022ad19_3.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ray-core-2.59.0-py313h892fd9a_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/rclone-1.75.2-h30cdf38_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/re2-2025.11.05-h5d60da5_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/readline-8.3-h46df422_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/rpds-py-2026.6.3-py313hb9d2816_0.conda
@@ -1011,6 +1014,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/pyyaml-6.0.3-py313h3dea7bd_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/rapidgzip-0.16.0-py313hbdba758_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/ray-core-2.59.0-py313h661bcff_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/rclone-1.75.2-h519d9b9_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/re2-2025.11.05-h94463f1_2.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/readline-8.3-h853b02a_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/rpds-py-2026.6.3-py313hafbe609_0.conda
@@ -1356,6 +1360,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-64/pyyaml-6.0.3-py313h7c6a591_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/rapidgzip-0.16.0-py313h95728b0_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/ray-core-2.59.0-py313h0f768e7_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/rclone-1.75.2-h1762f63_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/re2-2025.11.05-hcc9a9c6_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/readline-8.3-h68b038d_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/rpds-py-2026.6.3-py313he4ad68c_0.conda
@@ -1601,6 +1606,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/python-duckdb-1.5.6-py313hb6048c5_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/pyyaml-6.0.3-py313h65a2061_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ray-core-2.59.0-py313h892fd9a_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/rclone-1.75.2-h30cdf38_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/re2-2025.11.05-h5d60da5_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/readline-8.3-h46df422_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/rpds-py-2026.6.3-py313hb9d2816_0.conda
@@ -1763,6 +1769,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/pyyaml-6.0.3-py313h3dea7bd_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/rapidgzip-0.16.0-py313hbdba758_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/ray-core-2.59.0-py313h661bcff_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/rclone-1.75.2-h519d9b9_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/re2-2025.11.05-h94463f1_2.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/readline-8.3-h853b02a_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/rpds-py-2026.6.3-py313hafbe609_0.conda
@@ -2086,6 +2093,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-64/pyyaml-6.0.3-py313h7c6a591_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/rapidgzip-0.16.0-py313h95728b0_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/ray-core-2.59.0-py313h0f768e7_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/rclone-1.75.2-h1762f63_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/re2-2025.11.05-hcc9a9c6_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/readline-8.3-h68b038d_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/rpds-py-2026.6.3-py313he4ad68c_0.conda
@@ -2319,6 +2327,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/python-duckdb-1.5.6-py313hb6048c5_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/pyyaml-6.0.3-py313h65a2061_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ray-core-2.59.0-py313h892fd9a_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/rclone-1.75.2-h30cdf38_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/re2-2025.11.05-h5d60da5_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/readline-8.3-h46df422_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/rpds-py-2026.6.3-py313hb9d2816_0.conda
@@ -4979,6 +4988,15 @@ packages:
   run_exports: {}
   size: 46656205
   timestamp: 1791337983843
+- conda: https://conda.anaconda.org/conda-forge/linux-64/rclone-1.75.2-h519d9b9_0.conda
+  sha256: e83102a9877d95e24c6022e47177efd36b930768e558296ee27436647b2aadc6
+  md5: bc03982d2d3e7857ff5edf0d239ba10a
+  license: MIT
+  license_family: MIT
+  purls: []
+  run_exports: {}
+  size: 50200162
+  timestamp: 1791557337107
 - conda: https://conda.anaconda.org/conda-forge/linux-64/re2-2025.11.05-h94463f1_2.conda
   sha256: 7279908454f0c87b84ebc4aec6924f02f41a105d88420fb35dfaf5ecd976e0f5
   md5: d83f2ee212d217a6d745a00e5be84671
@@ -9220,6 +9238,17 @@ packages:
   run_exports: {}
   size: 39110156
   timestamp: 1791337615099
+- conda: https://conda.anaconda.org/conda-forge/osx-64/rclone-1.75.2-h1762f63_0.conda
+  sha256: 75ea4adf45022d7c2c89724c8dec0696eac82ca93323de4b3edeacac291430d2
+  md5: e44bed0423c0a2f56e9b74bb462696e6
+  constrains:
+  - __osx >=10.12
+  license: MIT
+  license_family: MIT
+  purls: []
+  run_exports: {}
+  size: 50652619
+  timestamp: 1791558423418
 - conda: https://conda.anaconda.org/conda-forge/osx-64/re2-2025.11.05-hcc9a9c6_2.conda
   sha256: 5c3f92ec989e1ab87a79b300c2975b04434d0db0abba030e85ee97f0f4a3a415
   md5: 2307e1e580ad566c95ab3164b0d4a1cc
@@ -11562,6 +11591,15 @@ packages:
   run_exports: {}
   size: 36880008
   timestamp: 1791337564035
+- conda: https://conda.anaconda.org/conda-forge/osx-arm64/rclone-1.75.2-h30cdf38_0.conda
+  sha256: a365f13c3e3f1b05093c0ab861fa69bf8c4bc4fb7add3a9a40e6ce7b3bd6fcbd
+  md5: 811fd6b7e48321db81ea69640e5821eb
+  license: MIT
+  license_family: MIT
+  purls: []
+  run_exports: {}
+  size: 47466828
+  timestamp: 1791557330863
 - conda: https://conda.anaconda.org/conda-forge/osx-arm64/re2-2025.11.05-h5d60da5_2.conda
   sha256: ba1154085d70e8e8f94cfc38a018a13d1a734ff1bcc2ab384e4fc3e532b23066
   md5: a2578dc92c16ab5b6b183cfcdc8e8b79

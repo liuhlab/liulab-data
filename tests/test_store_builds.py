@@ -110,7 +110,11 @@ def test_an_old_store_keeps_reading_its_build_after_the_switch(root: Path) -> No
 def test_the_marker_keeps_a_build_id_toml_must_escape(root: Path) -> None:
     build_id = 'b2 "quoted" \\ \x7f \U0001f9ec'
     build(root, build_id)
-    assert open_store(root).settings == {"format_version": 1, "build": build_id}
+    assert open_store(root).settings["build"] == build_id
+    build(root, "b3")
+    settings = open_store(root).settings
+    assert settings["build"] == "b3"
+    assert sorted(settings["switched_away"]) == ["b1", build_id]
 
 
 def test_a_build_killed_before_its_rename_leaves_no_build_and_reruns(root: Path) -> None:

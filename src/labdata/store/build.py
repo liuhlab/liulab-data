@@ -3,8 +3,8 @@
 No network. Reads family SOFT, ``elink`` results, SRA packages and ``[si]`` results from
 ``raw/``, and the snapshots only through their extracts (``labdata store extract``). Writes ``builds/<build-id>/``: ``records/<type>.parquet`` (sorted by accession),
 ``links_by_from.parquet``, ``links_by_to.parquet``, ``holdings.parquet``,
-``known.parquet`` and ``supplementary_files.parquet``, with the folder's README and
-manifest. The folder appears by a rename once whole, and the marker switches to it by a
+``known.parquet``, ``supplementary_files.parquet``, ``gaps.parquet`` and ``notes.parquet``,
+with the folder's README and manifest. The folder appears by a rename once whole, and the marker switches to it by a
 rename, so readers never see half a build.
 """
 
@@ -22,12 +22,13 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 
 from labdata.exceptions import StoreBuildError
-from labdata.store import extract, known, provenance, raw, snapshots, sources, suppl
+from labdata.store import extract, gaps, known, provenance, raw, snapshots, sources, suppl, targets
 from labdata.store._files import temp_beside, toml_line, write_atomic
 from labdata.store.model import RELATIONS
 from labdata.store.root import MARKER
@@ -35,6 +36,12 @@ from labdata.store.sources import LinkRow, Parsed
 
 #: The marker key naming the current build.
 BUILD_KEY = "build"
+
+#: The marker key holding when the current build was switched to, in UTC.
+SWITCHED_KEY = "switched"
+
+#: The marker table mapping each earlier build to when it was switched away from, in UTC.
+SWITCHED_AWAY_KEY = "switched_away"
 
 _FIELDS = pa.list_(pa.struct([("name", pa.string()), ("value", pa.string())]))
 _RECORD_SCHEMA = pa.schema(
@@ -106,8 +113,8 @@ def build_lock(root: Path) -> Iterator[None]:
             fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise StoreBuildError(
-                f"another build of this store is running (it holds {lock}); "
-                "wait for it to finish, then build again"
+                f"another build, prune or copy of this store is running (it holds {lock}); "
+                "wait for it to finish, then try again"
             ) from None
         try:
             yield
@@ -123,8 +130,10 @@ def _build(root: Path, build_id: str | None) -> Path:
     for folder in sorted(p for p in (root / "raw").glob("*") if p.is_dir()):
         provenance.document_raw(root, folder.name)
 
+    _, geo_date = extract.done_dir(root, snapshots.GEO_SERIES)
+    target_list = targets.target_list(root, geo_date)
     records: dict[str, _Row] = {}
-    links: set[LinkRow] = set()
+    links: set[LinkRow] = set(targets.summary_links(target_list))
     _geo(root, records, links)
     _sra(root, records, links)
     _sra_typed(root, records)
@@ -150,7 +159,25 @@ def _build(root: Path, build_id: str | None) -> Path:
     )
     known.write(root, tmp / "known.parquet")
     suppl.write(root, tmp / "supplementary_files.parquet")
-    provenance.document_build(root, tmp, build_id, unknown_labels=_unknown_labels(links))
+    labels = _unknown_labels(links)
+    coverage = gaps.write_gaps(root, tmp, target_list, geo_date)
+    note_counts = gaps.write_notes(
+        root,
+        tmp,
+        target_list,
+        [
+            gaps.Note(str(v["example"]), gaps.UNKNOWN_LABEL, f"{label}: {v['links']} links")
+            for label, v in labels.items()
+        ],
+    )
+    provenance.document_build(
+        root,
+        tmp,
+        build_id,
+        unknown_labels=labels,
+        target_series=coverage,
+        notes=note_counts,
+    )
     tmp.rename(out)
     _switch(root, build_id)
     return out
@@ -297,9 +324,30 @@ def _write_links(out: Path, links: set[LinkRow]) -> None:
 
 
 def _switch(root: Path, build_id: str) -> None:
-    """Rewrite the marker to name the new build: a temporary file renamed over the old one."""
+    """Point the marker at the new build and record when the old one was switched away from."""
     marker = root / MARKER
     with marker.open("rb") as fh:
         settings = tomllib.load(fh)
+    now = dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    old = settings.get(BUILD_KEY)
+    if old and old != build_id:
+        settings.setdefault(SWITCHED_AWAY_KEY, {})[str(old)] = now
     settings[BUILD_KEY] = build_id
-    write_atomic(marker, "".join(f"{toml_line(k, v)}\n" for k, v in settings.items()))
+    settings[SWITCHED_KEY] = now
+    write_marker(root, settings)
+
+
+def write_marker(root: Path, settings: dict[str, Any]) -> None:
+    """Write the marker whole: its scalar settings, then each table."""
+    scalars = [toml_line(k, v) for k, v in settings.items() if not isinstance(v, dict)]
+    tables = [
+        f"\n[{name}]\n" + "".join(f"{_quoted(k)} = {_quoted(v)}\n" for k, v in rows.items())
+        for name, rows in settings.items()
+        if isinstance(rows, dict)
+    ]
+    write_atomic(root / MARKER, "".join(f"{line}\n" for line in scalars) + "".join(tables))
+
+
+def _quoted(key: str) -> str:
+    """Return ``key`` as a quoted TOML key."""
+    return toml_line("k", key)[len("k = ") :]
