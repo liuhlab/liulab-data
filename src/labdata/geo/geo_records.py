@@ -168,7 +168,7 @@ class _GdsRecord(_Record):
         list of str
             File names, or an empty list when the record has no supplementary files.
         """
-        return _web.list_directory(self.supplementary_http_url, self.client)
+        return _web.list_directory(self.supplementary_http_url)
 
     @property
     def supplementary_file_urls(self) -> list[str]:
