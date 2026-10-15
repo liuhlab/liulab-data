@@ -76,8 +76,8 @@ def test_fetch_saves_each_series_filelist_and_an_absent_one_as_empty(built: Path
         "GSE233931": "",
     }
     assert sorted(p.name for p in (built / "raw" / "geo-filelist").glob("*.parquet")) == [
-        "GSE15nnn.parquet",
-        "GSE233nnn.parquet",
+        "GSE2nnnnn.parquet",
+        "GSEnnnnn.parquet",
     ]
 
 

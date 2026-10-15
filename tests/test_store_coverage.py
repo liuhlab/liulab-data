@@ -12,7 +12,7 @@ import pytest
 from typer.testing import CliRunner
 
 from labdata.cli import app
-from labdata.store import extract, open_store, raw
+from labdata.store import extract, open_store, pack, raw
 from labdata.store.build import build
 from labdata.store.gaps import FETCH_FAILED, SOFT_MISSING, gap_row
 from labdata.store.model import Link
@@ -55,7 +55,7 @@ def root(tmp_path: Path) -> Path:
         extract.extract(root, source, workers=1)
     (root / "labdata-store.toml").write_text("format_version = 1\n", encoding="utf-8")
     disagrees = _soft("GSE153830").replace(f"!Series_type = {_SEQ}", f"!Series_type = {_ARRAY}")
-    raw.write_rows(
+    pack.write_rows(
         root,
         raw.GEO_SOFT,
         [
@@ -64,7 +64,7 @@ def root(tmp_path: Path) -> Path:
             raw.RawRow("GSE153830", disagrees, _DATE),
         ],
     )
-    raw.write_rows(root, raw.GEO_GAPS, [gap_row("GSE28771", SOFT_MISSING, _DATE)])
+    pack.write_rows(root, raw.GEO_GAPS, [gap_row("GSE28771", SOFT_MISSING, _DATE)])
     return root
 
 
@@ -112,7 +112,7 @@ def test_coverage_fails_and_names_an_unexplained_gap(root: Path) -> None:
 
 
 def test_coverage_passes_when_every_target_series_is_held_or_explained(root: Path) -> None:
-    raw.write_rows(root, raw.GEO_GAPS, [gap_row("GSE28772", FETCH_FAILED, _DATE, "timed out")])
+    pack.write_rows(root, raw.GEO_GAPS, [gap_row("GSE28772", FETCH_FAILED, _DATE, "timed out")])
     build(root, "b1")
     code, output = _coverage(root)
     assert code == 0, output
