@@ -17,3 +17,5 @@
 ::: labdata.ncbi.sdl
 
 ::: labdata.ncbi.config
+
+::: labdata.store.root

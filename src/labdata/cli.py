@@ -21,6 +21,7 @@ from labdata.ncbi.config import (
     prompt_and_save,
     save_credentials,
 )
+from labdata.store import save_pointer
 from labdata.tenx import bamtofastq
 
 app = typer.Typer(
@@ -35,6 +36,8 @@ tenx_app = typer.Typer(
     help="10x Genomics special handling (cellranger BAM → FASTQ).", no_args_is_help=True
 )
 app.add_typer(tenx_app, name="tenx")
+store_app = typer.Typer(help="Point labdata at the shared record store.", no_args_is_help=True)
+app.add_typer(store_app, name="store")
 
 
 @app.command()
@@ -60,6 +63,18 @@ def ncbi_configure(
         creds = prompt_and_save()
         path = config_path()
     typer.echo(f"Saved NCBI credentials for {creds.email} to {path}")
+
+
+@store_app.command("configure")
+def store_configure(
+    root: Path = typer.Argument(..., help="The store root, the folder holding labdata-store.toml."),
+) -> None:
+    """Save the store root in the per-user pointer file.
+
+    ``open_store()`` reads it when no root argument is given and ``LABDATA_STORE`` is unset.
+    """
+    path = save_pointer(root)
+    typer.echo(f"Saved store root {root} to {path}")
 
 
 def _record_for_download(accession: str) -> Series | BioProject:

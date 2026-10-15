@@ -17,6 +17,7 @@ from labdata.geo import (
     stream_run_reads,
 )
 from labdata.ncbi import FileLocation, RemoteFile, SdlClient
+from labdata.store import Store, open_store
 from labdata.tenx import TenxConverter
 
 try:
@@ -37,9 +38,11 @@ __all__ = [
     "SdlClient",
     "Series",
     "SraDownloader",
+    "Store",
     "TenxConverter",
     "__version__",
     "experiments_for",
     "iter_run_reads",
+    "open_store",
     "stream_run_reads",
 ]
