@@ -29,6 +29,7 @@ import pyarrow.parquet as pq
 from labdata.exceptions import EntrezError, PageNotFound
 from labdata.ncbi.entrez import EntrezClient
 from labdata.store import gaps, raw
+from labdata.store import progress as progress_lines
 from labdata.store.fetch import filelist_url, soft_url
 
 #: Connections kept open to GEO's download site.
@@ -38,7 +39,7 @@ TRIES = 4
 #: Most rows one part holds, so a cut-off run loses little.
 PART_SIZE = 500
 #: Seconds between progress lines.
-PROGRESS_SECONDS = 60.0
+PROGRESS_SECONDS = progress_lines.EVERY
 #: Seconds without a throttle before one connection is added back.
 RECOVER_SECONDS = 300.0
 #: Timeouts among the last ``TIMEOUT_WINDOW`` tries that halve the connections. GEO's site
@@ -102,7 +103,7 @@ def run(
         while todo:
             rounds += 1
             seen |= set(todo)
-            _fetch_soft(root, pool, todo, date, f"soft round {rounds}")
+            _fetch_soft(root, pool, todo, date, f"Series SOFT, round {rounds}")
             todo = sorted(_named_subseries(root, set(todo)) - seen)
         held = sorted(_soft_held(root, seen))
         _fetch_filelists(root, pool, held, date)
@@ -193,7 +194,7 @@ def _fetch_filelists(root: Path, pool: _Pool, held: list[str], date: str) -> Non
         return None, None
 
     pieces = raw.pieces(root, raw.GEO_FILELIST, held)
-    _fetch_parts(root, pool, pieces, filelist_url, _text, keep, "filelist")
+    _fetch_parts(root, pool, pieces, filelist_url, _text, keep, "Series filelists")
 
 
 def _fetch_parts(
@@ -339,7 +340,7 @@ class _Pool:
         self._gate = _Gate(connections)
         self._workers = ThreadPoolExecutor(connections, thread_name_prefix="geo-lane")
         self._window = 4 * connections
-        self._progress: _Progress | None = None
+        self._progress: progress_lines.Progress | None = None
 
     def __enter__(self) -> _Pool:
         return self
@@ -347,8 +348,9 @@ class _Pool:
     def __exit__(self, *_exc: object) -> None:
         self._workers.shutdown(wait=True, cancel_futures=True)
 
-    def phase(self, name: str, total: int) -> _Progress:
-        self._progress = _Progress(name, total, lambda: self._gate.limit)
+    def phase(self, what: str, total: int) -> progress_lines.Progress:
+        logger.info("%s: %d to fetch over %d connections", what, total, self._gate.limit)
+        self._progress = progress_lines.Progress(logger, what, total, every=PROGRESS_SECONDS)
         return self._progress
 
     def map(
@@ -384,11 +386,11 @@ class _Pool:
                 except EntrezError as err:
                     cause = err.__cause__ or err
                     kind = _kind(cause)
-                    progress.error(kind)
+                    progress.add(0, **{kind: 1})
                     got = _Gap(gaps.FETCH_FAILED, f"{kind}: {cause}")
             self._gate.record(kind)
             if not (isinstance(got, _Gap) and got.reason == gaps.FETCH_FAILED) or attempt == TRIES:
-                progress.tick()
+                progress.add(1)
                 return got
             _sleep(min(60.0, 2.0**attempt))
 
@@ -400,65 +402,3 @@ def _kind(err: BaseException) -> str:
     if isinstance(err, TimeoutError):
         return "timeout"
     return type(err).__name__
-
-
-class _Progress:
-    """Logs items done, rate, errors by kind and a projected finish, every interval."""
-
-    def __init__(self, phase: str, total: int, connections: Callable[[], int]) -> None:
-        self.phase, self.total = phase, total
-        self._connections = connections
-        self._done = 0
-        self._errors: Counter[str] = Counter()
-        self._lock = threading.Lock()
-        self._stop = threading.Event()
-        self._start = time.monotonic()
-        self._thread = threading.Thread(target=self._beat, daemon=True)
-
-    def __enter__(self) -> _Progress:
-        logger.info("%s: %d to fetch", self.phase, self.total)
-        self._thread.start()
-        return self
-
-    def __exit__(self, *_exc: object) -> None:
-        self._stop.set()
-        self._thread.join()
-        self.log()
-
-    def tick(self) -> None:
-        with self._lock:
-            self._done += 1
-
-    def error(self, kind: str) -> None:
-        with self._lock:
-            self._errors[kind] += 1
-
-    def _beat(self) -> None:
-        while not self._stop.wait(PROGRESS_SECONDS):
-            self.log()
-
-    def log(self) -> None:
-        """Log one progress line."""
-        with self._lock:
-            done, errors = self._done, dict(sorted(self._errors.items()))
-        wall = time.monotonic() - self._start
-        rate = done / wall if wall > 0 else 0.0
-        left = self.total - done
-        if left == 0:
-            finish = "done"
-        elif rate > 0:
-            eta = dt.timedelta(seconds=round(left / rate))
-            at = dt.datetime.now(dt.UTC) + eta
-            finish = f"finish {at:%Y-%m-%d %H:%M} UTC (in {eta})"
-        else:
-            finish = "finish unknown"
-        logger.info(
-            "%s: %d/%d done, %.2f/s, errors %s, connections %d, %s",
-            self.phase,
-            done,
-            self.total,
-            rate,
-            errors or "none",
-            self._connections(),
-            finish,
-        )
