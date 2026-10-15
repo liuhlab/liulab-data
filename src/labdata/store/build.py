@@ -52,6 +52,9 @@ CHUNK_BYTES = 1 << 26
 #: Chunks of raw text one parse task takes, so a large bucket is parsed by several workers.
 _TASK_CHUNKS = 4
 
+#: Accessions looked up in one snapshot query.
+_LOOKUP_BATCH = 10_000
+
 #: Rows per row group of the wanted snapshot texts; one parse task takes one row group.
 _SNAPSHOT_ROW_GROUP = 2048
 _TYPED = ("status", "submitted", "updated", "published")
@@ -162,15 +165,19 @@ def _build_into(
         _parse.Task(kind, path, work, index, chunk_bytes, groups)
         for index, (kind, path, groups) in enumerate(inputs)
     ]
+    logger.info("parsing %d raw tasks on %d workers", len(tasks), workers)
     parsed = extract.run_parallel(_parse.run, ((t,) for t in tasks), workers)
     empty = [srx for got in parsed for srx in got]
+    logger.info("parsed raw/; checking copies and looking up snapshot records")
 
     (tmp / "records").mkdir(parents=True)
     with extract.connect(root) as con:
         for folder in sorted((work / "records").glob("*")):
             _check_copies(con, folder)
         wanted = _wanted_snapshots(con, root, work, len(tasks), chunk_bytes)
+        logger.info("parsing %d snapshot tasks", len(wanted))
         extract.run_parallel(_parse.run, ((t,) for t in wanted), workers)
+        logger.info("writing record, link and supplementary-file tables")
         for folder in sorted((work / "records").glob("*")):
             _write_records(con, root, folder, tmp / "records" / f"{folder.name}.parquet")
         _write_links(con, work, tmp)
@@ -182,6 +189,7 @@ def _build_into(
             sorted((work / "filelist").glob("*.parquet")),
         )
         labels = _unknown_labels(con, tmp / "links_by_from.parquet")
+    logger.info("writing known, gaps and notes")
     known.write(root, tmp / "known.parquet")
     coverage = gaps.write_gaps(root, tmp, target_list, geo_date)
     label_notes = [
@@ -282,20 +290,29 @@ def _wanted_snapshots(
     tasks: list[_parse.Task] = []
     for source, (query, prefix) in wanted.items():
         folder, date = extract.done_dir(root, source)
-        path = work / "snapshots" / f"{source}.parquet"
-        path.parent.mkdir(parents=True, exist_ok=True)
+        out = work / "snapshots" / source
+        out.mkdir(parents=True)
+        accessions = out / "wanted.parquet"
         con.execute(
-            f"""COPY (SELECT accession, raw_text FROM read_parquet({extract.parts(folder)})
-                WHERE accession IN (SELECT w FROM ({query}) q(w)
-                  WHERE starts_with(w, '{prefix}')))
-                TO {extract.sql_string(str(path))}
-                (FORMAT parquet, ROW_GROUP_SIZE {_SNAPSHOT_ROW_GROUP})"""
+            f"""COPY (SELECT DISTINCT w FROM ({query}) q(w) WHERE starts_with(w, '{prefix}')
+                ORDER BY w) TO {extract.sql_string(str(accessions))} (FORMAT parquet)"""
         )
-        groups = pq.read_metadata(path).num_row_groups
-        tasks.extend(
-            _parse.Task(source, path, work, first + len(tasks) + i, chunk_bytes, (i,), date)
-            for i in range(groups)
-        )
+        # A sorted batch named literally lets DuckDB skip row groups by their accession range.
+        wanted_file = pq.ParquetFile(accessions)
+        for n, batch in enumerate(wanted_file.iter_batches(batch_size=_LOOKUP_BATCH)):
+            listed = ", ".join(extract.sql_string(a) for a in batch.column(0).to_pylist())
+            path = out / f"{n:06d}.parquet"
+            con.execute(
+                f"""COPY (SELECT accession, raw_text FROM read_parquet({extract.parts(folder)})
+                    WHERE accession IN ({listed})) TO {extract.sql_string(str(path))}
+                    (FORMAT parquet, ROW_GROUP_SIZE {_SNAPSHOT_ROW_GROUP})"""
+            )
+            groups = pq.read_metadata(path).num_row_groups
+            tasks.extend(
+                _parse.Task(source, path, work, first + len(tasks) + i, chunk_bytes, (i,), date)
+                for i in range(groups)
+            )
+        wanted_file.close()
     return tasks
 
 
