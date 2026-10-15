@@ -449,3 +449,37 @@ def test_download_of_a_missing_file_raises_and_leaves_nothing(tmp_path: Path) ->
     with pytest.raises(PageNotFound):
         _client(Reply(b"gone", 404)).download("https://x/f", tmp_path / "f")
     assert list(tmp_path.iterdir()) == []
+
+
+def test_stream_hands_the_caller_decompressed_lines_read_in_chunks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(entrez_mod, "_CHUNK_BYTES", 4096)
+    text = b"".join(b"!Sample_title = line %d\n" % i for i in range(5000))
+    replies: list[Reply] = []
+
+    def answer(call: Call) -> Reply:
+        replies.append(Reply(gzip.compress(text) if call.url.endswith(".gz") else b"a\nb"))
+        return replies[-1]
+
+    client = _client(answer)
+    lines = client.stream("https://x/GSE1_family.soft.gz", list)
+    assert b"".join(lines) == text
+    assert lines[1] == b"!Sample_title = line 1\n"
+    assert all(amt is not None and amt <= 4096 for amt in replies[0].reads)
+    assert client.stream("https://x/filelist.txt", list) == [b"a\n", b"b"]
+    assert client.stream("https://x/filelist.txt", list) == [b"a\n", b"b"]
+    assert len(_calls(client)) == 3  # never cached
+
+
+def test_stream_signals_a_missing_page_and_can_leave_retries_to_the_caller(
+    sleeps: list[float],
+) -> None:
+    with pytest.raises(PageNotFound):
+        _client(Reply(b"gone", 404)).stream("https://x/", list)
+    client = _client(Reply(b"busy", 503, {"Retry-After": "9"}))
+    with pytest.raises(EntrezError) as err:
+        client.stream("https://x/", list, tries=1)
+    assert getattr(err.value.__cause__, "code", None) == 503
+    assert len(_calls(client)) == 1
+    assert sleeps == []
