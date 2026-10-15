@@ -737,8 +737,12 @@ class EUtils:
         timeout: float = SOCKET_TIMEOUT,
         tries: int = 6,
         tool: str = "liulab-data",
+        stop_on_throttle: bool = False,
     ) -> None:
         self.url = urllib.parse.urlsplit(base)
+        self.stop_on_throttle = stop_on_throttle
+        #: Set at the first 429 or 503 when ``stop_on_throttle`` is on.
+        self.stopped = threading.Event()
         self.params = {"tool": tool, "email": email} | ({"api_key": api_key} if api_key else {})
         self.rate, self.timeout, self.tries = rate, timeout, tries
         self.stats: dict[str, EStats] = defaultdict(EStats)
@@ -776,6 +780,8 @@ class EUtils:
             (stats.throttles if throttled else stats.retries)[kind] += 1
             if throttled:
                 self.rate = max(_RATE_FLOOR, self.rate / 2)
+                if self.stop_on_throttle:
+                    self.stopped.set()
         say(f"{util}: {kind}; rate now {self.rate:g}/s")
 
     def post(self, util: str, params: dict[str, str], ids: int = 0) -> bytes:
@@ -822,6 +828,8 @@ class EUtils:
                     wait = max(wait, float(resp.getheader("Retry-After") or 0))
                 if resp.will_close:
                     self._drop()
+                if self.stopped.is_set():
+                    raise EUtilsError(f"{util} throttled; stopping as asked")
             if attempt < self.tries:
                 time.sleep(wait)
         raise EUtilsError(f"{util} failed {self.tries} times")
@@ -880,6 +888,49 @@ def _throttles(utils: list[str], eutils: EUtils) -> Counter[str]:
     return out
 
 
+def sra_packages(eutils: EUtils, ids: list[str]) -> dict[str, str]:
+    """Fetch one batch of SRA packages; ids the reply leaves out are asked once more."""
+    if eutils.stopped.is_set():
+        return {}
+    reply = eutils.efetch("sra", ids, rettype="full", retmode="xml")
+    got = {a: t for a, t in split_packages(reply).items() if a in set(ids)}
+    missing = [i for i in ids if i not in got]
+    if missing:
+        again = eutils.efetch("sra", missing, rettype="full", retmode="xml")
+        got |= {a: t for a, t in split_packages(again).items() if a in set(missing)}
+    return got
+
+
+def efetch_time(pilot: Path, step: str, eutils: EUtils, inflight: int, batch: int = 300) -> dict:
+    """Re-time only the SRA package ``efetch`` of a fetched step at ``inflight`` calls at once.
+
+    The experiments are the step's ``experiments.txt``; replies are counted and discarded.
+    The run stops at the first 429 or 503. Writes ``efetch-<inflight>.json``.
+    """
+    out = pilot_dir(pilot, step)
+    experiments = (out / "experiments.txt").read_text(encoding="utf-8").split()
+    eutils.stop_on_throttle = True
+    replies, wall, errors = _pool(
+        lambda ids: sra_packages(eutils, ids),
+        chunks(experiments, batch),
+        inflight,
+        f"efetch at {inflight} in flight",
+    )
+    got = {a: len(t.encode("utf-8")) for r in replies if r for a, t in r.items()}
+    result = _rate(len(got), wall, errors, _throttles(["efetch"], eutils)) | {
+        "inflight": inflight,
+        "batch": batch,
+        "requested": len(experiments),
+        "bytes": sum(got.values()),
+        "bytes_per_s": round(sum(got.values()) / wall) if wall else 0,
+        "stopped_on_throttle": eutils.stopped.is_set(),
+        "efetch": eutils.stats["efetch"].summary() if "efetch" in eutils.stats else {},
+        "job": os.environ.get("SLURM_JOB_ID"),
+    }
+    write_atomic(out / f"efetch-{inflight}.json", json.dumps(result, indent=2) + "\n")
+    return result
+
+
 def concurrent_fetch(
     pilot: Path,
     step: str,
@@ -889,11 +940,14 @@ def concurrent_fetch(
     inflight: int,
     batch: int = 300,
     base: str = GEO_SITE,
+    sra_elink: bool = True,
 ) -> dict[str, Any]:
     """Fill ``raw/`` with a step's records the stage 2 way and time each source and the pack.
 
     Every target and its SubSeries is stored, whatever its SOFT type says (#51 lets the
-    target list decide). The result is saved as ``concurrent.json``; a rerun returns it.
+    target list decide). Without ``sra_elink`` the SRA experiments come from the SOFT
+    relation lines alone and ``elink`` runs only from each Series to BioProject. The result
+    is saved as ``concurrent.json``; a rerun returns it.
     """
     out = pilot_dir(pilot, step)
     path = out / "concurrent.json"
@@ -905,6 +959,7 @@ def concurrent_fetch(
         "inflight": inflight,
         "batch": batch,
         "rate": eutils.rate,
+        "sra_elink": sra_elink,
     }
     begin = time.perf_counter()
 
@@ -950,12 +1005,13 @@ def concurrent_fetch(
     }
 
     # elink, only to count what it adds beyond SOFT and SRA_Accessions.tab: one combined
-    # call per Series for all its samples, and one for the Series itself to BioProject.
+    # call per Series for all its samples, if asked, and one for the Series to BioProject.
     begun = time.perf_counter()
 
     def to_links(gse: str) -> tuple[str, set[str], set[str]]:
         gsms = [a for e, a, _ in sources.soft_blocks(soft[gse].text) if e == "SAMPLE"]
-        to_sra = eutils.elink("gds", "sra", [fetch._gds_uid(g) for g in gsms])
+        uids = [fetch._gds_uid(g) for g in gsms] if sra_elink else []
+        to_sra = eutils.elink("gds", "sra", uids)
         return gse, to_sra, eutils.elink("gds", "bioproject", [fetch._gds_uid(gse)])
 
     replies, _, errors = _pool(to_links, held, inflight, "elink", every=10)
@@ -992,19 +1048,13 @@ def concurrent_fetch(
         for row in sources.entrez_links(text)
         if row.relation == "SRA"
     }
-
-    # SRA packages: one efetch POST per batch; ids a reply leaves out are asked once more.
-    def packages(ids: list[str]) -> dict[str, str]:
-        reply = eutils.efetch("sra", ids, rettype="full", retmode="xml")
-        got = {a: t for a, t in split_packages(reply).items() if a in set(ids)}
-        missing = [i for i in ids if i not in got]
-        if missing:
-            again = eutils.efetch("sra", missing, rettype="full", retmode="xml")
-            got |= {a: t for a, t in split_packages(again).items() if a in set(missing)}
-        return got
+    write_atomic(out / "experiments.txt", "".join(f"{x}\n" for x in sorted(experiments)))
 
     replies, wall, errors = _pool(
-        packages, chunks(sorted(experiments), batch), inflight, "efetch sra packages"
+        lambda ids: sra_packages(eutils, ids),
+        chunks(sorted(experiments), batch),
+        inflight,
+        "efetch sra packages",
     )
     sra = {a: t for reply in replies if reply for a, t in reply.items()}
     result[raw.SRA_XML] = _rate(len(sra), wall, errors, _throttles(["efetch"], eutils))
@@ -1099,12 +1149,28 @@ def tab_links(root: Path, gsms: set[str]) -> list[tuple[str, str, str]]:
     return [(str(a), str(x), "" if p in (None, "-") else str(p)) for a, x, p in rows]
 
 
+def tab_projects(root: Path, experiments: set[str]) -> dict[str, str]:
+    """Return the BioProject ``SRA_Accessions.tab`` gives each of ``experiments``, any center."""
+    if not experiments:
+        return {}
+    tab = snapshots.snapshot(root, snapshots.SRA_ACCESSIONS).path
+    listed = ", ".join(extract.sql_string(x) for x in sorted(experiments))
+    with extract.connect(root) as con:
+        rows = con.execute(
+            "SELECT Accession, BioProject FROM read_csv("
+            f"{extract.sql_string(str(tab))}, delim='\t', header=true, all_varchar=true, "
+            f"quote='') WHERE Accession IN ({listed})"
+        ).fetchall()
+    return {str(x): str(p) for x, p in rows if p not in (None, "-", "")}
+
+
 def elink_extra(pilot: Path, step: str) -> dict[str, Any]:
     """Count the links ``elink`` adds beyond SOFT relation lines and ``SRA_Accessions.tab``.
 
     Sample to SRX: SOFT ``!Sample_relation = SRA`` lines, else a tab experiment whose alias
     is the GSM. Series to BioProject: SOFT ``!Series_relation = BioProject`` lines, else the
-    BioProject of a tab experiment under one of the Series' samples. Writes
+    BioProject of a tab experiment under one of the Series' samples. ``..._not_in_tab`` also
+    credits the BioProject of any tab row of the Series' SRX, whatever its center. Writes
     ``elink-extra.json`` and ``elink-extra.tsv`` (per Series).
     """
     out = pilot_dir(pilot, step)
@@ -1134,14 +1200,24 @@ def elink_extra(pilot: Path, step: str) -> dict[str, Any]:
             stated[gse].add((srx, "SRA"))
             if project:
                 stated[gse].add((project, "BioProject"))
+    links = {gse: list(sources.entrez_links(linked.get(gse, ""))) for gse in held}
+    srx = {
+        gse: {x for x, rel in stated[gse] if rel == "SRA"}
+        | {r.to for r in links[gse] if r.relation == "SRA"}
+        for gse in held
+    }
+    projects = tab_projects(pilot, {x for xs in srx.values() for x in xs})
     per_series: dict[str, Counter[str]] = {}
     for gse in held:
         counts: Counter[str] = Counter()
-        for row in sources.entrez_links(linked.get(gse, "")):
+        via_srx = {projects[x] for x in srx[gse] if x in projects}
+        for row in links[gse]:
             key = "sample_to_srx" if row.relation == "SRA" else "series_to_bioproject"
             counts[f"{key}_elink"] += 1
             if (row.to, row.relation) not in stated[gse]:
                 counts[f"{key}_extra"] += 1
+                if key == "series_to_bioproject" and row.to not in via_srx:
+                    counts[f"{key}_not_in_tab"] += 1
         per_series[gse] = counts
     total: Counter[str] = Counter()
     for counts in per_series.values():
@@ -1151,6 +1227,7 @@ def elink_extra(pilot: Path, step: str) -> dict[str, Any]:
         "sample_to_srx_extra",
         "series_to_bioproject_elink",
         "series_to_bioproject_extra",
+        "series_to_bioproject_not_in_tab",
     )
     write_atomic(
         out / "elink-extra.tsv",
@@ -1336,6 +1413,9 @@ def report(pilot: Path, step: str, total_experiments: int = DEFAULT_EXPERIMENTS)
         "concurrent": concurrent,
         "stage1_shards": shards,
         "elink_extra": _load(out / "elink-extra.json"),
+        "efetch_retime": [
+            _load(f) for f in sorted(out.glob("efetch-*.json"), key=lambda f: len(f.name))
+        ],
         "stability": stability(concurrent),
         "projection_hours": projections(
             concurrent, shards, meta["drawn"], meta["sequencing_series"], total_experiments
@@ -1421,6 +1501,22 @@ def render(r: dict[str, Any]) -> str:
                 f"{v['throttles'] or ''} | {v['retries'] or ''} |"
             )
         lines.append("")
+    if r.get("efetch_retime"):
+        lines += [
+            "## SRA efetch re-timed",
+            "",
+            "| In flight | Experiments | Wall s | Experiments/s | Bytes/s | Latency ms p50 / p95 "
+            "| Throttles and retries | Stopped |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- |",
+        ]
+        for v in r["efetch_retime"]:
+            ms = v["efetch"].get("latency_ms", {})
+            lines.append(
+                f"| {v['inflight']} | {v['items']} | {v['wall_s']:.0f} | {v['items_per_s']} | "
+                f"{v['bytes_per_s']} | {ms.get('p50')} / {ms.get('p95')} | "
+                f"{v['retried'] or ''} | {v['stopped_on_throttle']} |"
+            )
+        lines.append("")
     e = r["elink_extra"]
     if e:
         lines += [
@@ -1430,7 +1526,9 @@ def render(r: dict[str, Any]) -> str:
             f"{e['total']['sample_to_srx_extra']} of {e['total']['sample_to_srx_elink']} "
             f"sample-to-SRX links and {e['total']['series_to_bioproject_extra']} of "
             f"{e['total']['series_to_bioproject_elink']} Series-to-BioProject links, in "
-            f"{e['series_with_extra']} Series. Per Series: `elink-extra.tsv`.",
+            f"{e['series_with_extra']} Series. Counting the BioProject of every tab row of "
+            f"the Series' SRX, {e['total'].get('series_to_bioproject_not_in_tab')} BioProject "
+            "links come from elink alone. Per Series: `elink-extra.tsv`.",
             "",
         ]
     sh = r["stage1_shards"]
@@ -1472,6 +1570,16 @@ def render(r: dict[str, Any]) -> str:
 # ---------- command line ----------
 
 
+def _eutils(rate: float, inflight: int) -> EUtils:
+    creds = load_credentials(allow_prompt=False)
+    return EUtils(
+        email=creds.email,
+        api_key=creds.api_key,
+        rate=rate if creds.api_key else min(rate, 2.5),
+        inflight=inflight,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run one pilot command."""
     parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
@@ -1493,6 +1601,15 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--inflight", type=int, required=True, help="E-utilities calls at once")
     p.add_argument("--batch", type=int, default=300, help="SRA experiments per efetch")
     p.add_argument("--rate", type=float, default=DEFAULT_RATE, help="E-utilities requests/s")
+    p.add_argument(
+        "--no-sra-elink", dest="sra_elink", action="store_false", help="elink to BioProject only"
+    )
+    p = sub.add_parser("efetch", help="re-time only the SRA efetch of a fetched step")
+    p.add_argument("--pilot", type=Path, required=True)
+    p.add_argument("--name", required=True)
+    p.add_argument("--inflight", type=int, required=True)
+    p.add_argument("--batch", type=int, default=300)
+    p.add_argument("--rate", type=float, default=DEFAULT_RATE)
     p = sub.add_parser("elink-extra")
     p.add_argument("--pilot", type=Path, required=True)
     p.add_argument("--name", required=True)
@@ -1519,17 +1636,17 @@ def main(argv: list[str] | None = None) -> int:
         result = concurrent_fetch(
             args.pilot,
             args.name,
-            EUtils(
-                email=(creds := load_credentials(allow_prompt=False)).email,
-                api_key=creds.api_key,
-                rate=args.rate if creds.api_key else min(args.rate, 2.5),
-                inflight=args.inflight,
-            ),
+            _eutils(args.rate, args.inflight),
             connections=args.connections,
             inflight=args.inflight,
             batch=args.batch,
+            sra_elink=args.sra_elink,
         )
         print(json.dumps({k: v for k, v in result.items() if k in ("wall_s", "pack")}))
+    elif args.command == "efetch":
+        eutils = _eutils(args.rate, args.inflight)
+        result = efetch_time(args.pilot, args.name, eutils, args.inflight, args.batch)
+        print(json.dumps({k: v for k, v in result.items() if k != "efetch"}))
     elif args.command == "elink-extra":
         print(json.dumps(elink_extra(args.pilot, args.name)))
     elif args.command == "shard":

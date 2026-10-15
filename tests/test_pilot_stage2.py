@@ -220,6 +220,40 @@ def test_eutils_posts_with_credentials_backs_off_a_429_and_halves_its_rate(
     assert any(s > 0 for s in sleeps)  # the backoff after the 429
 
 
+def test_eutils_stops_at_the_first_throttle_when_asked(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(time, "sleep", lambda _s: None)
+    _EUtilsSite.posts = []
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _EUtilsSite)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        base = f"http://127.0.0.1:{server.server_address[1]}/eutils"
+        eu = pilot.EUtils(email="a@b.c", api_key="k", base=base, stop_on_throttle=True)
+        with pytest.raises(pilot.EUtilsError, match="stopping"):
+            eu.elink("gds", "sra", ["1"])
+        assert pilot.sra_packages(eu, ["SRX1"]) == {}  # no call once stopped
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert eu.stopped.is_set()
+    assert len(_EUtilsSite.posts) == 1
+
+
+def test_without_the_sra_elink_only_bioproject_is_linked(
+    main_store: Path, tmp_path: Path, site: str
+) -> None:
+    root = tmp_path / "pilot"
+    pilot.setup(main_store, root)
+    pilot.draw_step(root, "s1", 1.0)
+    eutils = _FakeEUtils(_with_cache(geo_client()))
+    result = pilot.concurrent_fetch(
+        root, "s1", eutils, connections=2, inflight=2, base=site, sra_elink=False
+    )
+    assert {db for _, db, uids in eutils.elinks if uids} == {"bioproject"}
+    assert result["sra_elink"] is False
+    listed = (root / "pilot" / "s1" / "experiments.txt").read_text().split()
+    assert len(listed) == result[raw.SRA_XML]["requested"]
+
+
 def test_accessions_come_from_json_or_biopython_summaries() -> None:
     expxml = '<Summary/><Experiment acc="SRX1" ver="1"/>'
     assert pilot.accession_of("sra", {"expxml": expxml}) == "SRX1"
@@ -235,6 +269,8 @@ class _FakeEUtils:
         self.rate = 8.0
         self.stats: dict[str, object] = {}
         self.elinks: list[tuple[str, str, tuple[str, ...]]] = []
+        self.stopped = threading.Event()
+        self.stop_on_throttle = False
 
     def elink(self, dbfrom: str, db: str, uids: list[str]) -> set[str]:
         self.elinks.append((dbfrom, db, tuple(uids)))
@@ -361,6 +397,13 @@ def test_the_concurrent_fetch_fills_raw_once_per_source_then_builds_and_reports(
     assert raw.PUBMED_SI not in result
     extra = pilot.elink_extra(root, "s1")
     assert extra["series"] == 2
+    assert (
+        extra["total"]["series_to_bioproject_not_in_tab"]
+        <= (extra["total"]["series_to_bioproject_extra"])
+    )
+    retimed = pilot.efetch_time(root, "s1", eutils, inflight=2, batch=3)
+    assert retimed["items"] == sra["items"]
+    assert not retimed["stopped_on_throttle"]
     assert extra["total"]["sample_to_srx_elink"] > 0
     assert extra["total"]["sample_to_srx_extra"] <= extra["total"]["sample_to_srx_elink"]
     assert (
@@ -376,6 +419,8 @@ def test_the_concurrent_fetch_fills_raw_once_per_source_then_builds_and_reports(
     assert report["projection_hours"][raw.SRA_XML] is not None
     assert report["bytes"][raw.SRA_XML]["rows"] == sra["items"]
     assert [b["build_id"] for b in report["builds"]] == ["p1"]
+    assert [v["inflight"] for v in report["efetch_retime"]] == [2]
+    assert "SRA efetch re-timed" in (root / "pilot" / "s1" / "results.md").read_text()
     assert "Stage 2 pilot: s1" in (root / "pilot" / "s1" / "results.md").read_text()
 
 
