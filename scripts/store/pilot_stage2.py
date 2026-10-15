@@ -825,7 +825,7 @@ class EUtils:
                     return data
                 if resp.status < 500 and resp.status != 429 and not limited:
                     refused += 1
-                    if refused > _REFUSED_TRIES:
+                    if refused > _REFUSED_TRIES or b"ID list is empty" in data:
                         raise EUtilsError(f"{util} HTTP {resp.status}: {data[:300]!r}")
                     say(f"{util}: HTTP {resp.status}, retrying: {data[-300:]!r}")
                 throttled = resp.status in _THROTTLED or limited
@@ -902,7 +902,12 @@ def sra_packages(eutils: EUtils, ids: list[str]) -> dict[str, str]:
     got = {a: t for a, t in split_packages(reply).items() if a in set(ids)}
     missing = [i for i in ids if i not in got]
     if missing:
-        again = eutils.efetch("sra", missing, rettype="full", retmode="xml")
+        try:
+            again = eutils.efetch("sra", missing, rettype="full", retmode="xml")
+        except EUtilsError as exc:
+            # NCBI refuses a list in which no accession resolves; keep what the batch gave.
+            say(f"efetch: {len(missing)} ids left out for good: {missing[:5]} ({exc!s:.80})")
+            return got
         got |= {a: t for a, t in split_packages(again).items() if a in set(missing)}
     return got
 
