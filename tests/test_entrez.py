@@ -210,6 +210,17 @@ def test_efetch_is_cached(monkeypatch: pytest.MonkeyPatch) -> None:
     assert calls[0]["id"] == "1,2"
 
 
+def test_efetch_refresh_requests_again(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        entrez_mod.Entrez, "efetch", lambda **kw: calls.append(kw) or _TextHandle("data")
+    )
+    client = EntrezClient(CREDS)
+    client.efetch(db="sra", ids=["1"], rettype="full")
+    client.efetch(db="sra", ids=["1"], rettype="full", refresh=True)
+    assert len(calls) == 2
+
+
 def test_fetch_text_gets_a_page_once(monkeypatch: pytest.MonkeyPatch) -> None:
     urls: list[str] = []
 

@@ -32,7 +32,7 @@ from labdata.geo._base import (
     _run_blocks,
     _split_ids,
 )
-from labdata.geo.sra_records import Experiment, _linked_experiments
+from labdata.geo.sra_records import Experiment, _experiments_from_ids, _linked_experiments
 from labdata.geo.sratools import _SraDownloadMixin
 from labdata.ncbi.entrez import _chunked, _docsum_uid
 
@@ -90,16 +90,20 @@ def _experiments_with_soft(record: _GdsRecord) -> list[Experiment]:
     """Join ``record``'s ``elink`` experiments with the SRX its samples' SOFT lines name.
 
     ``elink`` misses some links SOFT carries and SOFT misses a few ``elink`` has. The
-    ``elink`` experiments come first, seeded; the SOFT-only ones follow, unseeded.
+    ``elink`` experiments come first; the SOFT-only ones follow, fetched in one batch.
     """
     found = {
         experiment.accession: experiment
         for experiment in _linked_experiments(record.client, record.uid)
     }
     soft = record.client.fetch_text(_soft_url(record.accession))
-    for accession in _SOFT_SRA_RELATION.findall(soft):
-        if accession not in found:
-            found[accession] = Experiment(accession, client=record.client)
+    soft_only = [
+        accession
+        for accession in dict.fromkeys(_SOFT_SRA_RELATION.findall(soft))
+        if accession not in found
+    ]
+    for experiment in _experiments_from_ids(record.client, soft_only):
+        found.setdefault(experiment.accession, experiment)
     return list(found.values())
 
 

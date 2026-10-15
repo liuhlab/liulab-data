@@ -291,6 +291,7 @@ class EntrezClient:
         *,
         rettype: str,
         retmode: str = "text",
+        refresh: bool = False,
     ) -> str:
         """Fetch raw records via EFetch and return the response as text.
 
@@ -308,6 +309,8 @@ class EntrezClient:
             EFetch return type (e.g. ``"runinfo"``).
         retmode : str
             EFetch return mode (default ``"text"``).
+        refresh : bool
+            Skip the cached response and request again (the new response is cached).
 
         Returns
         -------
@@ -319,7 +322,7 @@ class EntrezClient:
         if not uids:
             return ""
         key = ("efetch", db, tuple(uids), rettype, retmode)
-        cached = self._cache.get(key)
+        cached = None if refresh else self._cache.get(key)
         if cached is None:
             cached = self._cache[key] = self._request(
                 lambda: _entrez.efetch(db=db, id=",".join(uids), rettype=rettype, retmode=retmode),

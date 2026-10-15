@@ -28,7 +28,7 @@ import re
 from labdata.exceptions import AccessionError
 from labdata.geo.bio_project_records import BioProject
 from labdata.geo.geo_records import Sample, Series
-from labdata.geo.sra_records import Experiment, Run, _experiments_from_uids
+from labdata.geo.sra_records import Experiment, Run, _experiments_from_ids
 from labdata.ncbi.entrez import EntrezClient
 
 #: Retmax for the ``sra`` ESearch route. NCBI caps a single request at 10 000
@@ -93,7 +93,7 @@ def experiments_for(accession: str, *, client: EntrezClient | None = None) -> li
     if _SEARCHABLE.match(acc):
         client = client or EntrezClient()
         sra_uids = client.esearch(db="sra", term=acc, retmax=_SRA_SEARCH_RETMAX)
-        return _experiments_from_uids(client, sra_uids)
+        return _experiments_from_ids(client, sra_uids)
 
     raise AccessionError(
         f"not a resolvable accession: {accession!r}. Known kinds: GSE, GSM, "

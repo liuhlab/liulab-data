@@ -6,6 +6,8 @@ that SOFT lacks, so the live path reads both.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from labdata import experiments_for
 from labdata.geo.geo_records import Sample
 from labdata.geo.sra_records import Experiment
@@ -26,14 +28,21 @@ def _sample_soft(gsm: str, *srx: str) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _exp_summary(uid: str, srx: str) -> dict[str, str]:
-    return {"Id": uid, "ExpXml": f'<Experiment acc="{srx}" name=""/>', "Runs": ""}
+_DATA = Path(__file__).parent / "data" / "sra_package"
+
+
+def _package(srx: str) -> str:
+    fixture = _DATA / f"{srx}.xml"
+    if fixture.exists():
+        return fixture.read_text()
+    return f'<EXPERIMENT_PACKAGE><EXPERIMENT accession="{srx}"/></EXPERIMENT_PACKAGE>'
 
 
 def test_a_link_only_soft_carries_is_found() -> None:
     client = FakeEntrezClient(
         esearch={"GSM1000001[ACCN] AND gsm[ETYP]": ["301"]},
         pages={_soft_url("GSM1000001"): _sample_soft("GSM1000001", "SRX681985")},
+        packages={"SRX681985": _package("SRX681985")},
     )
     assert Sample("GSM1000001", client=client).experiments == [Experiment("SRX681985")]
 
@@ -41,7 +50,7 @@ def test_a_link_only_soft_carries_is_found() -> None:
 def test_a_link_only_elink_carries_is_kept() -> None:
     client = FakeEntrezClient(
         esearch={"GSM5339608[ACCN] AND gsm[ETYP]": ["305339608"]},
-        esummary={("sra", "9001"): _exp_summary("9001", "SRX11032311")},
+        packages={"9001": _package("SRX11032311")},
         elink={("gds", "sra", "305339608"): ["9001"]},
         pages={_soft_url("GSM5339608"): _sample_soft("GSM5339608")},
     )
@@ -51,12 +60,17 @@ def test_a_link_only_elink_carries_is_kept() -> None:
 def test_a_sample_with_several_experiments_lists_each_once() -> None:
     client = FakeEntrezClient(
         esearch={"GSM484820[ACCN] AND gsm[ETYP]": ["300484820"]},
-        esummary={("sra", "18673"): _exp_summary("18673", "SRX018673")},
+        packages={
+            "18673": _package("SRX018673"),
+            "SRX018710": _package("SRX018710"),
+            "SRX681985": _package("SRX681985"),
+        },
         elink={("gds", "sra", "300484820"): ["18673"]},
         pages={_soft_url("GSM484820"): _sample_soft("GSM484820", "SRX018673", "SRX018710")},
     )
     experiments = Sample("GSM484820", client=client).experiments
     assert experiments == [Experiment("SRX018673"), Experiment("SRX018710")]
+    assert [e.study for e in experiments] == ["SRP002215", "SRP002222"]
 
 
 def test_a_sample_with_no_experiment_is_empty() -> None:
@@ -73,7 +87,11 @@ def test_a_series_joins_its_samples_soft_in_one_request() -> None:
     )
     client = FakeEntrezClient(
         esearch={"GSE19456[ACCN] AND gse[ETYP]": ["200019456"]},
-        esummary={("sra", "18673"): _exp_summary("18673", "SRX018673")},
+        packages={
+            "18673": _package("SRX018673"),
+            "SRX018710": _package("SRX018710"),
+            "SRX681985": _package("SRX681985"),
+        },
         elink={("gds", "sra", "200019456"): ["18673"]},
         pages={_soft_url("GSE19456"): series_soft},
     )
@@ -84,3 +102,6 @@ def test_a_series_joins_its_samples_soft_in_one_request() -> None:
         Experiment("SRX681985"),
     ]
     assert client.count("fetch_text") == 1
+    # The two SOFT-only experiments come in one batched package fetch.
+    assert ("efetch", ("sra", ("SRX018710", "SRX681985"), "full")) in client.calls
+    assert client.count("efetch") == 2
