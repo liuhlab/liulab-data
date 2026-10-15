@@ -1,7 +1,7 @@
 """Build the store's tables from ``raw/`` and ``snapshots/``, then switch the marker to them.
 
 No network. Reads family SOFT, ``elink`` results, SRA packages and ``[si]`` results from
-``raw/``. Writes ``builds/<build-id>/``: ``records/<type>.parquet`` (sorted by accession),
+``raw/``, and the snapshots only through their extracts (``labdata store extract``). Writes ``builds/<build-id>/``: ``records/<type>.parquet`` (sorted by accession),
 ``links_by_from.parquet``, ``links_by_to.parquet``, ``holdings.parquet``,
 ``known.parquet`` and ``supplementary_files.parquet``, with the folder's README and
 manifest. The folder appears by a rename once whole, and the marker switches to it by a
@@ -23,7 +23,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from labdata.exceptions import StoreBuildError
-from labdata.store import known, provenance, raw, snapshots, sources, suppl
+from labdata.store import extract, known, provenance, raw, snapshots, sources, suppl
 from labdata.store._files import temp_beside, toml_line, write_atomic
 from labdata.store.root import MARKER
 from labdata.store.sources import LinkRow, Parsed
@@ -49,8 +49,6 @@ _RECORD_SCHEMA = pa.schema(
 _LINK_SCHEMA = pa.schema(
     [("from", pa.string()), ("to", pa.string()), ("relation", pa.string()), ("source", pa.string())]
 )
-_BIOPROJECT_KEY = re.compile(r'<ArchiveID\b[^>]*?\baccession="(PRJ[A-Z]+\d+)"')
-_BIOSAMPLE_KEY = re.compile(r'<BioSample\b[^>]*?\baccession="(SAM[A-Z]+\d+)"')
 _NUMBER = re.compile(r"(\d+)$")
 
 
@@ -78,7 +76,7 @@ def build(root: Path, build_id: str | None = None) -> Path:
     Raises
     ------
     StoreBuildError
-        If a snapshot is missing, a build of that id exists, or two copies of a record differ.
+        If a snapshot is missing or not extracted, a build of that id exists, or two copies of a record differ.
     """
     build_id = build_id or dt.datetime.now(dt.UTC).strftime("%Y%m%dT%H%M%SZ")
     out = root / "builds" / build_id
@@ -164,18 +162,18 @@ def _sra_typed(root: Path, records: dict[str, _Row]) -> None:
     wanted = {a for a, r in records.items() if r.parsed.type.startswith("SRA ")}
     if not wanted:
         return
-    tab = snapshots.snapshot(root, snapshots.SRA_ACCESSIONS).path
-    for row in snapshots.tab_rows(
-        tab,
-        lambda r: r.get("Accession") in wanted,
-        line_filter=lambda line: line[: line.find("\t")] in wanted,
-    ):
-        records[row["Accession"]].parsed.typed = {
-            "status": row.get("Status") or None,
-            "submitted": (row.get("Received") or "")[:10] or None,
-            "updated": (row.get("Updated") or "")[:10] or None,
-            "published": (row.get("Published") or "")[:10] or None,
+    _, rows = extract.lookup(root, snapshots.SRA_ACCESSIONS, wanted)
+    for accession, status, submitted, updated, published in rows:
+        records[str(accession)].parsed.typed = {
+            "status": _text(status),
+            "submitted": _text(submitted),
+            "updated": _text(updated),
+            "published": _text(published),
         }
+
+
+def _text(value: object) -> str | None:
+    return None if value is None else str(value)
 
 
 def _bioprojects(root: Path, records: dict[str, _Row], links: set[LinkRow]) -> None:
@@ -184,10 +182,10 @@ def _bioprojects(root: Path, records: dict[str, _Row], links: set[LinkRow]) -> N
     wanted = {a for a in wanted if a.startswith("PRJ")}
     if not wanted:
         return
-    snap = snapshots.snapshot(root, snapshots.BIOPROJECT)
-    for text in snapshots.elements(snap.path, "Package", wanted, _BIOPROJECT_KEY).values():
-        parsed, stated = sources.bioproject(text)
-        records[parsed.accession] = _Row(parsed, snap.date)
+    date, rows = extract.lookup(root, snapshots.BIOPROJECT, wanted)
+    for _, text in rows:
+        parsed, stated = sources.bioproject(str(text))
+        records[parsed.accession] = _Row(parsed, date)
         links.update(stated)
 
 
@@ -195,10 +193,10 @@ def _biosamples(root: Path, records: dict[str, _Row], links: set[LinkRow]) -> No
     wanted = {link.to for link in links if link.relation == "BioSample"}
     if not wanted:
         return
-    snap = snapshots.snapshot(root, snapshots.BIOSAMPLE)
-    for text in snapshots.elements(snap.path, "BioSample", wanted, _BIOSAMPLE_KEY).values():
-        parsed = sources.biosample(text)
-        records[parsed.accession] = _Row(parsed, snap.date)
+    date, rows = extract.lookup(root, snapshots.BIOSAMPLE, wanted)
+    for _, text in rows:
+        parsed = sources.biosample(str(text))
+        records[parsed.accession] = _Row(parsed, date)
 
 
 def _write_records(out: Path, records: dict[str, _Row]) -> None:

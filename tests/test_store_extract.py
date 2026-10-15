@@ -5,6 +5,7 @@ The oracle is ``labdata.store.snapshots``: the serial stream readers the build u
 
 from __future__ import annotations
 
+import re
 import shutil
 from pathlib import Path
 
@@ -54,9 +55,10 @@ def _serial(root: Path, source: str) -> list[dict[str, object]]:
         ]
     if source == snapshots.GEO_SERIES:
         return [{"accession": a} for a in snapshots.accessions(snap, source)]
-    import re
 
-    tag, key = ("Package", _BIOPROJECT) if source == snapshots.BIOPROJECT else ("BioSample", _BIOSAMPLE)
+    tag, key = (
+        ("Package", _BIOPROJECT) if source == snapshots.BIOPROJECT else ("BioSample", _BIOSAMPLE)
+    )
     every = list(snapshots.accessions(snap, source))
     texts = snapshots.elements(snap.path, tag, every, re.compile(key))
     return [{"accession": a, "raw_text": texts[a]} for a in every]
@@ -64,9 +66,7 @@ def _serial(root: Path, source: str) -> list[dict[str, object]]:
 
 @pytest.mark.parametrize("slice_name", _SLICES)
 @pytest.mark.parametrize("source", extract.SOURCES)
-def test_an_extract_equals_the_serial_readers(
-    tmp_path: Path, slice_name: str, source: str
-) -> None:
+def test_an_extract_equals_the_serial_readers(tmp_path: Path, slice_name: str, source: str) -> None:
     root = _root(tmp_path, slice_name)
     out = extract.extract(root, source, workers=1)
     assert out == root / "work" / "extract" / f"{source}-2026-10-14"
@@ -103,7 +103,10 @@ def test_a_part_already_written_is_skipped_and_a_rerun_finishes(
     with pytest.raises(KeyboardInterrupt):
         extract.extract(root, "sra-accessions", workers=1, part_bytes=500)
     out = root / "work" / "extract" / "sra-accessions-2026-10-14"
-    assert sorted(p.name for p in out.glob("part-*")) == ["part-00000.parquet", "part-00001.parquet"]
+    assert sorted(p.name for p in out.glob("part-*")) == [
+        "part-00000.parquet",
+        "part-00001.parquet",
+    ]
     assert not (out / extract.DONE).exists()
 
     calls.clear()
@@ -117,6 +120,8 @@ def test_a_part_already_written_is_skipped_and_a_rerun_finishes(
     assert calls == []
 
 
+# Ray leaves a log file handle open at shutdown.
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")
 def test_ray_with_two_workers_gives_the_same_parts(tmp_path: Path) -> None:
     root = _root(tmp_path)
     out = extract.extract(root, "biosample", workers=2, part_bytes=2000)

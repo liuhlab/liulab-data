@@ -29,6 +29,7 @@ import pyarrow.parquet as pq
 
 from labdata.exceptions import StoreBuildError
 from labdata.store import snapshots
+from labdata.store._files import temp_beside, write_atomic
 
 #: The snapshot sources an extract covers.
 SOURCES = (
@@ -136,7 +137,7 @@ def extract(
             _write_part(task)
     else:
         _run_ray(tasks, workers)
-    (out / DONE).write_text("", encoding="utf-8")
+    write_atomic(out / DONE, "")
     if path != snap.path:
         path.unlink()
     return out
@@ -216,9 +217,7 @@ def _plan(out: Path, size: int, part_bytes: int) -> int:
                 "delete the folder to extract again"
             )
         return int(saved["part_bytes"])
-    tmp = plan.with_name(f".{_PLAN}.tmp")
-    tmp.write_text(json.dumps({"file_bytes": size, "part_bytes": part_bytes}), encoding="utf-8")
-    tmp.replace(plan)
+    write_atomic(plan, json.dumps({"file_bytes": size, "part_bytes": part_bytes}))
     return part_bytes
 
 
@@ -230,7 +229,7 @@ def _plain(root: Path, snap: snapshots.Snapshot, workers: int) -> Path:
     if out.is_file():
         return out
     out.parent.mkdir(parents=True, exist_ok=True)
-    tmp = out.with_name(f".{out.name}.tmp")
+    tmp = temp_beside(out)
     if shutil.which("rapidgzip"):
         command = ["rapidgzip", "-d", "-c", "-P", str(workers), str(snap.path)]
     else:
@@ -271,9 +270,12 @@ def _write_part(task: Task) -> None:
             for name, value in zip(schema.names, row, strict=True):
                 columns[name].append(value)
     final = task.out / _part_name(task.index)
-    tmp = final.with_name(f".{final.name}.tmp")
-    pq.write_table(pa.table(columns, schema=schema), tmp)
-    tmp.replace(final)
+    tmp = temp_beside(final)
+    try:
+        pq.write_table(pa.table(columns, schema=schema), tmp)
+        tmp.replace(final)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def _lines(fh: BinaryIO, start: int, end: int) -> Iterator[bytes]:

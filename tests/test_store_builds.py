@@ -18,6 +18,7 @@ from labdata.store import init_store, open_store
 from labdata.store.build import build
 from labdata.store.fetch import fetch
 from tests._fakes import FakeEntrezClient
+from tests._slices import copy_snapshots
 
 _DATA = Path(__file__).parent / "data"
 _PROJECT = "PRJNA1027859"
@@ -34,7 +35,7 @@ def _isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 def root(tmp_path: Path) -> Path:
     """A store holding PRJNA1027859, fetched and built once as ``b1``."""
     root = tmp_path / "store"
-    shutil.copytree(_DATA / "prjna1027859" / "snapshots", root / "snapshots")
+    copy_snapshots(_DATA / "prjna1027859" / "snapshots", root)
     init_store(root)
     client = FakeEntrezClient(
         esearch={f"{_PROJECT}[si]": ["39637862"]},
@@ -201,7 +202,7 @@ def test_a_geo_rebuild_offline_keeps_supplementary_files_and_documents_filelists
     from tests.test_store_suppl import _client as suppl_client
 
     root = tmp_path / "geo"
-    shutil.copytree(_DATA / "geo_slice" / "snapshots", root / "snapshots")
+    copy_snapshots(_DATA / "geo_slice" / "snapshots", root)
     init_store(root)
     fetch(root, ["GSE15556"], client=suppl_client(), today="2026-10-14")
     build(root, "b1")

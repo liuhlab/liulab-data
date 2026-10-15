@@ -82,9 +82,15 @@ snakemake-minimal = ">=8"
 pyyaml = "*"
 duckdb = ">=1.5.6,<2"
 pyarrow = ">=25.0.0,<26"
-# Parallel snapshot extraction: Ray spreads byte ranges over cores or nodes; rapidgzip
-# decompresses one gzip stream in parallel and seeks in it through an index.
+# Parallel snapshot extraction: Ray spreads byte ranges over cores or nodes.
 ray-core = ">=2.59"
+
+# rapidgzip decompresses one gzip stream on many cores. conda-forge has no osx-arm64 build,
+# so there the extract falls back to pigz.
+[tool.pixi.target.linux-64.dependencies]
+rapidgzip = ">=0.16"
+
+[tool.pixi.target.osx-64.dependencies]
 rapidgzip = ">=0.16"
 
 # The interpreter. `requires-python` is the floor; ruff and pyright take their target from it.
