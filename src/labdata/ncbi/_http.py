@@ -6,7 +6,7 @@ import http.client
 import threading
 import time
 import urllib.parse
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import AbstractContextManager, contextmanager
 from typing import Protocol
 
@@ -44,6 +44,14 @@ class Transport(Protocol):
         ...
 
 
+class _Conns(dict[tuple[str, str], http.client.HTTPConnection]):
+    """One thread's kept-open connections, closed when the thread or the transport goes."""
+
+    def __del__(self) -> None:
+        for conn in self.values():
+            conn.close()
+
+
 class HttpTransport:
     """HTTP over connections kept open between requests, one per thread and host."""
 
@@ -67,9 +75,7 @@ class HttpTransport:
     ) -> Iterator[Response]:
         """Send a request and yield its response; every socket wait is capped at ``timeout``."""
         parts = urllib.parse.urlsplit(url)
-        conns: dict[tuple[str, str], http.client.HTTPConnection] = self._local.__dict__.setdefault(
-            "conns", {}
-        )
+        conns: _Conns = self._local.__dict__.setdefault("conns", _Conns())
         key = (parts.scheme, parts.netloc)
         conn = conns.pop(key, None)
         if conn is None:
@@ -100,19 +106,42 @@ class HttpTransport:
 class RateLimiter:
     """Paces calls to at most ``rate`` per second and caps calls in flight.
 
+    A halved rate climbs back one ``step`` per ``quiet`` seconds without a halving, never
+    above the cap: the starting rate, or a lower one set by :meth:`lower_to`.
+
     Parameters
     ----------
     rate : float
-        Calls per second.
+        Calls per second, and the cap recovery climbs back to.
     inflight : int
         Calls open at once.
     floor : float
         The lowest rate :meth:`halve` goes to.
+    quiet : float
+        Seconds without a halving before the rate takes one step up.
+    step : float
+        The factor one recovery step multiplies the rate by.
+    clock : callable
+        Returns the time in seconds; :func:`time.monotonic` by default.
     """
 
-    def __init__(self, rate: float, inflight: int, *, floor: float = 0.5) -> None:
+    def __init__(
+        self,
+        rate: float,
+        inflight: int,
+        *,
+        floor: float = 0.5,
+        quiet: float = 60.0,
+        step: float = 1.25,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
         self.rate = rate
+        self.cap = rate
         self.floor = floor
+        self._quiet = quiet
+        self._step = step
+        self._clock = clock
+        self._calm_since = clock()
         self._next = 0.0
         self._lock = threading.Lock()
         self._slots = threading.BoundedSemaphore(inflight)
@@ -120,12 +149,14 @@ class RateLimiter:
     def lower_to(self, rate: float) -> None:
         """Cap the rate at ``rate``; never raises it."""
         with self._lock:
+            self.cap = min(self.cap, rate)
             self.rate = min(self.rate, rate)
 
     def halve(self) -> float:
         """Halve the rate, down to the floor, and return the new rate."""
         with self._lock:
             self.rate = max(self.floor, self.rate / 2)
+            self._calm_since = self._clock()
             return self.rate
 
     @contextmanager
@@ -134,7 +165,10 @@ class RateLimiter:
         # The slot is taken before the start time, so slots freeing at once give no burst.
         with self._slots:
             with self._lock:
-                now = time.monotonic()
+                now = self._clock()
+                if self.rate < self.cap and now - self._calm_since >= self._quiet:
+                    self.rate = min(self.cap, self.rate * self._step)
+                    self._calm_since = now
                 start = max(now, self._next)
                 self._next = start + 1.0 / self.rate
             if start > now:

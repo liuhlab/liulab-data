@@ -13,6 +13,7 @@ which bulk runs use.
 from __future__ import annotations
 
 import contextlib
+import errno
 import gzip
 import http
 import http.client
@@ -67,12 +68,18 @@ _EMPTY_IDS = "ID list is empty"
 #: One limiter per process paces every E-utilities call of every client.
 EUTILS_LIMITER = RateLimiter(5.0, 8)
 
+#: Socket errors of a network that may come back.
+_TRANSIENT_ERRNOS = frozenset(
+    {errno.ENETUNREACH, errno.EHOSTUNREACH, errno.ENETDOWN, errno.ECONNREFUSED, errno.ETIMEDOUT}
+)
+
 _TRANSIENT_EXCEPTIONS: tuple[type[BaseException], ...] = (
     http.client.IncompleteRead,
     http.client.RemoteDisconnected,
     ConnectionError,
     TimeoutError,
     socket.timeout,
+    socket.gaierror,
     EOFError,
 )
 
@@ -109,6 +116,8 @@ def _is_transient(err: BaseException) -> bool:
     if isinstance(err, urllib.error.URLError):
         return True
     if isinstance(err, _TRANSIENT_EXCEPTIONS):
+        return True
+    if isinstance(err, OSError) and err.errno in _TRANSIENT_ERRNOS:
         return True
     return any(marker in str(err).lower() for marker in _TRANSIENT_MESSAGES)
 
