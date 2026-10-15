@@ -105,8 +105,14 @@ def test_an_old_store_keeps_reading_its_build_after_the_switch(root: Path) -> No
     assert open_store(root).settings["build"] == "b2"
 
 
+def test_the_marker_keeps_a_build_id_toml_must_escape(root: Path) -> None:
+    build_id = 'b2 "quoted" \\ \x7f \U0001f9ec'
+    build(root, build_id)
+    assert open_store(root).settings == {"format_version": 1, "build": build_id}
+
+
 def test_a_build_killed_before_its_rename_leaves_no_build_and_reruns(root: Path) -> None:
-    stale = root / "builds" / ".b2.tmp"
+    stale = root / "builds" / ".b2.99999999.tmp"
     (stale / "records").mkdir(parents=True)
     (stale / "records" / "half.parquet").write_text("half")
     build(root, "b2")

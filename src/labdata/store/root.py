@@ -6,7 +6,6 @@ store settings live in the store's own ``labdata-store.toml``.
 
 from __future__ import annotations
 
-import json
 import os
 import tomllib
 from collections.abc import Collection, Iterable, Sequence
@@ -24,6 +23,7 @@ from labdata.exceptions import (
 )
 from labdata.geo.sra_records import Experiment, experiments_from_package_xml
 from labdata.store import snapshots
+from labdata.store._files import temp_beside, toml_line, write_atomic
 from labdata.store._offline import OfflineEntrezClient, OfflineSdlClient
 from labdata.store.model import (
     ANNOTATION,
@@ -231,11 +231,21 @@ class Store:
         return out
 
     def raw(self, accessions: Iterable[str]) -> dict[str, RawText]:
-        """Map each held accession to its raw source text and ``content_hash``, in one call.
+        """Map each accession to its raw source text and ``content_hash``, in one call.
 
-        Accessions the store does not hold are left out.
+        Raises
+        ------
+        AccessionError
+            If an accession is malformed.
+        NotMirrored
+            If a snapshot lists an accession the store does not hold. The message lists
+            every such accession.
+        NotFound
+            If no snapshot lists an accession. The message gives the snapshot date.
         """
-        rows = self.backend.raw_many({_norm(a) for a in accessions})
+        wanted = set(_accessions(accessions))
+        rows = self.backend.raw_many(wanted) if wanted else {}
+        self._raise_absent(wanted - set(rows))
         return {a: RawText(text, digest) for a, (text, digest) in sorted(rows.items())}
 
     def supplementary_files(self, accessions: Iterable[str]) -> dict[str, list[SupplementaryFile]]:
@@ -329,7 +339,7 @@ class Store:
             children: dict[str, set[str]] = {}
             for row in self.backend.links_many({acc for _, acc in todo}):
                 for end, link in _ends(row):
-                    if link.relation in _DOWN.get(kind_of(end), ()):
+                    if _leads_down(kind_of(end), link):
                         children.setdefault(end, set()).add(link.other)
             reached = {c for cs in children.values() for c in cs}
             held = self.backend.held_many(reached) if reached else set()
@@ -396,13 +406,17 @@ class Store:
         rest unless ``not_held_ok``.
         """
         missing = accessions - self.backend.held_many(accessions) if accessions else set()
+        self._raise_absent(missing, not_held_ok=not_held_ok)
+        return missing
+
+    def _raise_absent(self, missing: set[str], *, not_held_ok: bool = False) -> None:
+        """Raise ``NotFound`` if no snapshot lists one of ``missing``, else ``NotMirrored``."""
         errors = self._absent_errors(missing).values()
         unknown = sorted(str(e) for e in errors if isinstance(e, NotFound))
         if unknown:
             raise NotFound("; ".join(unknown))
         if missing and not not_held_ok:
             raise NotMirrored(f"not held in this store: {', '.join(sorted(missing))}")
-        return missing
 
     def table(self, type: str, fields: Sequence[str], where: str | None = None) -> pa.Table:
         """Return one record type as a ``pyarrow.Table``, sorted by accession, in one call.
@@ -417,6 +431,7 @@ class Store:
             Raw field names. Each becomes a list column of every value, in source order.
         where : str or None
             A DuckDB condition over the columns, such as ``"published >= '2020-01-01'"``.
+            It is trusted SQL from the caller, pasted into the query as written.
 
         Returns
         -------
@@ -427,11 +442,12 @@ class Store:
         Raises
         ------
         ValueError
-            If the record type is unknown.
-
+            If the record type is unknown, or ``where`` holds a ``;``.
         """
         if type not in _SNAPSHOT_OF:
             raise ValueError(f"unknown record type {type!r}; known: {sorted(_SNAPSHOT_OF)}")
+        if where is not None and ";" in where:
+            raise ValueError(f"where must be one condition, without ';': {where!r}")
         return self.backend.table(type, list(fields), where)
 
     def _absent_errors(self, accessions: set[str]) -> dict[str, NotMirrored | NotFound]:
@@ -462,6 +478,17 @@ _DOWN: dict[str, tuple[str, ...]] = {
     "BioSample": ("BioSample of",),
     "SRA run": ("run of",),
 }
+
+#: The record types a walk may step to from a BioProject: SRA only, not into the GEO
+#: Series that name it.
+_BIOPROJECT_DOWN_TO = ("BioProject", "SRA study", "SRA experiment")
+
+
+def _leads_down(kind: str, link: Link) -> bool:
+    """Return whether a walk at a record of ``kind`` steps along ``link``."""
+    if link.relation not in _DOWN.get(kind, ()):
+        return False
+    return kind != "BioProject" or kind_of(link.other) in _BIOPROJECT_DOWN_TO
 
 
 #: The snapshot that lists each record type's accessions.
@@ -562,7 +589,7 @@ def init_store(root: str | os.PathLike[str]) -> Path:
     path = Path(root)
     path.mkdir(parents=True, exist_ok=True)
     marker = path / MARKER
-    tmp = path / f".{MARKER}.init.tmp"
+    tmp = temp_beside(marker, "init")
     tmp.write_text(f"format_version = {FORMAT_VERSION}\n", encoding="utf-8")
     try:
         # A hard link fails if the marker exists, so two inits cannot both win.
@@ -601,8 +628,7 @@ def save_pointer(root: str | os.PathLike[str]) -> Path:
     ensure_cache_dir()
     path = pointer_path()
     absolute = Path(root).expanduser().absolute()
-    # A JSON string is a valid TOML basic string, escapes included.
-    path.write_text(f"[store]\nroot = {json.dumps(str(absolute))}\n", encoding="utf-8")
+    write_atomic(path, f"[store]\n{toml_line('root', str(absolute))}\n")
     return path
 
 

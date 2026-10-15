@@ -144,6 +144,14 @@ def test_fetch_pulls_packages_of_every_linked_experiment_and_si_for_each_series(
     assert searched["GSE19456"] == ""
 
 
+def test_si_is_searched_for_every_held_bioproject_linked_or_given(store: Store) -> None:
+    path = store.root / "builds" / "b1" / "holdings.parquet"
+    held = {r["accession"] for r in _rows(path) if r["type"] == "BioProject"}
+    searched = {r.accession for r in raw.read_rows(store.root, raw.PUBMED_SI)}
+    assert "PRJNA120321" in held
+    assert held <= searched
+
+
 def test_a_rerun_makes_no_call_for_items_already_saved(built: Path, tmp_path: Path) -> None:
     copy = tmp_path / "again"
     shutil.copytree(built, copy)
@@ -171,6 +179,43 @@ def test_entrez_calls_are_batched_across_samples(root: Path) -> None:
     assert client.count("elink_many") == 2
     assert client.count("esummary_many") == 2
     assert client.count("efetch") == 1
+
+
+def _series_soft(gse: str, kind: str, subseries: tuple[str, ...] = ()) -> str:
+    lines = [f"^SERIES = {gse}", f"!Series_geo_accession = {gse}", f"!Series_type = {kind}"]
+    lines += [f"!Series_relation = SuperSeries of: {sub}" for sub in subseries]
+    return "\n".join(lines) + "\n"
+
+
+def test_fetch_skips_a_series_that_is_not_sequencing_and_logs_its_type(
+    root: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    array = "Expression profiling by array"
+    sequencing = "Expression profiling by high throughput sequencing"
+    pages: dict[str, str | None] = {
+        _soft_url("GSE900001"): _series_soft("GSE900001", array),
+        _soft_url("GSE900002"): _series_soft("GSE900002", array, ("GSE900003", "GSE900004")),
+        _soft_url("GSE900003"): _series_soft("GSE900003", sequencing),
+        _soft_url("GSE900004"): _series_soft("GSE900004", array),
+    }
+    client = FakeEntrezClient(pages=pages)
+    with caplog.at_level("INFO", logger="labdata.store.fetch"):
+        report = fetch(root, ["GSE900001", "GSE900002"], client=client, today="2026-10-14")
+    assert report.series == ("GSE900002", "GSE900003")
+    assert sorted(
+        raw.saved(root, raw.GEO_SOFT, ["GSE900001", "GSE900002", "GSE900003", "GSE900004"])
+    ) == [
+        "GSE900002",
+        "GSE900003",
+    ]
+    assert "GSE900001" in caplog.text
+    assert "GSE900004" in caplog.text
+    assert array in caplog.text
+
+
+def test_a_series_typed_sequencing_and_other_is_fetched(root: Path) -> None:
+    report = fetch(root, ["GSE15556", "GSE233931"], client=_client(), today="2026-10-14")
+    assert report.series == ("GSE15556", "GSE233931")
 
 
 # ---------------------------------------------------------------- records

@@ -407,7 +407,7 @@ def geo_original_stage(
     retries: int = typer.Option(sratools.DEFAULT_RETRIES, "--retries", min=1),
     backoff: float = typer.Option(sratools.DEFAULT_BACKOFF, "--backoff", min=0.0),
 ) -> None:
-    """Download one run's original-format files with curl — a download-only DAG stage (internal)."""
+    """Download one run's original-format files with curl (an internal download-only DAG stage)."""
     _run_stage(
         lambda: sratools.download_original_run(Run(srr), srx_dir, retries=retries, backoff=backoff)
     )

@@ -9,28 +9,28 @@ killed run keeps what it saved.
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import re
-import urllib.error
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from labdata.exceptions import EntrezError
-from labdata.ncbi.entrez import EntrezClient, _docsum_uid
+from labdata.exceptions import PageNotFound
+from labdata.geo.sra_records import fetch_package_texts
+from labdata.ncbi.entrez import EntrezClient, docsum_uid
 from labdata.store import provenance, raw, snapshots, sources
 from labdata.store.model import kind_of
-from labdata.store.sources import split_packages
 
-#: Experiments per ``efetch db=sra`` request.
-SRA_BATCH = 200
-#: How many times a batch's missing packages are requested again before failing.
-SRA_RETRIES = 2
 #: Upper bound on PMIDs kept per ``[si]`` search.
 PUBMED_RETMAX = 10_000
 #: Items fetched between two writes of their raw rows.
 CHUNK = 100
 #: GEO's ``gds`` UID of a Series or Sample is this offset plus its number.
 GDS_OFFSET = {"GSE": 200_000_000, "GSM": 300_000_000}
+
+_SERIES_TYPE = re.compile(r"^!Series_type = (.*?)\s*$", re.M)
+_SEQUENCING = "high throughput sequencing"
+logger = logging.getLogger(__name__)
 
 _SOFT_SRX = re.compile(r"^!Sample_relation = SRA: \S*?[?&]term=([SED]RX\d+)", re.M)
 
@@ -53,11 +53,13 @@ def fetch(
 ) -> FetchReport:
     """Fetch the raw text under some accessions into ``raw/``, skipping what is saved.
 
-    A GEO Series brings its family SOFT and ``filelist.txt``, its SubSeries', the ``elink`` gds to sra (per
-    sample) and gds to bioproject (per Series) results, and the SRA packages of every
-    experiment those name. A BioProject or SRA study is expanded to its experiments through
+    A GEO Series brings its family SOFT and ``filelist.txt``, its SubSeries', the
+    ``elink`` gds to sra (per sample) and gds to bioproject (per Series) results, and the SRA
+    packages of every experiment those name; only sequencing Series are fetched (see
+    :func:`fetch_series`). A BioProject or SRA study is expanded to its experiments through
     the newest ``SRA_Accessions.tab`` snapshot; an experiment is taken as given. ``[si]`` is
-    searched for each Series, each given BioProject and every SRA study the packages name.
+    searched for each Series, every BioProject given or linked, and every SRA study the
+    packages name.
 
     Parameters
     ----------
@@ -99,15 +101,16 @@ def fetch(
         root,
         raw.SRA_XML,
         sorted(experiments),
-        lambda todo: fetch_packages(client, todo),
+        lambda todo: fetch_package_texts(client, todo),
         date,
-        SRA_BATCH,
     )
 
     studies = {a for a, k in kinds.items() if k == "SRA study"}
     for text in packages.values():
         studies |= set(_study_refs(text))
-    queried = sorted({a for a, k in kinds.items() if k == "BioProject"} | studies | set(soft))
+    projects = {a for a, k in kinds.items() if k == "BioProject"}
+    projects |= _linked_bioprojects(soft.values(), linked.values(), packages.values())
+    queried = sorted(projects | studies | set(soft))
     searched = _resume(
         root,
         raw.PUBMED_SI,
@@ -154,24 +157,54 @@ def soft_url(series: str) -> str:
 
 
 def fetch_series(root: Path, client: EntrezClient, series: list[str], date: str) -> dict[str, str]:
-    """Return the family SOFT of each Series and, recursively, of its SubSeries."""
+    """Return the family SOFT of each sequencing Series and, recursively, of its SubSeries.
+
+    A Series is kept when a ``!Series_type`` names high-throughput sequencing, or when it is
+    a SuperSeries with a kept SubSeries. A skipped Series is logged with its types and not
+    saved.
+    """
     out: dict[str, str] = {}
+    pending: dict[str, str] = {}
+    seen: set[str] = set()
     todo = sorted(set(series))
     while todo:
-        out |= _resume(
-            root,
-            raw.GEO_SOFT,
-            todo,
-            lambda chunk: {gse: client.fetch_text(soft_url(gse)) for gse in chunk},
-            date,
-        )
-        todo = sorted({sub for gse in todo for sub in sources.subseries(out[gse])} - set(out))
+        seen |= set(todo)
+        texts = raw.saved(root, raw.GEO_SOFT, todo)
+        out |= texts
+        rest = [gse for gse in todo if gse not in texts]
+        for start in range(0, len(rest), CHUNK):
+            got = {gse: client.fetch_text(soft_url(gse)) for gse in rest[start : start + CHUNK]}
+            kept = {gse: text for gse, text in got.items() if _sequencing(text)}
+            raw.write_rows(root, raw.GEO_SOFT, [raw.RawRow(g, t, date) for g, t in kept.items()])
+            out |= kept
+            pending |= {gse: text for gse, text in got.items() if gse not in kept}
+            texts |= got
+        todo = sorted({sub for text in texts.values() for sub in sources.subseries(text)} - seen)
+    while kept := {
+        gse: text
+        for gse, text in pending.items()
+        if any(sub in out for sub in sources.subseries(text))
+    }:
+        raw.write_rows(root, raw.GEO_SOFT, [raw.RawRow(g, t, date) for g, t in kept.items()])
+        out |= kept
+        pending = {gse: text for gse, text in pending.items() if gse not in kept}
+    for gse, text in sorted(pending.items()):
+        types = "; ".join(_SERIES_TYPE.findall(text)) or "no type"
+        logger.info("skipped %s: not high-throughput sequencing (%s)", gse, types)
     return out
+
+
+def _sequencing(soft: str) -> bool:
+    """Return whether a family SOFT's Series names a high-throughput sequencing type."""
+    return any(_SEQUENCING in kind.lower() for kind in _SERIES_TYPE.findall(soft))
 
 
 def filelist_url(series: str) -> str:
     """Return the URL of a Series' ``suppl/filelist.txt`` on GEO's download site."""
-    return f"https://ftp.ncbi.nlm.nih.gov/geo/series/{raw.bucket_of(series)}/{series}/suppl/filelist.txt"
+    return (
+        f"https://ftp.ncbi.nlm.nih.gov/geo/series/{raw.bucket_of(series)}/{series}"
+        "/suppl/filelist.txt"
+    )
 
 
 def fetch_filelists(
@@ -188,14 +221,11 @@ def fetch_filelists(
 
 
 def _text_or_empty(client: EntrezClient, url: str) -> str:
-    """Return a page's text, or ``""`` when the server answers 404."""
+    """Return a page's text, or ``""`` when the page does not exist."""
     try:
         return client.fetch_text(url)
-    except EntrezError as err:
-        cause = err.__cause__
-        if isinstance(cause, urllib.error.HTTPError) and cause.code == 404:
-            return ""
-        raise
+    except PageNotFound:
+        return ""
 
 
 def fetch_entrez_links(
@@ -240,7 +270,7 @@ def _accessions(client: EntrezClient, db: str, uids: set[str]) -> dict[str, str]
         return {}
     out = {}
     for doc in client.esummary_many(db, sorted(uids)):
-        uid = _docsum_uid(doc)
+        uid = docsum_uid(doc)
         if db == "sra":
             match = re.search(r'<Experiment\b[^>]*?\bacc="([^"]+)"', str(doc.get("ExpXml", "")))
             accession = match[1] if match else ""
@@ -270,29 +300,14 @@ def experiments_under(root: Path, parents: set[str]) -> set[str]:
     return found
 
 
-def fetch_packages(client: EntrezClient, experiments: list[str]) -> dict[str, str]:
-    """Fetch each experiment's ``EXPERIMENT_PACKAGE``, checking that every one came back.
-
-    Raises
-    ------
-    EntrezError
-        If packages are still missing after :data:`SRA_RETRIES` further requests.
-    """
-    out: dict[str, str] = {}
-    for start in range(0, len(experiments), SRA_BATCH):
-        todo = experiments[start : start + SRA_BATCH]
-        for _attempt in range(SRA_RETRIES + 1):
-            reply = client.efetch(db="sra", ids=todo, rettype="full", retmode="xml")
-            got = split_packages(reply)
-            out.update((srx, got[srx]) for srx in todo if srx in got)
-            todo = [srx for srx in todo if srx not in got]
-            if not todo:
-                break
-        if todo:
-            raise EntrezError(
-                f"efetch db=sra left out {len(todo)} requested packages: {', '.join(todo)}"
-            )
-    return out
+def _linked_bioprojects(
+    soft: Iterable[str], linked: Iterable[str], packages: Iterable[str]
+) -> set[str]:
+    """Return the BioProjects the saved texts link to: the ones a build will hold."""
+    links = [row for text in soft for row in sources.soft(text)[1]]
+    links += [row for text in linked for row in sources.entrez_links(text)]
+    links += [row for text in packages for row in sources.sra_package(text)[1]]
+    return {row.to for row in links if row.relation == "BioProject"}
 
 
 def _study_refs(package: str) -> list[str]:

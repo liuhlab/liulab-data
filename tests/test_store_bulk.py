@@ -151,6 +151,11 @@ def test_table_names_an_unknown_type(sra_root: Path) -> None:
         open_store(sra_root).table("Series", [])
 
 
+def test_table_rejects_a_where_holding_more_than_one_statement(sra_root: Path) -> None:
+    with pytest.raises(ValueError, match=";"):
+        open_store(sra_root).table("SRA experiment", [], where="true; DROP TABLE x")
+
+
 # ---------------------------------------------------------------- the one-record path
 
 

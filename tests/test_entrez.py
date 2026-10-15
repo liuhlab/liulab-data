@@ -7,11 +7,13 @@ no network or XML parsing happens here.
 
 import http.client
 import urllib.error
+import urllib.request
+from email.message import Message
 
 import pytest
 
 import labdata.ncbi.entrez as entrez_mod
-from labdata.exceptions import EntrezError
+from labdata.exceptions import EntrezError, PageNotFound
 from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient, _is_transient
 
@@ -376,3 +378,24 @@ def test_elink_many_maps_each_uid_in_one_request(count_entrez) -> None:
     result = EntrezClient(CREDS).elink_many(dbfrom="gds", db="sra", uids=["1", "2", "1"])
     assert result == {"1": ["9", "8"], "2": []}
     assert [call["id"] for call in calls] == [["1", "2"]]
+
+
+def test_fetch_text_signals_a_missing_page(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _missing(request: object, **_kw: object) -> _TextHandle:
+        raise urllib.error.HTTPError("https://x/", 404, "gone", Message(), None)
+
+    monkeypatch.setattr(entrez_mod.urllib.request, "urlopen", _missing)
+    with pytest.raises(PageNotFound, match="https://x/"):
+        EntrezClient(CREDS).fetch_text("https://x/")
+
+
+def test_fetch_text_identifies_the_repo(monkeypatch: pytest.MonkeyPatch) -> None:
+    agents: list[str | None] = []
+
+    def _urlopen(request: urllib.request.Request, **_kw: object) -> _TextHandle:
+        agents.append(request.get_header("User-agent"))
+        return _TextHandle(b"ok")
+
+    monkeypatch.setattr(entrez_mod.urllib.request, "urlopen", _urlopen)
+    assert EntrezClient(CREDS).fetch_text("https://example/") == "ok"
+    assert agents == ["liulab-data (+https://github.com/liuhlab/liulab-data)"]

@@ -1,8 +1,8 @@
 """The DuckDB backend: one query per call over one build's sorted Parquet tables.
 
-Every method takes a collection. Results come back as plain tuples through ``fetchall``, so
-this path imports neither pandas nor pyarrow; only ``table`` returns Arrow. DuckDB's temp files go in the reader's own
-cache folder, never the store.
+Every method takes a collection. Results come back as plain tuples through
+``fetchall``, so this path imports neither pandas nor pyarrow; only ``table`` returns
+Arrow. DuckDB's temp files go in the reader's own cache folder, never the store.
 """
 
 from __future__ import annotations

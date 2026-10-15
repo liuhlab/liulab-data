@@ -3,10 +3,11 @@
 Every NCBI E-utilities call in liulab-data goes through :class:`EntrezClient`,
 which sets the contact email / API key from
 :func:`labdata.ncbi.config.load_credentials` and exposes small typed helpers
-(``esearch``, ``esummary``, ``esummary_many``, ``elink``) that parse the XML
-handle into plain Python structures, plus ``efetch`` for raw (e.g. CSV)
-responses and ``fetch_text`` for NCBI web pages outside E-utilities. Concentrating network access in one seam keeps the rest of the
-package easy to unit-test by substituting a fake client.
+(``esearch``, ``esummary``, ``esummary_many``, ``elink``, ``elink_many``) that
+parse the XML handle into plain Python structures, plus ``efetch`` for raw (e.g.
+CSV) responses and ``fetch_text`` for NCBI web pages outside E-utilities.
+Concentrating network access in one seam keeps the rest of the package easy to
+unit-test by substituting a fake client.
 
 Responses are memoized per client instance, so records that share a client never
 repeat an identical request; ``esummary_many`` further collapses a list of UIDs
@@ -26,7 +27,7 @@ from typing import Any
 
 from Bio import Entrez
 
-from labdata.exceptions import EntrezError
+from labdata.exceptions import EntrezError, PageNotFound
 from labdata.ncbi.config import NcbiCredentials, load_credentials
 
 # Bio.Entrez ships no type stubs and exposes mutable module-level globals; alias
@@ -106,12 +107,22 @@ def _docsums(record: Any) -> list[Any]:
     return list(record)
 
 
-def _docsum_uid(docsum: Any) -> str | None:
+def docsum_uid(docsum: Any) -> str | None:
     """Return the NCBI UID of a single document summary, if present.
 
     Classic ``DocSum`` records (``gds``/``sra``) carry the UID under the ``Id``
     key; v2.0 ``DocumentSummary`` records (``bioproject``) carry it as the XML
     ``uid`` attribute, which Biopython exposes via ``.attributes``.
+
+    Parameters
+    ----------
+    docsum : Any
+        One summary from :meth:`EntrezClient.esummary_many`.
+
+    Returns
+    -------
+    str or None
+        The UID, or ``None`` when the summary carries none.
     """
     uid = docsum.get("Id") if hasattr(docsum, "get") else None
     if not uid:
@@ -234,7 +245,7 @@ class EntrezClient:
         list of dict
             One document summary per UID, in NCBI's order. The mappings may carry
             NCBI's ``Id``/``uid`` so callers can recover each summary's UID via
-            :func:`_docsum_uid`. Cached per client by the exact UID list.
+            :func:`docsum_uid`. Cached per client by the exact UID list.
         """
         ids = [str(uid) for uid in uids]
         if not ids:
@@ -379,6 +390,8 @@ class EntrezClient:
 
         Raises
         ------
+        PageNotFound
+            If the server answers 404.
         EntrezError
             If the request fails after the transient-failure retries.
         """
@@ -386,9 +399,17 @@ class EntrezClient:
         cached = self._cache.get(key)
         if cached is None:
             request = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
-            cached = self._cache[key] = self._request(
-                lambda: urllib.request.urlopen(request, timeout=_PAGE_TIMEOUT), self._parse_text
-            )
+            try:
+                cached = self._request(
+                    lambda: urllib.request.urlopen(request, timeout=_PAGE_TIMEOUT),
+                    self._parse_text,
+                )
+            except EntrezError as err:
+                cause = err.__cause__
+                if isinstance(cause, urllib.error.HTTPError) and cause.code == 404:
+                    raise PageNotFound(f"no page at {url}") from cause
+                raise
+            self._cache[key] = cached
         return cached
 
     def _request(self, open_handle: Callable[[], Any], parse: Callable[[Any], Any]) -> Any:
