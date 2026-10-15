@@ -126,9 +126,10 @@ rule coverage:
         f"{STORE} coverage {ROOT} {LOG}"
 
 
+# Prune and copy wait for coverage, so a round that fails it never changes the bucket.
 rule prune:
     input:
-        "build.done",
+        "coverage.done",
     output:
         touch("prune.done"),
     log:

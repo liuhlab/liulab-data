@@ -176,3 +176,27 @@ def test_run_refuses_a_fraction_outside_zero_to_one(store: Path) -> None:
     result = CliRunner().invoke(app, ["store", "run", "--root", str(store), "--fraction", "2"])
     assert result.exit_code == 2
     assert "fraction" in result.output
+
+
+def test_prune_and_copy_wait_for_coverage_to_pass(
+    store: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: dict[str, dict[str, int]] = {}
+
+    def fake(argv: list[str], *, verbose: bool) -> int:
+        work = Path(argv[argv.index("--directory") + 1])
+        target_list = Path(json.loads((work / "config.json").read_text())["targets"])
+        target_list.parent.mkdir(parents=True, exist_ok=True)
+        target_list.touch()
+        extracts = [f"extract-{s}" for s in ("biosample", "bioproject", "sra-accessions")]
+        for marker in [*extracts, "extract-geo-series", "geo", "eutils-beside-geo", "eutils"]:
+            (work / f"{marker}.done").touch()
+        (work / "pack.done").touch()
+        (work / "build.done").touch()
+        seen["jobs"] = _dry_run([*argv, "copy.done"])
+        return 0
+
+    monkeypatch.setattr(pipeline, "_run_snakemake", fake)
+    result = CliRunner().invoke(app, ["store", "run", "--root", str(store)])
+    assert result.exit_code == 0, result.output
+    assert seen["jobs"] == {"coverage": 1, "prune": 1, "copy": 1}
