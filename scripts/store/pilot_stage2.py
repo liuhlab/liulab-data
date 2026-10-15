@@ -6,8 +6,9 @@ takes a seeded, nested fraction of the sequencing Series for one step.
 
 ``concurrent`` fills the pilot's ``raw/`` the stage 2 way. Family SOFT and ``filelist.txt``
 come over a few kept-open HTTPS connections, with the SOFT data tables stripped as it
-streams. The library's chunked ``elink`` fetch and the SRA package ``efetch`` run from
-thread pools; PubMed ``[si]`` searches wait for stage 4. The workers return results, and
+streams. The E-utilities calls, a combined ``elink`` per Series and the SRA package
+``efetch``, are POSTs paced by one shared rate (:class:`EUtils`); PubMed ``[si]`` searches
+wait for stage 4. The workers return results, and
 the script alone writes ``raw/``, one :func:`labdata.store.raw.write_rows` call per source
 (the pack). ``elink-extra`` counts the links ``elink`` adds beyond the SOFT relation lines
 and ``SRA_Accessions.tab``.
@@ -30,6 +31,7 @@ Usage, each under ``pixi run python scripts/store/``::
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime as dt
 import gzip
 import hashlib
@@ -42,6 +44,7 @@ import queue
 import random
 import re
 import resource
+import socket
 import sys
 import threading
 import time
@@ -55,8 +58,9 @@ from typing import Any
 
 import pyarrow.parquet as pq
 
-from labdata.geo.sra_records import fetch_package_texts, split_packages
+from labdata.geo.sra_records import split_packages
 from labdata.ncbi import entrez
+from labdata.ncbi.config import load_credentials
 from labdata.ncbi.entrez import EntrezClient
 from labdata.store import build, extract, fetch, init_store, provenance, raw, snapshots, sources
 from labdata.store._files import write_atomic
@@ -228,6 +232,11 @@ def _record_transient(err: BaseException) -> bool:
 _is_transient = entrez._is_transient
 # Measuring only: the client still decides; this sees the 429s and drops it retries past.
 entrez._is_transient = _record_transient
+
+#: Seconds a socket may wait. Bio.Entrez opens URLs with no timeout, so a connection whose
+#: packets are lost hangs a worker until TCP gives up; a timeout lets the client retry it.
+SOCKET_TIMEOUT = 30.0
+socket.setdefaulttimeout(SOCKET_TIMEOUT)
 
 
 class _SkipLog(logging.Handler):
@@ -659,22 +668,222 @@ def _pool(
     return out, time.perf_counter() - start, dict(errors)
 
 
-def combined_links(client: EntrezClient, dbfrom: str, db: str, uids: list[str]) -> set[str]:
-    """Return every UID that any of ``uids`` links to, from one ``elink`` call.
+EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
+#: Requests per second for all calls together; NCBI allows 10 per API key, 3 without one.
+DEFAULT_RATE = 8.0
+#: IDs per esummary POST.
+SUMMARY_BATCH = 500
+_RATE_FLOOR = 0.5
 
-    The UIDs go as one comma-joined ``id``, so NCBI answers one merged set; which source UID
-    gave which link is lost.
+
+class EUtilsError(Exception):
+    """An E-utilities request failed for good."""
+
+
+def _rank(ordered: list[int], q: float) -> int | None:
+    if not ordered:
+        return None
+    return ordered[min(len(ordered) - 1, max(0, math.ceil(q * len(ordered)) - 1))]
+
+
+@dataclass(slots=True)
+class EStats:
+    """What one E-utility did: requests, IDs per request, latency, throttles and retries."""
+
+    requests: int = 0
+    ids: list[int] = field(default_factory=list)
+    millis: list[int] = field(default_factory=list)
+    bytes: int = 0
+    throttles: Counter[str] = field(default_factory=Counter)
+    retries: Counter[str] = field(default_factory=Counter)
+    first: float | None = None
+    last: float = 0.0
+
+    def summary(self) -> dict[str, Any]:
+        """Return the counts, IDs per request, achieved rate and latency quantiles."""
+        span = self.last - self.first if self.first is not None else 0.0
+        return {
+            "requests": self.requests,
+            "ids_per_request": quantiles(self.ids),
+            "req_per_s": round(self.requests / span, 2) if span > 0 else None,
+            "latency_ms": quantiles(self.millis) | {"p95": _rank(sorted(self.millis), 0.95)},
+            "bytes": self.bytes,
+            "throttles": dict(self.throttles),
+            "retries": dict(self.retries),
+        }
+
+
+def _backoff(attempt: int) -> float:
+    """Exponential backoff with jitter, capped at 60 s."""
+    return min(60.0, 2.0**attempt) * random.uniform(0.5, 1.0)
+
+
+class EUtils:
+    """NCBI E-utilities over kept-open connections: every call a POST, one shared rate.
+
+    One token bucket paces every request of the process at ``rate`` per second, and at most
+    ``inflight`` requests are open at once. A 429 or 503 halves the rate. It, another 5xx
+    or a dropped connection is retried after ``Retry-After`` or an exponential backoff.
     """
-    if not uids:
-        return set()
-    reply = client.elink_many(dbfrom, db, [",".join(uids)])
-    return {uid for linked in reply.values() for uid in linked}
+
+    def __init__(
+        self,
+        *,
+        email: str,
+        api_key: str | None,
+        rate: float = DEFAULT_RATE,
+        inflight: int = 4,
+        base: str = EUTILS,
+        timeout: float = SOCKET_TIMEOUT,
+        tries: int = 6,
+        tool: str = "liulab-data",
+    ) -> None:
+        self.url = urllib.parse.urlsplit(base)
+        self.params = {"tool": tool, "email": email} | ({"api_key": api_key} if api_key else {})
+        self.rate, self.timeout, self.tries = rate, timeout, tries
+        self.stats: dict[str, EStats] = defaultdict(EStats)
+        self._next = 0.0
+        self._lock = threading.Lock()
+        self._slots = threading.BoundedSemaphore(inflight)
+        self._local = threading.local()
+
+    def _turn(self) -> None:
+        with self._lock:
+            now = time.monotonic()
+            at = max(now, self._next)
+            self._next = at + 1.0 / self.rate
+        time.sleep(max(0.0, at - now))
+
+    def _conn(self) -> http.client.HTTPConnection:
+        conn = getattr(self._local, "conn", None)
+        if conn is None:
+            if self.url.scheme == "https":
+                conn = http.client.HTTPSConnection(self.url.netloc, timeout=self.timeout)
+            else:
+                conn = http.client.HTTPConnection(self.url.netloc, timeout=self.timeout)
+            self._local.conn = conn
+        return conn
+
+    def _drop(self) -> None:
+        conn = getattr(self._local, "conn", None)
+        if conn is not None:
+            conn.close()
+        self._local.conn = None
+
+    def _note(self, util: str, kind: str, *, throttled: bool) -> None:
+        with self._lock:
+            stats = self.stats[util]
+            (stats.throttles if throttled else stats.retries)[kind] += 1
+            if throttled:
+                self.rate = max(_RATE_FLOOR, self.rate / 2)
+        say(f"{util}: {kind}; rate now {self.rate:g}/s")
+
+    def post(self, util: str, params: dict[str, str], ids: int = 0) -> bytes:
+        """POST ``params`` to ``<util>.fcgi`` and return the body; ``ids`` is for the stats."""
+        body = urllib.parse.urlencode(params | self.params).encode()
+        headers = {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "User-Agent": _USER_AGENT,
+        }
+        for attempt in range(1, self.tries + 1):
+            self._turn()
+            wait = _backoff(attempt)
+            start = time.perf_counter()
+            with self._lock:
+                if self.stats[util].first is None:
+                    self.stats[util].first = start
+            try:
+                with self._slots:
+                    conn = self._conn()
+                    conn.request("POST", f"{self.url.path}/{util}.fcgi", body, headers)
+                    resp = conn.getresponse()
+                    data = resp.read()
+            except (OSError, http.client.HTTPException) as exc:
+                self._drop()
+                kind = "timeout" if isinstance(exc, TimeoutError) else type(exc).__name__
+                self._note(util, kind, throttled=False)
+            else:
+                end = time.perf_counter()
+                limited = b"API rate limit exceeded" in data[:300]
+                if resp.status == 200 and not limited:
+                    with self._lock:
+                        stats = self.stats[util]
+                        stats.requests += 1
+                        stats.ids.append(ids)
+                        stats.millis.append(round((end - start) * 1000))
+                        stats.bytes += len(data)
+                        stats.last = end
+                    return data
+                if resp.status < 500 and resp.status != 429 and not limited:
+                    raise EUtilsError(f"{util} HTTP {resp.status}: {data[:200]!r}")
+                throttled = resp.status in _THROTTLED or limited
+                self._note(util, f"HTTP {resp.status}", throttled=throttled)
+                with contextlib.suppress(ValueError):
+                    wait = max(wait, float(resp.getheader("Retry-After") or 0))
+                if resp.will_close:
+                    self._drop()
+            if attempt < self.tries:
+                time.sleep(wait)
+        raise EUtilsError(f"{util} failed {self.tries} times")
+
+    def elink(self, dbfrom: str, db: str, uids: list[str]) -> set[str]:
+        """Return every UID that any of ``uids`` links to, from one combined ``elink``.
+
+        The UIDs go as one comma-joined ``id``, so NCBI answers one merged set; which source
+        UID gave which link is lost.
+        """
+        if not uids:
+            return set()
+        params = {"dbfrom": dbfrom, "db": db, "id": ",".join(uids), "retmode": "json"}
+        reply = json.loads(self.post("elink", params, len(uids)))
+        return {
+            str(link)
+            for linkset in reply.get("linksets", [])
+            for linksetdb in linkset.get("linksetdbs", [])
+            if linksetdb.get("dbto") == db
+            for link in linksetdb.get("links", [])
+        }
+
+    def esummary(self, db: str, uids: list[str]) -> dict[str, dict[str, Any]]:
+        """Return the document summary of each UID, by UID, from one ``esummary``."""
+        if not uids:
+            return {}
+        params = {"db": db, "id": ",".join(uids), "retmode": "json"}
+        result = json.loads(self.post("esummary", params, len(uids))).get("result", {})
+        return {str(u): result[str(u)] for u in result.get("uids", []) if str(u) in result}
+
+    def efetch(self, db: str, ids: list[str], *, rettype: str, retmode: str) -> str:
+        """Return one ``efetch`` reply as text."""
+        params = {"db": db, "id": ",".join(ids), "rettype": rettype, "retmode": retmode}
+        return self.post("efetch", params, len(ids)).decode("utf-8")
+
+    def report(self) -> dict[str, Any]:
+        """Return each E-utility's stats and the rate in force at the end."""
+        return {"rate_at_end": self.rate} | {k: v.summary() for k, v in sorted(self.stats.items())}
+
+
+def accession_of(db: str, doc: dict[str, Any]) -> str:
+    """Return the accession in an ``sra`` or ``bioproject`` document summary."""
+    if db == "sra":
+        xml = str(doc.get("expxml") or doc.get("ExpXml") or "")
+        match = re.search(r'<Experiment\b[^>]*?\bacc="([^"]+)"', xml)
+        return match[1] if match else ""
+    return str(doc.get("project_acc") or doc.get("Project_Acc") or "")
+
+
+def _throttles(utils: list[str], eutils: EUtils) -> Counter[str]:
+    out: Counter[str] = Counter()
+    for util in utils:
+        if util in eutils.stats:
+            out.update(eutils.stats[util].throttles)
+            out.update(eutils.stats[util].retries)
+    return out
 
 
 def concurrent_fetch(
     pilot: Path,
     step: str,
-    client: EntrezClient,
+    eutils: EUtils,
     *,
     connections: int,
     inflight: int,
@@ -691,8 +900,12 @@ def concurrent_fetch(
     if path.is_file():
         return json.loads(path.read_text(encoding="utf-8"))
     date = dt.datetime.now(dt.UTC).date().isoformat()
-    metered = MeteredClient(client)
-    result: dict[str, Any] = {"connections": connections, "inflight": inflight, "batch": batch}
+    result: dict[str, Any] = {
+        "connections": connections,
+        "inflight": inflight,
+        "batch": batch,
+        "rate": eutils.rate,
+    }
     begin = time.perf_counter()
 
     # Family SOFT, then the SubSeries they name, round by round.
@@ -736,46 +949,40 @@ def concurrent_fetch(
         g: v or "" for g, v in files.items() if g not in result[raw.GEO_FILELIST]["failed"]
     }
 
-    # elink gds to sra: one combined call per Series for all its samples' UIDs. The library's
-    # per-UID form costs NCBI about 0.1 s per UID. Lines name the Series as the source, as
-    # the combined answer does not say which sample gave which SRX.
-    retried = TRANSIENT.copy()
+    # elink, only to count what it adds beyond SOFT and SRA_Accessions.tab: one combined
+    # call per Series for all its samples, and one for the Series itself to BioProject.
     begun = time.perf_counter()
 
-    def to_sra(gse: str) -> tuple[str, set[str]]:
+    def to_links(gse: str) -> tuple[str, set[str], set[str]]:
         gsms = [a for e, a, _ in sources.soft_blocks(soft[gse].text) if e == "SAMPLE"]
-        return gse, combined_links(metered, "gds", "sra", [fetch._gds_uid(g) for g in gsms])
+        to_sra = eutils.elink("gds", "sra", [fetch._gds_uid(g) for g in gsms])
+        return gse, to_sra, eutils.elink("gds", "bioproject", [fetch._gds_uid(gse)])
 
-    replies, _, errors = _pool(to_sra, held, inflight, "elink gds-sra", every=50)
-    sra_uids = {g: u for r in replies if r for g, u in [r]}
-
-    def to_bioproject(group: list[str]) -> dict[str, list[str]]:
-        uids = {fetch._gds_uid(g): g for g in group}
-        reply = metered.elink_many("gds", "bioproject", sorted(uids))
-        return {uids[u]: v for u, v in reply.items() if u in uids}
-
-    replies, _, bp_errors = _pool(
-        to_bioproject, chunks(held, fetch.CHUNK), inflight, "elink gds-bioproject"
-    )
-    bp_uids = {g: v for r in replies if r for g, v in r.items()}
+    replies, _, errors = _pool(to_links, held, inflight, "elink", every=10)
+    sra_uids = {r[0]: r[1] for r in replies if r}
+    bp_uids = {r[0]: r[2] for r in replies if r}
 
     def names(job: tuple[str, list[str]]) -> dict[str, str]:
-        return fetch._accessions(metered, job[0], set(job[1]))
+        docs = eutils.esummary(job[0], job[1])
+        return {u: a for u, d in docs.items() if (a := accession_of(job[0], d))}
 
-    jobs = [("sra", c) for c in chunks(sorted({u for v in sra_uids.values() for u in v}), 1000)]
-    jobs += [
-        ("bioproject", c) for c in chunks(sorted({u for v in bp_uids.values() for u in v}), 1000)
+    jobs = [
+        (db, c)
+        for db, uids in (("sra", sra_uids), ("bioproject", bp_uids))
+        for c in chunks(sorted({u for v in uids.values() for u in v}), SUMMARY_BATCH)
     ]
     replies, _, name_errors = _pool(names, jobs, inflight, "esummary link names")
     accession = {u: a for r in replies if r for u, a in r.items()}
     linked: dict[str, str] = {}
     for gse in held:
-        lines = [f"{gse}\tbioproject\t{u}\t{accession.get(u, '')}" for u in bp_uids.get(gse, [])]
-        lines += [f"{gse}\tsra\t{u}\t{accession.get(u, '')}" for u in sra_uids.get(gse, set())]
+        lines = [f"{gse}\tbioproject\t{u}\t{accession.get(u, '')}" for u in bp_uids.get(gse, ())]
+        lines += [f"{gse}\tsra\t{u}\t{accession.get(u, '')}" for u in sra_uids.get(gse, ())]
         linked[gse] = "\n".join(sorted(lines))
-    errors = dict(Counter(errors) + Counter(bp_errors) + Counter(name_errors))
+    errors = dict(Counter(errors) + Counter(name_errors))
     wall = time.perf_counter() - begun
-    result[raw.ENTREZ_LINKS] = _rate(len(linked), wall, errors, TRANSIENT - retried)
+    result[raw.ENTREZ_LINKS] = _rate(
+        len(linked), wall, errors, _throttles(["elink", "esummary"], eutils)
+    )
     result[raw.ENTREZ_LINKS]["sample_mapping"] = "lost: sra lines name the Series as source"
 
     experiments = {x for s in soft.values() for x in _SOFT_SRX.findall(s.text)}
@@ -786,27 +993,28 @@ def concurrent_fetch(
         if row.relation == "SRA"
     }
 
-    # SRA packages: one efetch per batch; ids it leaves out go through the library's retries.
-    retried = TRANSIENT.copy()
-
+    # SRA packages: one efetch POST per batch; ids a reply leaves out are asked once more.
     def packages(ids: list[str]) -> dict[str, str]:
-        reply = metered.efetch("sra", ids, rettype="full", retmode="xml")
+        reply = eutils.efetch("sra", ids, rettype="full", retmode="xml")
         got = {a: t for a, t in split_packages(reply).items() if a in set(ids)}
         missing = [i for i in ids if i not in got]
-        return got | (fetch_package_texts(metered, missing) if missing else {})
+        if missing:
+            again = eutils.efetch("sra", missing, rettype="full", retmode="xml")
+            got |= {a: t for a, t in split_packages(again).items() if a in set(missing)}
+        return got
 
     replies, wall, errors = _pool(
         packages, chunks(sorted(experiments), batch), inflight, "efetch sra packages"
     )
     sra = {a: t for reply in replies if reply for a, t in reply.items()}
-    result[raw.SRA_XML] = _rate(len(sra), wall, errors, TRANSIENT - retried)
+    result[raw.SRA_XML] = _rate(len(sra), wall, errors, _throttles(["efetch"], eutils))
     result[raw.SRA_XML] |= {
         "requested": len(experiments),
         "missing": len(experiments - set(sra)),
         "bytes": sum(len(t.encode("utf-8")) for t in sra.values()),
     }
     result[raw.SRA_XML]["bytes_per_s"] = round(result[raw.SRA_XML]["bytes"] / wall) if wall else 0
-    metered.clear_cache()
+    result["eutils"] = eutils.report()
 
     # PubMed [si] searches are left out: papers belong to stage 4.
     result["fetch_wall_s"] = round(time.perf_counter() - begin, 3)
@@ -831,10 +1039,6 @@ def concurrent_fetch(
             "seconds": round(time.perf_counter() - began, 3),
         }
     result["pack"] = {"wall_s": round(time.perf_counter() - start, 3), "sources": pack}
-    result["calls"] = {
-        k: {"calls": s.calls, "seconds": round(s.seconds, 3), "errors": dict(s.errors)}
-        for k, s in sorted(metered.stats.items())
-    }
     result["wall_s"] = round(time.perf_counter() - begin, 3)
     result["maxrss_bytes"] = peak_rss()
     result["job"] = os.environ.get("SLURM_JOB_ID")
@@ -1198,6 +1402,25 @@ def render(r: dict[str, Any]) -> str:
             f"Original and stripped SOFT sizes: `soft-original.tsv`.",
             "",
         ]
+    eu = c.get("eutils") if c else None
+    if eu:
+        lines += [
+            f"## E-utilities: {c.get('rate')} requests/s asked, {eu['rate_at_end']} at the end",
+            "",
+            "| Utility | Requests | IDs per request p50 / max | Req/s | Latency ms p50 / p95 "
+            "| Throttles | Retries |",
+            "| --- | --- | --- | --- | --- | --- | --- |",
+        ]
+        for util, v in eu.items():
+            if util == "rate_at_end":
+                continue
+            ids, ms = v["ids_per_request"], v["latency_ms"]
+            lines.append(
+                f"| {util} | {v['requests']} | {ids.get('p50')} / {ids.get('max')} | "
+                f"{v['req_per_s']} | {ms.get('p50')} / {ms.get('p95')} | "
+                f"{v['throttles'] or ''} | {v['retries'] or ''} |"
+            )
+        lines.append("")
     e = r["elink_extra"]
     if e:
         lines += [
@@ -1269,6 +1492,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--connections", type=int, required=True, help="HTTPS connections to GEO")
     p.add_argument("--inflight", type=int, required=True, help="E-utilities calls at once")
     p.add_argument("--batch", type=int, default=300, help="SRA experiments per efetch")
+    p.add_argument("--rate", type=float, default=DEFAULT_RATE, help="E-utilities requests/s")
     p = sub.add_parser("elink-extra")
     p.add_argument("--pilot", type=Path, required=True)
     p.add_argument("--name", required=True)
@@ -1295,7 +1519,12 @@ def main(argv: list[str] | None = None) -> int:
         result = concurrent_fetch(
             args.pilot,
             args.name,
-            EntrezClient(allow_prompt=False),
+            EUtils(
+                email=(creds := load_credentials(allow_prompt=False)).email,
+                api_key=creds.api_key,
+                rate=args.rate if creds.api_key else min(args.rate, 2.5),
+                inflight=args.inflight,
+            ),
             connections=args.connections,
             inflight=args.inflight,
             batch=args.batch,

@@ -10,6 +10,7 @@ import json
 import sys
 import threading
 import time
+import urllib.parse
 from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -19,6 +20,7 @@ from typing import ClassVar
 import pytest
 
 from labdata.exceptions import PageNotFound
+from labdata.ncbi.entrez import docsum_uid
 from labdata.store import raw
 from tests._fakes import ExplodingEntrezClient, FakeEntrezClient
 from tests._slices import DATA, geo_client, new_root
@@ -50,19 +52,6 @@ def _isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
 def _line(accession: str, gdstype: str) -> str:
     return json.dumps({"accession": accession, "gdstype": gdstype}) + "\n"
-
-
-class _CombinedFake(FakeEntrezClient):
-    """A fake that, like NCBI, answers a comma-joined ``id`` with one merged link set."""
-
-    def elink_many(self, dbfrom: str, db: str, uids: list[str]) -> dict[str, list[str]]:
-        self.calls.append(("elink_many", (dbfrom, db, tuple(uids))))
-        return {
-            str(uid): [
-                x for part in str(uid).split(",") for x in self._elink.get((dbfrom, db, part), [])
-            ]
-            for uid in uids
-        }
 
 
 def _with_cache(client: FakeEntrezClient) -> FakeEntrezClient:
@@ -172,6 +161,101 @@ def site(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
         server.server_close()
 
 
+class _EUtilsSite(BaseHTTPRequestHandler):
+    """E-utilities in small: the first request is throttled, then each utility answers."""
+
+    posts: ClassVar[list[tuple[str, dict[str, list[str]]]]] = []
+
+    def do_POST(self) -> None:
+        size = int(self.headers.get("Content-Length") or 0)
+        form = urllib.parse.parse_qs(self.rfile.read(size).decode())
+        util = self.path.rsplit("/", 1)[-1].removesuffix(".fcgi")
+        self.posts.append((util, form))
+        if len(self.posts) == 1:
+            self.send_response(429)
+            self.send_header("Retry-After", "0")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        ids = form["id"][0].split(",")
+        if util == "elink":
+            links = [{"dbto": form["db"][0], "links": [f"9{i}" for i in ids]}]
+            body: object = {"linksets": [{"ids": ids, "linksetdbs": links}]}
+        else:
+            body = {"result": {"uids": ids} | {i: {"project_acc": f"PRJNA{i}"} for i in ids}}
+        data = json.dumps(body).encode()
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def log_message(self, format: str, *args: object) -> None:
+        return
+
+
+def test_eutils_posts_with_credentials_backs_off_a_429_and_halves_its_rate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sleeps: list[float] = []
+    monkeypatch.setattr(time, "sleep", sleeps.append)
+    _EUtilsSite.posts = []
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _EUtilsSite)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        base = f"http://127.0.0.1:{server.server_address[1]}/eutils"
+        eu = pilot.EUtils(email="a@b.c", api_key="k", rate=8.0, inflight=2, base=base)
+        assert eu.elink("gds", "sra", ["1", "2"]) == {"91", "92"}
+        assert eu.esummary("bioproject", ["5"]) == {"5": {"project_acc": "PRJNA5"}}
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert [u for u, _ in _EUtilsSite.posts] == ["elink", "elink", "esummary"]
+    assert all(f["api_key"] == ["k"] and f["tool"] == ["liulab-data"] for _, f in _EUtilsSite.posts)
+    assert _EUtilsSite.posts[1][1]["id"] == ["1,2"]  # one combined id
+    assert eu.rate == 4.0
+    report = eu.report()
+    assert report["elink"]["throttles"] == {"HTTP 429": 1}
+    assert report["elink"]["requests"] == 1
+    assert report["elink"]["ids_per_request"]["max"] == 2
+    assert any(s > 0 for s in sleeps)  # the backoff after the 429
+
+
+def test_accessions_come_from_json_or_biopython_summaries() -> None:
+    expxml = '<Summary/><Experiment acc="SRX1" ver="1"/>'
+    assert pilot.accession_of("sra", {"expxml": expxml}) == "SRX1"
+    assert pilot.accession_of("sra", {"ExpXml": expxml}) == "SRX1"
+    assert pilot.accession_of("bioproject", {"project_acc": "PRJNA1"}) == "PRJNA1"
+
+
+class _FakeEUtils:
+    """The pilot's E-utilities calls answered from a fake Entrez client's canned data."""
+
+    def __init__(self, client: FakeEntrezClient) -> None:
+        self.client = client
+        self.rate = 8.0
+        self.stats: dict[str, object] = {}
+        self.elinks: list[tuple[str, str, tuple[str, ...]]] = []
+
+    def elink(self, dbfrom: str, db: str, uids: list[str]) -> set[str]:
+        self.elinks.append((dbfrom, db, tuple(uids)))
+        return {x for u in uids for x in self.client._elink.get((dbfrom, db, u), [])}
+
+    def esummary(self, db: str, uids: list[str]) -> dict[str, object]:
+        docs = self.client.esummary_many(db, uids)
+        return {str(docsum_uid(d)): d for d in docs}
+
+    def efetch(self, db: str, ids: list[str], *, rettype: str, retmode: str) -> str:
+        return self.client.efetch(db, ids, rettype=rettype, retmode=retmode)
+
+    def report(self) -> dict[str, object]:
+        return {"rate_at_end": self.rate}
+
+
+class _ExplodingEUtils:
+    def __getattr__(self, name: str) -> object:
+        raise AssertionError(f"unexpected E-utilities call: {name}")
+
+
 def test_the_pooled_get_halves_on_503_retries_and_counts_missing(site: str) -> None:
     paths = {f"GSE{i}": f"/x/GSE{i}_family.soft.gz" for i in (2, 3, 4)}
     values, stats = pilot.pooled_get(paths, pilot.read_soft, connections=4, base=site)
@@ -255,14 +339,13 @@ def test_the_concurrent_fetch_fills_raw_once_per_source_then_builds_and_reports(
     root = tmp_path / "pilot"
     pilot.setup(main_store, root)
     pilot.draw_step(root, "s1", 1.0)
-    client = _with_cache(geo_client())
-    client.__class__ = _CombinedFake
+    eutils = _FakeEUtils(_with_cache(geo_client()))
     result = pilot.concurrent_fetch(
-        root, "s1", client, connections=2, inflight=2, batch=3, base=site
+        root, "s1", eutils, connections=2, inflight=2, batch=3, base=site
     )
-    to_sra = [args for name, args in client.calls if name == "elink_many" and args[1] == "sra"]
+    to_sra = [uids for _, db, uids in eutils.elinks if db == "sra"]
     assert len(to_sra) == 2  # one combined call per Series
-    assert all(len(args[2]) == 1 and "," in args[2][0] for args in to_sra)
+    assert all(len(uids) > 1 for uids in to_sra)
     assert result[raw.GEO_SOFT]["missing_404"] == ["GSE900001"]
     assert result[raw.GEO_SOFT]["items"] >= 2
     soft = raw.saved(root, raw.GEO_SOFT, ["GSE19456", "GSE28770"])
@@ -281,9 +364,7 @@ def test_the_concurrent_fetch_fills_raw_once_per_source_then_builds_and_reports(
     assert extra["total"]["sample_to_srx_elink"] > 0
     assert extra["total"]["sample_to_srx_extra"] <= extra["total"]["sample_to_srx_elink"]
     assert (
-        pilot.concurrent_fetch(
-            root, "s1", ExplodingEntrezClient(), connections=2, inflight=2, base=site
-        )
+        pilot.concurrent_fetch(root, "s1", _ExplodingEUtils(), connections=2, inflight=2, base=site)
         == result
     )
 
@@ -296,3 +377,9 @@ def test_the_concurrent_fetch_fills_raw_once_per_source_then_builds_and_reports(
     assert report["bytes"][raw.SRA_XML]["rows"] == sra["items"]
     assert [b["build_id"] for b in report["builds"]] == ["p1"]
     assert "Stage 2 pilot: s1" in (root / "pilot" / "s1" / "results.md").read_text()
+
+
+def test_sockets_time_out_so_a_lost_connection_is_retried() -> None:
+    import socket
+
+    assert socket.getdefaulttimeout() == pilot.SOCKET_TIMEOUT
