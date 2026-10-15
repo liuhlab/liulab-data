@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import os
 import tomllib
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, overload
 
@@ -39,6 +39,8 @@ from labdata.store.model import (
 )
 
 if TYPE_CHECKING:
+    import pyarrow as pa
+
     from labdata.store.backend import DuckDbBackend
 
 #: Environment variable naming the store root.
@@ -125,18 +127,13 @@ class Store:
             except AccessionError as err:
                 out[accession] = err
         rows = self.backend.get_many(valid) if valid else {}
-        by_end: dict[str, list[Link]] = {}
-        for row in self.backend.links_many(rows) if rows else []:
-            for end, link in _ends(row):
-                if end in rows:
-                    by_end.setdefault(end, []).append(link)
+        by_end = self._links(rows) if rows else {}
         absent = self._absent_errors(set(valid) - set(rows))
         for accession in valid:
             row = rows.get(accession)
             if row is None:
                 out[accession] = absent[accession]
                 continue
-            links = sorted(by_end.get(accession, []), key=lambda k: (k.relation, k.other, k.source))
             out[accession] = Record(
                 accession=row[0],
                 type=row[1],
@@ -147,7 +144,7 @@ class Store:
                 fields=tuple((pair["name"], pair["value"]) for pair in row[6]),
                 content_hash=row[7],
                 snapshot_date=row[8],
-                links=tuple(links),
+                links=tuple(by_end[accession]),
             )
         return {a: out[a] for a in order}
 
@@ -168,6 +165,40 @@ class Store:
             raise result
         return result
 
+    def links(
+        self, accessions: str | Iterable[str], relation: str | None = None
+    ) -> dict[str, list[Link]]:
+        """Map each accession to its link rows as read from its end, in one backend call.
+
+        A far end may be an accession the store does not hold.
+
+        Parameters
+        ----------
+        accessions : str or iterable of str
+            Accessions of any record type, or ``PMID:<n>``.
+        relation : str or None
+            Keep only links of this name as read from the given end, forward or reverse.
+
+        Returns
+        -------
+        dict
+            Each accession, in input order, mapped to its links sorted by relation, far end
+            and source.
+
+        Raises
+        ------
+        AccessionError
+            If an accession is malformed.
+        ValueError
+            If the relation name is unknown.
+        """
+        accs = _accessions(accessions)
+        relations = None if relation is None else [forward_name(relation)]
+        found = self._links(set(accs), relations)
+        return {
+            a: [k for k in found[a] if relation is None or k.relation == relation] for a in accs
+        }
+
     def follow(self, accessions: str | Iterable[str], relation: str) -> dict[str, list[str]]:
         """Map each accession to the sorted accessions at the far end of one relation.
 
@@ -176,17 +207,28 @@ class Store:
 
         Raises
         ------
+        AccessionError
+            If an accession is malformed.
         ValueError
             If the relation name is unknown.
         """
-        accs = [_norm(a) for a in ([accessions] if isinstance(accessions, str) else accessions)]
-        forward = forward_name(relation)
-        out: dict[str, set[str]] = {a: set() for a in accs}
-        for row in self.backend.links_many(set(accs), [forward]):
+        return {
+            a: sorted({k.other for k in links})
+            for a, links in self.links(accessions, relation).items()
+        }
+
+    def _links(
+        self, accessions: Collection[str], relations: list[str] | None = None
+    ) -> dict[str, list[Link]]:
+        """Read the links of ``accessions`` from their own end, with one backend call."""
+        out: dict[str, list[Link]] = {a: [] for a in accessions}
+        for row in self.backend.links_many(accessions, relations):
             for end, link in _ends(row):
-                if end in out and link.relation == relation:
-                    out[end].add(link.other)
-        return {a: sorted(v) for a, v in out.items()}
+                if end in out:
+                    out[end].append(link)
+        for links in out.values():
+            links.sort(key=lambda k: (k.relation, k.other, k.source, k.forward))
+        return out
 
     def raw(self, accessions: Iterable[str]) -> dict[str, RawText]:
         """Map each held accession to its raw source text and ``content_hash``, in one call.
@@ -197,10 +239,10 @@ class Store:
         return {a: RawText(text, digest) for a, (text, digest) in sorted(rows.items())}
 
     def supplementary_files(self, accessions: Iterable[str]) -> dict[str, list[SupplementaryFile]]:
-        """Map each accession to the supplementary files its SOFT lists, in one backend call.
+        """Map each accession to the supplementary files its SOFT lists, in two backend calls.
 
-        Reads the table only: an accession the store does not hold maps to an empty list.
-        A Series lists its own files; its samples' files are under the samples.
+        A Series lists its own files; its samples' files are under the samples. An
+        accession the store holds with no files maps to an empty list.
 
         Parameters
         ----------
@@ -216,10 +258,14 @@ class Store:
         ------
         AccessionError
             If an accession is malformed.
+        NotMirrored
+            If a snapshot lists an accession the store does not hold. The message lists
+            every such accession.
+        NotFound
+            If no snapshot lists an accession. The message gives the snapshot date.
         """
-        order = [_norm(a) for a in accessions]
-        for accession in order:
-            kind_of(accession)
+        order = _accessions(accessions)
+        self._require_held(set(order))
         out: dict[str, list[SupplementaryFile]] = {a: [] for a in order}
         for row in self.backend.supplementary_many(set(order)) if order else []:
             out[row[0]].append(SupplementaryFile(*row))
@@ -265,13 +311,8 @@ class Store:
             If a root or a record on the way down is not held, unless ``partial``. The
             message lists every missing accession.
         """
-        roots = [_norm(a) for a in accessions]
-        for root in roots:
-            kind_of(root)
-        missing = set(roots) - self.backend.held_many(set(roots))
-        unknown = [e for e in self._absent_errors(missing).values() if isinstance(e, NotFound)]
-        if unknown:
-            raise NotFound("; ".join(sorted(str(e) for e in unknown)))
+        roots = _accessions(accessions)
+        missing = self._require_held(set(roots), not_held_ok=True)
         found: dict[str, set[str]] = {r: set() for r in roots}
         level = {(r, r) for r in roots if r not in missing}
         seen: set[tuple[str, str]] = set()
@@ -348,6 +389,51 @@ class Store:
             return Partial(walk.held[key], walk.missing)
         return self.experiments_for_many([accession])[key]
 
+    def _require_held(self, accessions: set[str], *, not_held_ok: bool = False) -> set[str]:
+        """Return which accessions the store does not hold, with one holdings lookup.
+
+        Raises ``NotFound`` if a snapshot lists none of them, and ``NotMirrored`` for the
+        rest unless ``not_held_ok``.
+        """
+        missing = accessions - self.backend.held_many(accessions) if accessions else set()
+        errors = self._absent_errors(missing).values()
+        unknown = sorted(str(e) for e in errors if isinstance(e, NotFound))
+        if unknown:
+            raise NotFound("; ".join(unknown))
+        if missing and not not_held_ok:
+            raise NotMirrored(f"not held in this store: {', '.join(sorted(missing))}")
+        return missing
+
+    def table(self, type: str, fields: Sequence[str], where: str | None = None) -> pa.Table:
+        """Return one record type as a ``pyarrow.Table``, sorted by accession, in one call.
+
+        The only call that imports pyarrow.
+
+        Parameters
+        ----------
+        type : str
+            A record type, such as ``"GEO Series"`` or ``"SRA experiment"``.
+        fields : sequence of str
+            Raw field names. Each becomes a list column of every value, in source order.
+        where : str or None
+            A DuckDB condition over the columns, such as ``"published >= '2020-01-01'"``.
+
+        Returns
+        -------
+        pyarrow.Table
+            ``accession``, ``type``, ``status``, ``submitted``, ``updated``, ``published``,
+            ``content_hash`` and ``snapshot_date``, then one column per field.
+
+        Raises
+        ------
+        ValueError
+            If the record type is unknown.
+
+        """
+        if type not in _SNAPSHOT_OF:
+            raise ValueError(f"unknown record type {type!r}; known: {sorted(_SNAPSHOT_OF)}")
+        return self.backend.table(type, list(fields), where)
+
     def _absent_errors(self, accessions: set[str]) -> dict[str, NotMirrored | NotFound]:
         """Classify accessions the store does not hold, with one ``known`` lookup for all."""
         if not accessions:
@@ -390,6 +476,14 @@ _SNAPSHOT_OF: dict[str, str] = {
     "BioProject": snapshots.BIOPROJECT,
     "BioSample": snapshots.BIOSAMPLE,
 }
+
+
+def _accessions(accessions: str | Iterable[str]) -> list[str]:
+    """Normalise one accession or many, checking each is well formed."""
+    out = [_norm(a) for a in ([accessions] if isinstance(accessions, str) else accessions)]
+    for accession in out:
+        kind_of(accession)
+    return out
 
 
 def _norm(accession: str) -> str:
