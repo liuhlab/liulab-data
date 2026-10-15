@@ -7,13 +7,21 @@ seeded with canned responses — and never touch the network.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import Any
 
 import pytest
 
 from tests import _geodata as g
 from tests._fakes import FakeEntrezClient
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _serial_workers() -> Iterator[None]:
+    """Default every parallel step to one worker, so no test starts Ray unasked."""
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("SLURM_CPUS_ON_NODE", "1")
+        yield
 
 
 @pytest.fixture

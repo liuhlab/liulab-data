@@ -1,0 +1,532 @@
+{
+ "geo_slice": {
+  "gaps.parquet": {
+   "rows": 0,
+   "schema": [
+    "accession: string",
+    "reason: string",
+    "detail: string"
+   ],
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+  },
+  "holdings.parquet": {
+   "rows": 139,
+   "schema": [
+    "accession: string",
+    "type: string"
+   ],
+   "sha256": "9b40d3f40a22e655ee1ecbb851850b62c35a7f53bd7b9f399a4f3e21fa3eea0d"
+  },
+  "known.parquet": {
+   "rows": 71,
+   "schema": [
+    "accession: string",
+    "source: string",
+    "snapshot_date: string"
+   ],
+   "sha256": "63bc80b61b8e7c8d842e66fd940cf00165b6cf2e92cc9f3c690cef7edf0ab5d5"
+  },
+  "links_by_from.parquet": {
+   "rows": 299,
+   "schema": [
+    "from: string",
+    "to: string",
+    "relation: string",
+    "source: string"
+   ],
+   "sha256": "01c7e53e286d526a754502b916c945885807387c1dbc8472835a6068b8df1bb7"
+  },
+  "links_by_to.parquet": {
+   "rows": 299,
+   "schema": [
+    "from: string",
+    "to: string",
+    "relation: string",
+    "source: string"
+   ],
+   "sha256": "45285fee815257a6d91e63a4f4184920fa1f06cefe9b66b9949855119e75f8ca"
+  },
+  "notes.parquet": {
+   "rows": 0,
+   "schema": [
+    "accession: string",
+    "kind: string",
+    "detail: string"
+   ],
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+  },
+  "records/bioproject.parquet": {
+   "rows": 10,
+   "schema": [
+    "accession: string",
+    "type: string",
+    "status: string",
+    "submitted: string",
+    "updated: string",
+    "published: string",
+    "fields: list<element: struct<name: string, value: string>>",
+    "raw_text: string",
+    "content_hash: string",
+    "snapshot_date: string"
+   ],
+   "sha256": "8562660976e245ab158c4645fa763730c3f97c5102231529e36817f0a98e8bd5"
+  },
+  "records/geo-platform.parquet": {
+   "rows": 11,
+   "schema": [
+    "accession: string",
+    "type: string",
+    "status: string",
+    "submitted: string",
+    "updated: string",
+    "published: string",
+    "fields: list<element: struct<name: string, value: string>>",
+    "raw_text: string",
+    "content_hash: string",
+    "snapshot_date: string"
+   ],
+   "sha256": "2e7e54014221ee8fc61750d2bd9b31ab6f52d644c78f3b20e246c6e9a19f33ed"
+  },
+  "records/geo-sample.parquet": {
+   "rows": 27,
+   "schema": [
+    "accession: string",
+    "type: string",
+    "status: string",
+    "submitted: string",
+    "updated: string",
+    "published: string",
+    "fields: list<element: struct<name: string, value: string>>",
+    "raw_text: string",
+    "content_hash: string",
+    "snapshot_date: string"
+   ],
+   "sha256": "88772711fd2872019f7d302f745042c96c26f23bf856ba082a5c9a2b59ff02ad"
+  },
+  "records/geo-series.parquet": {
+   "rows": 11,
+   "schema": [
+    "accession: string",
+    "type: string",
+    "status: string",
+    "submitted: string",
+    "updated: string",
+    "published: string",
+    "fields: list<element: struct<name: string, value: string>>",
+    "raw_text: string",
+    "content_hash: string",
+    "snapshot_date: string"
+   ],
+   "sha256": "c00ef46f737d1dc4ecaecec7a8c5109b5c68bf3f8e5b491eb810ed17faf6a98f"
+  },
+  "records/sra-experiment.parquet": {
+   "rows": 18,
+   "schema": [
+    "accession: string",
+    "type: string",
+    "status: string",
+    "submitted: string",
+    "updated: string",
+    "published: string",
+    "fields: list<element: struct<name: string, value: string>>",
+    "raw_text: string",
+    "content_hash: string",
+    "snapshot_date: string"
+   ],
+   "sha256": "098a5e1310ac89fabc0e8c40e4c85e7e0f0f68c2f387f22a8a965f021c7ee566"
+  },
+  "records/sra-run.parquet": {
+   "rows": 36,
+   "schema": [
+    "accession: string",
+    "type: string",
+    "status: string",
+    "submitted: string",
+    "updated: string",
+    "published: string",
+    "fields: list<element: struct<name: string, value: string>>",
+    "raw_text: string",
+    "content_hash: string",
+    "snapshot_date: string"
+   ],
+   "sha256": "62659296e0d7887d215fad50a6d84a43b23eb7383e6d9e308900b585706b5ab9"
+  },
+  "records/sra-sample.parquet": {
+   "rows": 14,
+   "schema": [
+    "accession: string",
+    "type: string",
+    "status: string",
+    "submitted: string",
+    "updated: string",
+    "published: string",
+    "fields: list<element: struct<name: string, value: string>>",
+    "raw_text: string",
+    "content_hash: string",
+    "snapshot_date: string"
+   ],
+   "sha256": "6813ac98e2b5952b9ac798f647231bd833b549847aded04c4f1a8fb9be48825f"
+  },
+  "records/sra-study.parquet": {
+   "rows": 12,
+   "schema": [
+    "accession: string",
+    "type: string",
+    "status: string",
+    "submitted: string",
+    "updated: string",
+    "published: string",
+    "fields: list<element: struct<name: string, value: string>>",
+    "raw_text: string",
+    "content_hash: string",
+    "snapshot_date: string"
+   ],
+   "sha256": "df9a1a719b37d6773bca373c256856d0473b32c6ca7dc5a35d2958316d17441f"
+  },
+  "supplementary_files.parquet": {
+   "rows": 30,
+   "schema": [
+    "owner: string",
+    "name: string",
+    "url: string",
+    "size: int64",
+    "date: string",
+    "type: string",
+    "archive: string"
+   ],
+   "sha256": "e602ed56d3ebcccaf8c7400fbae0d5506f8c0f4336bf692d01174cfa3426c4d2"
+  }
+ },
+ "prjna1027859": {
+  "gaps.parquet": {
+   "rows": 1,
+   "schema": [
+    "accession: string",
+    "reason: string",
+    "detail: string"
+   ],
+   "sha256": "980fa9ef90b10e59622a3e0dcfd050be6b334f4a203131009baa4e2d92ecd20b"
+  },
+  "holdings.parquet": {
+   "rows": 26,
+   "schema": [
+    "accession: string",
+    "type: string"
+   ],
+   "sha256": "e94702dc087dd9f3e16f3aef2efd523f38a3ed9e0e601091b3d1927714e0f91a"
+  },
+  "known.parquet": {
+   "rows": 38,
+   "schema": [
+    "accession: string",
+    "source: string",
+    "snapshot_date: string"
+   ],
+   "sha256": "40fd4967e18b00b6dadc35be8a2d51a3b6157ec4281e718edf67605737abe58a"
+  },
+  "links_by_from.parquet": {
+   "rows": 27,
+   "schema": [
+    "from: string",
+    "to: string",
+    "relation: string",
+    "source: string"
+   ],
+   "sha256": "e8d022516adc61c99b28d0bed2198bd8b4ed2a1f5e1436d5c293e07ab750cb7c"
+  },
+  "links_by_to.parquet": {
+   "rows": 27,
+   "schema": [
+    "from: string",
+    "to: string",
+    "relation: string",
+    "source: string"
+   ],
+   "sha256": "faec56a63dc017b7e6df71926dfa393352a1970978585400441f70b903d821d6"
+  },
+  "notes.parquet": {
+   "rows": 0,
+   "schema": [
+    "accession: string",
+    "kind: string",
+    "detail: string"
+   ],
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+  },
+  "records/bioproject.parquet": {
+   "rows": 1,
+   "schema": [
+    "accession: string",
+    "type: string",
+    "status: string",
+    "submitted: string",
+    "updated: string",
+    "published: string",
+    "fields: list<element: struct<name: string, value: string>>",
+    "raw_text: string",
+    "content_hash: string",
+    "snapshot_date: string"
+   ],
+   "sha256": "511701dbf9ef008020893155236498ba379130e184ec84a81a3efc81f7fff892"
+  },
+  "records/biosample.parquet": {
+   "rows": 6,
+   "schema": [
+    "accession: string",
+    "type: string",
+    "status: string",
+    "submitted: string",
+    "updated: string",
+    "published: string",
+    "fields: list<element: struct<name: string, value: string>>",
+    "raw_text: string",
+    "content_hash: string",
+    "snapshot_date: string"
+   ],
+   "sha256": "782cdc6804b0f72e07aafb175487b5f9529ba7505e363af4cc87aa4f85f7a5f1"
+  },
+  "records/sra-experiment.parquet": {
+   "rows": 6,
+   "schema": [
+    "accession: string",
+    "type: string",
+    "status: string",
+    "submitted: string",
+    "updated: string",
+    "published: string",
+    "fields: list<element: struct<name: string, value: string>>",
+    "raw_text: string",
+    "content_hash: string",
+    "snapshot_date: string"
+   ],
+   "sha256": "61eebe3104aeedb7069a4603001db785cd95834791ea9b2b3d25174058c97dbd"
+  },
+  "records/sra-run.parquet": {
+   "rows": 6,
+   "schema": [
+    "accession: string",
+    "type: string",
+    "status: string",
+    "submitted: string",
+    "updated: string",
+    "published: string",
+    "fields: list<element: struct<name: string, value: string>>",
+    "raw_text: string",
+    "content_hash: string",
+    "snapshot_date: string"
+   ],
+   "sha256": "1eff4bc8d08e0512e337195d4181a80aa1e71c8b50e55636d11ba13ad7543b87"
+  },
+  "records/sra-sample.parquet": {
+   "rows": 6,
+   "schema": [
+    "accession: string",
+    "type: string",
+    "status: string",
+    "submitted: string",
+    "updated: string",
+    "published: string",
+    "fields: list<element: struct<name: string, value: string>>",
+    "raw_text: string",
+    "content_hash: string",
+    "snapshot_date: string"
+   ],
+   "sha256": "a8bad50a81b5b7bc33d69f6caa041657db0e15f8da553f469c92edae8e39c461"
+  },
+  "records/sra-study.parquet": {
+   "rows": 1,
+   "schema": [
+    "accession: string",
+    "type: string",
+    "status: string",
+    "submitted: string",
+    "updated: string",
+    "published: string",
+    "fields: list<element: struct<name: string, value: string>>",
+    "raw_text: string",
+    "content_hash: string",
+    "snapshot_date: string"
+   ],
+   "sha256": "f46cfd4a164ad401848856df0a6ca409b36ebe14450e0ebe5d8c9721fb6495c9"
+  },
+  "supplementary_files.parquet": {
+   "rows": 0,
+   "schema": [
+    "owner: string",
+    "name: string",
+    "url: string",
+    "size: int64",
+    "date: string",
+    "type: string",
+    "archive: string"
+   ],
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+  }
+ },
+ "sra_slice": {
+  "gaps.parquet": {
+   "rows": 1,
+   "schema": [
+    "accession: string",
+    "reason: string",
+    "detail: string"
+   ],
+   "sha256": "980fa9ef90b10e59622a3e0dcfd050be6b334f4a203131009baa4e2d92ecd20b"
+  },
+  "holdings.parquet": {
+   "rows": 18,
+   "schema": [
+    "accession: string",
+    "type: string"
+   ],
+   "sha256": "a07c5580e8e445d610efae625ca51206eb35e678e656288caef83b2875d6dd09"
+  },
+  "known.parquet": {
+   "rows": 23,
+   "schema": [
+    "accession: string",
+    "source: string",
+    "snapshot_date: string"
+   ],
+   "sha256": "4a58556b73fe1d0c922211ce22835cd0a9a5a7810be97339184b06b596ffb2a9"
+  },
+  "links_by_from.parquet": {
+   "rows": 19,
+   "schema": [
+    "from: string",
+    "to: string",
+    "relation: string",
+    "source: string"
+   ],
+   "sha256": "e2c80d91b2982d47b99dff2ce3df57819ab298851599f44888e18a5db04bc327"
+  },
+  "links_by_to.parquet": {
+   "rows": 19,
+   "schema": [
+    "from: string",
+    "to: string",
+    "relation: string",
+    "source: string"
+   ],
+   "sha256": "f01cc2b856c165557a61db9bf37a8abe787320698e5a057a117682f15ae5ae80"
+  },
+  "notes.parquet": {
+   "rows": 0,
+   "schema": [
+    "accession: string",
+    "kind: string",
+    "detail: string"
+   ],
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+  },
+  "records/bioproject.parquet": {
+   "rows": 2,
+   "schema": [
+    "accession: string",
+    "type: string",
+    "status: string",
+    "submitted: string",
+    "updated: string",
+    "published: string",
+    "fields: list<element: struct<name: string, value: string>>",
+    "raw_text: string",
+    "content_hash: string",
+    "snapshot_date: string"
+   ],
+   "sha256": "cc2ff5a4b4d3228e66a4a2c2974a3d2876d6067b67ed9663e7ec638fb7287fa6"
+  },
+  "records/biosample.parquet": {
+   "rows": 3,
+   "schema": [
+    "accession: string",
+    "type: string",
+    "status: string",
+    "submitted: string",
+    "updated: string",
+    "published: string",
+    "fields: list<element: struct<name: string, value: string>>",
+    "raw_text: string",
+    "content_hash: string",
+    "snapshot_date: string"
+   ],
+   "sha256": "552da227212c50e5c2be4257f3b0cfce510355b9102a69ad3e6c1538b7833620"
+  },
+  "records/sra-experiment.parquet": {
+   "rows": 4,
+   "schema": [
+    "accession: string",
+    "type: string",
+    "status: string",
+    "submitted: string",
+    "updated: string",
+    "published: string",
+    "fields: list<element: struct<name: string, value: string>>",
+    "raw_text: string",
+    "content_hash: string",
+    "snapshot_date: string"
+   ],
+   "sha256": "89d8ad5e1eb484debaecd8d2b9ab4e3fcb964e2875564cadbcbfadf55c842d40"
+  },
+  "records/sra-run.parquet": {
+   "rows": 4,
+   "schema": [
+    "accession: string",
+    "type: string",
+    "status: string",
+    "submitted: string",
+    "updated: string",
+    "published: string",
+    "fields: list<element: struct<name: string, value: string>>",
+    "raw_text: string",
+    "content_hash: string",
+    "snapshot_date: string"
+   ],
+   "sha256": "68a7f594d82f18a2091c180ac27b8a029795fa9eb7cd731969c3fc50b6a8f905"
+  },
+  "records/sra-sample.parquet": {
+   "rows": 3,
+   "schema": [
+    "accession: string",
+    "type: string",
+    "status: string",
+    "submitted: string",
+    "updated: string",
+    "published: string",
+    "fields: list<element: struct<name: string, value: string>>",
+    "raw_text: string",
+    "content_hash: string",
+    "snapshot_date: string"
+   ],
+   "sha256": "42ec9df989ddddc26376f14352ae2ffed5a0ab36ee91fc0a15adc7953fab6e1d"
+  },
+  "records/sra-study.parquet": {
+   "rows": 2,
+   "schema": [
+    "accession: string",
+    "type: string",
+    "status: string",
+    "submitted: string",
+    "updated: string",
+    "published: string",
+    "fields: list<element: struct<name: string, value: string>>",
+    "raw_text: string",
+    "content_hash: string",
+    "snapshot_date: string"
+   ],
+   "sha256": "17d5b069b46d598abffcf58c64bfd3907fb8040048de49dccd1c958afd0ffb90"
+  },
+  "supplementary_files.parquet": {
+   "rows": 0,
+   "schema": [
+    "owner: string",
+    "name: string",
+    "url: string",
+    "size: int64",
+    "date: string",
+    "type: string",
+    "archive: string"
+   ],
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+  }
+ }
+}
