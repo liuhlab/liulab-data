@@ -52,6 +52,19 @@ def _line(accession: str, gdstype: str) -> str:
     return json.dumps({"accession": accession, "gdstype": gdstype}) + "\n"
 
 
+class _CombinedFake(FakeEntrezClient):
+    """A fake that, like NCBI, answers a comma-joined ``id`` with one merged link set."""
+
+    def elink_many(self, dbfrom: str, db: str, uids: list[str]) -> dict[str, list[str]]:
+        self.calls.append(("elink_many", (dbfrom, db, tuple(uids))))
+        return {
+            str(uid): [
+                x for part in str(uid).split(",") for x in self._elink.get((dbfrom, db, part), [])
+            ]
+            for uid in uids
+        }
+
+
 def _with_cache(client: FakeEntrezClient) -> FakeEntrezClient:
     client._cache = {}  # the fake skips EntrezClient.__init__; the pilot clears this cache
     return client
@@ -243,9 +256,13 @@ def test_the_concurrent_fetch_fills_raw_once_per_source_then_builds_and_reports(
     pilot.setup(main_store, root)
     pilot.draw_step(root, "s1", 1.0)
     client = _with_cache(geo_client())
+    client.__class__ = _CombinedFake
     result = pilot.concurrent_fetch(
         root, "s1", client, connections=2, inflight=2, batch=3, base=site
     )
+    to_sra = [args for name, args in client.calls if name == "elink_many" and args[1] == "sra"]
+    assert len(to_sra) == 2  # one combined call per Series
+    assert all(len(args[2]) == 1 and "," in args[2][0] for args in to_sra)
     assert result[raw.GEO_SOFT]["missing_404"] == ["GSE900001"]
     assert result[raw.GEO_SOFT]["items"] >= 2
     soft = raw.saved(root, raw.GEO_SOFT, ["GSE19456", "GSE28770"])

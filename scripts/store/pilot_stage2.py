@@ -42,7 +42,6 @@ import queue
 import random
 import re
 import resource
-import shutil
 import sys
 import threading
 import time
@@ -499,6 +498,8 @@ def pooled_get(
     base: str = GEO_SITE,
     timeout: float = 60.0,
     tries: int = 3,
+    phase: str = "get",
+    every: int = 100,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """GET each path over ``connections`` kept-open connections and return what ``read`` made.
 
@@ -558,6 +559,7 @@ def pooled_get(
                 with lock:
                     events[kind] += 1
                     limit[0] = max(1, limit[0] // 2)
+                say(f"{phase}: {key} {kind}; connections now {limit[0]}")
                 if conn:
                     conn.close()
                 conn = None
@@ -574,9 +576,11 @@ def pooled_get(
                 millis.append(round((time.perf_counter() - start) * 1000))
                 values[key] = value
                 wire.append(size)
+            progress.tick()
         if conn:
             conn.close()
 
+    progress = _Progress(phase, len(paths), every)
     start = time.perf_counter()
     threads = [threading.Thread(target=worker, args=(i,)) for i in range(connections)]
     for thread in threads:
@@ -585,6 +589,7 @@ def pooled_get(
         thread.join()
     worker(0)  # an item put back by a worker that then stopped
     wall = time.perf_counter() - start
+    progress.end(wall)
     got = sum(v is not None for v in values.values())
     stats = {
         "connections": connections,
@@ -606,23 +611,64 @@ def _url_path(url: str) -> str:
     return urllib.parse.urlsplit(url).path
 
 
+def say(message: str) -> None:
+    """Print one progress line at once, so a stall shows in the Slurm log."""
+    print(f"{dt.datetime.now().strftime('%H:%M:%S')} {message}", flush=True)
+
+
+class _Progress:
+    """Count finished items from many threads and print every ``every`` of them."""
+
+    def __init__(self, phase: str, total: int, every: int) -> None:
+        self.phase, self.total, self.every = phase, total, max(1, every)
+        self.done = 0
+        self.lock = threading.Lock()
+        say(f"{phase}: start, {total} items")
+
+    def tick(self) -> None:
+        with self.lock:
+            self.done += 1
+            if self.done % self.every == 0:
+                say(f"{self.phase}: {self.done}/{self.total}")
+
+    def end(self, wall: float) -> None:
+        say(f"{self.phase}: end, {self.done}/{self.total} in {wall:.1f} s")
+
+
 def _pool(
-    work: Callable[[Any], Any], items: list[Any], inflight: int
+    work: Callable[[Any], Any], items: list[Any], inflight: int, phase: str = "pool", every: int = 1
 ) -> tuple[list[Any], float, dict[str, int]]:
     """Run ``work`` on each item, ``inflight`` at once; failed items count by exception class."""
     errors: Counter[str] = Counter()
+    progress = _Progress(phase, len(items), every)
 
     def safe(item: Any) -> Any:
         try:
             return work(item)
         except Exception as exc:
             errors[type(exc).__name__] += 1
+            say(f"{phase}: {type(exc).__name__}: {str(exc)[:200]}")
             return None
+        finally:
+            progress.tick()
 
     start = time.perf_counter()
     with ThreadPoolExecutor(max_workers=inflight) as workers:
         out = list(workers.map(safe, items))
+    progress.end(time.perf_counter() - start)
     return out, time.perf_counter() - start, dict(errors)
+
+
+def combined_links(client: EntrezClient, dbfrom: str, db: str, uids: list[str]) -> set[str]:
+    """Return every UID that any of ``uids`` links to, from one ``elink`` call.
+
+    The UIDs go as one comma-joined ``id``, so NCBI answers one merged set; which source UID
+    gave which link is lost.
+    """
+    if not uids:
+        return set()
+    reply = client.elink_many(dbfrom, db, [",".join(uids)])
+    return {uid for linked in reply.values() for uid in linked}
 
 
 def concurrent_fetch(
@@ -660,6 +706,8 @@ def concurrent_fetch(
             read_soft,
             connections=connections,
             base=base,
+            phase=f"soft round {len(rounds) + 1}",
+            every=50,
         )
         rounds.append(stats)
         soft |= {g: v for g, v in got.items() if v is not None}
@@ -681,23 +729,54 @@ def concurrent_fetch(
         read_text,
         connections=connections,
         base=base,
+        phase="filelist",
+        every=100,
     )
     filelists = {
         g: v or "" for g, v in files.items() if g not in result[raw.GEO_FILELIST]["failed"]
     }
 
-    # elink: the library's chunked fetch, one worker part root per chunk of Series.
+    # elink gds to sra: one combined call per Series for all its samples' UIDs. The library's
+    # per-UID form costs NCBI about 0.1 s per UID. Lines name the Series as the source, as
+    # the combined answer does not say which sample gave which SRX.
     retried = TRANSIENT.copy()
-    parts = pilot / "work" / "parts" / step
+    begun = time.perf_counter()
 
-    def links(job: tuple[int, list[str]]) -> dict[str, str]:
-        part = parts / f"links-{job[0]}"
-        shutil.rmtree(part, ignore_errors=True)
-        return fetch.fetch_entrez_links(part, metered, {g: soft[g].text for g in job[1]}, date)
+    def to_sra(gse: str) -> tuple[str, set[str]]:
+        gsms = [a for e, a, _ in sources.soft_blocks(soft[gse].text) if e == "SAMPLE"]
+        return gse, combined_links(metered, "gds", "sra", [fetch._gds_uid(g) for g in gsms])
 
-    replies, wall, errors = _pool(links, list(enumerate(chunks(held, fetch.CHUNK))), inflight)
-    linked = {g: t for reply in replies if reply for g, t in reply.items()}
+    replies, _, errors = _pool(to_sra, held, inflight, "elink gds-sra", every=50)
+    sra_uids = {g: u for r in replies if r for g, u in [r]}
+
+    def to_bioproject(group: list[str]) -> dict[str, list[str]]:
+        uids = {fetch._gds_uid(g): g for g in group}
+        reply = metered.elink_many("gds", "bioproject", sorted(uids))
+        return {uids[u]: v for u, v in reply.items() if u in uids}
+
+    replies, _, bp_errors = _pool(
+        to_bioproject, chunks(held, fetch.CHUNK), inflight, "elink gds-bioproject"
+    )
+    bp_uids = {g: v for r in replies if r for g, v in r.items()}
+
+    def names(job: tuple[str, list[str]]) -> dict[str, str]:
+        return fetch._accessions(metered, job[0], set(job[1]))
+
+    jobs = [("sra", c) for c in chunks(sorted({u for v in sra_uids.values() for u in v}), 1000)]
+    jobs += [
+        ("bioproject", c) for c in chunks(sorted({u for v in bp_uids.values() for u in v}), 1000)
+    ]
+    replies, _, name_errors = _pool(names, jobs, inflight, "esummary link names")
+    accession = {u: a for r in replies if r for u, a in r.items()}
+    linked: dict[str, str] = {}
+    for gse in held:
+        lines = [f"{gse}\tbioproject\t{u}\t{accession.get(u, '')}" for u in bp_uids.get(gse, [])]
+        lines += [f"{gse}\tsra\t{u}\t{accession.get(u, '')}" for u in sra_uids.get(gse, set())]
+        linked[gse] = "\n".join(sorted(lines))
+    errors = dict(Counter(errors) + Counter(bp_errors) + Counter(name_errors))
+    wall = time.perf_counter() - begun
     result[raw.ENTREZ_LINKS] = _rate(len(linked), wall, errors, TRANSIENT - retried)
+    result[raw.ENTREZ_LINKS]["sample_mapping"] = "lost: sra lines name the Series as source"
 
     experiments = {x for s in soft.values() for x in _SOFT_SRX.findall(s.text)}
     experiments |= {
@@ -716,7 +795,9 @@ def concurrent_fetch(
         missing = [i for i in ids if i not in got]
         return got | (fetch_package_texts(metered, missing) if missing else {})
 
-    replies, wall, errors = _pool(packages, chunks(sorted(experiments), batch), inflight)
+    replies, wall, errors = _pool(
+        packages, chunks(sorted(experiments), batch), inflight, "efetch sra packages"
+    )
     sra = {a: t for reply in replies if reply for a, t in reply.items()}
     result[raw.SRA_XML] = _rate(len(sra), wall, errors, TRANSIENT - retried)
     result[raw.SRA_XML] |= {
@@ -741,6 +822,7 @@ def concurrent_fetch(
     start = time.perf_counter()
     for source, rows in texts.items():
         began = time.perf_counter()
+        say(f"pack {source}: {len(rows)} rows")
         written = raw.write_rows(pilot, source, [raw.RawRow(a, t, date) for a, t in rows.items()])
         provenance.document_raw(pilot, source)
         pack[source] = {
@@ -825,30 +907,36 @@ def elink_extra(pilot: Path, step: str) -> dict[str, Any]:
     held = sorted(raw.saved(pilot, raw.GEO_SOFT, read_targets(pilot, step)))
     soft = raw.saved(pilot, raw.GEO_SOFT, held)
     linked = raw.saved(pilot, raw.ENTREZ_LINKS, held)
-    stated: set[tuple[str, str, str]] = set()
-    samples: dict[str, list[str]] = {}
+    # What each Series' SOFT and the tab already state, keyed by Series: the saved elink
+    # lines name the Series, not the sample, as their source.
+    stated: dict[str, set[tuple[str, str]]] = defaultdict(set)
+    gsm_series: dict[str, list[str]] = defaultdict(list)
     for gse in held:
-        samples[gse] = [a for e, a, _ in sources.soft_blocks(soft[gse]) if e == "SAMPLE"]
+        for entity, gsm, _ in sources.soft_blocks(soft[gse]):
+            if entity == "SAMPLE":
+                gsm_series[gsm].append(gse)
         try:
             _, rows = sources.soft(soft[gse])
         except Exception:
             rows = []
-        stated |= {(r.from_, r.to, r.relation) for r in rows if r.relation in ("SRA", "BioProject")}
+        stated[gse] |= {(r.to, r.relation) for r in rows if r.relation in ("SRA", "BioProject")}
+    say(f"elink-extra: scanning SRA_Accessions.tab for {len(gsm_series)} samples")
     start = time.perf_counter()
-    gsm_series = {gsm: gse for gse, gsms in samples.items() for gsm in gsms}
     tab = tab_links(pilot, set(gsm_series))
     tab_s = round(time.perf_counter() - start, 3)
+    say(f"elink-extra: {len(tab)} tab rows in {tab_s} s")
     for gsm, srx, project in tab:
-        stated.add((gsm, srx, "SRA"))
-        if project:
-            stated.add((gsm_series[gsm], project, "BioProject"))
+        for gse in gsm_series[gsm]:
+            stated[gse].add((srx, "SRA"))
+            if project:
+                stated[gse].add((project, "BioProject"))
     per_series: dict[str, Counter[str]] = {}
     for gse in held:
         counts: Counter[str] = Counter()
         for row in sources.entrez_links(linked.get(gse, "")):
             key = "sample_to_srx" if row.relation == "SRA" else "series_to_bioproject"
             counts[f"{key}_elink"] += 1
-            if (row.from_, row.to, row.relation) not in stated:
+            if (row.to, row.relation) not in stated[gse]:
                 counts[f"{key}_extra"] += 1
         per_series[gse] = counts
     total: Counter[str] = Counter()
