@@ -124,8 +124,9 @@ def saved(root: Path, source: str) -> dict[str, str]:
 
 
 def test_soft_is_stored_without_data_tables_and_with_the_originals_size_and_sha256(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(entrez_mod, "_CHUNK_BYTES", 7)  # chunks split lines and markers
     original = soft("GSE1")
     site = Site({soft_url("GSE1"): [gzip.compress(original)]})
     geo_lane.run(tmp_path, ["GSE1"], client=client(site), date=DATE)

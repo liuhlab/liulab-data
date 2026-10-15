@@ -578,7 +578,7 @@ class EntrezClient:
     def stream(
         self, url: str, consume: Callable[[Iterator[bytes]], _T], *, tries: int = _MAX_TRIES
     ) -> _T:
-        """GET a file from the GEO site and hand its lines to ``consume`` as they arrive.
+        """GET a file from the GEO site and hand its bytes to ``consume`` as they arrive.
 
         A gzip body is decompressed on the way. The body is read in chunks, so a large file
         is never whole in memory unless ``consume`` keeps it. Nothing is cached.
@@ -588,8 +588,8 @@ class EntrezClient:
         url : str
             The file URL.
         consume : callable
-            Takes an iterator over the body's lines, as bytes with their line endings, and
-            returns the result. It runs again from the start on each retry.
+            Takes an iterator over the body's chunks, decompressed, and returns the result.
+            It runs again from the start on each retry.
         tries : int
             Tries before giving up; ``1`` leaves retries and backoff to the caller.
 
@@ -608,10 +608,10 @@ class EntrezClient:
 
         def read(response: Response) -> _T:
             body = io.BufferedReader(_RawBody(response), _CHUNK_BYTES)
-            lines: io.BufferedIOBase = body
+            data: io.BufferedIOBase = body
             if body.peek(2)[:2] == b"\x1f\x8b":
-                lines = gzip.GzipFile(fileobj=body)
-            result = consume(iter(lines))
+                data = gzip.GzipFile(fileobj=body)
+            result = consume(iter(lambda: data.read(_CHUNK_BYTES), b""))
             while body.read(_CHUNK_BYTES):  # drain, so the connection can be reused
                 pass
             return result

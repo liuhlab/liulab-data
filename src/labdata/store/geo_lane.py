@@ -13,16 +13,16 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import itertools
 import logging
 import re
 import threading
 import time
 from collections import Counter, deque
 from collections.abc import Callable, Iterable, Iterator
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 import pyarrow.parquet as pq
 
@@ -35,7 +35,7 @@ from labdata.store.fetch import filelist_url, soft_url
 CONNECTIONS = 4
 #: Tries per file before a Series is a ``fetch-failed`` gap.
 TRIES = 4
-#: Most Series one part holds, so a cut-off run loses little.
+#: Most rows one part holds, so a cut-off run loses little.
 PART_SIZE = 500
 #: Seconds between progress lines.
 PROGRESS_SECONDS = 60.0
@@ -49,8 +49,8 @@ TIMEOUT_WINDOW = 20
 SIZE_LINE = "#labdata_original_size = "
 SHA256_LINE = "#labdata_original_sha256 = "
 
-_TABLE_BEGIN = (b"!sample_table_begin", b"!platform_table_begin")
-_TABLE_END = (b"!sample_table_end", b"!platform_table_end")
+_TABLE_BEGIN = re.compile(rb"^!(?:Sample|Platform)_table_begin", re.M)
+_TABLE_END = re.compile(rb"^!(?:Sample|Platform)_table_end[^\n]*(?:\n|\Z)", re.M)
 _SUBSERIES = re.compile(r"^!Series_relation = SuperSeries of: (GSE\d+)", re.M)
 _sleep = time.sleep
 logger = logging.getLogger(__name__)
@@ -129,7 +129,7 @@ def original(text: str) -> tuple[int, str] | None:
     return int(head[0].removeprefix(SIZE_LINE)), head[1].removeprefix(SHA256_LINE)
 
 
-def strip_soft(lines: Iterable[bytes]) -> str:
+def strip_soft(chunks: Iterable[bytes]) -> str:
     """Return family SOFT without its sample and platform data tables, size and sha256 first.
 
     Each table goes with its begin and end lines; every other line is kept as served.
@@ -138,16 +138,27 @@ def strip_soft(lines: Iterable[bytes]) -> str:
     size = 0
     kept: list[bytes] = []
     inside = False
-    for line in lines:
-        digest.update(line)
-        size += len(line)
-        head = line[:24].lower()
-        if head.startswith(_TABLE_BEGIN):
-            inside = True
-        if not inside:
-            kept.append(line)
-        elif head.startswith(_TABLE_END):
-            inside = False
+    carry = b""
+    for chunk in itertools.chain(chunks, [None]):
+        if chunk is None:
+            block, carry = carry, b""
+        else:
+            digest.update(chunk)
+            size += len(chunk)
+            cut = chunk.rfind(b"\n") + 1
+            if not cut:
+                carry += chunk
+                continue
+            block, carry = carry + chunk[:cut], chunk[cut:]
+        at = 0
+        while at < len(block):
+            match = (_TABLE_END if inside else _TABLE_BEGIN).search(block, at)
+            if not inside:
+                kept.append(block[at : match.start() if match else len(block)])
+            if not match:
+                break
+            at = match.end() if inside else match.start()
+            inside = not inside
     body = b"".join(kept).decode("utf-8", errors="replace")
     return f"{SIZE_LINE}{size}\n{SHA256_LINE}{digest.hexdigest()}\n{body}"
 
@@ -163,52 +174,74 @@ def _fetch_soft(root: Path, pool: _Pool, accessions: list[str], date: str, phase
         if text.split("\n", 1)[0] == gaps.SOFT_MISSING
     }
     pieces = raw.pieces(root, raw.GEO_SOFT, [a for a in accessions if a not in missing])
-    with pool.phase(phase, sum(len(p.todo) for p in pieces)):
-        for piece in pieces:
-            for start in range(0, len(piece.todo), PART_SIZE):
-                todo = piece.todo[start : start + PART_SIZE]
-                found: list[raw.RawRow] = []
 
-                def rows(todo: tuple[str, ...] = todo, found: list[raw.RawRow] = found) -> Any:
-                    for gse, got in pool.map(todo, soft_url, strip_soft):
-                        if isinstance(got, str):
-                            yield raw.RawRow(gse, got, date)
-                        else:
-                            found.append(gaps.gap_row(gse, got.reason, date, got.detail))
+    def keep(gse: str, got: str | _Gap) -> tuple[raw.RawRow | None, raw.RawRow | None]:
+        if isinstance(got, str):
+            return raw.RawRow(gse, got, date), None
+        return None, gaps.gap_row(gse, got.reason, date, got.detail)
 
-                raw.write_part(
-                    root, raw.Piece(raw.GEO_SOFT, piece.bucket, todo), rows(), record_asked=False
-                )
-                if found:
-                    bucket = raw.bucket_of(raw.GEO_GAPS, found[0].accession)
-                    gap_piece = raw.Piece(
-                        raw.GEO_GAPS, bucket, tuple(sorted(r.accession for r in found))
-                    )
-                    raw.write_part(root, gap_piece, found, record_asked=False)
+    _fetch_parts(root, pool, pieces, soft_url, strip_soft, keep, phase)
 
 
 def _fetch_filelists(root: Path, pool: _Pool, held: list[str], date: str) -> None:
+    def keep(gse: str, got: str | _Gap) -> tuple[raw.RawRow | None, raw.RawRow | None]:
+        if isinstance(got, str):
+            return raw.RawRow(gse, got, date), None
+        if got.reason == gaps.SOFT_MISSING:
+            return raw.RawRow(gse, "", date), None
+        logger.warning("filelist of %s not saved: %s", gse, got.detail)
+        return None, None
+
     pieces = raw.pieces(root, raw.GEO_FILELIST, held)
-    with pool.phase("filelist", sum(len(p.todo) for p in pieces)):
-        for piece in pieces:
-            for start in range(0, len(piece.todo), PART_SIZE):
-                todo = piece.todo[start : start + PART_SIZE]
+    _fetch_parts(root, pool, pieces, filelist_url, _text, keep, "filelist")
 
-                def rows(todo: tuple[str, ...] = todo) -> Iterator[raw.RawRow]:
-                    for gse, got in pool.map(todo, filelist_url, _text):
-                        if isinstance(got, str):
-                            yield raw.RawRow(gse, got, date)
-                        elif got.reason == gaps.SOFT_MISSING:
-                            yield raw.RawRow(gse, "", date)
-                        else:
-                            logger.warning("filelist of %s not saved: %s", gse, got.detail)
 
-                raw.write_part(
-                    root,
-                    raw.Piece(raw.GEO_FILELIST, piece.bucket, todo),
-                    rows(),
-                    record_asked=False,
-                )
+def _fetch_parts(
+    root: Path,
+    pool: _Pool,
+    pieces: list[raw.Piece],
+    url: Callable[[str], str],
+    consume: Callable[[Iterator[bytes]], str],
+    keep: Callable[[str, str | _Gap], tuple[raw.RawRow | None, raw.RawRow | None]],
+    phase: str,
+) -> None:
+    """Fetch every piece's items in one stream; save each bucket's rows and gap rows as parts.
+
+    A bucket's rows are written once :data:`PART_SIZE` rows or ``raw.CHUNK_BYTES`` of text
+    are held, or the bucket is done, so the connections never wait on a part's slowest file.
+    """
+    if not pieces:
+        return
+    source = pieces[0].source
+    left = {p.bucket: len(p.todo) for p in pieces}
+    held: dict[str, tuple[list[raw.RawRow], list[raw.RawRow]]] = {}
+    size: Counter[str] = Counter()
+
+    def flush(bucket: str) -> None:
+        rows, gap_rows = held.pop(bucket)
+        size.pop(bucket, None)
+        for folder, chunk in ((source, rows), (raw.GEO_GAPS, gap_rows)):
+            if chunk:
+                todo = tuple(sorted(r.accession for r in chunk))
+                piece = raw.Piece(folder, raw.bucket_of(folder, todo[0]), todo)
+                raw.write_part(root, piece, chunk, record_asked=False)
+
+    items = (a for p in pieces for a in p.todo)
+    with pool.phase(phase, sum(left.values())):
+        for accession, got in pool.map(items, url, consume):
+            bucket = raw.bucket_of(source, accession)
+            rows, gap_rows = held.setdefault(bucket, ([], []))
+            row, gap = keep(accession, got)
+            rows.extend([row] if row else [])
+            gap_rows.extend([gap] if gap else [])
+            left[bucket] -= 1
+            size[bucket] += len(row.raw_text) if row else 0
+            if (
+                left[bucket] == 0
+                or len(rows) + len(gap_rows) >= PART_SIZE
+                or size[bucket] >= raw.CHUNK_BYTES
+            ):
+                flush(bucket)
 
 
 def _bucket_files(root: Path, source: str, accessions: set[str]) -> list[Path]:
@@ -305,6 +338,7 @@ class _Pool:
         self._client = client
         self._gate = _Gate(connections)
         self._workers = ThreadPoolExecutor(connections, thread_name_prefix="geo-lane")
+        self._window = 4 * connections
         self._progress: _Progress | None = None
 
     def __enter__(self) -> _Pool:
@@ -324,9 +358,16 @@ class _Pool:
         consume: Callable[[Iterator[bytes]], str],
     ) -> Iterator[tuple[str, str | _Gap]]:
         """Fetch each item's URL; yield ``(item, text or gap)`` as each finishes."""
-        futures = {self._workers.submit(self._one, url(i), consume): i for i in items}
-        for future in as_completed(futures):
-            yield futures[future], future.result()
+        todo = iter(items)
+        pending: dict[Future[str | _Gap], str] = {}
+        while True:
+            for item in itertools.islice(todo, self._window - len(pending)):
+                pending[self._workers.submit(self._one, url(item), consume)] = item
+            if not pending:
+                return
+            done, _ = wait(pending, return_when=FIRST_COMPLETED)
+            for future in done:
+                yield pending.pop(future), future.result()
 
     def _one(self, url: str, consume: Callable[[Iterator[bytes]], str]) -> str | _Gap:
         progress = self._progress

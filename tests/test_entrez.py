@@ -451,7 +451,7 @@ def test_download_of_a_missing_file_raises_and_leaves_nothing(tmp_path: Path) ->
     assert list(tmp_path.iterdir()) == []
 
 
-def test_stream_hands_the_caller_decompressed_lines_read_in_chunks(
+def test_stream_hands_the_caller_decompressed_chunks(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(entrez_mod, "_CHUNK_BYTES", 4096)
@@ -463,12 +463,12 @@ def test_stream_hands_the_caller_decompressed_lines_read_in_chunks(
         return replies[-1]
 
     client = _client(answer)
-    lines = client.stream("https://x/GSE1_family.soft.gz", list)
-    assert b"".join(lines) == text
-    assert lines[1] == b"!Sample_title = line 1\n"
+    chunks = client.stream("https://x/GSE1_family.soft.gz", list)
+    assert b"".join(chunks) == text
+    assert max(map(len, chunks)) <= 4096
     assert all(amt is not None and amt <= 4096 for amt in replies[0].reads)
-    assert client.stream("https://x/filelist.txt", list) == [b"a\n", b"b"]
-    assert client.stream("https://x/filelist.txt", list) == [b"a\n", b"b"]
+    assert client.stream("https://x/filelist.txt", list) == [b"a\nb"]
+    assert client.stream("https://x/filelist.txt", list) == [b"a\nb"]
     assert len(_calls(client)) == 3  # never cached
 
 
