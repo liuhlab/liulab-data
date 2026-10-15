@@ -71,11 +71,11 @@ def test_experiments_are_instances() -> None:
     assert isinstance(experiments[0], Experiment)
 
 
-def test_experiments_use_one_batched_summary() -> None:
+def test_experiments_use_one_batched_package_fetch() -> None:
     client = g.build_client()
     _ = BioProject(g.PRJNA, client=client).experiments
-    assert client.count("esummary_many") == 1
-    assert not any(name == "esummary" and args[0] == "sra" for name, args in client.calls)
+    assert client.count("efetch") == 1
+    assert not any(name.startswith("esummary") and args[0] == "sra" for name, args in client.calls)
 
 
 def test_linked_instances_share_client() -> None:

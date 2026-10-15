@@ -1,5 +1,7 @@
 """Tests for labdata.geo.Run."""
 
+import re
+
 import pytest
 
 from labdata.exceptions import AccessionError
@@ -48,17 +50,15 @@ def test_read_structure_fetched_once() -> None:
     client = g.build_client()
     r = Run(g.SRR1, client=client)
     assert (r.read_structure, r.read_lengths, r.n_reads) == ("28+94", [28, 94], 2)
-    # The full XML is fetched once and served from the cached property thereafter.
+    # The package is fetched once and served from the cached property thereafter.
     assert client.count("efetch") == 1
 
 
 def test_read_structure_empty_without_statistics() -> None:
-    # A run whose full XML carries no <Statistics> reports no structure.
+    # A run whose package carries no <Statistics> reports no structure.
+    package = re.sub(r"<Statistics.*?</Statistics>", "", g.PACKAGE)
     client = g.build_client()
-    client._efetch[("sra", "full")] = (
-        f'<EXPERIMENT_PACKAGE_SET><RUN accession="{g.SRR1}" total_spots="600"/>'
-        "</EXPERIMENT_PACKAGE_SET>"
-    )
+    client._packages[g.SRR1] = package
     r = Run(g.SRR1, client=client)
     assert r.read_lengths == []
     assert r.n_reads is None

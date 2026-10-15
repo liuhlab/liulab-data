@@ -21,6 +21,8 @@ from labdata.ncbi.config import (
     prompt_and_save,
     save_credentials,
 )
+from labdata.ncbi.entrez import EntrezClient
+from labdata.store import init_store, open_store, save_pointer
 from labdata.tenx import bamtofastq
 
 app = typer.Typer(
@@ -35,6 +37,10 @@ tenx_app = typer.Typer(
     help="10x Genomics special handling (cellranger BAM → FASTQ).", no_args_is_help=True
 )
 app.add_typer(tenx_app, name="tenx")
+store_app = typer.Typer(
+    help="Configure, fetch into and build the shared record store.", no_args_is_help=True
+)
+app.add_typer(store_app, name="store")
 
 
 @app.command()
@@ -60,6 +66,123 @@ def ncbi_configure(
         creds = prompt_and_save()
         path = config_path()
     typer.echo(f"Saved NCBI credentials for {creds.email} to {path}")
+
+
+@store_app.command("init")
+def store_init(
+    root: Path = typer.Argument(..., help="The store root; created if missing."),
+) -> None:
+    """Make a folder a store: write labdata-store.toml. Refuses if one is already there."""
+    try:
+        marker = init_store(root)
+    except LabdataError as err:
+        typer.echo(str(err), err=True)
+        raise typer.Exit(1) from err
+    typer.echo(f"Wrote {marker}")
+
+
+@store_app.command("verify")
+def store_verify(
+    root: Path | None = typer.Option(
+        None, help="Store root; default: LABDATA_STORE, then pointer."
+    ),
+    write_missing: bool = typer.Option(
+        False, help="First write a README and manifest where a snapshot or raw folder lacks one."
+    ),
+) -> None:
+    """Check every snapshots/, raw/ and builds/ folder against its manifest, sha256 included."""
+    from labdata.store.provenance import folders, verify
+
+    store = open_store(root)
+    problems = verify(store.root, write_missing=write_missing)
+    for line in problems:
+        typer.echo(line)
+    if problems:
+        raise typer.Exit(1)
+    typer.echo(f"All {len(folders(store.root))} folders match their manifests")
+
+
+@store_app.command("configure")
+def store_configure(
+    root: Path = typer.Argument(..., help="The store root, the folder holding labdata-store.toml."),
+) -> None:
+    """Save the store root in the per-user pointer file.
+
+    ``open_store()`` reads it when no root argument is given and ``LABDATA_STORE`` is unset.
+    """
+    path = save_pointer(root)
+    typer.echo(f"Saved store root {root} to {path}")
+
+
+def _store_client() -> EntrezClient:
+    """Return the Entrez client store fetches use; never prompts, so batch jobs never hang."""
+    return EntrezClient(allow_prompt=False)
+
+
+@store_app.command("fetch")
+def store_fetch(
+    accessions: list[str] = typer.Argument(
+        ..., help="GEO Series, BioProject, SRA study or SRA experiment accessions."
+    ),
+    root: Path | None = typer.Option(
+        None, help="Store root; default: LABDATA_STORE, then pointer."
+    ),
+) -> None:
+    r"""Fetch family SOFT, Entrez links, SRA package XML and PubMed (\[si]) results into raw/.
+
+    A GEO Series brings its SubSeries and the SRA packages of every experiment its samples
+    link to. A BioProject or SRA study is expanded to its experiments through the newest
+    SRA_Accessions.tab snapshot. Items already saved are skipped, so a rerun resumes.
+    """
+    from labdata.store.fetch import fetch as fetch_raw
+
+    store = open_store(root)
+    report = fetch_raw(store.root, accessions, client=_store_client())
+    if report.series:
+        typer.echo(f"Saved {len(report.series)} GEO Series to {store.root / 'raw' / 'geo-soft'}")
+    typer.echo(f"Saved {len(report.experiments)} SRA packages to {store.root / 'raw' / 'sra-xml'}")
+    for accession, pmids in report.pubmed_si.items():
+        typer.echo(f"{accession}[si]: {', '.join(pmids) or 'no PubMed IDs'}")
+
+
+@store_app.command("build")
+def store_build(
+    root: Path | None = typer.Option(
+        None, help="Store root; default: LABDATA_STORE, then pointer."
+    ),
+    build_id: str | None = typer.Option(None, help="Build folder name; default: a UTC timestamp."),
+) -> None:
+    """Build the store's tables from raw/ and snapshots/ with no network, then switch to them."""
+    from labdata.store.build import build as build_store
+
+    store = open_store(root)
+    out = build_store(store.root, build_id)
+    typer.echo(f"Built {out} and switched the store to it")
+
+
+@store_app.command("extract")
+def store_extract(
+    source: str = typer.Option(..., help="biosample, bioproject, sra-accessions or geo-series."),
+    workers: int | None = typer.Option(
+        None, min=1, help="Parallel workers; default: SLURM_CPUS_ON_NODE, then the CPU count."
+    ),
+    root: Path | None = typer.Option(
+        None, help="Store root; default: LABDATA_STORE, then pointer."
+    ),
+) -> None:
+    """Extract one snapshot into Parquet parts for `labdata store build`; resumes a killed run.
+
+    Run once per source after a new snapshot lands. Set RAY_ADDRESS to use a running Ray
+    cluster instead of starting one on this node.
+    """
+    from labdata.store.extract import extract
+
+    store = open_store(root)
+    try:
+        out = extract(store.root, source, workers=workers)
+    except ValueError as err:
+        raise typer.BadParameter(str(err), param_hint="--source") from err
+    typer.echo(f"Extracted {source}: {out}")
 
 
 def _record_for_download(accession: str) -> Series | BioProject:
@@ -288,7 +411,7 @@ def geo_original_stage(
     retries: int = typer.Option(sratools.DEFAULT_RETRIES, "--retries", min=1),
     backoff: float = typer.Option(sratools.DEFAULT_BACKOFF, "--backoff", min=0.0),
 ) -> None:
-    """Download one run's original-format files with curl — a download-only DAG stage (internal)."""
+    """Download one run's original-format files with curl (an internal download-only DAG stage)."""
     _run_stage(
         lambda: sratools.download_original_run(Run(srr), srx_dir, retries=retries, backoff=backoff)
     )

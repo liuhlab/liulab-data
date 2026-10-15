@@ -3,10 +3,11 @@
 Every NCBI E-utilities call in liulab-data goes through :class:`EntrezClient`,
 which sets the contact email / API key from
 :func:`labdata.ncbi.config.load_credentials` and exposes small typed helpers
-(``esearch``, ``esummary``, ``esummary_many``, ``elink``) that parse the XML
-handle into plain Python structures, plus ``efetch`` for raw (e.g. CSV)
-responses. Concentrating network access in one seam keeps the rest of the
-package easy to unit-test by substituting a fake client.
+(``esearch``, ``esummary``, ``esummary_many``, ``elink``, ``elink_many``) that
+parse the XML handle into plain Python structures, plus ``efetch`` for raw (e.g.
+CSV) responses and ``fetch_text`` for NCBI web pages outside E-utilities.
+Concentrating network access in one seam keeps the rest of the package easy to
+unit-test by substituting a fake client.
 
 Responses are memoized per client instance, so records that share a client never
 repeat an identical request; ``esummary_many`` further collapses a list of UIDs
@@ -15,16 +16,18 @@ into one batched request.
 
 from __future__ import annotations
 
+import gzip
 import http.client
 import socket
 import time
 import urllib.error
+import urllib.request
 from collections.abc import Callable
 from typing import Any
 
 from Bio import Entrez
 
-from labdata.exceptions import EntrezError
+from labdata.exceptions import EntrezError, PageNotFound
 from labdata.ncbi.config import NcbiCredentials, load_credentials
 
 # Bio.Entrez ships no type stubs and exposes mutable module-level globals; alias
@@ -44,6 +47,11 @@ _MAX_TRIES = 4
 #: an API key (10 req/s) NCBI occasionally closes a connection early, so backing off
 #: and trying again is the difference between a transient blip and a failed fetch.
 _RETRY_BASE_DELAY = 1.0
+
+#: Socket timeout in seconds for :meth:`EntrezClient.fetch_text`.
+_PAGE_TIMEOUT = 60.0
+
+_USER_AGENT = "liulab-data (+https://github.com/liuhlab/liulab-data)"
 
 #: Connection-level failures worth retrying — the request reached NCBI and the
 #: response, not the query, is what went wrong.
@@ -99,12 +107,22 @@ def _docsums(record: Any) -> list[Any]:
     return list(record)
 
 
-def _docsum_uid(docsum: Any) -> str | None:
+def docsum_uid(docsum: Any) -> str | None:
     """Return the NCBI UID of a single document summary, if present.
 
     Classic ``DocSum`` records (``gds``/``sra``) carry the UID under the ``Id``
     key; v2.0 ``DocumentSummary`` records (``bioproject``) carry it as the XML
     ``uid`` attribute, which Biopython exposes via ``.attributes``.
+
+    Parameters
+    ----------
+    docsum : Any
+        One summary from :meth:`EntrezClient.esummary_many`.
+
+    Returns
+    -------
+    str or None
+        The UID, or ``None`` when the summary carries none.
     """
     uid = docsum.get("Id") if hasattr(docsum, "get") else None
     if not uid:
@@ -227,7 +245,7 @@ class EntrezClient:
         list of dict
             One document summary per UID, in NCBI's order. The mappings may carry
             NCBI's ``Id``/``uid`` so callers can recover each summary's UID via
-            :func:`_docsum_uid`. Cached per client by the exact UID list.
+            :func:`docsum_uid`. Cached per client by the exact UID list.
         """
         ids = [str(uid) for uid in uids]
         if not ids:
@@ -278,6 +296,39 @@ class EntrezClient:
             cached = self._cache[key] = linked
         return list(cached)
 
+    def elink_many(self, dbfrom: str, db: str, uids: list[str]) -> dict[str, list[str]]:
+        """Map each of several UIDs to the UIDs it links to, one request per chunk.
+
+        Parameters
+        ----------
+        dbfrom : str
+            Source database (e.g. ``"gds"``).
+        db : str
+            Target database (e.g. ``"sra"``).
+        uids : list of str
+            The source UIDs. An empty list issues no request.
+
+        Returns
+        -------
+        dict of str to list of str
+            Each distinct source UID mapped to its linked UIDs (empty if none).
+        """
+        wanted = list(dict.fromkeys(str(uid) for uid in uids))
+        out: dict[str, list[str]] = {uid: [] for uid in wanted}
+        for start in range(0, len(wanted), _ESUMMARY_CHUNK):
+            chunk = wanted[start : start + _ESUMMARY_CHUNK]
+            # A list ``id`` is sent as repeated parameters, so NCBI answers one set per UID.
+            record = self._request(
+                lambda chunk=chunk: _entrez.elink(dbfrom=dbfrom, db=db, id=chunk), _entrez.read
+            )
+            for linkset in record:
+                source = str((linkset.get("IdList") or [""])[0])
+                for linksetdb in linkset.get("LinkSetDb", []):
+                    out.setdefault(source, []).extend(
+                        str(link["Id"]) for link in linksetdb.get("Link", [])
+                    )
+        return out
+
     def efetch(
         self,
         db: str,
@@ -285,6 +336,7 @@ class EntrezClient:
         *,
         rettype: str,
         retmode: str = "text",
+        refresh: bool = False,
     ) -> str:
         """Fetch raw records via EFetch and return the response as text.
 
@@ -302,6 +354,8 @@ class EntrezClient:
             EFetch return type (e.g. ``"runinfo"``).
         retmode : str
             EFetch return mode (default ``"text"``).
+        refresh : bool
+            Skip the cached response and request again (the new response is cached).
 
         Returns
         -------
@@ -313,12 +367,49 @@ class EntrezClient:
         if not uids:
             return ""
         key = ("efetch", db, tuple(uids), rettype, retmode)
-        cached = self._cache.get(key)
+        cached = None if refresh else self._cache.get(key)
         if cached is None:
             cached = self._cache[key] = self._request(
                 lambda: _entrez.efetch(db=db, id=",".join(uids), rettype=rettype, retmode=retmode),
                 self._parse_text,
             )
+        return cached
+
+    def fetch_text(self, url: str) -> str:
+        """GET an NCBI web page that E-utilities does not serve and return its text.
+
+        Parameters
+        ----------
+        url : str
+            The page URL.
+
+        Returns
+        -------
+        str
+            The response body. Cached per client by URL.
+
+        Raises
+        ------
+        PageNotFound
+            If the server answers 404.
+        EntrezError
+            If the request fails after the transient-failure retries.
+        """
+        key = ("fetch_text", url)
+        cached = self._cache.get(key)
+        if cached is None:
+            request = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+            try:
+                cached = self._request(
+                    lambda: urllib.request.urlopen(request, timeout=_PAGE_TIMEOUT),
+                    self._parse_text,
+                )
+            except EntrezError as err:
+                cause = err.__cause__
+                if isinstance(cause, urllib.error.HTTPError) and cause.code == 404:
+                    raise PageNotFound(f"no page at {url}") from cause
+                raise
+            self._cache[key] = cached
         return cached
 
     def _request(self, open_handle: Callable[[], Any], parse: Callable[[Any], Any]) -> Any:
@@ -349,4 +440,6 @@ class EntrezClient:
     def _parse_text(handle: Any) -> str:
         """Read a raw E-utilities handle to text (EFetch serves formats Biopython won't parse)."""
         data = handle.read()
+        if isinstance(data, bytes) and data[:2] == b"\x1f\x8b":
+            data = gzip.decompress(data)
         return data.decode() if isinstance(data, bytes) else str(data)

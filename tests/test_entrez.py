@@ -7,11 +7,13 @@ no network or XML parsing happens here.
 
 import http.client
 import urllib.error
+import urllib.request
+from email.message import Message
 
 import pytest
 
 import labdata.ncbi.entrez as entrez_mod
-from labdata.exceptions import EntrezError
+from labdata.exceptions import EntrezError, PageNotFound
 from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient, _is_transient
 
@@ -210,6 +212,31 @@ def test_efetch_is_cached(monkeypatch: pytest.MonkeyPatch) -> None:
     assert calls[0]["id"] == "1,2"
 
 
+def test_efetch_refresh_requests_again(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        entrez_mod.Entrez, "efetch", lambda **kw: calls.append(kw) or _TextHandle("data")
+    )
+    client = EntrezClient(CREDS)
+    client.efetch(db="sra", ids=["1"], rettype="full")
+    client.efetch(db="sra", ids=["1"], rettype="full", refresh=True)
+    assert len(calls) == 2
+
+
+def test_fetch_text_gets_a_page_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    urls: list[str] = []
+
+    def _urlopen(request: object, **_kw: object) -> _TextHandle:
+        urls.append(request.full_url)  # type: ignore[attr-defined]
+        return _TextHandle(b"^SAMPLE = GSM1\n")
+
+    monkeypatch.setattr(entrez_mod.urllib.request, "urlopen", _urlopen)
+    client = EntrezClient(CREDS)
+    assert client.fetch_text("https://www.ncbi.nlm.nih.gov/x") == "^SAMPLE = GSM1\n"
+    assert client.fetch_text("https://www.ncbi.nlm.nih.gov/x") == "^SAMPLE = GSM1\n"
+    assert urls == ["https://www.ncbi.nlm.nih.gov/x"]
+
+
 def test_clear_cache_forces_refetch(count_entrez) -> None:
     calls = count_entrez("esearch", {"IdList": ["7"]})
     client = EntrezClient(CREDS)
@@ -329,3 +356,46 @@ def test_efetch_retries_a_dropped_response(monkeypatch: pytest.MonkeyPatch) -> N
     out = EntrezClient(CREDS).efetch(db="sra", ids=["1"], rettype="runinfo")
     assert "SRR1" in out
     assert state["reads"] == 2  # first read dropped, second succeeded
+
+
+def test_fetch_text_decompresses_a_gzip_file(monkeypatch: pytest.MonkeyPatch) -> None:
+    import gzip
+
+    monkeypatch.setattr(
+        entrez_mod.urllib.request,
+        "urlopen",
+        lambda _request, **_kw: _TextHandle(gzip.compress(b"^SERIES = GSE1\n")),
+    )
+    assert EntrezClient(CREDS).fetch_text("https://x/GSE1_family.soft.gz") == "^SERIES = GSE1\n"
+
+
+def test_elink_many_maps_each_uid_in_one_request(count_entrez) -> None:
+    record = [
+        {"IdList": ["1"], "LinkSetDb": [{"Link": [{"Id": "9"}, {"Id": "8"}]}]},
+        {"IdList": ["2"], "LinkSetDb": []},
+    ]
+    calls = count_entrez("elink", record)
+    result = EntrezClient(CREDS).elink_many(dbfrom="gds", db="sra", uids=["1", "2", "1"])
+    assert result == {"1": ["9", "8"], "2": []}
+    assert [call["id"] for call in calls] == [["1", "2"]]
+
+
+def test_fetch_text_signals_a_missing_page(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _missing(request: object, **_kw: object) -> _TextHandle:
+        raise urllib.error.HTTPError("https://x/", 404, "gone", Message(), None)
+
+    monkeypatch.setattr(entrez_mod.urllib.request, "urlopen", _missing)
+    with pytest.raises(PageNotFound, match="https://x/"):
+        EntrezClient(CREDS).fetch_text("https://x/")
+
+
+def test_fetch_text_identifies_the_repo(monkeypatch: pytest.MonkeyPatch) -> None:
+    agents: list[str | None] = []
+
+    def _urlopen(request: urllib.request.Request, **_kw: object) -> _TextHandle:
+        agents.append(request.get_header("User-agent"))
+        return _TextHandle(b"ok")
+
+    monkeypatch.setattr(entrez_mod.urllib.request, "urlopen", _urlopen)
+    assert EntrezClient(CREDS).fetch_text("https://example/") == "ok"
+    assert agents == ["liulab-data (+https://github.com/liuhlab/liulab-data)"]

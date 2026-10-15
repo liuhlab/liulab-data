@@ -1,0 +1,205 @@
+^DATABASE = GeoMiame
+!Database_name = Gene Expression Omnibus (GEO)
+!Database_institute = NCBI NLM NIH
+!Database_web_link = http://www.ncbi.nlm.nih.gov/geo
+!Database_email = geo@ncbi.nlm.nih.gov
+^SERIES = GSE19456
+!Series_title = Aberrant host immune response induced by highly virulent PRRSV identified by digital gene expression tag profiling
+!Series_geo_accession = GSE19456
+!Series_status = Public on Dec 05 2010
+!Series_submission_date = Dec 14 2009
+!Series_last_update_date = May 15 2019
+!Series_pubmed_id = 20929578
+!Series_summary = BACKGROUND: There was a large scale outbreak of the highly pathogenic porcine reproductive and respiratory syndrome (PRRS) in China and Vietnam during 2006 and 2007 that resulted in unusually high morbidity and mortality among pigs of all ages. The mechanisms underlying the molecular pathogenesis of the highly virulent PRRS virus (H-PRRSV) remains unknown. Therefore, the relationship between pulmonary gene expression profiles after H-PRRSV infection and infection pathology were analyzed in this study using high-throughput deep sequencing and histopathology.
+!Series_summary = 
+!Series_summary = RESULTS: H-PRRSV infection resulted in severe lung pathology. The results indicate that aberrant host innate immune responses to H-PRRSV and induction of an anti-apoptotic state could be responsible for the aggressive replication and dissemination of H-PRRSV. Prolific rapid replication of H-PRRSV could have triggered aberrant sustained expression of pro-inflammatory cytokines and chemokines leading to a markedly robust inflammatory response compounded by significant cell death and increased oxidative damage. The end result was severe tissue damage and high pathogenicity.
+!Series_summary = 
+!Series_summary = CONCLUSIONS: The systems analysis utilized in this study provides a comprehensive basis for better understanding the pathogenesis of H-PRRSV. Furthermore, it allows the genetic components involved in H-PRRSV resistance/susceptibility in swine populations to be identified.
+!Series_overall_design = Nine conventionally-reared, healthy 6-week-old, crossbred weaned pigs (Landrace×Yorkshire) were selected from a high-health commercial farm. All pigs were PRRSV-seronegative determined by ELISA (HerdChek PRRS 2XR; IDEXX Laboratories) and absence of PRRSV tested by RT-PCR. Pigs were randomly assigned to three groups in the experiment and raised in isolation rooms. Six pigs were inoculated with 6 ml viral suspension (4 ml intranasally and 2 ml intramuscularly) of H-PRRSV at a dose of 106.0 TCID50 ml-1 on day 0. Three negative control pigs were treated similarly with an identical volume of DMEM culture media from uninfected MARC-145 cells 1 day prior to experimental infection, and were immediately necropsied.H-PRRSV-inoculated pigs were clinically examined daily and rectal body temperatures were recorded from days -2 to 7 post infection (pi).Three infected pigs randomly chosen within each group were necropsied at each time point of 96 h pi and 168 h pi. Lung samples were collected from uninfected negative control group (C), three pigs at 96 h pi (H96), three pigs at 168 h pi (H168) and immediately frozen in liquid nitrogen for RNA isolation or fixed in 10% neutralized buffered formalin for histological processing.
+!Series_overall_design = Total RNA was extracted from frozen lungs using standard protocols (Trizol) and then treated with DNase to remove potential genomic DNA contamination according to the manufactures’s protocols. RNA integrity and concentration were evaluated by Agolent 2100 Bioanalyzer.For RNA library construction and deep sequencing, RNA samples were prepared as follows: for each time point of H-PRRSV-inoculated group and UNC group equal quantities of RNA isolated from three individual lungs were pooled. Approximately 6 μg of RNA representing each group were submitted to Solexa (now Illumina Inc.) for sequencing.
+!Series_type = Expression profiling by high throughput sequencing
+!Series_contributor = Shuqi,,Xiao
+!Series_contributor = Delin,,Mo
+!Series_contributor = Qiwei,,Wang
+!Series_contributor = Jianyu,,Jia
+!Series_contributor = Limei,,Qin
+!Series_contributor = Xiangchun,,Yu
+!Series_contributor = Yuna,,Niu
+!Series_contributor = Xiao,,Zhao
+!Series_contributor = Xiaohong,,Liu
+!Series_contributor = Yaosheng,,Chen
+!Series_sample_id = GSM484820
+!Series_sample_id = GSM484821
+!Series_sample_id = GSM484822
+!Series_contact_name = Yaosheng,,Chen
+!Series_contact_email = chyaosh@mail.sysu.edu.cn
+!Series_contact_phone = +86 (0)20 39332788
+!Series_contact_laboratory = State Key Laboratory of Biocontrol
+!Series_contact_department = School of Life Sciences
+!Series_contact_institute = Sun Yat-sen University
+!Series_contact_address = Beisanlu,Higher education megacenter
+!Series_contact_city = Guangzhou
+!Series_contact_state = Guangdong
+!Series_contact_zip/postal_code = 510006
+!Series_contact_country = China
+!Series_platform_id = GPL9126
+!Series_platform_taxid = 9823
+!Series_sample_taxid = 9823
+!Series_relation = SRA: https://www.ncbi.nlm.nih.gov/sra?term=SRP002215
+!Series_relation = BioProject: https://www.ncbi.nlm.nih.gov/bioproject/PRJNA120321
+^PLATFORM = GPL9126
+!Platform_title = Illumina Genome Analyzer (Sus scrofa)
+!Platform_geo_accession = GPL9126
+!Platform_status = Public on Aug 31 2009
+!Platform_submission_date = Aug 31 2009
+!Platform_last_update_date = Nov 09 2012
+!Platform_technology = high-throughput sequencing
+!Platform_distribution = virtual
+!Platform_organism = Sus scrofa
+!Platform_taxid = 9823
+!Platform_contact_name = ,,GEO
+!Platform_contact_country = USA
+!Platform_data_row_count = 0
+^SAMPLE = GSM484820
+!Sample_title = Lung_pooled 3 control pigs (C)
+!Sample_geo_accession = GSM484820
+!Sample_status = Public on Dec 05 2010
+!Sample_submission_date = Dec 14 2009
+!Sample_last_update_date = May 15 2019
+!Sample_type = SRA
+!Sample_channel_count = 1
+!Sample_source_name_ch1 = pooled lung of three pigs (uninfected negative control)
+!Sample_organism_ch1 = Sus scrofa
+!Sample_taxid_ch1 = 9823
+!Sample_characteristics_ch1 = tissue: lung
+!Sample_characteristics_ch1 = treatment group: control
+!Sample_treatment_protocol_ch1 = Pigs were inoculated with 6 ml viral suspension (4 ml intranasally and 2 ml intramuscularly) of H-PRRSV at a dose of 106.0 TCID50 ml-1 on day 0. Three infected pigs randomly chosen within each group were necropsied at each time point of 96 h pi and 168 h pi.
+!Sample_growth_protocol_ch1 = All animal procedures were performed according to guidelines developed by the China Council on Animal Care and protocol approved by Animal Care and Use Committee of Guangdong Province, P.R. China.
+!Sample_molecule_ch1 = total RNA
+!Sample_extract_protocol_ch1 = Total RNA was extracted from frozen lungs using standard protocols (Trizol) and then treated with DNase to remove potential genomic DNA contamination according to the manufactures’s protocols. RNA integrity and concentration were evaluated by Agolent 2100 Bioanalyzer. For RNA library construction and deep sequencing, RNA samples were prepared as follows: for each time point of H-PRRSV-inoculated group and UNC group equal quantities of RNA isolated from three individual lungs were pooled. Approximately 6 μg of RNA representing each group were submitted to Solexa (now Illumina Inc.) for sequencing.
+!Sample_description = no additional information
+!Sample_data_processing = Image recognition, base calling and tag counting were performed using the Illumina Pipeline.
+!Sample_platform_id = GPL9126
+!Sample_contact_name = Yaosheng,,Chen
+!Sample_contact_email = chyaosh@mail.sysu.edu.cn
+!Sample_contact_phone = +86 (0)20 39332788
+!Sample_contact_laboratory = State Key Laboratory of Biocontrol
+!Sample_contact_department = School of Life Sciences
+!Sample_contact_institute = Sun Yat-sen University
+!Sample_contact_address = Beisanlu,Higher education megacenter
+!Sample_contact_city = Guangzhou
+!Sample_contact_state = Guangdong
+!Sample_contact_zip/postal_code = 510006
+!Sample_contact_country = China
+!Sample_instrument_model = Illumina Genome Analyzer
+!Sample_library_selection = cDNA
+!Sample_library_source = transcriptomic
+!Sample_library_strategy = RNA-Seq
+!Sample_relation = SRA: https://www.ncbi.nlm.nih.gov/sra?term=SRX018673
+!Sample_relation = SRA: https://www.ncbi.nlm.nih.gov/sra?term=SRX018710
+!Sample_relation = BioSample: https://www.ncbi.nlm.nih.gov/biosample/SAMN00010819
+!Sample_supplementary_file_1 = NONE
+!Sample_series_id = GSE19456
+!Sample_series_id = GSE19970
+!Sample_data_row_count = 249407
+#SEQUENCE = 
+#COUNT = sequence counts
+!sample_table_begin
+SEQUENCE	COUNT
+CATGAGGATGTGCATTCCATC	2
+CATGTTATTGATCTCAGATAA	2
+!sample_table_end
+^SAMPLE = GSM484821
+!Sample_title = Lung_96h_pooled 3 infected pigs (H96)
+!Sample_geo_accession = GSM484821
+!Sample_status = Public on Dec 05 2010
+!Sample_submission_date = Dec 14 2009
+!Sample_last_update_date = May 15 2019
+!Sample_type = SRA
+!Sample_channel_count = 1
+!Sample_source_name_ch1 = pooled lung of three pigs (96h pi infected with H-PRRSV)
+!Sample_organism_ch1 = Sus scrofa
+!Sample_taxid_ch1 = 9823
+!Sample_characteristics_ch1 = tissue: lung
+!Sample_characteristics_ch1 = treatment group: 96h pi infected with H-PRRSV
+!Sample_treatment_protocol_ch1 = Pigs were inoculated with 6 ml viral suspension (4 ml intranasally and 2 ml intramuscularly) of H-PRRSV at a dose of 106.0 TCID50 ml-1 on day 0. Three infected pigs randomly chosen within each group were necropsied at each time point of 96 h pi and 168 h pi.
+!Sample_growth_protocol_ch1 = All animal procedures were performed according to guidelines developed by the China Council on Animal Care and protocol approved by Animal Care and Use Committee of Guangdong Province, P.R. China.
+!Sample_molecule_ch1 = total RNA
+!Sample_extract_protocol_ch1 = Total RNA was extracted from frozen lungs using standard protocols (Trizol) and then treated with DNase to remove potential genomic DNA contamination according to the manufactures’s protocols. RNA integrity and concentration were evaluated by Agolent 2100 Bioanalyzer. For RNA library construction and deep sequencing, RNA samples were prepared as follows: for each time point of H-PRRSV-inoculated group and UNC group equal quantities of RNA isolated from three individual lungs were pooled. Approximately 6 μg of RNA representing each group were submitted to Solexa (now Illumina Inc.) for sequencing.
+!Sample_description = no additional information
+!Sample_data_processing = Image recognition, base calling and tag counting were performed using the Illumina Pipeline.
+!Sample_platform_id = GPL9126
+!Sample_contact_name = Yaosheng,,Chen
+!Sample_contact_email = chyaosh@mail.sysu.edu.cn
+!Sample_contact_phone = +86 (0)20 39332788
+!Sample_contact_laboratory = State Key Laboratory of Biocontrol
+!Sample_contact_department = School of Life Sciences
+!Sample_contact_institute = Sun Yat-sen University
+!Sample_contact_address = Beisanlu,Higher education megacenter
+!Sample_contact_city = Guangzhou
+!Sample_contact_state = Guangdong
+!Sample_contact_zip/postal_code = 510006
+!Sample_contact_country = China
+!Sample_instrument_model = Illumina Genome Analyzer
+!Sample_library_selection = cDNA
+!Sample_library_source = transcriptomic
+!Sample_library_strategy = RNA-Seq
+!Sample_relation = SRA: https://www.ncbi.nlm.nih.gov/sra?term=SRX018674
+!Sample_relation = BioSample: https://www.ncbi.nlm.nih.gov/biosample/SAMN00010820
+!Sample_supplementary_file_1 = NONE
+!Sample_series_id = GSE19456
+!Sample_data_row_count = 126648
+#SEQUENCE = 
+#COUNT = sequence counts
+!sample_table_begin
+SEQUENCE	COUNT
+CATGCCGCTGGCGTCACTGGA	2
+CATGGTTCTATCTAATTTATA	2
+!sample_table_end
+^SAMPLE = GSM484822
+!Sample_title = Lung_168h_pooled 3 infected pigs (168)
+!Sample_geo_accession = GSM484822
+!Sample_status = Public on Dec 05 2010
+!Sample_submission_date = Dec 14 2009
+!Sample_last_update_date = May 15 2019
+!Sample_type = SRA
+!Sample_channel_count = 1
+!Sample_source_name_ch1 = pooled lung of three pigs (168h pi infected with H-PRRSV)
+!Sample_organism_ch1 = Sus scrofa
+!Sample_taxid_ch1 = 9823
+!Sample_characteristics_ch1 = tissue: lung
+!Sample_characteristics_ch1 = treatment group: 168h pi infected with H-PRRSV
+!Sample_treatment_protocol_ch1 = Pigs were inoculated with 6 ml viral suspension (4 ml intranasally and 2 ml intramuscularly) of H-PRRSV at a dose of 106.0 TCID50 ml-1 on day 0. Three infected pigs randomly chosen within each group were necropsied at each time point of 96 h pi and 168 h pi.
+!Sample_growth_protocol_ch1 = All animal procedures were performed according to guidelines developed by the China Council on Animal Care and protocol approved by Animal Care and Use Committee of Guangdong Province, P.R. China.
+!Sample_molecule_ch1 = total RNA
+!Sample_extract_protocol_ch1 = Total RNA was extracted from frozen lungs using standard protocols (Trizol) and then treated with DNase to remove potential genomic DNA contamination according to the manufactures’s protocols. RNA integrity and concentration were evaluated by Agolent 2100 Bioanalyzer. For RNA library construction and deep sequencing, RNA samples were prepared as follows: for each time point of H-PRRSV-inoculated group and UNC group equal quantities of RNA isolated from three individual lungs were pooled. Approximately 6 μg of RNA representing each group were submitted to Solexa (now Illumina Inc.) for sequencing.
+!Sample_description = no additional information
+!Sample_data_processing = Image recognition, base calling and tag counting were performed using the Illumina Pipeline.
+!Sample_platform_id = GPL9126
+!Sample_contact_name = Yaosheng,,Chen
+!Sample_contact_email = chyaosh@mail.sysu.edu.cn
+!Sample_contact_phone = +86 (0)20 39332788
+!Sample_contact_laboratory = State Key Laboratory of Biocontrol
+!Sample_contact_department = School of Life Sciences
+!Sample_contact_institute = Sun Yat-sen University
+!Sample_contact_address = Beisanlu,Higher education megacenter
+!Sample_contact_city = Guangzhou
+!Sample_contact_state = Guangdong
+!Sample_contact_zip/postal_code = 510006
+!Sample_contact_country = China
+!Sample_instrument_model = Illumina Genome Analyzer
+!Sample_library_selection = cDNA
+!Sample_library_source = transcriptomic
+!Sample_library_strategy = RNA-Seq
+!Sample_relation = SRA: https://www.ncbi.nlm.nih.gov/sra?term=SRX018675
+!Sample_relation = BioSample: https://www.ncbi.nlm.nih.gov/biosample/SAMN00010821
+!Sample_supplementary_file_1 = NONE
+!Sample_series_id = GSE19456
+!Sample_data_row_count = 133936
+#SEQUENCE = 
+#COUNT = sequence counts
+!sample_table_begin
+SEQUENCE	COUNT
+CATGCAAGGCCGCGGAGACGG	2
+CATGGCCCTCACGCCACCCTC	2
+!sample_table_end
