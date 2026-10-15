@@ -1294,6 +1294,9 @@ def run_build(pilot: Path, build_id: str) -> dict[str, Any]:
         "job": os.environ.get("SLURM_JOB_ID"),
         "cpus": os.environ.get("SLURM_CPUS_PER_TASK"),
         "mem_mb": os.environ.get("SLURM_MEM_PER_NODE"),
+        "unknown_relation_labels": json.loads(
+            (out / "manifest.json").read_text(encoding="utf-8")
+        ).get("unknown_relation_labels", {}),
     }
     write_atomic(path, json.dumps(result, indent=2) + "\n")
     return result
@@ -1581,6 +1584,10 @@ def render(r: dict[str, Any]) -> str:
         f"| {b['build_id']} | {b['wall_s']:.0f} | {b['maxrss_bytes']} | {b['bytes']} |"
         for b in r["builds"]
     ]
+    labels = next((b.get("unknown_relation_labels") for b in r["builds"]), None) or {}
+    if labels:
+        lines += ["", "Unknown GEO relation labels kept verbatim:", ""]
+        lines += [f"- {k}: {v['links']} links, e.g. {v['example']}" for k, v in labels.items()]
     return "\n".join(lines) + "\n"
 
 
