@@ -69,6 +69,7 @@ def build(
     *,
     workers: int | None = None,
     chunk_bytes: int = CHUNK_BYTES,
+    fraction: float | None = None,
 ) -> Path:
     """Build every table into a new ``builds/<build-id>/`` and point the marker at it.
 
@@ -84,6 +85,9 @@ def build(
     chunk_bytes : int
         Bytes of source text a worker parses before it writes its parts. Peak memory is about
         ``workers`` chunks plus DuckDB's cap (:func:`labdata.store.extract.duckdb_memory`).
+    fraction : float or None
+        A round's seeded sample of the target Series list; gaps, notes and ``GEO summary``
+        links cover only that sample. ``None`` for the whole list.
 
     Returns
     -------
@@ -96,8 +100,9 @@ def build(
         If a snapshot is missing or not extracted, a build of that id exists, two copies of a
         record differ, or another build of this store is running.
     """
+    fraction = targets.check_fraction(fraction)
     with build_lock(root):
-        return _build(root, build_id, workers or extract.default_workers(), chunk_bytes)
+        return _build(root, build_id, workers or extract.default_workers(), chunk_bytes, fraction)
 
 
 @contextmanager
@@ -125,7 +130,9 @@ def build_lock(root: Path) -> Iterator[None]:
             fcntl.flock(fh, fcntl.LOCK_UN)
 
 
-def _build(root: Path, build_id: str | None, workers: int, chunk_bytes: int) -> Path:
+def _build(
+    root: Path, build_id: str | None, workers: int, chunk_bytes: int, fraction: float | None
+) -> Path:
     build_id = build_id or dt.datetime.now(dt.UTC).strftime("%Y%m%dT%H%M%SZ")
     out = root / "builds" / build_id
     if out.exists():
@@ -140,7 +147,7 @@ def _build(root: Path, build_id: str | None, workers: int, chunk_bytes: int) -> 
     tmp = temp_beside(out)
     try:
         with extract.parallel(workers):
-            _build_into(root, build_id, work, tmp, workers, chunk_bytes)
+            _build_into(root, build_id, work, tmp, workers, chunk_bytes, fraction)
         tmp.rename(out)
     finally:
         shutil.rmtree(work, ignore_errors=True)
@@ -150,10 +157,16 @@ def _build(root: Path, build_id: str | None, workers: int, chunk_bytes: int) -> 
 
 
 def _build_into(
-    root: Path, build_id: str, work: Path, tmp: Path, workers: int, chunk_bytes: int
+    root: Path,
+    build_id: str,
+    work: Path,
+    tmp: Path,
+    workers: int,
+    chunk_bytes: int,
+    fraction: float | None,
 ) -> None:
     _, geo_date = extract.done_dir(root, snapshots.GEO_SERIES)
-    target_list = targets.target_list(root, geo_date)
+    target_list = targets.target_list(root, geo_date, fraction)
     _summary_links(target_list, work / "links" / "summary.parquet")
     tasks: list[_parse.Task] = []
     for kind in _parse.RAW_KINDS:
@@ -186,7 +199,7 @@ def _build_into(
         labels = _unknown_labels(con, tmp / "links_by_from.parquet")
     logger.info("writing known, gaps and notes")
     known.write(root, tmp / "known.parquet")
-    coverage = gaps.write_gaps(root, tmp, target_list, geo_date)
+    coverage = gaps.write_gaps(root, tmp, target_list, geo_date, fraction)
     label_notes = [
         gaps.Note(str(v["example"]), gaps.UNKNOWN_LABEL, f"{label}: {v['links']} links")
         for label, v in labels.items()

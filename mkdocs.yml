@@ -67,6 +67,7 @@ nav:
       - GEO Series: tutorials/geo-series.md
       - 10x cellranger BAM → FASTQ: tutorials/tenx-bam.md
   - How-to:
+      - Run the full download: how-to/store-run.md
       - Copy the store to GCS: how-to/store-gcs.md
   - API reference: reference.md
 

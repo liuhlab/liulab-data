@@ -128,3 +128,16 @@ def test_a_snapshot_bioproject_is_a_geo_summary_link_from_both_ends(root: Path) 
     assert Link("BioProject", "PRJNA644323", "SOFT", True) in series
     project = store.links("PRJNA644323", "BioProject of")["PRJNA644323"]
     assert Link("BioProject of", "GSE153830", "GEO summary", False) in project
+
+
+def test_a_rounds_build_and_coverage_cover_only_its_sample(root: Path) -> None:
+    # At 0.7 the seeded sample holds GSE153830 (saved) and GSE28772 (no SOFT, no gap row).
+    out = build(root, "b1", fraction=0.7)
+    assert _rows(out / "gaps.parquet") == [
+        {"accession": "GSE28772", "reason": "unexplained", "detail": None},
+    ]
+    code, output = _coverage(root)
+    assert code == 1
+    assert "Target Series: 2" in output
+    assert "Held: 1" in output
+    assert "soft-missing: 0" in output
