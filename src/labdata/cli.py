@@ -264,6 +264,7 @@ def store_coverage(
     typer.echo(f"Gaps: {sum(report.gaps.values())}")
     for reason, count in report.gaps.items():
         typer.echo(f"  {reason}: {count}")
+    typer.echo(f"SRA experiments fetch-failed: {report.failed_experiments} (not Series gaps)")
     if report.passed:
         typer.echo("Coverage passes.")
         return

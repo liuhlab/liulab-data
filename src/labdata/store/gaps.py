@@ -35,6 +35,9 @@ TYPE_DISAGREES = "series type disagrees"
 UNKNOWN_LABEL = "unknown GEO relation label"
 #: Note kind: an SRA experiment NCBI served no package for.
 NO_PACKAGE = "no SRA package"
+#: Note kind: a listed SRA experiment whose package fetch failed; a rerun asks again.
+#: It is not a Series gap.
+PACKAGE_FETCH_FAILED = FETCH_FAILED
 
 #: The Parquet key-value metadata key of ``gaps.parquet`` holding the snapshot date.
 DATE_KEY = "snapshot_date"
@@ -73,6 +76,8 @@ class Coverage:
         Up to ``NAMED`` (accession, problem) pairs, sorted.
     failures : int
         Every failing Series, named or not.
+    failed_experiments : int
+        SRA experiments whose package fetch failed, from the build notes; not Series gaps.
     """
 
     snapshot_date: str
@@ -81,6 +86,7 @@ class Coverage:
     gaps: dict[str, int]
     failing: tuple[tuple[str, str], ...]
     failures: int
+    failed_experiments: int = 0
 
     @property
     def passed(self) -> bool:
@@ -168,9 +174,16 @@ def write_gaps(
 
 
 def write_notes(
-    root: Path, build_dir: Path, target_list: Path, extra: Iterable[Note] = ()
+    root: Path,
+    build_dir: Path,
+    target_list: Path,
+    extra: Iterable[Note] = (),
+    experiments: Path | None = None,
 ) -> dict[str, int]:
-    """Write ``notes.parquet``: type disagreements of held target Series, then ``extra``.
+    """Write ``notes.parquet``: type disagreements, failed package fetches, then ``extra``.
+
+    A failed package fetch is an experiment on the E-utilities lane's list ``experiments``
+    that ``raw/sra-xml/`` does not hold.
 
     Returns
     -------
@@ -204,10 +217,24 @@ def write_notes(
         if series.is_file()
         else "SELECT * FROM extra WHERE false"
     )
+    unfetched = "SELECT * FROM extra WHERE false"
+    saved = root / "raw" / raw.SRA_XML
+    if experiments is not None and experiments.is_file():
+        held = (
+            f"SELECT accession FROM {_read(saved / '*.parquet')}"
+            if any(saved.glob("*.parquet"))
+            else "SELECT NULL::VARCHAR AS accession WHERE false"
+        )
+        unfetched = (
+            f"SELECT accession, '{PACKAGE_FETCH_FAILED}' AS kind, "
+            f"'no package saved; a rerun asks again' AS detail FROM {_read(experiments)} "
+            f"WHERE accession NOT IN ({held})"
+        )
     with extract.connect(root) as con:
         con.register("extra", extra_table)
         con.execute(
-            f"COPY (SELECT * FROM ({disagree} UNION ALL SELECT * FROM extra) "
+            f"COPY (SELECT * FROM ({disagree} UNION ALL {unfetched} UNION ALL "
+            "SELECT * FROM extra) "
             f"ORDER BY kind, accession, detail) TO {extract.sql_string(str(out))} (FORMAT parquet)"
         )
         counts = con.execute(f"SELECT kind, count(*) FROM {_read(out)} GROUP BY 1 ORDER BY 1")
@@ -253,6 +280,15 @@ def coverage(root: Path, build_dir: Path) -> Coverage:
               WHERE reason = '{UNEXPLAINED}'"""
         failures = _count(con, f"SELECT count(*) FROM ({problems})")
         failing = con.execute(f"SELECT * FROM ({problems}) ORDER BY 1, 2 LIMIT {NAMED}").fetchall()
+        notes = build_dir / "notes.parquet"
+        failed_experiments = (
+            _count(
+                con,
+                f"SELECT count(*) FROM {_read(notes)} WHERE kind = '{PACKAGE_FETCH_FAILED}'",
+            )
+            if notes.is_file()
+            else 0
+        )
     return Coverage(
         snapshot_date=date,
         target=target,
@@ -260,6 +296,7 @@ def coverage(root: Path, build_dir: Path) -> Coverage:
         gaps={reason: int(by_reason.get(reason, 0)) for reason in (*REASONS, *by_reason)},
         failing=tuple((str(a), str(p)) for a, p in failing),
         failures=failures,
+        failed_experiments=failed_experiments,
     )
 
 

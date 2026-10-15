@@ -102,7 +102,7 @@ def experiment_list(
     if wanted is not None:
         samples = _samples(root, folder / "samples.parquet", wanted)
         geo = f"geo AND gsm IN (SELECT accession FROM read_parquet('{samples}'))"
-    out = folder / f"experiments-{snap.date}.parquet"
+    out = list_path(root, snap.date)
     tmp = temp_beside(out)
     try:
         with extract.connect(root) as con:
@@ -129,6 +129,11 @@ def experiment_list(
     finally:
         tmp.unlink(missing_ok=True)
     return out
+
+
+def list_path(root: Path, date: str) -> Path:
+    """Return where :func:`experiment_list` writes the list for one tab snapshot date."""
+    return root / "work" / "eutils" / f"experiments-{date}.parquet"
 
 
 def _tab_experiments(snap: snapshots.Snapshot, out: Path) -> Path:

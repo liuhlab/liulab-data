@@ -31,7 +31,18 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from labdata.exceptions import StoreBuildError
-from labdata.store import _parse, extract, gaps, known, provenance, raw, snapshots, suppl, targets
+from labdata.store import (
+    _parse,
+    eutils,
+    extract,
+    gaps,
+    known,
+    provenance,
+    raw,
+    snapshots,
+    suppl,
+    targets,
+)
 from labdata.store._files import temp_beside, toml_line, write_atomic
 from labdata.store.model import RELATIONS
 from labdata.store.root import MARKER
@@ -204,8 +215,13 @@ def _build_into(
         gaps.Note(str(v["example"]), gaps.UNKNOWN_LABEL, f"{label}: {v['links']} links")
         for label, v in labels.items()
     ]
+    _, sra_date = extract.done_dir(root, snapshots.SRA_ACCESSIONS)
     note_counts = gaps.write_notes(
-        root, tmp, target_list, [*label_notes, *_no_package_notes(root, empty)]
+        root,
+        tmp,
+        target_list,
+        [*label_notes, *_no_package_notes(root, empty)],
+        experiments=eutils.list_path(root, sra_date),
     )
     provenance.document_build(
         root,
