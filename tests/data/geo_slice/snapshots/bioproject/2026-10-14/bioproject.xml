@@ -1,0 +1,590 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PackageSet>
+  <Package>
+    <Project>
+    <Project>
+        <ProjectID>
+            <ArchiveID accession="PRJNA1032473" archive="NCBI" id="1032473"/>
+            <CenterID center="GEO" id="0">GSE246310</CenterID>
+        </ProjectID>
+        <ProjectDescr>
+            <Name>Genomic regions occupied by both RARα and VDR are involved in the convergence and cooperation of retinoid and vitamin D signaling pathways.</Name>
+            <Title>Genomic regions occupied by both RARα and VDR are involved in the convergence and cooperation of retinoid and vitamin D signaling pathways.</Title>
+            <Description>This SuperSeries is composed of the SubSeries listed below. Overall design: Refer to individual Series</Description>
+            <ExternalLink label="">
+                <dbXREF db="GEO">
+                    <ID>GSE246310</ID>
+                </dbXREF>
+            </ExternalLink>
+            <Publication date="2025-04-01T00:00:00Z" id="40167329" status="ePublished">
+                <Reference>40167329</Reference>
+                <DbType>ePubmed</DbType>
+            </Publication>
+            <Relevance>
+                <Other>Superseries</Other>
+            </Relevance>
+        </ProjectDescr>
+        <ProjectType>
+            <ProjectTypeTopAdmin subtype="eOther">
+                <DescriptionSubtypeOther>GEO SuperSeries</DescriptionSubtypeOther>
+            </ProjectTypeTopAdmin>
+        </ProjectType>
+    </Project>
+    <Submission last_update="2025-04-15" submission_id="SUB15261660" submitted="2023-10-26">
+        <Description>
+            <!-- Submitter information has been removed -->
+            <Organization role="owner" type="institute">
+                <Name>UNIVERSITY OF DEBRECEN</Name>
+                <!-- Contact information has been removed -->
+            </Organization>
+            <Access>public</Access>
+        </Description>
+        <Action action_id="SUB15261660-gse246310"/>
+    </Submission>
+    <ProjectLinks>
+        <Link>
+            <ProjectIDRef archive="NCBI" id="1032481" accession="PRJNA1032481"/>
+            <Hierarchical type="TopAdmin">
+                <MemberID archive="NCBI" id="1032473" accession="PRJNA1032473"/>
+            </Hierarchical>
+        </Link>
+        <Link>
+            <ProjectIDRef archive="NCBI" id="1032482" accession="PRJNA1032482"/>
+            <Hierarchical type="TopAdmin">
+                <MemberID archive="NCBI" id="1032473" accession="PRJNA1032473"/>
+            </Hierarchical>
+        </Link>
+        <Link>
+            <ProjectIDRef archive="NCBI" id="1032483" accession="PRJNA1032483"/>
+            <Hierarchical type="TopAdmin">
+                <MemberID archive="NCBI" id="1032473" accession="PRJNA1032473"/>
+            </Hierarchical>
+        </Link>
+    </ProjectLinks>
+    </Project>
+  </Package>
+  <Package>
+    <Project>
+    <Project>
+        <ProjectID>
+            <ArchiveID accession="PRJNA1032481" archive="NCBI" id="1032481"/>
+            <CenterID center="GEO" id="0">GSE246309</CenterID>
+        </ProjectID>
+        <ProjectDescr>
+            <Name>Genomic regions occupied by both RARα and VDR are involved in the convergence and cooperation of retinoid and vitamin D signaling pathways.</Name>
+            <Title>Genomic regions occupied by both RARα and VDR are involved in the convergence and cooperation of retinoid and vitamin D signaling pathways.</Title>
+            <Description>In this study, the retinoid and vitamin D pathways were investigated in PMA-differentiated THP-1 cells treated with or without the RARa agonist, AM580, and/or the VDR agonist, 1,25-dihydroxyvitamin D3 (1,25-vitD or calcitriol), using global approaches. Binding regions of RARa and VDR were determined in PMA-differentiated THP-1 cells using chromatin immunoprecipitation coupled with high-throughput sequencing (ChIP-seq). The gene sets regulated by AM580 and/or 1,25-vitD were identified by RNA-sequencing (RNA-seq). The activity of the regulatory regions was determined by MED1 (a subunit of the Mediator complex) ChIP-seq and chromatin openness was measured using assay for transposase-accessible chromatin with sequencing (ATAC-seq). Overall design: THP1 cells were stimulated with 20 nM PMA for 16 hours. PMA-differentiated THP-1 cells were treated with vehicle (DMSO:EtOH), RARa agonist (100 nM AM580) and/or VDR agonist (100 nM calcitriol or 1,25-vitD) for 6 hours. Three replicates of each condition were analyzed by RNA-seq.</Description>
+            <ExternalLink label="">
+                <dbXREF db="GEO">
+                    <ID>GSE246309</ID>
+                </dbXREF>
+            </ExternalLink>
+            <Publication date="2025-04-01T00:00:00Z" id="40167329" status="ePublished">
+                <Reference>40167329</Reference>
+                <DbType>ePubmed</DbType>
+            </Publication>
+            <Relevance>
+                <Medical>Yes</Medical>
+            </Relevance>
+        </ProjectDescr>
+        <ProjectType>
+            <ProjectTypeSubmission>
+                <Target capture="eWhole" material="eTranscriptome" sample_scope="eMultiisolate">
+                    <Organism species="9606" taxID="9606">
+                        <OrganismName>Homo sapiens</OrganismName>
+                        <Supergroup>eEukaryotes</Supergroup>
+                    </Organism>
+                </Target>
+                <Method method_type="eSequencing"/>
+                <Objectives>
+                    <Data data_type="eExpression"/>
+                </Objectives>
+                <ProjectDataTypeSet>
+                    <DataType>Transcriptome or Gene expression</DataType>
+                </ProjectDataTypeSet>
+            </ProjectTypeSubmission>
+        </ProjectType>
+    </Project>
+    <Submission last_update="2025-04-15" submission_id="SUB15261648" submitted="2023-10-26">
+        <Description>
+            <!-- Submitter information has been removed -->
+            <Organization role="owner" type="institute">
+                <Name>UNIVERSITY OF DEBRECEN</Name>
+                <!-- Contact information has been removed -->
+            </Organization>
+            <Access>public</Access>
+        </Description>
+        <Action action_id="SUB15261648-gse246309"/>
+    </Submission>
+    <ProjectLinks>
+        <Link>
+            <ProjectIDRef archive="NCBI" id="1032481" accession="PRJNA1032481"/>
+            <Hierarchical type="TopAdmin">
+                <MemberID archive="NCBI" id="1032473" accession="PRJNA1032473"/>
+            </Hierarchical>
+        </Link>
+    </ProjectLinks>
+    </Project>
+  </Package>
+  <Package>
+    <Project>
+    <Project>
+        <ProjectID>
+            <ArchiveID accession="PRJNA1032482" archive="NCBI" id="1032482"/>
+            <CenterID center="GEO" id="0">GSE246307</CenterID>
+        </ProjectID>
+        <ProjectDescr>
+            <Name>Genomic regions occupied by both RARα and VDR are involved in the convergence and cooperation of retinoid and vitamin D signaling pathways.</Name>
+            <Title>Genomic regions occupied by both RARα and VDR are involved in the convergence and cooperation of retinoid and vitamin D signaling pathways.</Title>
+            <Description>In this study, the retinoid and vitamin D pathways were investigated in PMA-differentiated THP-1 cells treated with or without the RARa agonist, AM580, and/or the VDR agonist, 1,25-dihydroxyvitamin D3 (1,25-vitD or calcitriol), using global approaches. Binding regions of RARa and VDR were determined in PMA-differentiated THP-1 cells using chromatin immunoprecipitation coupled with high-throughput sequencing (ChIP-seq). The gene sets regulated by AM580 and/or 1,25-vitD were identified by RNA-sequencing (RNA-seq). The activity of the regulatory regions was determined by MED1 (a subunit of the Mediator complex) ChIP-seq and chromatin openness was measured using assay for transposase-accessible chromatin with sequencing (ATAC-seq). Overall design: THP-1 cells were stimulated with 20 nM PMA for 16 hours. PMA-differentiated THP-1 cells were treated with vehicle (DMSO:EtOH) or 100 nM AM580 for 1 hour. Two replicates for each treatment condition were analyzed for ATAC-seq.</Description>
+            <ExternalLink label="">
+                <dbXREF db="GEO">
+                    <ID>GSE246307</ID>
+                </dbXREF>
+            </ExternalLink>
+            <Publication date="2025-04-01T00:00:00Z" id="40167329" status="ePublished">
+                <Reference>40167329</Reference>
+                <DbType>ePubmed</DbType>
+            </Publication>
+            <Relevance>
+                <Medical>Yes</Medical>
+            </Relevance>
+        </ProjectDescr>
+        <ProjectType>
+            <ProjectTypeSubmission>
+                <Target capture="eWhole" material="eGenome" sample_scope="eMultiisolate">
+                    <Organism species="9606" taxID="9606">
+                        <OrganismName>Homo sapiens</OrganismName>
+                        <Supergroup>eEukaryotes</Supergroup>
+                    </Organism>
+                </Target>
+                <Method method_type="eSequencing"/>
+                <Objectives>
+                    <Data data_type="eEpigeneticMarkers"/>
+                </Objectives>
+                <ProjectDataTypeSet>
+                    <DataType>Epigenomics</DataType>
+                </ProjectDataTypeSet>
+            </ProjectTypeSubmission>
+        </ProjectType>
+    </Project>
+    <Submission last_update="2025-04-15" submission_id="SUB15261656" submitted="2023-10-26">
+        <Description>
+            <!-- Submitter information has been removed -->
+            <Organization role="owner" type="institute">
+                <Name>UNIVERSITY OF DEBRECEN</Name>
+                <!-- Contact information has been removed -->
+            </Organization>
+            <Access>public</Access>
+        </Description>
+        <Action action_id="SUB15261656-gse246307"/>
+    </Submission>
+    <ProjectLinks>
+        <Link>
+            <ProjectIDRef archive="NCBI" id="1032482" accession="PRJNA1032482"/>
+            <Hierarchical type="TopAdmin">
+                <MemberID archive="NCBI" id="1032473" accession="PRJNA1032473"/>
+            </Hierarchical>
+        </Link>
+    </ProjectLinks>
+    </Project>
+  </Package>
+  <Package>
+    <Project>
+    <Project>
+        <ProjectID>
+            <ArchiveID accession="PRJNA1032483" archive="NCBI" id="1032483"/>
+            <CenterID center="GEO" id="0">GSE246308</CenterID>
+        </ProjectID>
+        <ProjectDescr>
+            <Name>Genomic regions occupied by both RARα and VDR are involved in the convergence and cooperation of retinoid and vitamin D signaling pathways.</Name>
+            <Title>Genomic regions occupied by both RARα and VDR are involved in the convergence and cooperation of retinoid and vitamin D signaling pathways.</Title>
+            <Description>In this study, the retinoid and vitamin D pathways were investigated in PMA-differentiated THP-1 cells treated with or without the RARa agonist, AM580, and/or the VDR agonist, 1,25-dihydroxyvitamin D3 (1,25-vitD or calcitriol), using global approaches. Binding regions of RARa and VDR were determined in PMA-differentiated THP-1 cells using chromatin immunoprecipitation coupled with high-throughput sequencing (ChIP-seq). The gene sets regulated by AM580 and/or 1,25-vitD were identified by RNA-sequencing (RNA-seq). The activity of the regulatory regions was determined by MED1 (a subunit of the Mediator complex) ChIP-seq and chromatin openness was measured using assay for transposase-accessible chromatin with sequencing (ATAC-seq).  Overall design: THP1 cells were stimulated with 20 nM PMA for 16 hours. In the case of RARa and VDR ChIP-seq samples: PMA-differentiated THP-1 cells were treated with vehicle (DMSO:EtOH), RARa agonist (100 nM AM580) or VDR agonist (100 nM calcitriol or 1,25-vitD) for 1 hour. Two replicates of each condition were analyzed by ChIP-seq. In the case of MED1 ChIP-seq samples: PMA-differentiated THP-1 cells were treated with vehicle (DMSO:EtOH), RARa agonist (100 nM AM580) and/or VDR agonist (100 nM calcitriol or 1,25-vitD) for 2 hour. Three replicates of each condition were analyzed by ChIP-seq. </Description>
+            <ExternalLink label="">
+                <dbXREF db="GEO">
+                    <ID>GSE246308</ID>
+                </dbXREF>
+            </ExternalLink>
+            <Publication date="2025-04-01T00:00:00Z" id="40167329" status="ePublished">
+                <Reference>40167329</Reference>
+                <DbType>ePubmed</DbType>
+            </Publication>
+            <Relevance>
+                <Medical>Yes</Medical>
+            </Relevance>
+        </ProjectDescr>
+        <ProjectType>
+            <ProjectTypeSubmission>
+                <Target capture="eWhole" material="eGenome" sample_scope="eMultiisolate">
+                    <Organism species="9606" taxID="9606">
+                        <OrganismName>Homo sapiens</OrganismName>
+                        <Supergroup>eEukaryotes</Supergroup>
+                    </Organism>
+                </Target>
+                <Method method_type="eSequencing"/>
+                <Objectives>
+                    <Data data_type="eEpigeneticMarkers"/>
+                </Objectives>
+                <ProjectDataTypeSet>
+                    <DataType>Epigenomics</DataType>
+                </ProjectDataTypeSet>
+            </ProjectTypeSubmission>
+        </ProjectType>
+    </Project>
+    <Submission last_update="2025-04-15" submission_id="SUB15261647" submitted="2023-10-26">
+        <Description>
+            <!-- Submitter information has been removed -->
+            <Organization role="owner" type="institute">
+                <Name>UNIVERSITY OF DEBRECEN</Name>
+                <!-- Contact information has been removed -->
+            </Organization>
+            <Access>public</Access>
+        </Description>
+        <Action action_id="SUB15261647-gse246308"/>
+    </Submission>
+    <ProjectLinks>
+        <Link>
+            <ProjectIDRef archive="NCBI" id="1032483" accession="PRJNA1032483"/>
+            <Hierarchical type="TopAdmin">
+                <MemberID archive="NCBI" id="1032473" accession="PRJNA1032473"/>
+            </Hierarchical>
+        </Link>
+    </ProjectLinks>
+    </Project>
+  </Package>
+  <Package>
+    <Project>
+    <Project>
+        <ProjectID>
+            <ArchiveID accession="PRJNA120321" archive="NCBI" id="120321"/>
+            <CenterID center="GEO" id="0">GSE19456</CenterID>
+        </ProjectID>
+        <ProjectDescr>
+            <Name>Sus scrofa</Name>
+            <Title>Aberrant host immune response induced by highly virulent PRRSV identified by digital gene expression tag profiling</Title>
+            <Description>BACKGROUND: There was a large scale outbreak of the highly pathogenic porcine reproductive and respiratory syndrome (PRRS) in China and Vietnam during 2006 and 2007 that resulted in unusually high morbidity and mortality among pigs of all ages. The mechanisms underlying the molecular pathogenesis of the highly virulent PRRS virus (H-PRRSV) remains unknown. Therefore, the relationship between pulmonary gene expression profiles after H-PRRSV infection and infection pathology were analyzed in this study using high-throughput deep sequencing and histopathology. RESULTS: H-PRRSV infection resulted in severe lung pathology. The results indicate that aberrant host innate immune responses to H-PRRSV and induction of an anti-apoptotic state could be responsible for the aggressive replication and dissemination of H-PRRSV. Prolific rapid replication of H-PRRSV could have triggered aberrant sustained expression of pro-inflammatory cytokines and chemokines leading to a markedly robust inflammatory response compounded by significant cell death and increased oxidative damage. The end result was severe tissue damage and high pathogenicity. CONCLUSIONS: The systems analysis utilized in this study provides a comprehensive basis for better understanding the pathogenesis of H-PRRSV. Furthermore, it allows the genetic components involved in H-PRRSV resistance/susceptibility in swine populations to be identified. Overall design: Nine conventionally-reared, healthy 6-week-old, crossbred weaned pigs (Landrace×Yorkshire) were selected from a high-health commercial farm. All pigs were PRRSV-seronegative determined by ELISA (HerdChek PRRS 2XR; IDEXX Laboratories) and absence of PRRSV tested by RT-PCR. Pigs were randomly assigned to three groups in the experiment and raised in isolation rooms. Six pigs were inoculated with 6 ml viral suspension (4 ml intranasally and 2 ml intramuscularly) of H-PRRSV at a dose of 106.0 TCID50 ml-1 on day 0. Three negative control pigs were treated similarly with an identical volume of DMEM culture media from uninfected MARC-145 cells 1 day prior to experimental infection, and were immediately necropsied.H-PRRSV-inoculated pigs were clinically examined daily and rectal body temperatures were recorded from days -2 to 7 post infection (pi).Three infected pigs randomly chosen within each group were necropsied at each time point of 96 h pi and 168 h pi. Lung samples were collected from uninfected negative control group (C), three pigs at 96 h pi (H96), three pigs at 168 h pi (H168) and immediately frozen in liquid nitrogen for RNA isolation or fixed in 10% neutralized buffered formalin for histological processing. Total RNA was extracted from frozen lungs using standard protocols (Trizol) and then treated with DNase to remove potential genomic DNA contamination according to the manufactures’s protocols. RNA integrity and concentration were evaluated by Agolent 2100 Bioanalyzer.For RNA library construction and deep sequencing, RNA samples were prepared as follows: for each time point of H-PRRSV-inoculated group and UNC group equal quantities of RNA isolated from three individual lungs were pooled. Approximately 6 μg of RNA representing each group were submitted to Solexa (now Illumina Inc.) for sequencing.</Description>
+            <ExternalLink label="">
+                <dbXREF db="GEO">
+                    <ID>GSE19456</ID>
+                </dbXREF>
+            </ExternalLink>
+            <Publication date="2010-10-12T00:00:00Z" id="20929578" status="ePublished">
+                <Reference>20929578</Reference>
+                <DbType>ePubmed</DbType>
+            </Publication>
+            <Relevance>
+                <Agricultural>Yes</Agricultural>
+            </Relevance>
+        </ProjectDescr>
+        <ProjectType>
+            <ProjectTypeSubmission>
+                <Target capture="eWhole" material="eTranscriptome" sample_scope="eMultiisolate">
+                    <Organism species="9823" taxID="9823">
+                        <OrganismName>Sus scrofa</OrganismName>
+                        <Supergroup>eEukaryotes</Supergroup>
+                    </Organism>
+                </Target>
+                <Method method_type="eSequencing"/>
+                <Objectives>
+                    <Data data_type="eExpression"/>
+                </Objectives>
+                <ProjectDataTypeSet>
+                    <DataType>Transcriptome or Gene expression</DataType>
+                </ProjectDataTypeSet>
+            </ProjectTypeSubmission>
+        </ProjectType>
+    </Project>
+    <Submission last_update="2019-05-15" submission_id="SUB5622564" submitted="2009-12-14">
+        <Description>
+            <!-- Submitter information has been removed -->
+            <Organization role="owner" type="institute">
+                <Name>State Key Laboratory of Biocontrol, School of Life Sciences, Sun Yat-sen University</Name>
+                <!-- Contact information has been removed -->
+            </Organization>
+            <Access>public</Access>
+        </Description>
+        <Action action_id="SUB5622564-gse19456"/>
+    </Submission>
+    </Project>
+  </Package>
+  <Package>
+    <Project>
+    <Project>
+        <ProjectID>
+            <ArchiveID accession="PRJNA125337" archive="NCBI" id="125337"/>
+            <CenterID center="GEO" id="0">GSE20301</CenterID>
+        </ProjectID>
+        <ProjectDescr>
+            <Name>Homo sapiens</Name>
+            <Title>Dynamic transcriptomes during neural differentiation of human embryonic stem cells</Title>
+            <Description>Dynamic transcriptomes during neural differentiation of human embryonic stem cells revealed by short long, and paired-end sequencing In order to examine the fundamental mechanisms governing neural differentiation, we analyzed the transcriptome changes that occur during the differentiation of human embryonic stem cells (hESCs) into the neural lineage. Undifferentiated hESCs as well as cells at three stages of early neural differentiation, N1 (early initiation), N2 (neural progenitor), and N3 (early glial-like) were analyzed using a combination of single read, paired-end read, and long read RNA sequencing. The results revealed enormous complexity in gene transcription and splicing dynamics during neural cell differentiation. We found previously unannotated transcripts and spliced isoforms specific for each stage of differentiation. Interestingly, splicing isoform diversity is highest in undifferentiated hESCs and decreases upon differentiation, a phenomenon we call “isoform specialization.” During neural differentiation, we observed differential expression of many types of genes including those involved in key signaling pathways, and a large number of extracellular receptors exhibit stage-specific regulation. These results provide a valuable resource for studying neural differentiation and reveal insights into the mechanisms underlying in vitro neural differentiation of hESCs, such as neural fate specification, NPC identity maintenance and the transition from a predominantly neuronal state into one with increased gliogenic potential Overall design: Characterization of changes in the transcriptome profiles during early stages of human neural differentiation from H1 !Series_overall_design=hESCs. 454 SFF files are missing. hESC_B_s9.fastq--&gt; SRR037192 hESC_B_s8.fastq--&gt; SRR037191 hESC_B_s7.fastq--&gt; SRR037190 hESC_B_s6.fastq--&gt; SRR037189 hESC_B_s5.fastq--&gt; SRR037188 hESC_B_s4.fastq--&gt; SRR037187 hESC_B_s3.fastq--&gt; SRR037186 hESC_B_s2.fastq--&gt; SRR037185 hESC_B_s16.fastq--&gt; SRR037184 hESC_B_s15.fastq--&gt; SRR037183 hESC_B_s14.fastq--&gt; SRR037182 hESC_B_s13.fastq--&gt; SRR037181 hESC_B_s12.fastq--&gt; SRR037180 hESC_B_s11.fastq--&gt; SRR037179 hESC_B_s10.fastq--&gt; SRR037178 hESC_B_s1.fastq--&gt; SRR037177 hESC_B_p6_2.fastq--&gt; SRR037176 hESC_B_p6_1.fastq--&gt; SRR037176 hESC_B_p5_2.fastq--&gt; SRR037175 hESC_B_p5_1.fastq--&gt; SRR037175 hESC_B_p4_2.fastq--&gt; SRR037174 hESC_B_p4_1.fastq--&gt; SRR037174 hESC_B_p3_2.fastq--&gt; SRR037173 hESC_B_p3_1.fastq--&gt; SRR037173 hESC_B_p2_2.fastq--&gt; SRR037172 hESC_B_p2_1.fastq--&gt; SRR037172 hESC_B_p1_2.fastq--&gt; SRR037171 hESC_B_p1_1.fastq--&gt; SRR037171 hESC_A_s3.fastq--&gt; SRR037170 hESC_A_s2.fastq--&gt; SRR037169 hESC_A_s1.fastq--&gt; SRR037168 hESC_A_p3_2.fastq--&gt; SRR037167 hESC_A_p3_1.fastq--&gt; SRR037167 hESC_A_p2_2.fastq--&gt; SRR037166 hESC_A_p2_1.fastq--&gt; SRR037166 hESC_A_p1_2.fastq--&gt; SRR037165 hESC_A_p1_1.fastq--&gt; SRR037165 N3_A_s4.fastq--&gt; SRR037226 N3_A_s3.fastq--&gt; SRR037225 N3_A_s2.fastq--&gt; SRR037224 N3_A_s1.fastq--&gt; SRR037223 N3_A_p3_2.fastq--&gt; SRR037222 N3_A_p3_1.fastq--&gt; SRR037222 N3_A_p2_2.fastq--&gt; SRR037221 N3_A_p2_1.fastq--&gt; SRR037221 N3_A_p1_2.fastq--&gt; SRR037220 N3_A_p1_1.fastq--&gt; SRR037220 N2_B_s8.fastq--&gt; SRR037219 N2_B_s7.fastq--&gt; SRR037218 N2_B_s6.fastq--&gt; SRR037217 N2_B_s5.fastq--&gt; SRR037216 N2_B_s4.fastq--&gt; SRR037215 N2_B_s3.fastq--&gt; SRR037214 N2_B_s2.fastq--&gt; SRR037213 N2_B_s1.fastq--&gt; SRR037212 N2_B_p6_2.fastq--&gt; SRR037211 N2_B_p6_1.fastq--&gt; SRR037211 N2_B_p5_2.fastq--&gt; SRR037210 N2_B_p5_1.fastq--&gt; SRR037210 N2_B_p4_2.fastq--&gt; SRR037209 N2_B_p4_1.fastq--&gt; SRR037209 N2_B_p3_2.fastq--&gt; SRR037208 N2_B_p3_1.fastq--&gt; SRR037208 N2_B_p2_2.fastq--&gt; SRR037207 N2_B_p2_1.fastq--&gt; SRR037207 N2_B_p1_2.fastq--&gt; SRR037206 N2_B_p1_1.fastq--&gt; SRR037206 N2_A_s4.fastq--&gt; SRR037205 N2_A_s3.fastq--&gt; SRR037204 N2_A_s2.fastq--&gt; SRR037203 N2_A_s1.fastq--&gt; SRR037202 N2_A_p3_2.fastq--&gt; SRR037201 N2_A_p3_1.fastq--&gt; SRR037201 N2_A_p2_2.fastq--&gt; SRR037200 N2_A_p2_1.fastq--&gt; SRR037200 N2_A_p1_2.fastq--&gt; SRR037199 N2_A_p1_1.fastq--&gt; SRR037199 N1_A_s3.fastq--&gt; SRR037198 N1_A_s2.fastq--&gt; SRR037197 N1_A_s1.fastq--&gt; SRR037196 N1_A_p3_2.fastq--&gt; SRR037195 N1_A_p3_1.fastq--&gt; SRR037195 N1_A_p2_2.fastq--&gt; SRR037194 N1_A_p2_1.fastq--&gt; SRR037194 N1_A_p1_2.fastq--&gt; SRR037193 N1_A_p1_1.fastq--&gt; SRR037193</Description>
+            <ExternalLink label="">
+                <dbXREF db="GEO">
+                    <ID>GSE20301</ID>
+                </dbXREF>
+            </ExternalLink>
+            <Publication date="2010-03-03T00:00:00Z" id="20194744" status="ePublished">
+                <Reference>20194744</Reference>
+                <DbType>ePubmed</DbType>
+            </Publication>
+            <Relevance>
+                <Medical>Yes</Medical>
+            </Relevance>
+        </ProjectDescr>
+        <ProjectType>
+            <ProjectTypeSubmission>
+                <Target capture="eWhole" material="eTranscriptome" sample_scope="eMultiisolate">
+                    <Organism species="9606" taxID="9606">
+                        <OrganismName>Homo sapiens</OrganismName>
+                        <Supergroup>eEukaryotes</Supergroup>
+                    </Organism>
+                </Target>
+                <Method method_type="eSequencing"/>
+                <Objectives>
+                    <Data data_type="eExpression"/>
+                </Objectives>
+                <ProjectDataTypeSet>
+                    <DataType>Transcriptome or Gene expression</DataType>
+                </ProjectDataTypeSet>
+            </ProjectTypeSubmission>
+        </ProjectType>
+    </Project>
+    <Submission last_update="2014-05-16" submitted="2010-02-12" submission_id="SUB526069">
+        <Description>
+            <!-- Submitter information has been removed -->
+            <Organization role="owner" type="institute">
+                <Name>Yale University</Name>
+                <!-- Contact information has been removed -->
+            </Organization>
+            <Access>public</Access>
+        </Description>
+        <Action action_id="SUB526069-GSE20301"/>
+    </Submission>
+    </Project>
+  </Package>
+  <Package>
+    <Project>
+    <Project>
+        <ProjectID>
+            <ArchiveID accession="PRJNA63455" archive="NCBI" id="63455"/>
+        </ProjectID>
+        <ProjectDescr>
+            <Name>Caenorhabditis elegans</Name>
+            <Title>Epigenomics projects for the C. elegans modENCODE project.</Title>
+            <Description>DNA methylation, histone modification and chromatin accessibility data sets generated by the modENCODE project.</Description>
+            <Relevance>
+                <ModelOrganism>yes</ModelOrganism>
+            </Relevance>
+        </ProjectDescr>
+        <ProjectType>
+            <ProjectTypeSubmission>
+                <Target capture="eWhole" material="eGenome" sample_scope="eMonoisolate">
+                    <Organism species="6239" taxID="6239">
+                        <OrganismName>Caenorhabditis elegans</OrganismName>
+                        <Supergroup>eEukaryotes</Supergroup>
+                    </Organism>
+                </Target>
+                <Method method_type="eArray"/>
+                <Objectives>
+                    <Data data_type="eEpigeneticMarkers"/>
+                </Objectives>
+                <ProjectDataTypeSet>
+                    <DataType>Epigenomics</DataType>
+                </ProjectDataTypeSet>
+            </ProjectTypeSubmission>
+        </ProjectType>
+    </Project>
+    <Submission submitted="2011-03-04">
+        <Description>
+            <!-- Submitter information has been removed -->
+            <Organization role="owner" type="consortium" url="http://www.modencode.org/">
+                <Name abbr="modENCODE">The modENCODE Consortium</Name>
+                <!-- Contact information has been removed -->
+            </Organization>
+            <Access>public</Access>
+        </Description>
+    </Submission>
+    <ProjectLinks>
+        <Link>
+            <ProjectIDRef archive="NCBI" id="63455" accession="PRJNA63455"/>
+            <Hierarchical type="TopAdmin">
+                <MemberID archive="NCBI" id="63453" accession="PRJNA63453"/>
+            </Hierarchical>
+        </Link>
+    </ProjectLinks>
+    </Project>
+  </Package>
+  <Package>
+    <Project>
+    <Project>
+        <ProjectID>
+            <ArchiveID accession="PRJNA644323" archive="NCBI" id="644323"/>
+            <CenterID center="GEO" id="0">GSE153830</CenterID>
+        </ProjectID>
+        <ProjectDescr>
+            <Name>Transcriptome changes in MCF-7 and T47D breast cancer cells after four day incubation in glucose deprived medium and beta-hydroxybutyrate</Name>
+            <Title>Transcriptome changes in MCF-7 and T47D breast cancer cells after four day incubation in glucose deprived medium and beta-hydroxybutyrate</Title>
+            <Description>We investigated gene expression changes of glucose deprived MCF-7 and T47D breast cancer cells supplemented with either 10 mM or 25 mM BHB. Glucose deprivation revealed numerous differentially expressed genes indicating an involvement of the Hippo pathway in MCF-7 cells and the NRF2-Ferroptosis axis in T47D cells. Beta-hydroxybutyrate had limited impact on breast cancer cells and differentially expressed genes were not associated with any pathways following pathway enrichment analysis. Overall design: Two established human breast cancer cell lines were used for this analysis, MCF-7 and T47D. Cells were treated in either 225 mg/l glucose (5%) or 4.5 g/l glucose (100%). Cells treated with 225 mg/l glucose were additionally treated with no, 10 mM or 25 mM beta-hydroxybutyrate. Each condition was analyzed in duplicate except the comination glucose5%_BHB10mM in MCF-7 cells since one of the replicates failed library construction.</Description>
+            <ExternalLink label="">
+                <dbXREF db="GEO">
+                    <ID>GSE153830</ID>
+                </dbXREF>
+            </ExternalLink>
+            <Grant GrantId="P20 GM103466">
+                <Title>INBRE IV - Hawaii Statewide Research and Education Partnership (HiSREP)</Title>
+                <Agency>National Institute of General Medical Sciences</Agency>
+                <PI affil="UNIVERSITY OF HAWAII SYSTEMS" auth="era" userid="8033832">
+                    <Last>Nichols</Last>
+                    <Given>Robert Alan</Given>
+                </PI>
+            </Grant>
+            <Publication date="2020-12-08T00:00:00Z" id="33281976" status="ePublished">
+                <Reference>33281976</Reference>
+                <DbType>ePubmed</DbType>
+            </Publication>
+            <Relevance>
+                <Medical>Yes</Medical>
+            </Relevance>
+        </ProjectDescr>
+        <ProjectType>
+            <ProjectTypeSubmission>
+                <Target capture="eWhole" material="eTranscriptome" sample_scope="eMultiisolate">
+                    <Organism species="9606" taxID="9606">
+                        <OrganismName>Homo sapiens</OrganismName>
+                        <Supergroup>eEukaryotes</Supergroup>
+                    </Organism>
+                </Target>
+                <Method method_type="eSequencing"/>
+                <Objectives>
+                    <Data data_type="eExpression"/>
+                </Objectives>
+                <ProjectDataTypeSet>
+                    <DataType>Transcriptome or Gene expression</DataType>
+                </ProjectDataTypeSet>
+            </ProjectTypeSubmission>
+        </ProjectType>
+    </Project>
+    <Submission last_update="2020-12-08" submission_id="SUB8731153" submitted="2020-07-06">
+        <Description>
+            <!-- Submitter information has been removed -->
+            <Organization role="owner" type="institute">
+                <Name>Molecular Cancer Research, Natural Sciences and Mathematics, Chaminade University of Honolulu</Name>
+                <!-- Contact information has been removed -->
+            </Organization>
+            <Access>public</Access>
+        </Description>
+        <Action action_id="SUB8731153-gse153830"/>
+    </Submission>
+    </Project>
+  </Package>
+  <Package>
+    <Project>
+    <Project>
+        <ProjectID>
+            <ArchiveID accession="PRJNA977602" archive="NCBI" id="977602"/>
+            <CenterID center="GEO" id="0">GSE233685</CenterID>
+        </ProjectID>
+        <ProjectDescr>
+            <Name>Effect of overexpression of ESRP1 on gene expression of SGC7901 gastric cancer cells</Name>
+            <Title>Effect of overexpression of ESRP1 on gene expression of SGC7901 gastric cancer cells</Title>
+            <Description>RNA-binding proteins and their mediated alternative splicing play important roles in tumor cell invasion and migration. Here, we report that ESRP1 is a key regulator of gastric cancer cell metastasis. Overexpression of ESRP1 inhibits the invasion and migration of gastric cancer cells, in vivo and in vitro. Furthermore, we found that ESRP1 causes a wide range of alternative splicing events, and ESRP1-mediated CLSTN1 exon skipping may be a key mechanism for its inhibition of gastric cancer cell invasion and metastasis. Taken together, our data provide a molecular framework for the role of ESRP1 in gastric cancer development. Overall design: In order to study the role and mechanism of ESRP1 in the invasion and migration of gastric cancer cells, we established the SGC7901 gastric cancer cell line with stable overexpression of ESRP1. We then performed gene expression profiling analysis using data obtained from RNA-seq of 2 different cells.</Description>
+            <ExternalLink label="">
+                <dbXREF db="GEO">
+                    <ID>GSE233685</ID>
+                </dbXREF>
+            </ExternalLink>
+            <Publication date="2023-12-20T00:00:00Z" id="38114495" status="ePublished">
+                <Reference>38114495</Reference>
+                <DbType>ePubmed</DbType>
+            </Publication>
+            <Relevance>
+                <Medical>Yes</Medical>
+            </Relevance>
+        </ProjectDescr>
+        <ProjectType>
+            <ProjectTypeSubmission>
+                <Target capture="eWhole" material="eTranscriptome" sample_scope="eMultiisolate">
+                    <Organism species="9606" taxID="9606">
+                        <OrganismName>Homo sapiens</OrganismName>
+                        <Supergroup>eEukaryotes</Supergroup>
+                    </Organism>
+                </Target>
+                <Method method_type="eSequencing"/>
+                <Objectives>
+                    <Data data_type="eExpression"/>
+                </Objectives>
+                <ProjectDataTypeSet>
+                    <DataType>Transcriptome or Gene expression</DataType>
+                </ProjectDataTypeSet>
+            </ProjectTypeSubmission>
+        </ProjectType>
+    </Project>
+    <Submission last_update="2023-12-27" submission_id="SUB14117749" submitted="2023-05-30">
+        <Description>
+            <!-- Submitter information has been removed -->
+            <Organization role="owner" type="institute">
+                <Name>Wuhan Union Hospital</Name>
+                <!-- Contact information has been removed -->
+            </Organization>
+            <Access>public</Access>
+        </Description>
+        <Action action_id="SUB14117749-gse233685"/>
+    </Submission>
+    </Project>
+  </Package>
+  <Package>
+    <Project>
+    <Project>
+        <ProjectID>
+            <ArchiveID accession="PRJNA978600" archive="NCBI" id="978600"/>
+            <CenterID center="GEO" id="0">GSE233931</CenterID>
+        </ProjectID>
+        <ProjectDescr>
+            <Name>Decoding target genes of ESRP1 by crosslinking-immunoprecipitation and high-throughput sequencing (CLIP seq)</Name>
+            <Title>Decoding target genes of ESRP1 by crosslinking-immunoprecipitation and high-throughput sequencing (CLIP seq)</Title>
+            <Description>RNA-binding proteins and their mediated alternative splicing play important roles in tumor cell invasion and migration. Here, we report that ESRP1 is a key regulator of gastric cancer cell metastasis. Overexpression of ESRP1 inhibits the invasion and migration of gastric cancer cells, in vivo and in vitro. Through crosslinking-immunoprecipitation and high-throughput sequencing (CLIP seq), we revealed that ESRP1 binding to the CLSTN1 mRNA and mediated its exon skipping, which may be a key mechanism for its inhibition of gastric cancer cell invasion and metastasis. Taken together, our data provide a molecular framework for the role of ESRP1 in gastric cancer development. Overall design: SGC7901 gastric cancer cell line with stable overexpression of ESRP1 was established, And then CLIP seq for ESRP1 was conducted.</Description>
+            <ExternalLink label="">
+                <dbXREF db="GEO">
+                    <ID>GSE233931</ID>
+                </dbXREF>
+            </ExternalLink>
+            <Publication date="2023-12-20T00:00:00Z" id="38114495" status="ePublished">
+                <Reference>38114495</Reference>
+                <DbType>ePubmed</DbType>
+            </Publication>
+            <Relevance>
+                <Medical>Yes</Medical>
+            </Relevance>
+        </ProjectDescr>
+        <ProjectType>
+            <ProjectTypeSubmission>
+                <Target capture="eWhole" material="eOther" sample_scope="eMultiisolate">
+                    <Organism species="9606" taxID="9606">
+                        <OrganismName>Homo sapiens</OrganismName>
+                        <Supergroup>eEukaryotes</Supergroup>
+                    </Organism>
+                </Target>
+                <Method method_type="eOther"/>
+                <Objectives>
+                    <Data data_type="eOther"/>
+                </Objectives>
+                <ProjectDataTypeSet>
+                    <DataType>Other</DataType>
+                </ProjectDataTypeSet>
+            </ProjectTypeSubmission>
+        </ProjectType>
+    </Project>
+    <Submission last_update="2023-12-27" submission_id="SUB14117751" submitted="2023-06-01">
+        <Description>
+            <!-- Submitter information has been removed -->
+            <Organization role="owner" type="institute">
+                <Name>Wuhan Union Hospital</Name>
+                <!-- Contact information has been removed -->
+            </Organization>
+            <Access>public</Access>
+        </Description>
+        <Action action_id="SUB14117751-gse233931"/>
+    </Submission>
+    </Project>
+  </Package>
+</PackageSet>

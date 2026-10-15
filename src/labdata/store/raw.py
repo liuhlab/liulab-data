@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import re
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -19,6 +20,11 @@ import pyarrow.parquet as pq
 SRA_XML = "sra-xml"
 #: Raw folder of PubMed ``<accession>[si]`` results, one row per queried accession.
 PUBMED_SI = "pubmed-si"
+#: Raw folder of decompressed GEO family SOFT, one row per Series.
+GEO_SOFT = "geo-soft"
+#: Raw folder of ``elink`` results, one row per Series: tab-separated lines of
+#: from accession, target database, target UID and target accession.
+ENTREZ_LINKS = "entrez-links"
 
 _SCHEMA = pa.schema(
     [
@@ -101,6 +107,18 @@ def write_rows(root: Path, source: str, rows: list[RawRow]) -> list[Path]:
         tmp.replace(path)
         written.append(path)
     return written
+
+
+def saved(root: Path, source: str, accessions: Iterable[str]) -> dict[str, str]:
+    """Return the saved raw text of those ``accessions`` that have a row, reading their buckets."""
+    wanted = set(accessions)
+    folder = root / "raw" / source
+    return {
+        row.accession: row.raw_text
+        for bucket in sorted({bucket_of(a) for a in wanted})
+        for row in _read(folder / f"{bucket}.parquet")
+        if row.accession in wanted
+    }
 
 
 def read_rows(root: Path, source: str) -> list[RawRow]:

@@ -88,21 +88,24 @@ def _store_client() -> EntrezClient:
 @store_app.command("fetch")
 def store_fetch(
     accessions: list[str] = typer.Argument(
-        ..., help="BioProject, SRA study or SRA experiment accessions."
+        ..., help="GEO Series, BioProject, SRA study or SRA experiment accessions."
     ),
     root: Path | None = typer.Option(
         None, help="Store root; default: LABDATA_STORE, then pointer."
     ),
 ) -> None:
-    r"""Fetch SRA package XML and PubMed accession-field (\[si]) results into raw/.
+    r"""Fetch family SOFT, Entrez links, SRA package XML and PubMed (\[si]) results into raw/.
 
-    A BioProject or SRA study is expanded to its experiments through the newest
-    SRA_Accessions.tab snapshot.
+    A GEO Series brings its SubSeries and the SRA packages of every experiment its samples
+    link to. A BioProject or SRA study is expanded to its experiments through the newest
+    SRA_Accessions.tab snapshot. Items already saved are skipped, so a rerun resumes.
     """
     from labdata.store.fetch import fetch as fetch_raw
 
     store = open_store(root)
     report = fetch_raw(store.root, accessions, client=_store_client())
+    if report.series:
+        typer.echo(f"Saved {len(report.series)} GEO Series to {store.root / 'raw' / 'geo-soft'}")
     typer.echo(f"Saved {len(report.experiments)} SRA packages to {store.root / 'raw' / 'sra-xml'}")
     for accession, pmids in report.pubmed_si.items():
         typer.echo(f"{accession}[si]: {', '.join(pmids) or 'no PubMed IDs'}")
