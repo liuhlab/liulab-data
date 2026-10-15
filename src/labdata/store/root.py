@@ -11,22 +11,25 @@ import os
 import tomllib
 from collections.abc import Iterable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, overload
 
 from labdata._cache import ensure_cache_dir, liulab_data_cache_dir
 from labdata.exceptions import (
     AccessionError,
     LabdataError,
     NotAStoreError,
+    NotFound,
     NotMirrored,
     StoreNotConfiguredError,
 )
 from labdata.geo.sra_records import Experiment, experiments_from_package_xml
+from labdata.store import snapshots
 from labdata.store._offline import OfflineEntrezClient, OfflineSdlClient
 from labdata.store.model import (
     PAPER,
     RELATIONS,
     Link,
+    Partial,
     RawText,
     Record,
     forward_name,
@@ -98,7 +101,7 @@ class Store:
         -------
         dict
             Each accession, in input order, mapped to its ``Record`` or to the error that
-            stopped it (``AccessionError`` or ``NotMirrored``).
+            stopped it (``AccessionError``, ``NotMirrored`` or ``NotFound``).
         """
         order = [_norm(a) for a in accessions]
         out: dict[str, Record | LabdataError] = {}
@@ -116,10 +119,11 @@ class Store:
             for end, link in _ends(row):
                 if end in rows:
                     by_end.setdefault(end, []).append(link)
+        absent = self._absent_errors(set(valid) - set(rows))
         for accession in valid:
             row = rows.get(accession)
             if row is None:
-                out[accession] = NotMirrored(f"not held in this store: {accession}")
+                out[accession] = absent[accession]
                 continue
             links = sorted(by_end.get(accession, []), key=lambda k: (k.relation, k.other, k.source))
             out[accession] = Record(
@@ -144,7 +148,9 @@ class Store:
         AccessionError
             If the accession is malformed or names a paper.
         NotMirrored
-            If the store does not hold it.
+            If a snapshot lists it but the store does not hold it.
+        NotFound
+            If no snapshot lists it. The message gives the snapshot date.
         """
         [result] = self.open_many([accession]).values()
         if isinstance(result, LabdataError):
@@ -179,18 +185,42 @@ class Store:
         rows = self.backend.raw_many({_norm(a) for a in accessions})
         return {a: RawText(text, digest) for a, (text, digest) in sorted(rows.items())}
 
+    @overload
+    def experiments_for_many(
+        self, accessions: Iterable[str], *, partial: Literal[False] = False
+    ) -> dict[str, list[Experiment]]: ...
+    @overload
+    def experiments_for_many(
+        self, accessions: Iterable[str], *, partial: Literal[True]
+    ) -> Partial[dict[str, list[Experiment]]]: ...
     def experiments_for_many(
         self, accessions: Iterable[str], *, partial: bool = False
-    ) -> dict[str, list[Experiment]]:
+    ) -> dict[str, list[Experiment]] | Partial[dict[str, list[Experiment]]]:
         """Map each accession to the SRA experiments under it, built from stored packages.
 
         Walks down one level at a time, with one link lookup and one holdings lookup per
         level for all roots together.
 
+        Parameters
+        ----------
+        accessions : iterable of str
+            The roots of the walk.
+        partial : bool
+            Return what is held instead of raising ``NotMirrored``.
+
+        Returns
+        -------
+        dict or Partial
+            Each root mapped to its sorted experiments. With ``partial=True``, a ``Partial``
+            whose ``held`` is that mapping over held records and whose ``missing`` lists every
+            accession the walk reached but the store does not hold.
+
         Raises
         ------
         AccessionError
             If an accession is malformed.
+        NotFound
+            If no snapshot lists a root, even with ``partial``.
         NotMirrored
             If a root or a record on the way down is not held, unless ``partial``. The
             message lists every missing accession.
@@ -199,6 +229,9 @@ class Store:
         for root in roots:
             kind_of(root)
         missing = set(roots) - self.backend.held_many(set(roots))
+        unknown = [e for e in self._absent_errors(missing).values() if isinstance(e, NotFound)]
+        if unknown:
+            raise NotFound("; ".join(sorted(str(e) for e in unknown)))
         found: dict[str, set[str]] = {r: set() for r in roots}
         level = {(r, r) for r in roots if r not in missing}
         seen: set[tuple[str, str]] = set()
@@ -238,23 +271,59 @@ class Store:
                 sdl_client=OfflineSdlClient(),
             )
         }
-        return {r: [built[a] for a in sorted(found[r]) if a in built] for r in roots}
+        result = {r: [built[a] for a in sorted(found[r]) if a in built] for r in roots}
+        return Partial(result, tuple(sorted(missing))) if partial else result
 
-    def experiments_for(self, accession: str, *, partial: bool = False) -> list[Experiment]:
+    @overload
+    def experiments_for(
+        self, accession: str, *, partial: Literal[False] = False
+    ) -> list[Experiment]: ...
+    @overload
+    def experiments_for(
+        self, accession: str, *, partial: Literal[True]
+    ) -> Partial[list[Experiment]]: ...
+    def experiments_for(
+        self, accession: str, *, partial: bool = False
+    ) -> list[Experiment] | Partial[list[Experiment]]:
         """Return the SRA experiments under one accession, sorted, with no network call.
 
         The store twin of :func:`labdata.experiments_for`: the same ``Experiment`` type,
         built from the stored package XML by the same parser. Their properties, and their
         runs', never call NCBI; ``Run.files`` and ``Run.original_files`` raise instead.
+        With ``partial=True`` it returns a ``Partial`` of that list and the missing
+        accessions.
 
         Raises
         ------
         AccessionError
             If the accession is malformed.
+        NotFound
+            If no snapshot lists the accession.
         NotMirrored
             If the accession, or a record under it, is not held (unless ``partial``).
         """
-        return self.experiments_for_many([accession], partial=partial)[_norm(accession)]
+        key = _norm(accession)
+        if partial:
+            walk = self.experiments_for_many([accession], partial=True)
+            return Partial(walk.held[key], walk.missing)
+        return self.experiments_for_many([accession])[key]
+
+    def _absent_errors(self, accessions: set[str]) -> dict[str, NotMirrored | NotFound]:
+        """Classify accessions the store does not hold, with one ``known`` lookup for all."""
+        if not accessions:
+            return {}
+        known = self.backend.known_many(accessions)
+        unknown = accessions - set(known)
+        dates = self.backend.snapshot_dates() if unknown else {}
+        out: dict[str, NotMirrored | NotFound] = {
+            a: NotMirrored(f"not held in this store: {a}") for a in known
+        }
+        for a in unknown:
+            source = _SNAPSHOT_OF[kind_of(a)]
+            out[a] = NotFound(
+                f"not in any snapshot: {a} (the {source} snapshot of {dates.get(source, '?')})"
+            )
+        return out
 
 
 #: The relation names that lead down from each record type towards SRA experiments.
@@ -266,6 +335,20 @@ _DOWN: dict[str, tuple[str, ...]] = {
     "SRA sample": ("SRA experiment",),
     "BioSample": ("BioSample of",),
     "SRA run": ("run of",),
+}
+
+
+#: The snapshot that lists each record type's accessions.
+_SNAPSHOT_OF: dict[str, str] = {
+    "GEO Series": snapshots.GEO_SERIES,
+    "GEO Sample": snapshots.GEO_SERIES,
+    "GEO Platform": snapshots.GEO_SERIES,
+    "SRA study": snapshots.SRA_ACCESSIONS,
+    "SRA experiment": snapshots.SRA_ACCESSIONS,
+    "SRA run": snapshots.SRA_ACCESSIONS,
+    "SRA sample": snapshots.SRA_ACCESSIONS,
+    "BioProject": snapshots.BIOPROJECT,
+    "BioSample": snapshots.BIOSAMPLE,
 }
 
 
