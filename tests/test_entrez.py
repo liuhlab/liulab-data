@@ -302,6 +302,39 @@ def test_calls_in_flight_never_exceed_the_cap() -> None:
     assert peak[0] == 3
 
 
+def test_a_halved_rate_steps_back_to_the_cap_after_quiet_periods_and_never_above() -> None:
+    now = [0.0]
+    limiter = RateLimiter(4.0, 8, quiet=60.0, step=2.0, clock=lambda: now[0])
+
+    def call_at(t: float) -> float:
+        now[0] = t
+        with limiter.turn():
+            pass
+        return limiter.rate
+
+    assert limiter.halve() == 2.0
+    assert limiter.halve() == 1.0
+    assert call_at(59.0) == 1.0  # not quiet long enough yet
+    assert call_at(61.0) == 2.0  # one step per quiet period
+    assert call_at(62.0) == 2.0
+    limiter.halve()  # a new throttle restarts the quiet period
+    assert call_at(100.0) == 1.0
+    assert call_at(122.0) == 2.0
+    assert call_at(183.0) == 4.0
+    assert call_at(1000.0) == 4.0  # bounded by the cap
+
+
+def test_recovery_never_climbs_past_a_lowered_cap() -> None:
+    now = [0.0]
+    limiter = RateLimiter(5.0, 8, quiet=1.0, step=10.0, clock=lambda: now[0])
+    limiter.lower_to(3.0)
+    limiter.halve()
+    now[0] = 5.0
+    with limiter.turn():
+        pass
+    assert limiter.rate == 3.0
+
+
 def test_without_an_api_key_the_rate_is_capped_at_ncbis_keyless_limit() -> None:
     limiter = RateLimiter(5.0, 8)
     EntrezClient(
