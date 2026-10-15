@@ -32,3 +32,11 @@ class SdlError(LabdataError, RuntimeError):
 
 class DownloadError(LabdataError, RuntimeError):
     """An external download tool is missing or a download/extract step failed."""
+
+
+class StoreNotConfiguredError(LabdataError):
+    """No store root is set by argument, environment variable or pointer file."""
+
+
+class NotAStoreError(LabdataError):
+    """A folder is not a labdata store: it has no readable ``labdata-store.toml``."""
