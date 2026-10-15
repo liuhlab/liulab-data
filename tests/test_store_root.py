@@ -87,3 +87,9 @@ def test_opening_writes_nothing_under_root(tmp_path: Path) -> None:
     finally:
         root.chmod(0o755)
     assert {p: p.stat().st_mtime_ns for p in [root, *root.rglob("*")]} == before
+
+
+def test_the_pointer_keeps_a_root_toml_must_escape(tmp_path: Path) -> None:
+    root = make_store(tmp_path / 'store "q" \\ \U0001f9ec')
+    save_pointer(root)
+    assert open_store().root == root

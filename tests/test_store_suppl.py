@@ -14,7 +14,7 @@ from pathlib import Path
 import pyarrow.parquet as pq
 import pytest
 
-from labdata.exceptions import AccessionError, EntrezError
+from labdata.exceptions import AccessionError, EntrezError, PageNotFound
 from labdata.store import Store, open_store, raw
 from labdata.store.build import build
 from labdata.store.fetch import fetch
@@ -82,7 +82,7 @@ def test_fetch_saves_each_series_filelist_and_an_absent_one_as_empty(built: Path
 
 
 class _Failing(FakeEntrezClient):
-    """Answers every ``filelist.txt`` with one HTTP error code, wrapped as ``EntrezClient`` does."""
+    """Answers every ``filelist.txt`` with one HTTP error code, raised as ``EntrezClient`` does."""
 
     def __init__(self, code: int) -> None:
         super().__init__(pages=_client()._pages)
@@ -91,6 +91,8 @@ class _Failing(FakeEntrezClient):
     def fetch_text(self, url: str) -> str:
         if not url.endswith("filelist.txt"):
             return super().fetch_text(url)
+        if self.code == 404:
+            raise PageNotFound(f"no page at {url}")
         cause = urllib.error.HTTPError(url, self.code, "error", Message(), None)
         raise EntrezError(f"NCBI E-utilities request failed: {cause}") from cause
 

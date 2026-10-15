@@ -19,6 +19,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from labdata.store import snapshots
+from labdata.store._files import temp_beside
 
 #: The snapshot sources ``known.parquet`` draws from.
 SOURCES = (
@@ -71,9 +72,9 @@ def index_source(root: Path, source: str) -> Path:
     if out.is_file():
         return out
     out.parent.mkdir(parents=True, exist_ok=True)
-    parts = out.with_name(f".{out.stem}.parts.tmp")
-    tmp = out.with_name(f".{out.stem}.tmp")
-    temp = out.with_name(f".{out.stem}.duckdb")
+    parts = temp_beside(out, "parts")
+    tmp = temp_beside(out)
+    temp = temp_beside(out, "duckdb")
     try:
         with pq.ParquetWriter(parts, _SCHEMA) as writer:
             for batch in batched(snapshots.accessions(snap, source), _BATCH, strict=False):

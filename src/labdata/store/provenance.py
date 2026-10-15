@@ -20,6 +20,7 @@ import pyarrow.parquet as pq
 
 from labdata.exceptions import StoreBuildError
 from labdata.store import raw, snapshots
+from labdata.store._files import write_atomic
 
 MANIFEST = "manifest.json"
 README = "README.md"
@@ -189,7 +190,7 @@ def document_snapshot(folder: Path) -> list[Path]:
     written = []
     source, date = folder.parent.name, folder.name
     if not (folder / MANIFEST).is_file():
-        _atomic(
+        write_atomic(
             folder / MANIFEST,
             _json(
                 {
@@ -209,7 +210,7 @@ def document_snapshot(folder: Path) -> list[Path]:
             "command": (manifest.get("fetched_by") or {}).get("script", _DOWNLOADER),
             "commit": (manifest.get("fetched_by") or {}).get("commit"),
         }
-        _atomic(
+        write_atomic(
             folder / README,
             _render(
                 {
@@ -331,18 +332,12 @@ def _span(dates: set[str]) -> str:
 
 
 def _write(folder: Path, manifest: dict[str, Any]) -> None:
-    _atomic(folder / MANIFEST, _json(manifest))
-    _atomic(folder / README, _render(manifest))
+    write_atomic(folder / MANIFEST, _json(manifest))
+    write_atomic(folder / README, _render(manifest))
 
 
 def _json(data: dict[str, Any]) -> str:
     return json.dumps(data, indent=2) + "\n"
-
-
-def _atomic(path: Path, text: str) -> None:
-    tmp = path.with_name(f".{path.name}.tmp")
-    tmp.write_text(text, encoding="utf-8")
-    tmp.replace(path)
 
 
 def _render(m: dict[str, Any]) -> str:

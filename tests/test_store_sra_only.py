@@ -7,6 +7,7 @@ Packages come from ``tests/data/sra_package/``. The snapshots under
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import os
 import shutil
@@ -29,7 +30,7 @@ from labdata.exceptions import (
     NotMirrored,
 )
 from labdata.geo import Experiment
-from labdata.store import Store, open_store
+from labdata.store import Store, open_store, raw
 from labdata.store.build import build
 from labdata.store.fetch import fetch
 from tests._fakes import ExplodingEntrezClient, FakeEntrezClient
@@ -126,6 +127,7 @@ def test_fetch_requests_dropped_packages_again(root: Path) -> None:
     report = fetch(root, [_PROJECT], client=client, today="2026-10-14")
     assert list(report.experiments) == _SRX
     assert client.count("efetch") == 2
+    assert client.refreshed == [("SRX24283133",)]
 
 
 def test_fetch_fails_when_a_package_never_comes_back(root: Path) -> None:
@@ -233,6 +235,29 @@ def test_experiments_for_gives_six_experiments_without_network(store: Store) -> 
 
 
 @pytest.mark.usefixtures("no_network")
+def test_the_offline_client_refuses_every_entrez_method() -> None:
+    from labdata.ncbi.entrez import EntrezClient
+    from labdata.store._offline import OfflineEntrezClient
+
+    offline = OfflineEntrezClient()
+    names = [
+        n
+        for n, f in inspect.getmembers(EntrezClient, inspect.isfunction)
+        if not n.startswith("_") and n != "clear_cache"
+    ]
+    assert "elink_many" in names
+    for name in names:
+        method = getattr(offline, name)
+        args = {
+            p.name: ["1"] if "list" in str(p.annotation) else "1"
+            for p in inspect.signature(method).parameters.values()
+            if p.default is inspect.Parameter.empty
+        }
+        with pytest.raises(LabdataError, match="no network call"):
+            method(**args)
+
+
+@pytest.mark.usefixtures("no_network")
 def test_the_paper_comes_from_pubmed_only(store: Store) -> None:
     assert store.follow(_PROJECT, "PubMed") == {_PROJECT: ["PMID:39637862"]}
     links = [k for k in store.open(_PROJECT).links if k.relation == "PubMed"]
@@ -313,6 +338,41 @@ def test_a_walk_from_a_root_not_held_raises_not_mirrored(root: Path) -> None:
     assert [e.accession for e in store.experiments_for(_PROJECT)] == ["SRX24283130"]
     with pytest.raises(NotMirrored, match="SRX24283131"):
         store.experiments_for("SRX24283131")
+
+
+def test_a_bioproject_walk_goes_to_sra_only(root: Path) -> None:
+    fetch(root, [_PROJECT], client=_client(), today="2026-10-14")
+    # A Series the store does not hold names the same BioProject.
+    line = f"GSE999999\tbioproject\t1\t{_PROJECT}"
+    raw.write_rows(root, raw.ENTREZ_LINKS, [raw.RawRow("GSE999999", line, "2026-10-14")])
+    build(root, "b1")
+    store = open_store(root)
+    assert store.follow(_PROJECT, "BioProject of")[_PROJECT] == ["GSE999999", _STUDY]
+    assert [e.accession for e in store.experiments_for(_PROJECT)] == _SRX
+
+
+def test_labdata_store_leaves_the_live_experiments_for_live(
+    store: Store, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import labdata
+
+    monkeypatch.setenv("LABDATA_STORE", str(store.root))
+    client = _client()
+    client.but(esearch={_STUDY: ["SRX24283130"]})
+    experiments = labdata.experiments_for(_STUDY, client=client)
+    assert [e.accession for e in experiments] == ["SRX24283130"]
+    assert client.count("esearch") == 1
+    assert client.count("efetch") == 1
+
+
+def test_raw_of_an_accession_not_held_raises_like_open(root: Path) -> None:
+    fetch(root, ["SRX24283130"], client=_client(), today="2026-10-14")
+    build(root, "one")
+    store = open_store(root)
+    with pytest.raises(NotMirrored, match="SRX24283131"):
+        store.raw(["SRX24283130", "SRX24283131"])
+    with pytest.raises(NotFound, match="SRX999999999"):
+        store.raw(["SRX999999999"])
 
 
 def test_a_store_without_a_build_says_so(root: Path) -> None:

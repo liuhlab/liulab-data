@@ -26,6 +26,10 @@ class EntrezError(LabdataError, RuntimeError):
     """An Entrez request failed or returned an unusable response."""
 
 
+class PageNotFound(EntrezError):  # noqa: N818 - pairs with NotFound
+    """An NCBI web page answered 404: the page does not exist."""
+
+
 class SdlError(LabdataError, RuntimeError):
     """An SRA Data Locator (SDL) request failed or returned an unusable response."""
 
