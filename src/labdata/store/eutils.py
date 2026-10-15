@@ -4,9 +4,8 @@ The experiment list is the union of the SRX accessions in saved SOFT ``!Sample_r
 lines and the ``SRA_Accessions.tab`` experiments with ``Center=GEO`` and a GSM alias, each with
 its tab status. Packages come from ``efetch`` in batches, several calls in flight under the
 client's shared rate cap. Each bucket's piece is split into parts of a few thousand
-experiments, so a preempted run loses at most a part per call in flight. An experiment NCBI
-serves no package for is saved as a ``raw/sra-gaps/`` row holding its tab status, before the
-part that marks it asked. Every step streams: the tab, the SOFT text and the list are read
+experiments, so a preempted run loses at most a few open parts. An experiment NCBI serves no
+package for is saved as an ``sra-xml`` row with empty text, which the build lists in its notes. Every step streams: the tab, the SOFT text and the list are read
 in chunks and spilled to Parquet under ``work/eutils/``.
 """
 
@@ -227,7 +226,6 @@ class _Part:
     """One part's worth of a piece; its packages are spilled to disk as batches come back."""
 
     piece: raw.Piece
-    status: dict[str, str]
     batches: int
     spill: Path
     fetched: int = 0
@@ -236,15 +234,14 @@ class _Part:
     _writer: pq.ParquetWriter | None = None
 
     def add(self, got: FetchedRecords) -> None:
-        """Spill one batch's packages and note what it lacked."""
-        if got.records:
+        """Spill one batch's packages, an empty text for each it has none for."""
+        texts = got.records | dict.fromkeys(got.missing, "")
+        if texts:
             if self._writer is None:
                 self.spill.parent.mkdir(parents=True, exist_ok=True)
                 self._writer = pq.ParquetWriter(self.spill, _SPILL_SCHEMA)
-            names, texts = zip(*got.records.items(), strict=True)
-            self._writer.write_table(
-                pa.table({"accession": names, "raw_text": texts}, schema=_SPILL_SCHEMA)
-            )
+            columns = {"accession": list(texts), "raw_text": list(texts.values())}
+            self._writer.write_table(pa.table(columns, schema=_SPILL_SCHEMA))
         self.fetched += len(got.records)
         self.missing += got.missing
         self.failed |= set(got.failed)
@@ -354,12 +351,8 @@ def _fetch(client: EntrezClient, ids: list[str]) -> FetchedRecords:
 
 
 def _save(root: Path, part: _Part, date: str) -> None:
-    """Write the gap rows, then the part that marks the rest asked."""
+    """Write the part; an experiment whose call failed is left unasked, to be fetched again."""
     bucket = part.piece.bucket
-    if part.missing:
-        gaps = raw.Piece(raw.SRA_GAPS, bucket, tuple(sorted(part.missing)))
-        rows = [raw.RawRow(a, part.status[a], date) for a in gaps.todo]
-        raw.write_part(root, gaps, rows, record_asked=False)
     asked = tuple(a for a in part.piece.todo if a not in part.failed)
     if asked:
         raw.write_part(root, raw.Piece(raw.SRA_XML, bucket, asked), part.rows(date))
@@ -369,13 +362,12 @@ def _save(root: Path, part: _Part, date: str) -> None:
 def _jobs(
     root: Path, experiments: Path, batch: int, part_size: int, spill: Path
 ) -> Iterator[tuple[_Part, list[str]]]:
-    for status, pieces in _pieces(root, experiments):
+    for _, pieces in _pieces(root, experiments):
         for piece in pieces:
             for start in range(0, len(piece.todo), part_size):
                 todo = piece.todo[start : start + part_size]
                 part = _Part(
                     raw.Piece(piece.source, piece.bucket, todo),
-                    {a: status[a] for a in todo},
                     -(-len(todo) // batch),
                     spill / f"{piece.bucket}.{start}.parquet",
                 )

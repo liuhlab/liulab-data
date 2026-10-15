@@ -37,9 +37,6 @@ GEO_FILELIST = "geo-filelist"
 #: Raw folder of each GEO Series the fetch could not save, one row per Series: its gap
 #: reason, then any detail after a newline (see :mod:`labdata.store.gaps`).
 GEO_GAPS = "geo-gaps"
-#: Raw folder of each SRA experiment NCBI served no package for, one row per experiment:
-#: its ``SRA_Accessions.tab`` status, empty when the tab does not list it.
-SRA_GAPS = "sra-gaps"
 
 #: Accession numbers per bucket, a power of ten per source, set from the pilot store's
 #: Parquet bytes so a full-scale bucket file lands at about 50 MB to 1 GB.
@@ -50,7 +47,6 @@ WIDTHS: dict[str, int] = {
     PUBMED_SI: 1_000_000,
     ENTREZ_LINKS: 1_000_000,
     GEO_GAPS: 1_000_000,
-    SRA_GAPS: 1_000_000,
 }
 #: Raw text held in memory before it is written as one sorted row group.
 CHUNK_BYTES = 32 << 20

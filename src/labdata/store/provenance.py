@@ -57,11 +57,6 @@ RAW_SOURCES: dict[str, tuple[str, str]] = {
         "The SRA EXPERIMENT_PACKAGE XML of each experiment, one row per experiment.",
         f"{_EUTILS}/efetch.fcgi?db=sra&rettype=full&retmode=xml",
     ),
-    raw.SRA_GAPS: (
-        "Each GEO-linked SRA experiment NCBI served no EXPERIMENT_PACKAGE for, one row per "
-        "experiment: its SRA_Accessions.tab status, empty when the tab does not list it.",
-        f"{_EUTILS}/efetch.fcgi?db=sra&rettype=full&retmode=xml, as answered",
-    ),
     raw.PUBMED_SI: (
         "The PubMed IDs that list each accession in their accession field, one row per "
         "accession queried, one PMID per line. An empty text means none.",

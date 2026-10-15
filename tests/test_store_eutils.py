@@ -202,8 +202,8 @@ def test_a_short_batch_saves_the_rest_and_records_the_missing_once(
     rerun = _Ncbi(known={"SRX1", "SRX2", "SRX5"})
     assert _run(root, rerun).fetched == 0
     assert rerun.asked == []  # the missing experiment is not refetched
-    assert _packed(root, raw.SRA_XML) == {"SRX1": _package("SRX1"), "SRX2": _package("SRX2")}
-    assert _packed(root, raw.SRA_GAPS) == {"SRX5": "suppressed"}
+    packed = _packed(root, raw.SRA_XML)
+    assert packed == {"SRX1": _package("SRX1"), "SRX2": _package("SRX2"), "SRX5": ""}
 
 
 def test_a_batch_that_fails_is_fetched_again_on_the_next_run(
