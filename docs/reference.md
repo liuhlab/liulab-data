@@ -19,3 +19,7 @@
 ::: labdata.ncbi.config
 
 ::: labdata.store.root
+
+::: labdata.store.prune
+
+::: labdata.store.gcs

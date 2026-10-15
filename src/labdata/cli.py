@@ -160,6 +160,51 @@ def store_build(
     typer.echo(f"Built {out} and switched the store to it")
 
 
+@store_app.command("prune")
+def store_prune(
+    root: Path | None = typer.Option(
+        None, help="Store root; default: LABDATA_STORE, then pointer."
+    ),
+) -> None:
+    """Delete old builds and unread snapshots once they are out of use for 24 hours.
+
+    Keeps the current build and the snapshots it reads. A build stays readable for 24 hours
+    after the store switched away from it.
+    """
+    from labdata.store.prune import prune
+
+    store = open_store(root)
+    report = prune(store.root)
+    for path in report.deleted:
+        typer.echo(f"Deleted {path}")
+    if not report.deleted:
+        typer.echo("Deleted nothing")
+
+
+@store_app.command("copy")
+def store_copy(
+    root: Path | None = typer.Option(
+        None, help="Store root; default: LABDATA_STORE, then pointer."
+    ),
+    to: str | None = typer.Option(
+        None, help="rclone destination <remote>:<bucket>/<path>; default: copy_to in the marker."
+    ),
+) -> None:
+    """Copy the marker, current snapshots, raw/ and current build to a bucket with rclone.
+
+    Refused unless the current build is complete. When rclone's Google login has expired,
+    it skips with a message and exits 0; rerun after `rclone config reconnect`.
+    """
+    from labdata.store.gcs import copy
+
+    try:
+        result = copy(root if root is not None else open_store().root, to)
+    except LabdataError as err:
+        typer.echo(str(err), err=True)
+        raise typer.Exit(1) from err
+    typer.echo(result.message if result.skipped else f"Copied the store to {result.destination}")
+
+
 @store_app.command("extract")
 def store_extract(
     source: str = typer.Option(..., help="biosample, bioproject, sra-accessions or geo-series."),
