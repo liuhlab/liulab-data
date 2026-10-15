@@ -9,7 +9,7 @@ import logging
 import threading
 import time
 import urllib.parse
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -131,6 +131,8 @@ class _Ncbi:
     broken: set[str] = field(default_factory=set)
     delay: float = 0.0
     kill_after: int | None = None
+    slow: set[str] = field(default_factory=set)
+    on_slow: Callable[[], None] = lambda: None
     asked: list[list[str]] = field(default_factory=list)
     starts: list[float] = field(default_factory=list)
     peak: int = 0
@@ -149,6 +151,8 @@ class _Ncbi:
             self.peak = max(self.peak, self._open)
         try:
             time.sleep(self.delay)
+            if set(ids) & self.slow:
+                self.on_slow()
             yield self._answer(ids)
         finally:
             with self._lock:
@@ -307,3 +311,21 @@ def test_a_later_round_over_more_series_asks_only_for_the_new_experiments(
     once = store("once")
     run(once, _Ncbi(known=known), {"GSE1", "GSE2", "GSE3"})
     assert _packed(rounds, raw.SRA_XML) == _packed(once, raw.SRA_XML)
+
+
+def test_a_slow_call_holds_back_only_its_own_part(tmp_path: Path) -> None:
+    accessions = [(f"SRX{i}", "live") for i in range(1, 9)]
+    root = _store(tmp_path, _geo(*accessions))
+    seen: list[int] = []
+
+    def wait_for_the_others() -> None:
+        deadline = time.monotonic() + 5
+        while len(raw.part_files(root, raw.SRA_XML)) < 3 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        seen.append(len(raw.part_files(root, raw.SRA_XML)))
+
+    ncbi = _Ncbi(known={a for a, _ in accessions}, slow={"SRX1"}, on_slow=wait_for_the_others)
+    _run(root, ncbi, batch=2, part_size=2, inflight=2)
+
+    assert seen == [3]  # the three other parts were saved while the first call hung
+    assert len(raw.part_files(root, raw.SRA_XML)) == 4

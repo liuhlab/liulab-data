@@ -16,9 +16,9 @@ import gzip
 import json
 import logging
 import re
-from collections import deque
+import shutil
 from collections.abc import Iterable, Iterator
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -38,6 +38,8 @@ BATCH = 300
 INFLIGHT = 8
 #: Experiments per part: a bucket's piece is saved in parts this size.
 PART_SIZE = 6_000
+#: Parts with calls in flight at once.
+OPEN_PARTS = 4
 
 _SOFT_SRX = re.compile(rb"^!Sample_relation\s*=\s*SRA:\s*\S*?[?&]term=([SED]RX\d+)", re.M)
 _GSM = re.compile(r"GSM\d+")
@@ -50,6 +52,7 @@ _TAB_SCHEMA = pa.schema(
     ]
 )
 _SOFT_SCHEMA = pa.schema([("accession", pa.string())])
+_SPILL_SCHEMA = pa.schema([("accession", pa.string()), ("raw_text", pa.string())])
 _ROWS = 500_000
 logger = logging.getLogger(__name__)
 
@@ -219,16 +222,42 @@ def _soft_experiments(root: Path, out: Path, series: set[str] | None) -> Path:
     return out
 
 
-@dataclass
+@dataclass(eq=False)
 class _Part:
-    """One part's worth of a piece, and what its batches brought back so far."""
+    """One part's worth of a piece; its packages are spilled to disk as batches come back."""
 
     piece: raw.Piece
     status: dict[str, str]
     batches: int
-    records: dict[str, str] = field(default_factory=dict)
+    spill: Path
+    fetched: int = 0
     missing: list[str] = field(default_factory=list)
     failed: set[str] = field(default_factory=set)
+    _writer: pq.ParquetWriter | None = None
+
+    def add(self, got: FetchedRecords) -> None:
+        """Spill one batch's packages and note what it lacked."""
+        if got.records:
+            if self._writer is None:
+                self.spill.parent.mkdir(parents=True, exist_ok=True)
+                self._writer = pq.ParquetWriter(self.spill, _SPILL_SCHEMA)
+            names, texts = zip(*got.records.items(), strict=True)
+            self._writer.write_table(
+                pa.table({"accession": names, "raw_text": texts}, schema=_SPILL_SCHEMA)
+            )
+        self.fetched += len(got.records)
+        self.missing += got.missing
+        self.failed |= set(got.failed)
+        self.batches -= 1
+
+    def rows(self, date: str) -> Iterator[raw.RawRow]:
+        """Yield the spilled packages back, a few at a time."""
+        if self._writer is None:
+            return
+        self._writer.close()
+        for chunk in pq.ParquetFile(self.spill).iter_batches(batch_size=64):
+            for accession, text in zip(*chunk.to_pydict().values(), strict=True):
+                yield raw.RawRow(accession, text, date)
 
 
 def fetch_packages(
@@ -243,6 +272,9 @@ def fetch_packages(
     log_every: float = EVERY,
 ) -> LaneReport:
     """Fetch the package of every listed experiment no part or raw bucket holds yet.
+
+    Calls finish in any order: a slow call holds back only its own part, while at most
+    :data:`OPEN_PARTS` parts are open at once.
 
     Parameters
     ----------
@@ -265,39 +297,51 @@ def fetch_packages(
         Counts for this run. An experiment whose call failed is not saved, so the next run
         asks for it again; one NCBI has no package for is saved as asked, with a gap row.
     """
+    spill = root / "work" / "eutils" / "spill"
+    shutil.rmtree(spill, ignore_errors=True)
     total = sum(len(p.todo) for _, pieces in _pieces(root, experiments) for p in pieces)
     report = {"fetched": 0, "missing": 0, "failed": 0}
-    jobs = _jobs(root, experiments, batch, part_size)
-    window: deque[tuple[_Part, Future[FetchedRecords]]] = deque()
+    jobs = _jobs(root, experiments, batch, part_size, spill)
+    pending: dict[Future[FetchedRecords], _Part] = {}
+    opened: set[_Part] = set()
+    upcoming: list[tuple[_Part, list[str]]] = []
     with (
         Progress(logger, "experiments", total, every=log_every) as progress,
         ThreadPoolExecutor(inflight, thread_name_prefix="eutils") as pool,
     ):
 
         def refill() -> None:
-            while len(window) < 2 * inflight and (job := next(jobs, None)):
-                part, ids = job
-                window.append((part, pool.submit(_fetch, client, ids)))
+            while len(pending) < 2 * inflight:
+                if not upcoming and (job := next(jobs, None)):
+                    upcoming.append(job)
+                if not upcoming:
+                    return
+                part, ids = upcoming[0]
+                if part not in opened and len(opened) >= OPEN_PARTS:
+                    return
+                upcoming.pop()
+                opened.add(part)
+                pending[pool.submit(_fetch, client, ids)] = part
 
         refill()
-        while window:
-            part, future = window.popleft()
-            got = future.result()
+        while pending:
+            finished, _ = wait(pending, return_when=FIRST_COMPLETED)
+            for future in finished:
+                part = pending.pop(future)
+                got = future.result()
+                part.add(got)
+                progress.add(
+                    len(got.records) + len(got.missing) + len(got.failed),
+                    missing=len(got.missing),
+                    failed=len(got.failed),
+                )
+                if part.batches == 0:
+                    _save(root, part, date)
+                    opened.discard(part)
+                    report["fetched"] += part.fetched
+                    report["missing"] += len(part.missing)
+                    report["failed"] += len(part.failed)
             refill()
-            part.records |= got.records
-            part.missing += got.missing
-            part.failed |= set(got.failed)
-            progress.add(
-                len(got.records) + len(got.missing) + len(got.failed),
-                missing=len(got.missing),
-                failed=len(got.failed),
-            )
-            part.batches -= 1
-            if part.batches == 0:
-                _save(root, part, date)
-                report["fetched"] += len(part.records)
-                report["missing"] += len(part.missing)
-                report["failed"] += len(part.failed)
     return LaneReport(**report)
 
 
@@ -318,12 +362,12 @@ def _save(root: Path, part: _Part, date: str) -> None:
         raw.write_part(root, gaps, rows, record_asked=False)
     asked = tuple(a for a in part.piece.todo if a not in part.failed)
     if asked:
-        rows = (raw.RawRow(a, part.records[a], date) for a in asked if a in part.records)
-        raw.write_part(root, raw.Piece(raw.SRA_XML, bucket, asked), rows)
+        raw.write_part(root, raw.Piece(raw.SRA_XML, bucket, asked), part.rows(date))
+    part.spill.unlink(missing_ok=True)
 
 
 def _jobs(
-    root: Path, experiments: Path, batch: int, part_size: int
+    root: Path, experiments: Path, batch: int, part_size: int, spill: Path
 ) -> Iterator[tuple[_Part, list[str]]]:
     for status, pieces in _pieces(root, experiments):
         for piece in pieces:
@@ -333,6 +377,7 @@ def _jobs(
                     raw.Piece(piece.source, piece.bucket, todo),
                     {a: status[a] for a in todo},
                     -(-len(todo) // batch),
+                    spill / f"{piece.bucket}.{start}.parquet",
                 )
                 for at in range(0, len(todo), batch):
                     yield part, list(todo[at : at + batch])
