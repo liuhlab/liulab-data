@@ -161,7 +161,7 @@ def test_a_gzip_snapshot_streams_through_the_decompressor_seam(
         return _Decompressor(command, code=1)
 
     monkeypatch.setattr(extract, "_popen", failing)
-    with pytest.raises(StoreBuildError, match="failed on .*gds_gse_esummary.jsonl.gz"):
+    with pytest.raises(StoreBuildError, match=r"failed on .*gds_gse_esummary\.jsonl\.gz"):
         extract.extract(root, snapshots.GEO_SERIES, workers=1)
     assert commands
     assert commands[0][-1].endswith("gds_gse_esummary.jsonl.gz")

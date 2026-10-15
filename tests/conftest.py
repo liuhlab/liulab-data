@@ -29,7 +29,7 @@ class Decompressor:
     """Stands in for rapidgzip or pigz: a gzip file's bytes on ``stdout``, then ``code``."""
 
     def __init__(self, command: list[str], code: int = 0) -> None:
-        self.stdout = gzip.open(command[-1], "rb")
+        self.stdout = gzip.open(command[-1], "rb")  # noqa: SIM115 - the caller closes the pipe
         self._code = code
 
     def kill(self) -> None:
