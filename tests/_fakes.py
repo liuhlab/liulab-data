@@ -75,6 +75,11 @@ class FakeEntrezClient(EntrezClient):
         self.calls.append(("elink", (dbfrom, db, uid)))
         return self._elink.get((dbfrom, db, uid), [])
 
+    def elink_many(self, dbfrom: str, db: str, uids: list[str]) -> dict[str, list[str]]:
+        wanted = list(dict.fromkeys(str(uid) for uid in uids))
+        self.calls.append(("elink_many", (dbfrom, db, tuple(wanted))))
+        return {uid: self._elink.get((dbfrom, db, uid), []) for uid in wanted}
+
     def efetch(
         self,
         db: str,
@@ -132,7 +137,7 @@ class ExplodingEntrezClient(FakeEntrezClient):
         super().__init__()
 
     def __getattribute__(self, name: str) -> Any:
-        if name in {"esearch", "esummary", "esummary_many", "elink", "efetch", "fetch_text"}:
+        if name in {"esearch", "esummary", "esummary_many", "elink", "elink_many", "efetch", "fetch_text"}:
             raise AssertionError(f"unexpected network call: {name}")
         return super().__getattribute__(name)
 

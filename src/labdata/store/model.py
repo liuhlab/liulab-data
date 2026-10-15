@@ -23,6 +23,8 @@ RELATIONS: dict[str, str] = {
     "SRA sample": "SRA experiment",
     "run": "run of",
     "PubMed": "PubMed of",
+    "Reanalyzed by": "Reanalysis of",
+    "Named Annotation": "Named Annotation of",
 }
 
 #: Reverse relation name to its forward name.
@@ -30,6 +32,8 @@ INVERSE: dict[str, str] = {reverse: forward for forward, reverse in RELATIONS.it
 
 #: A paper's link target: ``PMID:<n>``. A paper is not a record.
 PAPER = "paper"
+#: A GEO named annotation's link target, such as ``NA000049219.1``. It is not a record.
+ANNOTATION = "named annotation"
 
 _KINDS: tuple[tuple[re.Pattern[str], str], ...] = tuple(
     (re.compile(pattern), kind)
@@ -44,6 +48,7 @@ _KINDS: tuple[tuple[re.Pattern[str], str], ...] = tuple(
         (r"PRJ[A-Z]{2}\d+", "BioProject"),
         (r"SAM(?:N|EA|D)\d+", "BioSample"),
         (r"PMID:\d+", PAPER),
+        (r"NA\d+(?:\.\d+)?", ANNOTATION),
     )
 )
 
@@ -59,7 +64,8 @@ def kind_of(accession: str) -> str:
     Returns
     -------
     str
-        One of the nine record types, or ``"paper"`` for ``PMID:<n>``.
+        One of the nine record types, ``"paper"`` for ``PMID:<n>``, or
+        ``"named annotation"`` for a GEO named annotation.
 
     Raises
     ------

@@ -15,6 +15,7 @@ into one batched request.
 
 from __future__ import annotations
 
+import gzip
 import http.client
 import socket
 import time
@@ -284,6 +285,39 @@ class EntrezClient:
             cached = self._cache[key] = linked
         return list(cached)
 
+    def elink_many(self, dbfrom: str, db: str, uids: list[str]) -> dict[str, list[str]]:
+        """Map each of several UIDs to the UIDs it links to, one request per chunk.
+
+        Parameters
+        ----------
+        dbfrom : str
+            Source database (e.g. ``"gds"``).
+        db : str
+            Target database (e.g. ``"sra"``).
+        uids : list of str
+            The source UIDs. An empty list issues no request.
+
+        Returns
+        -------
+        dict of str to list of str
+            Each distinct source UID mapped to its linked UIDs (empty if none).
+        """
+        wanted = list(dict.fromkeys(str(uid) for uid in uids))
+        out: dict[str, list[str]] = {uid: [] for uid in wanted}
+        for start in range(0, len(wanted), _ESUMMARY_CHUNK):
+            chunk = wanted[start : start + _ESUMMARY_CHUNK]
+            # A list ``id`` is sent as repeated parameters, so NCBI answers one set per UID.
+            record = self._request(
+                lambda chunk=chunk: _entrez.elink(dbfrom=dbfrom, db=db, id=chunk), _entrez.read
+            )
+            for linkset in record:
+                source = str((linkset.get("IdList") or [""])[0])
+                for linksetdb in linkset.get("LinkSetDb", []):
+                    out.setdefault(source, []).extend(
+                        str(link["Id"]) for link in linksetdb.get("Link", [])
+                    )
+        return out
+
     def efetch(
         self,
         db: str,
@@ -385,4 +419,6 @@ class EntrezClient:
     def _parse_text(handle: Any) -> str:
         """Read a raw E-utilities handle to text (EFetch serves formats Biopython won't parse)."""
         data = handle.read()
+        if isinstance(data, bytes) and data[:2] == b"\x1f\x8b":
+            data = gzip.decompress(data)
         return data.decode() if isinstance(data, bytes) else str(data)

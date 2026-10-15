@@ -354,3 +354,25 @@ def test_efetch_retries_a_dropped_response(monkeypatch: pytest.MonkeyPatch) -> N
     out = EntrezClient(CREDS).efetch(db="sra", ids=["1"], rettype="runinfo")
     assert "SRR1" in out
     assert state["reads"] == 2  # first read dropped, second succeeded
+
+
+def test_fetch_text_decompresses_a_gzip_file(monkeypatch: pytest.MonkeyPatch) -> None:
+    import gzip
+
+    monkeypatch.setattr(
+        entrez_mod.urllib.request,
+        "urlopen",
+        lambda _request, **_kw: _TextHandle(gzip.compress(b"^SERIES = GSE1\n")),
+    )
+    assert EntrezClient(CREDS).fetch_text("https://x/GSE1_family.soft.gz") == "^SERIES = GSE1\n"
+
+
+def test_elink_many_maps_each_uid_in_one_request(count_entrez) -> None:
+    record = [
+        {"IdList": ["1"], "LinkSetDb": [{"Link": [{"Id": "9"}, {"Id": "8"}]}]},
+        {"IdList": ["2"], "LinkSetDb": []},
+    ]
+    calls = count_entrez("elink", record)
+    result = EntrezClient(CREDS).elink_many(dbfrom="gds", db="sra", uids=["1", "2", "1"])
+    assert result == {"1": ["9", "8"], "2": []}
+    assert [call["id"] for call in calls] == [["1", "2"]]
