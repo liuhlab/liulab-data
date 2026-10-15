@@ -343,6 +343,41 @@ def test_the_real_transport_times_out_a_hung_connection(monkeypatch: pytest.Monk
         server.close()
 
 
+def test_a_404_keeps_the_connection_open_for_the_next_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(entrez_mod, "_GEO_TIMEOUT", 2.0)
+    server = socket.socket()
+    server.bind(("127.0.0.1", 0))
+    server.listen()
+    port = server.getsockname()[1]
+    accepted: list[socket.socket] = []
+
+    def serve() -> None:
+        conn, _ = server.accept()
+        accepted.append(conn)
+        for status, body in ((b"404 Not Found", b"gone"), (b"200 OK", b"a\n")):
+            conn.recv(65536)
+            head = b"HTTP/1.1 %s\r\nContent-Length: %d\r\n\r\n" % (status, len(body))
+            conn.sendall(head + body)
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    transport = HttpTransport()
+    client = EntrezClient(CREDS, transport=transport, limiter=RateLimiter(1000.0, 8))
+    try:
+        with pytest.raises(PageNotFound):
+            client.stream(f"http://127.0.0.1:{port}/missing", list, tries=1)
+        assert client.stream(f"http://127.0.0.1:{port}/filelist.txt", list, tries=1) == [b"a\n"]
+    finally:
+        transport.close()
+        thread.join(2)
+        for sock in accepted:
+            sock.close()
+        server.close()
+    assert len(accepted) == 1
+
+
 # ---------------------------------------------------------------- batched efetch
 
 
