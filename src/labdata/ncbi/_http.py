@@ -44,6 +44,14 @@ class Transport(Protocol):
         ...
 
 
+class _Conns(dict[tuple[str, str], http.client.HTTPConnection]):
+    """One thread's kept-open connections, closed when the thread or the transport goes."""
+
+    def __del__(self) -> None:
+        for conn in self.values():
+            conn.close()
+
+
 class HttpTransport:
     """HTTP over connections kept open between requests, one per thread and host."""
 
@@ -67,9 +75,7 @@ class HttpTransport:
     ) -> Iterator[Response]:
         """Send a request and yield its response; every socket wait is capped at ``timeout``."""
         parts = urllib.parse.urlsplit(url)
-        conns: dict[tuple[str, str], http.client.HTTPConnection] = self._local.__dict__.setdefault(
-            "conns", {}
-        )
+        conns: _Conns = self._local.__dict__.setdefault("conns", _Conns())
         key = (parts.scheme, parts.netloc)
         conn = conns.pop(key, None)
         if conn is None:

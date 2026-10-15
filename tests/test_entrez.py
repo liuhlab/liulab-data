@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import errno
+import gc
 import gzip
 import io
 import socket
@@ -9,6 +11,7 @@ import threading
 import time
 import urllib.error
 import urllib.parse
+import warnings
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -482,3 +485,43 @@ def test_download_of_a_missing_file_raises_and_leaves_nothing(tmp_path: Path) ->
     with pytest.raises(PageNotFound):
         _client(Reply(b"gone", 404)).download("https://x/f", tmp_path / "f")
     assert list(tmp_path.iterdir()) == []
+
+
+def test_a_network_that_is_briefly_unreachable_is_retried(sleeps: list[float]) -> None:
+    unreachable = OSError(errno.ENETUNREACH, "Network is unreachable")
+    client = _client(unreachable, Reply(_esearch("1")))
+    assert client.esearch(db="gds", term="x") == ["1"]
+
+
+def test_a_finished_thread_closes_its_kept_open_connections() -> None:
+    server = socket.socket()
+    server.bind(("127.0.0.1", 0))
+    server.listen()
+    port = server.getsockname()[1]
+
+    def serve() -> None:
+        conn, _ = server.accept()
+        conn.recv(65536)
+        conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+        conn.recv(1)  # held open until the client closes it
+        conn.close()
+
+    serving = threading.Thread(target=serve, daemon=True)
+    serving.start()
+    transport = HttpTransport()
+
+    def ask() -> None:
+        url = f"http://127.0.0.1:{port}/"
+        with transport.open("GET", url, body=None, headers={}, timeout=2.0) as response:
+            assert response.read() == b"ok"
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        worker = threading.Thread(target=ask)
+        worker.start()
+        worker.join()
+        gc.collect()
+    serving.join(2)
+    server.close()
+    assert not serving.is_alive()  # the client closed its end
+    assert not [w for w in caught if issubclass(w.category, ResourceWarning)]

@@ -149,7 +149,7 @@ def fetch_package_texts(client: EntrezClient, ids: list[str]) -> dict[str, str]:
     """
     found: dict[str, str] = {}
     for start in range(0, len(ids), _PACKAGE_CHUNK):
-        chunk = [str(i) for i in ids[start : start + _PACKAGE_CHUNK]]
+        chunk = list(dict.fromkeys(str(i) for i in ids[start : start + _PACKAGE_CHUNK]))
         texts: dict[str, str] = {}
         parsed: dict[str, ET.Element] = {}
         missing = chunk
