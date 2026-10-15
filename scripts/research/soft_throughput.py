@@ -68,7 +68,7 @@ def sample(out: Path, seed: int = 49, chunks: int = 12, per: int = 50) -> None:
     print(f"count={n} sampled={len(order)}")
 
 
-class Stop(Exception):
+class StopError(Exception):
     """A throttling or error sign: stop the configuration."""
 
 
@@ -85,7 +85,7 @@ def https_keepalive(gse: str) -> tuple[int, float]:
     r = conn.getresponse()
     body = r.read()
     if r.status != 200:
-        raise Stop(f"{gse} HTTP {r.status} {dict(r.getheaders())}")
+        raise StopError(f"{gse} HTTP {r.status} {dict(r.getheaders())}")
     return len(body), time.perf_counter() - t
 
 
@@ -98,7 +98,7 @@ def https_fresh(gse: str) -> tuple[int, float]:
     body = r.read()
     conn.close()
     if r.status != 200:
-        raise Stop(f"{gse} HTTP {r.status}")
+        raise StopError(f"{gse} HTTP {r.status}")
     return len(body), time.perf_counter() - t
 
 
@@ -113,7 +113,7 @@ def ftp_keepalive(gse: str) -> tuple[int, float]:
     try:
         ftp.retrbinary(f"RETR {path_of(gse)}", buf.extend)
     except ftplib.all_errors as e:
-        raise Stop(f"{gse} FTP {e}") from e
+        raise StopError(f"{gse} FTP {e}") from e
     return len(buf), time.perf_counter() - t
 
 
@@ -127,7 +127,7 @@ def run(gses: list[str], fn, workers: int) -> dict:
         for fut in [pool.submit(fn, g) for g in gses]:
             try:
                 n, dt = fut.result()
-            except Exception as e:  # noqa: BLE001 - any failure stops the configuration
+            except Exception as e:
                 err = str(e)[:300]
                 pool.shutdown(cancel_futures=True)
                 break
