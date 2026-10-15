@@ -674,6 +674,8 @@ DEFAULT_RATE = 8.0
 #: IDs per esummary POST.
 SUMMARY_BATCH = 500
 _RATE_FLOOR = 0.5
+#: Retries of a 4xx other than 429: NCBI sometimes refuses a request it answers when repeated.
+_REFUSED_TRIES = 2
 
 
 class EUtilsError(Exception):
@@ -791,6 +793,7 @@ class EUtils:
             "Content-Type": "application/x-www-form-urlencoded",
             "User-Agent": _USER_AGENT,
         }
+        refused = 0
         for attempt in range(1, self.tries + 1):
             self._turn()
             wait = _backoff(attempt)
@@ -821,7 +824,10 @@ class EUtils:
                         stats.last = end
                     return data
                 if resp.status < 500 and resp.status != 429 and not limited:
-                    raise EUtilsError(f"{util} HTTP {resp.status}: {data[:200]!r}")
+                    refused += 1
+                    if refused > _REFUSED_TRIES:
+                        raise EUtilsError(f"{util} HTTP {resp.status}: {data[:300]!r}")
+                    say(f"{util}: HTTP {resp.status}, retrying: {data[-300:]!r}")
                 throttled = resp.status in _THROTTLED or limited
                 self._note(util, f"HTTP {resp.status}", throttled=throttled)
                 with contextlib.suppress(ValueError):
@@ -901,14 +907,22 @@ def sra_packages(eutils: EUtils, ids: list[str]) -> dict[str, str]:
     return got
 
 
-def efetch_time(pilot: Path, step: str, eutils: EUtils, inflight: int, batch: int = 300) -> dict:
+def efetch_time(
+    pilot: Path,
+    step: str,
+    eutils: EUtils,
+    inflight: int,
+    batch: int = 300,
+    limit: int | None = None,
+) -> dict[str, Any]:
     """Re-time only the SRA package ``efetch`` of a fetched step at ``inflight`` calls at once.
 
-    The experiments are the step's ``experiments.txt``; replies are counted and discarded.
-    The run stops at the first 429 or 503. Writes ``efetch-<inflight>.json``.
+    The experiments are the first ``limit`` of the step's ``experiments.txt``, ``batch`` per
+    request; replies are counted and discarded. The run stops at the first 429 or 503.
+    Writes ``efetch-<inflight>-<batch>.json``.
     """
     out = pilot_dir(pilot, step)
-    experiments = (out / "experiments.txt").read_text(encoding="utf-8").split()
+    experiments = (out / "experiments.txt").read_text(encoding="utf-8").split()[:limit]
     eutils.stop_on_throttle = True
     replies, wall, errors = _pool(
         lambda ids: sra_packages(eutils, ids),
@@ -927,7 +941,7 @@ def efetch_time(pilot: Path, step: str, eutils: EUtils, inflight: int, batch: in
         "efetch": eutils.stats["efetch"].summary() if "efetch" in eutils.stats else {},
         "job": os.environ.get("SLURM_JOB_ID"),
     }
-    write_atomic(out / f"efetch-{inflight}.json", json.dumps(result, indent=2) + "\n")
+    write_atomic(out / f"efetch-{inflight}-{batch}.json", json.dumps(result, indent=2) + "\n")
     return result
 
 
@@ -1413,9 +1427,7 @@ def report(pilot: Path, step: str, total_experiments: int = DEFAULT_EXPERIMENTS)
         "concurrent": concurrent,
         "stage1_shards": shards,
         "elink_extra": _load(out / "elink-extra.json"),
-        "efetch_retime": [
-            _load(f) for f in sorted(out.glob("efetch-*.json"), key=lambda f: len(f.name))
-        ],
+        "efetch_retime": [_load(f) for f in sorted(out.glob("efetch-*.json"))],
         "stability": stability(concurrent),
         "projection_hours": projections(
             concurrent, shards, meta["drawn"], meta["sequencing_series"], total_experiments
@@ -1505,16 +1517,16 @@ def render(r: dict[str, Any]) -> str:
         lines += [
             "## SRA efetch re-timed",
             "",
-            "| In flight | Experiments | Wall s | Experiments/s | Bytes/s | Latency ms p50 / p95 "
-            "| Throttles and retries | Stopped |",
-            "| --- | --- | --- | --- | --- | --- | --- | --- |",
+            "| In flight | Per request | Experiments | Wall s | Experiments/s | Bytes/s "
+            "| Latency ms p50 / p95 | Errors and retries | Stopped |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
         ]
-        for v in r["efetch_retime"]:
+        for v in sorted(r["efetch_retime"], key=lambda v: (v["inflight"], v["batch"])):
             ms = v["efetch"].get("latency_ms", {})
             lines.append(
-                f"| {v['inflight']} | {v['items']} | {v['wall_s']:.0f} | {v['items_per_s']} | "
-                f"{v['bytes_per_s']} | {ms.get('p50')} / {ms.get('p95')} | "
-                f"{v['retried'] or ''} | {v['stopped_on_throttle']} |"
+                f"| {v['inflight']} | {v['batch']} | {v['items']} | {v['wall_s']:.0f} | "
+                f"{v['items_per_s']} | {v['bytes_per_s']} | {ms.get('p50')} / {ms.get('p95')} | "
+                f"{(v['retried'] | v['errors']) or ''} | {v['stopped_on_throttle']} |"
             )
         lines.append("")
     e = r["elink_extra"]
@@ -1608,7 +1620,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--pilot", type=Path, required=True)
     p.add_argument("--name", required=True)
     p.add_argument("--inflight", type=int, required=True)
-    p.add_argument("--batch", type=int, default=300)
+    p.add_argument("--batch", type=int, default=300, help="IDs per request")
+    p.add_argument("--limit", type=int, help="time only the first LIMIT experiments")
     p.add_argument("--rate", type=float, default=DEFAULT_RATE)
     p = sub.add_parser("elink-extra")
     p.add_argument("--pilot", type=Path, required=True)
@@ -1645,7 +1658,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({k: v for k, v in result.items() if k in ("wall_s", "pack")}))
     elif args.command == "efetch":
         eutils = _eutils(args.rate, args.inflight)
-        result = efetch_time(args.pilot, args.name, eutils, args.inflight, args.batch)
+        result = efetch_time(args.pilot, args.name, eutils, args.inflight, args.batch, args.limit)
         print(json.dumps({k: v for k, v in result.items() if k != "efetch"}))
     elif args.command == "elink-extra":
         print(json.dumps(elink_extra(args.pilot, args.name)))
