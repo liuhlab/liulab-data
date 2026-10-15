@@ -151,12 +151,20 @@ def store_build(
         None, help="Store root; default: LABDATA_STORE, then pointer."
     ),
     build_id: str | None = typer.Option(None, help="Build folder name; default: a UTC timestamp."),
+    workers: int | None = typer.Option(
+        None, min=1, help="Parallel workers; default: SLURM_CPUS_ON_NODE, then the CPU count."
+    ),
+    chunk_mb: int = typer.Option(64, min=1, help="MB of source text a worker parses at a time."),
 ) -> None:
-    """Build the store's tables from raw/ and snapshots/ with no network, then switch to them."""
+    """Build the store's tables from raw/ and snapshots/ with no network, then switch to them.
+
+    Memory is bounded by about one chunk per worker plus DuckDB's cap
+    (LABDATA_DUCKDB_MEMORY, default a share of the job's memory).
+    """
     from labdata.store.build import build as build_store
 
     store = open_store(root)
-    out = build_store(store.root, build_id)
+    out = build_store(store.root, build_id, workers=workers, chunk_bytes=chunk_mb << 20)
     typer.echo(f"Built {out} and switched the store to it")
 
 
