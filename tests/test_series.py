@@ -81,12 +81,11 @@ def test_experiments_are_instances() -> None:
     assert isinstance(experiments[0], Experiment)
 
 
-def test_experiments_use_one_batched_summary() -> None:
+def test_experiments_use_one_batched_package_fetch() -> None:
     client = g.build_client()
     _ = Series(g.GSE, client=client).experiments
-    assert client.count("esummary_many") == 1
-    # the per-UID sra esummary loop is gone
-    assert not any(name == "esummary" and args[0] == "sra" for name, args in client.calls)
+    assert client.count("efetch") == 1
+    assert not any(name.startswith("esummary") and args[0] == "sra" for name, args in client.calls)
 
 
 def test_linked_experiment_is_seeded() -> None:
@@ -97,7 +96,7 @@ def test_linked_experiment_is_seeded() -> None:
     assert experiment.instrument_model == "Illumina HiSeq 2500"
     assert experiment.runs == [Run(g.SRR1), Run(g.SRR2)]
     assert experiment.runs[0].total_spots == 600
-    assert len(client.calls) == before  # served entirely from the seeded summary
+    assert len(client.calls) == before  # served entirely from the fetched package
 
 
 def test_linked_instances_share_client() -> None:

@@ -1,44 +1,178 @@
 r"""The SRA object model: Experiment and Run.
 
-SRA records (``SRX``/``SRR``) live in the Entrez ``sra`` database
-(:class:`_SraRecord`), whose summary carries the experiment/run XML. Each class is
-a lazy handle on one accessioned record: construction only validates and stores
-the accession; properties issue their NCBI request on first access and cache it
-(``functools.cached_property``), so building a record is cheap and network traffic
-happens only for the fields you read.
+Both are read from the full ``EXPERIMENT_PACKAGE`` XML that ``efetch db=sra
+rettype=full`` returns. :func:`experiments_from_package_xml` is the one parser: the
+live path fetches packages and hands them to it, and so can a caller holding stored
+packages. Each class is a lazy handle on one accessioned record: construction only
+validates the accession, and a handle that was not built from a package fetches its
+package on first property access.
 
 Properties that reference other SRA objects (``Run.experiment``,
-``Experiment.runs``) return **instances** sharing this record's Entrez client, not
-bare accession strings.
+``Experiment.runs``) return **instances** sharing this record's clients, not bare
+accession strings.
 """
 
 from __future__ import annotations
 
 import re
+import xml.etree.ElementTree as ET
 from functools import cached_property
-from typing import Any
 
-from labdata.exceptions import EntrezError
-from labdata.geo._base import (
-    _attr,
-    _attrs_all,
-    _int_attr,
-    _read_lengths,
-    _read_structure,
-    _Record,
-    _run_blocks,
-    _tag_text,
-)
-from labdata.ncbi.entrez import EntrezClient, _docsum_uid
-from labdata.ncbi.sdl import RemoteFile
+from labdata.exceptions import EntrezError, LabdataError
+from labdata.geo._base import _read_structure, _Record
+from labdata.ncbi.entrez import EntrezClient
+from labdata.ncbi.sdl import RemoteFile, SdlClient
+
+#: Ids per package EFetch; a package is a few kilobytes to a few hundred.
+_PACKAGE_CHUNK = 100
+#: Fresh requests for the ids a package EFetch left out, before giving up.
+_PACKAGE_RETRIES = 2
+
+_XML_DECLARATION = re.compile(r"<\?xml[^>]*\?>")
+_EMPTY = ET.Element("_")
+
+
+def experiments_from_package_xml(
+    xml: str,
+    *,
+    client: EntrezClient | None = None,
+    sdl_client: SdlClient | None = None,
+) -> list[Experiment]:
+    """Build experiments, with their runs, from SRA ``EXPERIMENT_PACKAGE`` XML.
+
+    Every property of the returned experiments and their runs is read from ``xml``,
+    except ``Run.files`` and ``Run.original_files``, which ask the SRA Data Locator.
+
+    Parameters
+    ----------
+    xml : str
+        One ``EXPERIMENT_PACKAGE``, several concatenated, or an
+        ``EXPERIMENT_PACKAGE_SET`` (the ``efetch db=sra rettype=full`` response).
+    client : EntrezClient or None
+        Entrez client the objects hold; reading their properties does not use it.
+    sdl_client : SdlClient or None
+        SRA Data Locator client the runs hold for ``files``.
+
+    Returns
+    -------
+    list of Experiment
+        One experiment per distinct accession, in document order. Its ``uid`` is
+        ``None``: package XML does not carry the Entrez UID.
+
+    Raises
+    ------
+    LabdataError
+        If ``xml`` is not well-formed XML.
+    """
+    return [
+        _experiment_from_package(package, client, sdl_client) for package in _packages(xml).values()
+    ]
+
+
+def _packages(xml: str) -> dict[str, ET.Element]:
+    """Map each experiment accession in ``xml`` to its first ``EXPERIMENT_PACKAGE``."""
+    body = _XML_DECLARATION.sub("", xml)
+    try:
+        root = ET.fromstring(f"<_packages>{body}</_packages>")
+    except ET.ParseError as err:
+        raise LabdataError(f"not SRA package XML: {err}") from err
+    found: dict[str, ET.Element] = {}
+    for package in root.iter("EXPERIMENT_PACKAGE"):
+        accession = package.find("EXPERIMENT")
+        if accession is not None and accession.get("accession"):
+            found.setdefault(str(accession.get("accession")), package)
+    return found
+
+
+def _experiment_from_package(
+    package: ET.Element, client: EntrezClient | None, sdl_client: SdlClient | None
+) -> Experiment:
+    accession = package.find("EXPERIMENT")
+    assert accession is not None
+    experiment = Experiment(str(accession.get("accession")), client=client, sdl_client=sdl_client)
+    experiment.__dict__.update(uid=None, _package=package)
+    return experiment
+
+
+def _missing(ids: list[str], packages: dict[str, ET.Element]) -> list[str]:
+    """Return the requested ``ids`` the fetched ``packages`` do not account for.
+
+    An accession is accounted for when it names an experiment or one of its runs.
+    A UID names nothing in the package, so UIDs are checked by count, all or none.
+    """
+    if all(i.isdigit() for i in ids):
+        return [] if len(packages) >= len(ids) else ids
+    named = set(packages)
+    for package in packages.values():
+        named.update(str(run.get("accession")) for run in package.iter("RUN"))
+    return [i for i in ids if i not in named]
+
+
+def _fetch_packages(client: EntrezClient, ids: list[str]) -> dict[str, ET.Element]:
+    """Fetch the packages for SRA UIDs or accessions, checking every id came back.
+
+    A batched EFetch can leave packages out with no error, so the ids left out are
+    requested again, fresh, before this gives up.
+
+    Raises
+    ------
+    EntrezError
+        If some ids still have no package after the retries.
+    """
+    found: dict[str, ET.Element] = {}
+    for start in range(0, len(ids), _PACKAGE_CHUNK):
+        chunk = [str(i) for i in ids[start : start + _PACKAGE_CHUNK]]
+        packages: dict[str, ET.Element] = {}
+        missing = chunk
+        for attempt in range(_PACKAGE_RETRIES + 1):
+            text = client.efetch(
+                db="sra", ids=missing, rettype="full", retmode="xml", refresh=attempt > 0
+            )
+            for accession, package in _packages(text).items():
+                packages.setdefault(accession, package)
+            missing = _missing(chunk, packages)
+            if not missing:
+                break
+        else:
+            raise EntrezError(
+                f"SRA returned {len(packages)} experiment packages for {len(chunk)} "
+                f"requested ids; no package for: {', '.join(missing)}"
+            )
+        for accession, package in packages.items():
+            found.setdefault(accession, package)
+    return found
+
+
+def _experiments_from_ids(client: EntrezClient, ids: list[str]) -> list[Experiment]:
+    """Build the de-duplicated experiments for SRA UIDs or accessions, batched."""
+    return [
+        _experiment_from_package(package, client, None)
+        for package in _fetch_packages(client, ids).values()
+    ]
+
+
+def _linked_experiments(client: EntrezClient, uid: str, *, dbfrom: str = "gds") -> list[Experiment]:
+    """Resolve the SRA experiments (``SRX``) linked from a ``dbfrom`` UID.
+
+    One ``elink`` (to reach the linked ``sra`` UIDs, traversing GEO SuperSeries and
+    BioProject umbrellas transitively) plus the batched package fetch.
+    """
+    return _experiments_from_ids(client, client.elink(dbfrom=dbfrom, db="sra", uid=uid))
+
+
+def _text(element: ET.Element, path: str) -> str:
+    found = element.find(path)
+    return (found.text or "") if found is not None else ""
 
 
 class _SraRecord(_Record):
-    """Base for SRA records (``SRX``/``SRR``) backed by the ``sra`` database."""
+    """Base for SRA records (``SRX``/``SRR``), read from their experiment package."""
 
     @cached_property
-    def uid(self) -> str:
-        """The Entrez ``sra`` UID for this record's experiment.
+    def uid(self) -> str | None:
+        """The Entrez ``sra`` UID of this record's experiment.
+
+        ``None`` on an object built from package XML, which does not carry it.
 
         Raises
         ------
@@ -51,61 +185,26 @@ class _SraRecord(_Record):
         return uids[0]
 
     @cached_property
-    def _summary(self) -> dict[str, Any]:
-        """The raw ``sra`` esummary docsum for this record (fetched once)."""
-        return self.client.esummary(db="sra", uid=self.uid)
-
-    @property
-    def _exp_xml(self) -> str:
-        return str(self._summary.get("ExpXml", ""))
-
-    @property
-    def _runs_xml(self) -> str:
-        return str(self._summary.get("Runs", ""))
+    def _package(self) -> ET.Element:
+        """The ``EXPERIMENT_PACKAGE`` holding this record (fetched once)."""
+        return next(iter(_fetch_packages(self.client, [self.accession]).values()))
 
     @property
     def organism(self) -> str:
         """The organism (scientific name) recorded in SRA."""
-        return _attr(self._exp_xml, "Organism", "ScientificName")
+        scientific = _text(self._package, "SAMPLE/SAMPLE_NAME/SCIENTIFIC_NAME")
+        member = self._package.find("Pool/Member")
+        return scientific or (str(member.get("organism", "")) if member is not None else "")
 
     @property
     def instrument_model(self) -> str:
         """The sequencing instrument model recorded in SRA."""
-        return _attr(self._exp_xml, "Platform", "instrument_model")
+        return _text(self._package, "EXPERIMENT/PLATFORM/*/INSTRUMENT_MODEL")
 
     @property
     def url(self) -> str:
         """The NCBI SRA web URL for this record."""
         return f"https://www.ncbi.nlm.nih.gov/sra/?term={self.accession}"
-
-
-def _experiments_from_uids(client: EntrezClient, sra_uids: list[str]) -> list[Experiment]:
-    """Build the :class:`Experiment` set for a list of ``sra`` UIDs, de-duplicated.
-
-    One batched ``esummary`` for the whole set; each returned :class:`Experiment`
-    is seeded with its UID and summary already fetched, so reading its fields costs
-    no further network. Shared by both link-based (:func:`_linked_experiments`) and
-    search-based (a study/sample/BioSample accession) resolution.
-    """
-    found: dict[str, Experiment] = {}
-    for docsum in client.esummary_many(db="sra", uids=sra_uids):
-        accession = _attr(str(docsum.get("ExpXml", "")), "Experiment", "acc")
-        if accession and accession not in found:
-            experiment = Experiment(accession, client=client)
-            experiment._seed(uid=_docsum_uid(docsum), summary=dict(docsum))
-            found[accession] = experiment
-    return list(found.values())
-
-
-def _linked_experiments(client: EntrezClient, uid: str, *, dbfrom: str = "gds") -> list[Experiment]:
-    """Resolve the SRA experiments (``SRX``) linked from a ``dbfrom`` UID.
-
-    One ``elink`` (to reach the linked ``sra`` UIDs, traversing GEO SuperSeries and
-    BioProject umbrellas transitively) plus the batched ``esummary`` of
-    :func:`_experiments_from_uids`.
-    """
-    sra_uids = client.elink(dbfrom=dbfrom, db="sra", uid=uid)
-    return _experiments_from_uids(client, sra_uids)
 
 
 class Experiment(_SraRecord):
@@ -118,6 +217,8 @@ class Experiment(_SraRecord):
         covering SRA/ENA/DDBJ).
     client : EntrezClient or None
         Entrez client to use; a default one is built on first network access.
+    sdl_client : SdlClient or None
+        SRA Data Locator client its runs use for ``files``.
 
     Raises
     ------
@@ -131,24 +232,28 @@ class Experiment(_SraRecord):
     @property
     def title(self) -> str:
         """The experiment title."""
-        return _attr(self._exp_xml, "Experiment", "name") or _tag_text(self._exp_xml, "Title")
+        return _text(self._package, "EXPERIMENT/TITLE")
 
     @property
     def study(self) -> str:
         """The parent study accession (``SRP…``), or empty string if absent."""
-        return _attr(self._exp_xml, "Study", "acc")
+        ref = self._package.find("EXPERIMENT/STUDY_REF")
+        return str(ref.get("accession", "")) if ref is not None else ""
 
     @cached_property
     def runs(self) -> list[Run]:
         """The sequencing runs (``SRR``) of this experiment, as :class:`Run` instances.
 
-        A run resolves to the same ``sra`` record as its experiment, so each
-        :class:`Run` is seeded with this experiment's summary (no extra fetch).
+        Each run is read from this experiment's package (no extra fetch).
         """
-        return [
-            Run(acc, client=self.client)._seed(uid=self.uid, summary=self._summary)
-            for acc in _attrs_all(self._runs_xml, "Run", "acc")
-        ]
+        runs = []
+        for element in self._package.iterfind("RUN_SET/RUN"):
+            run = Run(
+                str(element.get("accession")), client=self._client, sdl_client=self._sdl_client
+            )
+            run.__dict__.update(uid=None, _package=self._package, experiment=self)
+            runs.append(run)
+        return runs
 
 
 class Run(_SraRecord):
@@ -160,6 +265,8 @@ class Run(_SraRecord):
         An SRA run accession, e.g. ``"SRR9000001"`` (``^[SED]RR\d+$``).
     client : EntrezClient or None
         Entrez client to use; a default one is built on first network access.
+    sdl_client : SdlClient or None
+        SRA Data Locator client to use for ``files``.
 
     Raises
     ------
@@ -171,57 +278,58 @@ class Run(_SraRecord):
     _KIND = "Run"
 
     @property
-    def _run_tag(self) -> str:
-        match = re.search(
-            rf'<Run\b[^>]*?\bacc="{re.escape(self.accession)}"[^>]*?/?>', self._runs_xml
-        )
-        return match.group(0) if match else ""
+    def _run(self) -> ET.Element:
+        """The ``<RUN>`` element of this run in its package (empty when absent)."""
+        for element in self._package.iterfind("RUN_SET/RUN"):
+            if element.get("accession") == self.accession:
+                return element
+        return _EMPTY
+
+    def _int(self, attribute: str) -> int | None:
+        value = self._run.get(attribute, "")
+        return int(value) if value.isdigit() else None
 
     @property
     def total_spots(self) -> int | None:
         """The number of spots (reads) in this run, or ``None`` if unreported."""
-        return _int_attr(self._run_tag, "total_spots")
+        return self._int("total_spots")
 
     @property
     def total_bases(self) -> int | None:
         """The number of bases in this run, or ``None`` if unreported."""
-        return _int_attr(self._run_tag, "total_bases")
+        return self._int("total_bases")
 
     @property
     def is_public(self) -> bool:
         """Whether the run's data is publicly accessible."""
-        return _attr(self._run_tag, "Run", "is_public") == "true"
-
-    @cached_property
-    def _full_xml(self) -> str:
-        """The full SRA XML for this run's experiment package (fetched once).
-
-        The esummary ``Runs`` fragment carries spot/base totals but not the
-        per-read layout, so the read structure is read from the full record.
-        """
-        return self.client.efetch(db="sra", ids=[self.uid], rettype="full", retmode="xml")
+        return self._run.get("is_public") == "true"
 
     @property
-    def _statistics_block(self) -> str:
-        """Return this run's ``<RUN>…</RUN>`` block within :attr:`_full_xml`."""
-        return _run_blocks(self._full_xml).get(self.accession, "")
+    def _statistics(self) -> ET.Element:
+        found = self._run.find("Statistics")
+        return found if found is not None else _EMPTY
 
     @property
     def read_lengths(self) -> list[int]:
         """The average length of each read (mate) sequenced per spot, in read order.
 
-        Reads SRA's per-run ``<Statistics>`` from the full record (one EFetch,
-        cached). A paired run yields two lengths, e.g. ``[28, 94]``; a single-end
-        run yields one. Empty when SRA reports no read statistics.
+        Reads SRA's per-run ``<Statistics>``. A paired run yields two lengths, e.g.
+        ``[28, 94]``; a single-end run yields one. Empty when SRA reports no read
+        statistics.
         """
-        return _read_lengths(self._statistics_block)
+        reads = [
+            (int(read.get("index", "0")), round(float(read.get("average", "0"))))
+            for read in self._statistics.iterfind("Read")
+            if read.get("index") is not None and read.get("average") is not None
+        ]
+        return [length for _index, length in sorted(reads)]
 
     @property
     def n_reads(self) -> int | None:
         """The number of reads (mates) sequenced per spot, or ``None`` if unreported."""
-        nreads = _int_attr(self._statistics_block, "nreads")
-        if nreads is not None:
-            return nreads
+        nreads = self._statistics.get("nreads", "")
+        if nreads.isdigit():
+            return int(nreads)
         return len(self.read_lengths) or None
 
     @property
@@ -235,13 +343,8 @@ class Run(_SraRecord):
 
     @cached_property
     def experiment(self) -> Experiment:
-        """The parent :class:`Experiment` (``SRX``) of this run.
-
-        Shares this run's ``sra`` record, so the experiment is seeded from the
-        same summary (no extra fetch).
-        """
-        accession = _attr(self._exp_xml, "Experiment", "acc")
-        return Experiment(accession, client=self.client)._seed(uid=self.uid, summary=self._summary)
+        """The parent :class:`Experiment` (``SRX``) of this run, from the same package."""
+        return _experiment_from_package(self._package, self._client, self._sdl_client)
 
     @cached_property
     def files(self) -> list[RemoteFile]:

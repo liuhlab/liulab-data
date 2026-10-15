@@ -23,20 +23,6 @@ SRX = "SRX5921017"
 SRR1, SRR2 = "SRR9000001", "SRR9000002"
 SRA_UID = "5921017"
 
-_EXP_XML = (
-    "<Summary><Title>scRNA-seq of lung adenocarcinoma</Title>"
-    '<Platform instrument_model="Illumina HiSeq 2500">ILLUMINA</Platform>'
-    '<Statistics total_runs="2" total_spots="1000" total_bases="2000"/></Summary>'
-    f'<Experiment acc="{SRX}" name="scRNA-seq of LUNG_N01"/>'
-    '<Study acc="SRP200000" name="Lung adenocarcinoma scRNA-seq"/>'
-    '<Organism taxid="9606" ScientificName="Homo sapiens"/>'
-    '<Sample acc="SRS200000" name=""/>'
-)
-_RUNS_XML = (
-    f'<Run acc="{SRR1}" total_spots="600" total_bases="1200" is_public="true"/>'
-    f'<Run acc="{SRR2}" total_spots="400" total_bases="800" is_public="true"/>'
-)
-
 _GSE_SUMMARY = {
     "Id": GSE_UID,
     "title": "Single-cell landscape of lung adenocarcinoma",
@@ -72,22 +58,28 @@ _GPL_SUMMARY = {
     "taxon": "Homo sapiens",
     "n_samples": "373734",
 }
-_SRA_SUMMARY = {"Id": SRA_UID, "ExpXml": _EXP_XML, "Runs": _RUNS_XML}
-
-# Full SRA XML (efetch rettype=full): carries the per-read <Statistics> the
-# esummary fragment lacks. SRR1 is paired (28 + 94), SRR2 is single-end (75).
-_FULL_XML = (
-    "<EXPERIMENT_PACKAGE_SET><EXPERIMENT_PACKAGE>"
-    f'<RUN accession="{SRR1}" total_spots="600" total_bases="1200">'
+# The experiment package (efetch db=sra rettype=full), trimmed to the fields read.
+# SRR1 is paired (28 + 94), SRR2 is single-end (75).
+PACKAGE = (
+    "<EXPERIMENT_PACKAGE>"
+    f'<EXPERIMENT accession="{SRX}"><TITLE>scRNA-seq of LUNG_N01</TITLE>'
+    '<STUDY_REF accession="SRP200000"/>'
+    "<PLATFORM><ILLUMINA><INSTRUMENT_MODEL>Illumina HiSeq 2500</INSTRUMENT_MODEL>"
+    "</ILLUMINA></PLATFORM></EXPERIMENT>"
+    '<STUDY accession="SRP200000"/>'
+    '<SAMPLE accession="SRS200000"><SAMPLE_NAME><TAXON_ID>9606</TAXON_ID>'
+    "<SCIENTIFIC_NAME>Homo sapiens</SCIENTIFIC_NAME></SAMPLE_NAME></SAMPLE>"
+    '<RUN_SET runs="2">'
+    f'<RUN accession="{SRR1}" total_spots="600" total_bases="1200" is_public="true">'
     '<Statistics nreads="2" nspots="600">'
     '<Read index="0" count="600" average="28" stdev="0"/>'
     '<Read index="1" count="600" average="94" stdev="3.2"/>'
     "</Statistics></RUN>"
-    f'<RUN accession="{SRR2}" total_spots="400" total_bases="800">'
+    f'<RUN accession="{SRR2}" total_spots="400" total_bases="800" is_public="true">'
     '<Statistics nreads="1" nspots="400">'
     '<Read index="0" count="400" average="75" stdev="0"/>'
     "</Statistics></RUN>"
-    "</EXPERIMENT_PACKAGE></EXPERIMENT_PACKAGE_SET>"
+    "</RUN_SET></EXPERIMENT_PACKAGE>"
 )
 
 
@@ -107,7 +99,6 @@ def build_client() -> FakeEntrezClient:
             ("gds", GSE_UID): _GSE_SUMMARY,
             ("gds", GSM1_UID): _GSM_SUMMARY,
             ("gds", GPL_UID): _GPL_SUMMARY,
-            ("sra", SRA_UID): _SRA_SUMMARY,
             ("bioproject", BP_UID): _BIOPROJECT_SUMMARY,
         },
         elink={
@@ -117,7 +108,7 @@ def build_client() -> FakeEntrezClient:
             ("bioproject", "gds", BP_UID): [GSE_UID],
             ("bioproject", "sra", BP_UID): [SRA_UID],
         },
-        efetch={("sra", "full"): _FULL_XML},
+        packages={SRA_UID: PACKAGE, SRX: PACKAGE, SRR1: PACKAGE, SRR2: PACKAGE},
     )
 
 

@@ -26,6 +26,13 @@ class FakeEntrezClient(EntrezClient):
         Maps ``(dbfrom, db, uid)`` to the linked UID list it should return.
     efetch : dict[tuple[str, str], str] or None
         Maps ``(db, rettype)`` to the raw text EFetch should return.
+    packages : dict[str, str] or None
+        Maps an ``sra`` id (UID or accession) to its ``EXPERIMENT_PACKAGE`` text. An
+        ``efetch db=sra rettype=full`` naming any of these ids returns a package set of
+        exactly the requested ids it knows.
+    drops : dict[str, int] or None
+        Maps an id in ``packages`` to how many package fetches leave it out, as NCBI
+        sometimes does with no error.
     pages : dict[str, str] or None
         Maps a URL to the text ``fetch_text`` should return (empty when unmapped).
     """
@@ -38,6 +45,8 @@ class FakeEntrezClient(EntrezClient):
         elink: dict[tuple[str, str, str], list[str]] | None = None,
         efetch: dict[tuple[str, str], str] | None = None,
         pages: dict[str, str] | None = None,
+        packages: dict[str, str] | None = None,
+        drops: dict[str, int] | None = None,
     ) -> None:
         # Intentionally does not call super().__init__ — no credentials, no network.
         self._esearch = esearch or {}
@@ -45,6 +54,8 @@ class FakeEntrezClient(EntrezClient):
         self._elink = elink or {}
         self._efetch = efetch or {}
         self._pages = pages or {}
+        self._packages = packages or {}
+        self._drops = dict(drops or {})
         self.calls: list[tuple[str, tuple[Any, ...]]] = []
 
     def esearch(self, db: str, term: str, *, retmax: int = 20) -> list[str]:
@@ -64,9 +75,30 @@ class FakeEntrezClient(EntrezClient):
         self.calls.append(("elink", (dbfrom, db, uid)))
         return self._elink.get((dbfrom, db, uid), [])
 
-    def efetch(self, db: str, ids: list[str], *, rettype: str, retmode: str = "text") -> str:
-        self.calls.append(("efetch", (db, tuple(str(uid) for uid in ids), rettype)))
+    def efetch(
+        self,
+        db: str,
+        ids: list[str],
+        *,
+        rettype: str,
+        retmode: str = "text",
+        refresh: bool = False,
+    ) -> str:
+        requested = [str(uid) for uid in ids]
+        self.calls.append(("efetch", (db, tuple(requested), rettype)))
+        if db == "sra" and rettype == "full" and any(i in self._packages for i in requested):
+            return self._package_set(requested)
         return self._efetch.get((db, rettype), "")
+
+    def _package_set(self, ids: list[str]) -> str:
+        """Return a package set of the known ``ids``, leaving out those due a drop."""
+        body = []
+        for uid in ids:
+            if self._drops.get(uid, 0) > 0:
+                self._drops[uid] -= 1
+            elif uid in self._packages:
+                body.append(self._packages[uid])
+        return "<EXPERIMENT_PACKAGE_SET>" + "".join(body) + "</EXPERIMENT_PACKAGE_SET>"
 
     def fetch_text(self, url: str) -> str:
         self.calls.append(("fetch_text", (url,)))
@@ -91,6 +123,18 @@ class FakeEntrezClient(EntrezClient):
         if elink is not None:
             self._elink = elink
         return self
+
+
+class ExplodingEntrezClient(FakeEntrezClient):
+    """An Entrez client that fails the test on any request."""
+
+    def __init__(self) -> None:
+        super().__init__()
+
+    def __getattribute__(self, name: str) -> Any:
+        if name in {"esearch", "esummary", "esummary_many", "elink", "efetch", "fetch_text"}:
+            raise AssertionError(f"unexpected network call: {name}")
+        return super().__getattribute__(name)
 
 
 class FakeSdlClient(SdlClient):
