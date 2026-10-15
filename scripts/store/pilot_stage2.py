@@ -1,24 +1,26 @@
 """Measure the stage 2 fetch and the stage 1 build on seeded samples of GEO sequencing Series.
 
 The pilot runs in its own store root and never writes the main store. ``setup`` makes the
-pilot root and links the main store's ``snapshots/`` and ``work/extract/`` into it. Each
-``step`` draws a seeded, nested fraction of the sequencing Series, then:
+pilot root and links the main store's ``snapshots/`` and ``work/extract/`` into it. ``draw``
+takes a seeded, nested fraction of the sequencing Series for one step.
 
-1. refetches their family SOFT over a few kept-open connections, saving nothing;
-2. runs the stage 1 fetch, :func:`labdata.store.fetch.fetch`, into ``raw/``, logging each
-   source's time, bytes and failures;
-3. refetches every saved SRA experiment with several ``efetch`` calls in flight, saving
-   nothing;
-4. writes ``results.json`` and ``results.md``: speed per source, errors by kind, whether the
-   step was stable, and the projected time for the whole set.
+``concurrent`` fills the pilot's ``raw/`` the stage 2 way. Family SOFT and ``filelist.txt``
+come over a few kept-open HTTPS connections, with the SOFT data tables stripped as it
+streams. The library's chunked ``elink`` fetch, the SRA package ``efetch`` and the PubMed
+``[si]`` searches run from thread pools. The workers return results, and the script alone
+writes ``raw/``, one :func:`labdata.store.raw.write_rows` call per source (the pack).
 
-``build`` times one build and its peak memory. A step's files go under
-``<pilot>/pilot/<step>/``, and a killed step resumes.
+``shard`` times the serial stage 1 fetch, :func:`labdata.store.fetch.fetch`, on one shard of
+a step, in the shard's own root. ``build`` times one build and its peak memory. ``report``
+writes the step's ``results.json`` and ``results.md``. A step's files go under
+``<pilot>/pilot/<step>/``.
 
 Usage, each under ``pixi run python scripts/store/``::
 
     pilot_stage2.py setup --main MAIN --pilot P
-    pilot_stage2.py step --pilot P --name step1 --fraction 0.001 --soft-connections 2 --sra-inflight 2
+    pilot_stage2.py draw --pilot P --name step1 --fraction 0.001
+    pilot_stage2.py concurrent --pilot P --name step1 --connections 2 --inflight 2
+    pilot_stage2.py shard --pilot P --name step1 --index 0 --count 4
     pilot_stage2.py build --pilot P --build-id pilot-1
     pilot_stage2.py report --pilot P --name step1
 """
@@ -26,7 +28,9 @@ Usage, each under ``pixi run python scripts/store/``::
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import gzip
+import hashlib
 import http.client
 import json
 import logging
@@ -34,13 +38,15 @@ import math
 import os
 import queue
 import random
+import re
 import resource
+import shutil
 import sys
 import threading
 import time
 import urllib.parse
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -48,24 +54,25 @@ from typing import Any
 
 import pyarrow.parquet as pq
 
-from labdata.geo.sra_records import split_packages
+from labdata.geo.sra_records import fetch_package_texts, split_packages
 from labdata.ncbi import entrez
 from labdata.ncbi.entrez import EntrezClient
-from labdata.store import build, fetch, init_store, raw, snapshots
+from labdata.store import build, fetch, init_store, provenance, raw, snapshots, sources
 from labdata.store._files import write_atomic
 from labdata.store.root import MARKER
 
 SEQUENCING = "high throughput sequencing"
-DEFAULT_FRACTION = 0.01
 DEFAULT_SEED = 50
 DEFAULT_CHUNK = 50
 #: The GEO-linked SRA experiment count the SRA projection scales to; pass the current count.
 DEFAULT_EXPERIMENTS = 5_640_000
-_TABLE_BEGIN = ("!sample_table_begin", "!platform_table_begin")
-_TABLE_END = ("!sample_table_end", "!platform_table_end")
+GEO_SITE = "https://ftp.ncbi.nlm.nih.gov"
+_TABLE_BEGIN = (b"!sample_table_begin", b"!platform_table_begin")
+_TABLE_END = (b"!sample_table_end", b"!platform_table_end")
 _THROTTLED = (429, 503)
 _USER_AGENT = "liulab-data (+https://github.com/liuhlab/liulab-data)"
 _RAW_SOURCES = (raw.GEO_SOFT, raw.GEO_FILELIST, raw.ENTREZ_LINKS, raw.SRA_XML, raw.PUBMED_SI)
+_SOFT_SRX = re.compile(r"^!Sample_relation = SRA: \S*?[?&]term=([SED]RX\d+)", re.M)
 
 
 # ---------- targets ----------
@@ -97,13 +104,12 @@ def sequencing_series(lines: Iterable[str]) -> list[Target]:
     return sorted(out, key=lambda t: int(t.accession[3:]))
 
 
-def draw(pool: list[Target], fraction: float, seed: int) -> list[Target]:
-    """Return a seeded random ``fraction`` of ``pool`` (at least one), sorted by number.
+def draw(pool: list[Target], fraction: float, seed: int, size: int | None = None) -> list[Target]:
+    """Return a seeded random ``fraction`` of ``pool``, or ``size`` Series, sorted by number.
 
-    The draw is a prefix of one seeded shuffle, so a smaller fraction's draw lies inside a
-    larger one's.
+    The draw is a prefix of one seeded shuffle, so a smaller draw lies inside a larger one.
     """
-    k = max(1, round(len(pool) * fraction))
+    k = size if size is not None else max(1, round(len(pool) * fraction))
     order = list(pool)
     random.Random(seed).shuffle(order)
     return sorted(order[:k], key=lambda t: int(t.accession[3:]))
@@ -147,20 +153,25 @@ class MeteredClient(EntrezClient):
         self.inner = inner
         self.stats: dict[str, StepStats] = defaultdict(StepStats)
         self.last_failed: str | None = None
+        self._lock = threading.Lock()
 
     def _call(self, step: str, fn: Any, *args: Any, **kwargs: Any) -> Any:
-        stats = self.stats[step]
-        stats.calls += 1
         start = time.perf_counter()
         try:
             out = fn(*args, **kwargs)
         except Exception as exc:
-            stats.errors[type(exc).__name__] += 1
-            self.last_failed = step
+            with self._lock:
+                stats = self.stats[step]
+                stats.calls += 1
+                stats.seconds += time.perf_counter() - start
+                stats.errors[type(exc).__name__] += 1
+                self.last_failed = step
             raise
-        finally:
+        with self._lock:
+            stats = self.stats[step]
+            stats.calls += 1
             stats.seconds += time.perf_counter() - start
-        stats.bytes += _size(out)
+            stats.bytes += len(out.encode("utf-8")) if isinstance(out, str) else 0
         return out
 
     def clear_cache(self) -> None:
@@ -198,10 +209,22 @@ class MeteredClient(EntrezClient):
         return self._call(step_of("fetch_text", url), self.inner.fetch_text, url)
 
 
-def _size(out: object) -> int:
-    if isinstance(out, str):
-        return len(out.encode("utf-8"))
-    return 0
+#: Every transient failure the Entrez seam retried, by kind; see :func:`_record_transient`.
+TRANSIENT: Counter[str] = Counter()
+
+
+def _record_transient(err: BaseException) -> bool:
+    """Count a failure the client is about to judge, then judge it as the client would."""
+    verdict = _is_transient(err)
+    if verdict:
+        code = getattr(err, "code", None)
+        TRANSIENT[f"HTTP {code}" if code else type(err).__name__] += 1
+    return verdict
+
+
+_is_transient = entrez._is_transient
+# Measuring only: the client still decides; this sees the 429s and drops it retries past.
+entrez._is_transient = _record_transient
 
 
 class _SkipLog(logging.Handler):
@@ -216,12 +239,28 @@ class _SkipLog(logging.Handler):
             self.skipped[str(record.args[0])] = str(record.args[1])
 
 
-# ---------- steps ----------
+def peak_rss() -> int:
+    """Return this process's peak resident memory in bytes."""
+    rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return rss if sys.platform == "darwin" else rss * 1024
+
+
+# ---------- setup and targets ----------
 
 
 def pilot_dir(pilot: Path, step: str | None = None) -> Path:
     """Return the folder of the pilot's own files, or of one step's targets, logs and results."""
     return pilot / "pilot" if step is None else pilot / "pilot" / step
+
+
+def _link_inputs(root: Path, main: Path) -> None:
+    (root / "work").mkdir(exist_ok=True)
+    for name in ("snapshots", "work/extract"):
+        link, target = root / name, (main / name).resolve()
+        if not link.is_symlink():
+            link.symlink_to(target, target_is_directory=True)
+        elif link.resolve() != target:
+            raise SystemExit(f"{link} points at {link.resolve()}, not {target}")
 
 
 def setup(main: Path, pilot: Path) -> None:
@@ -232,33 +271,35 @@ def setup(main: Path, pilot: Path) -> None:
         raise SystemExit(f"{main} is not a labdata store: it has no {MARKER}")
     if not (pilot / MARKER).is_file():
         init_store(pilot)
-    (pilot / "work").mkdir(exist_ok=True)
-    for link, target in (
-        (pilot / "snapshots", main / "snapshots"),
-        (pilot / "work" / "extract", main / "work" / "extract"),
-    ):
-        if not link.is_symlink():
-            link.symlink_to(target.resolve(), target_is_directory=True)
-        elif link.resolve() != target.resolve():
-            raise SystemExit(f"{link} points at {link.resolve()}, not {target.resolve()}")
+    _link_inputs(pilot, main)
     pilot_dir(pilot).mkdir(exist_ok=True)
 
 
-def draw_step(pilot: Path, step: str, fraction: float, seed: int, chunk: int) -> dict[str, Any]:
-    """Draw one step's targets into its folder; a rerun with other settings is refused."""
+def draw_step(
+    pilot: Path,
+    step: str,
+    fraction: float,
+    seed: int = DEFAULT_SEED,
+    chunk: int = DEFAULT_CHUNK,
+    size: int | None = None,
+) -> dict[str, Any]:
+    """Draw one step's targets into its folder; a rerun with other settings is refused.
+
+    ``size``, when given, takes that many Series instead of ``fraction`` of them.
+    """
     out = pilot_dir(pilot, step)
     out.mkdir(parents=True, exist_ok=True)
     meta_path = out / "targets.json"
     if meta_path.is_file():
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        asked = {"fraction": fraction, "seed": seed, "chunk": chunk}
+        asked = {"fraction": fraction, "seed": seed, "chunk": chunk, "size": size}
         if any(meta[k] != v for k, v in asked.items()):
             raise SystemExit(f"{meta_path} was drawn with other settings: {meta}")
         return meta
     snap = snapshots.snapshot(pilot, snapshots.GEO_SERIES)
     with gzip.open(snap.path, "rt", encoding="utf-8") as fh:
         pool = sequencing_series(fh)
-    chosen = draw(pool, fraction, seed)
+    chosen = draw(pool, fraction, seed, size)
     write_atomic(
         out / "targets.tsv",
         "accession\tmixed\tgdstype\n"
@@ -270,6 +311,7 @@ def draw_step(pilot: Path, step: str, fraction: float, seed: int, chunk: int) ->
         "sequencing_series": len(pool),
         "sequencing_mixed": sum(t.mixed for t in pool),
         "fraction": fraction,
+        "size": size,
         "seed": seed,
         "chunk": chunk,
         "drawn": len(chosen),
@@ -285,6 +327,9 @@ def read_targets(pilot: Path, step: str) -> dict[str, bool]:
     return {acc: mixed == "1" for acc, mixed, _ in (line.split("\t", 2) for line in lines)}
 
 
+# ---------- the serial stage 1 fetch, sharded ----------
+
+
 def read_log(path: Path) -> list[dict[str, Any]]:
     """Return the chunk entries of a fetch log; a torn last line is ignored."""
     if not path.is_file():
@@ -298,16 +343,16 @@ def read_log(path: Path) -> list[dict[str, Any]]:
     return out
 
 
-def run_fetch(pilot: Path, step: str, client: EntrezClient) -> Path:
-    """Fetch every target chunk not yet logged, appending one log line per chunk."""
-    meta = json.loads((pilot_dir(pilot, step) / "targets.json").read_text(encoding="utf-8"))
-    log_path = pilot_dir(pilot, step) / "fetch-log.jsonl"
+def run_fetch(root: Path, step: str, client: EntrezClient) -> Path:
+    """Run the stage 1 fetch on every target chunk not yet logged, one log line per chunk."""
+    meta = json.loads((pilot_dir(root, step) / "targets.json").read_text(encoding="utf-8"))
+    log_path = pilot_dir(root, step) / "fetch-log.jsonl"
     done = {entry["chunk"] for entry in read_log(log_path)}
     skips = _SkipLog()
     logger = logging.getLogger(fetch.__name__)
     logger.addHandler(skips)
     logger.setLevel(logging.INFO)
-    for index, chunk in enumerate(chunks(sorted(read_targets(pilot, step)), meta["chunk"])):
+    for index, chunk in enumerate(chunks(sorted(read_targets(root, step)), meta["chunk"])):
         if index in done:
             continue
         metered = MeteredClient(client)
@@ -316,13 +361,13 @@ def run_fetch(pilot: Path, step: str, client: EntrezClient) -> Path:
         failed: dict[str, dict[str, str]] = {}
         start = time.perf_counter()
         try:
-            fetch.fetch(pilot, chunk, client=metered)
+            fetch.fetch(root, chunk, client=metered)
         except Exception:
             # Fetch the chunk Series by Series so each failure is pinned to one Series.
             for gse in chunk:
                 metered.last_failed = None
                 try:
-                    fetch.fetch(pilot, [gse], client=metered)
+                    fetch.fetch(root, [gse], client=metered)
                 except Exception as exc:
                     failed[gse] = {
                         "step": metered.last_failed or "parse",
@@ -336,13 +381,13 @@ def run_fetch(pilot: Path, step: str, client: EntrezClient) -> Path:
             "failed": failed,
             "soft_type_skipped": dict(skips.skipped),
             "steps": {
-                step: {
+                name: {
                     "calls": s.calls,
                     "seconds": round(s.seconds, 3),
                     "bytes": s.bytes,
                     "errors": dict(s.errors),
                 }
-                for step, s in sorted(metered.stats.items())
+                for name, s in sorted(metered.stats.items())
             },
             "retried": dict(TRANSIENT - retried),
             "maxrss_bytes": peak_rss(),
@@ -358,10 +403,409 @@ def run_fetch(pilot: Path, step: str, client: EntrezClient) -> Path:
     return log_path
 
 
-def peak_rss() -> int:
-    """Return this process's peak resident memory in bytes."""
-    rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    return rss if sys.platform == "darwin" else rss * 1024
+def shard_root(pilot: Path, step: str, index: int) -> Path:
+    """Return one shard's own store root: ``<pilot>/shards/<step>/<index>/``."""
+    return pilot / "shards" / step / str(index)
+
+
+def run_shard(pilot: Path, step: str, index: int, count: int, client: EntrezClient) -> Path:
+    """Run the stage 1 fetch on shard ``index`` of ``count`` in the shard's own root.
+
+    The shard takes every ``count``-th target from ``index`` on and never writes the pilot
+    root. Returns the shard's fetch log.
+    """
+    if not 0 <= index < count:
+        raise SystemExit(f"shard {index} is outside 0..{count - 1}")
+    root = shard_root(pilot, step, index)
+    if not (root / MARKER).is_file():
+        init_store(root)
+    _link_inputs(root, pilot)
+    out = pilot_dir(root, step)
+    out.mkdir(parents=True, exist_ok=True)
+    meta = json.loads((pilot_dir(pilot, step) / "targets.json").read_text(encoding="utf-8"))
+    lines = (pilot_dir(pilot, step) / "targets.tsv").read_text(encoding="utf-8").splitlines()
+    header, rows = lines[0], sorted(lines[1:])
+    write_atomic(out / "targets.tsv", "".join(f"{x}\n" for x in [header, *rows[index::count]]))
+    write_atomic(out / "targets.json", json.dumps(meta | {"shard": [index, count]}) + "\n")
+    return run_fetch(root, step, client)
+
+
+def fetch_logs(pilot: Path, step: str) -> dict[str, list[dict[str, Any]]]:
+    """Return the stage 1 fetch log entries of a step's shards, keyed by shard index."""
+    logs = {
+        folder.name: read_log(pilot_dir(folder, step) / "fetch-log.jsonl")
+        for folder in sorted((pilot / "shards" / step).glob("*"))
+    }
+    return {k: v for k, v in logs.items() if v}
+
+
+# ---------- the concurrent fetch ----------
+
+
+class _ThrottledError(Exception):
+    """The server answered 429 or 503."""
+
+
+@dataclass(frozen=True, slots=True)
+class Soft:
+    """One family SOFT: its text without data tables, and the original's size and sha256."""
+
+    text: str
+    original_bytes: int
+    original_sha256: str
+    gz_bytes: int
+
+
+def read_soft(resp: Any) -> tuple[Soft, int]:
+    """Stream a gzipped family SOFT, dropping sample and platform data table blocks.
+
+    The begin and end marker lines go with their block; every other line is kept.
+    """
+    gz_bytes = int(resp.getheader("Content-Length") or 0)
+    digest = hashlib.sha256()
+    size = 0
+    kept: list[bytes] = []
+    inside = False
+    with gzip.GzipFile(fileobj=resp) as fh:
+        for line in fh:
+            digest.update(line)
+            size += len(line)
+            head = line[:24].lower()
+            if head.startswith(_TABLE_BEGIN):
+                inside = True
+            if not inside:
+                kept.append(line)
+            elif head.startswith(_TABLE_END):
+                inside = False
+    resp.read()
+    return Soft(b"".join(kept).decode("utf-8"), size, digest.hexdigest(), gz_bytes), gz_bytes
+
+
+def read_text(resp: Any) -> tuple[str, int]:
+    """Read a plain body as text."""
+    body = resp.read()
+    return body.decode("utf-8"), len(body)
+
+
+def pooled_get(
+    paths: dict[str, str],
+    read: Callable[[Any], tuple[Any, int]],
+    *,
+    connections: int,
+    base: str = GEO_SITE,
+    timeout: float = 60.0,
+    tries: int = 3,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """GET each path over ``connections`` kept-open connections and return what ``read`` made.
+
+    A 404 gives ``None``. A 429, 503 or timeout halves the connections in use, and the item
+    is tried again later, up to ``tries`` times. Returns the values by key and the stats.
+    """
+    url = urllib.parse.urlsplit(base)
+    todo: queue.Queue[str] = queue.Queue()
+    for key in sorted(paths):
+        todo.put(key)
+    lock = threading.Lock()
+    limit = [connections]
+    attempts: Counter[str] = Counter()
+    events: Counter[str] = Counter()
+    values: dict[str, Any] = {}
+    wire: list[int] = []
+    millis: list[int] = []
+    errors: dict[str, str] = {}
+
+    def connect() -> http.client.HTTPConnection:
+        if url.scheme == "https":
+            return http.client.HTTPSConnection(url.netloc, timeout=timeout)
+        return http.client.HTTPConnection(url.netloc, timeout=timeout)
+
+    def get(conn: http.client.HTTPConnection, key: str) -> tuple[Any, int]:
+        conn.request("GET", f"{url.path}{paths[key]}", headers={"User-Agent": _USER_AGENT})
+        resp = conn.getresponse()
+        if resp.status != 200:
+            resp.read()
+            if resp.status in _THROTTLED:
+                raise _ThrottledError(str(resp.status))
+            if resp.status == 404:
+                return None, 0
+            raise http.client.HTTPException(f"HTTP {resp.status}")
+        return read(resp)
+
+    def retry(key: str, kind: str) -> None:
+        if attempts[key] < tries:
+            todo.put(key)
+        else:
+            errors[key] = kind
+
+    def worker(index: int) -> None:
+        conn: http.client.HTTPConnection | None = None
+        while index < limit[0]:
+            try:
+                key = todo.get_nowait()
+            except queue.Empty:
+                break
+            attempts[key] += 1
+            start = time.perf_counter()
+            try:
+                conn = conn or connect()
+                value, size = get(conn, key)
+            except (_ThrottledError, TimeoutError) as exc:
+                kind = f"HTTP {exc}" if isinstance(exc, _ThrottledError) else "timeout"
+                with lock:
+                    events[kind] += 1
+                    limit[0] = max(1, limit[0] // 2)
+                if conn:
+                    conn.close()
+                conn = None
+                retry(key, kind)
+                time.sleep(min(30.0, 2.0 ** attempts[key]))
+                continue
+            except (OSError, http.client.HTTPException, EOFError, UnicodeDecodeError) as exc:
+                if conn:
+                    conn.close()
+                conn = None
+                retry(key, f"{type(exc).__name__}: {exc}"[:200])
+                continue
+            with lock:
+                millis.append(round((time.perf_counter() - start) * 1000))
+                values[key] = value
+                wire.append(size)
+        if conn:
+            conn.close()
+
+    start = time.perf_counter()
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(connections)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    worker(0)  # an item put back by a worker that then stopped
+    wall = time.perf_counter() - start
+    got = sum(v is not None for v in values.values())
+    stats = {
+        "connections": connections,
+        "items": got,
+        "missing_404": sorted(k for k, v in values.items() if v is None),
+        "failed": errors,
+        "wire_bytes": sum(wire),
+        "wall_s": round(wall, 3),
+        "items_per_s": round(got / wall, 2) if wall else None,
+        "bytes_per_s": round(sum(wire) / wall) if wall else None,
+        "item_ms": quantiles(millis),
+        "throttle_events": dict(events),
+        "connections_at_end": limit[0],
+    }
+    return values, stats
+
+
+def _url_path(url: str) -> str:
+    return urllib.parse.urlsplit(url).path
+
+
+def _pool(
+    work: Callable[[Any], Any], items: list[Any], inflight: int
+) -> tuple[list[Any], float, dict[str, int]]:
+    """Run ``work`` on each item, ``inflight`` at once; failed items count by exception class."""
+    errors: Counter[str] = Counter()
+
+    def safe(item: Any) -> Any:
+        try:
+            return work(item)
+        except Exception as exc:
+            errors[type(exc).__name__] += 1
+            return None
+
+    start = time.perf_counter()
+    with ThreadPoolExecutor(max_workers=inflight) as workers:
+        out = list(workers.map(safe, items))
+    return out, time.perf_counter() - start, dict(errors)
+
+
+def concurrent_fetch(
+    pilot: Path,
+    step: str,
+    client: EntrezClient,
+    *,
+    connections: int,
+    inflight: int,
+    batch: int = 300,
+    base: str = GEO_SITE,
+) -> dict[str, Any]:
+    """Fill ``raw/`` with a step's records the stage 2 way and time each source and the pack.
+
+    Every target and its SubSeries is stored, whatever its SOFT type says (#51 lets the
+    target list decide). The result is saved as ``concurrent.json``; a rerun returns it.
+    """
+    out = pilot_dir(pilot, step)
+    path = out / "concurrent.json"
+    if path.is_file():
+        return json.loads(path.read_text(encoding="utf-8"))
+    date = dt.datetime.now(dt.UTC).date().isoformat()
+    metered = MeteredClient(client)
+    result: dict[str, Any] = {"connections": connections, "inflight": inflight, "batch": batch}
+    begin = time.perf_counter()
+
+    # Family SOFT, then the SubSeries they name, round by round.
+    soft: dict[str, Soft] = {}
+    rounds: list[dict[str, Any]] = []
+    todo, seen = sorted(read_targets(pilot, step)), set()
+    while todo:
+        seen |= set(todo)
+        got, stats = pooled_get(
+            {g: _url_path(fetch.soft_url(g)) for g in todo},
+            read_soft,
+            connections=connections,
+            base=base,
+        )
+        rounds.append(stats)
+        soft |= {g: v for g, v in got.items() if v is not None}
+        todo = sorted({s for v in got.values() if v for s in sources.subseries(v.text)} - seen)
+    result[raw.GEO_SOFT] = _merge_rounds(rounds)
+    held = sorted(soft)
+    write_atomic(
+        out / "soft-original.tsv",
+        "accession\tgz_bytes\toriginal_bytes\tstripped_bytes\toriginal_sha256\n"
+        + "".join(
+            f"{g}\t{s.gz_bytes}\t{s.original_bytes}\t{len(s.text.encode('utf-8'))}\t"
+            f"{s.original_sha256}\n"
+            for g, s in sorted(soft.items())
+        ),
+    )
+
+    files, result[raw.GEO_FILELIST] = pooled_get(
+        {g: _url_path(fetch.filelist_url(g)) for g in held},
+        read_text,
+        connections=connections,
+        base=base,
+    )
+    filelists = {
+        g: v or "" for g, v in files.items() if g not in result[raw.GEO_FILELIST]["failed"]
+    }
+
+    # elink: the library's chunked fetch, one worker part root per chunk of Series.
+    retried = TRANSIENT.copy()
+    parts = pilot / "work" / "parts" / step
+
+    def links(job: tuple[int, list[str]]) -> dict[str, str]:
+        part = parts / f"links-{job[0]}"
+        shutil.rmtree(part, ignore_errors=True)
+        return fetch.fetch_entrez_links(part, metered, {g: soft[g].text for g in job[1]}, date)
+
+    replies, wall, errors = _pool(links, list(enumerate(chunks(held, fetch.CHUNK))), inflight)
+    linked = {g: t for reply in replies if reply for g, t in reply.items()}
+    result[raw.ENTREZ_LINKS] = _rate(len(linked), wall, errors, TRANSIENT - retried)
+
+    experiments = {x for s in soft.values() for x in _SOFT_SRX.findall(s.text)}
+    experiments |= {
+        row.to
+        for text in linked.values()
+        for row in sources.entrez_links(text)
+        if row.relation == "SRA"
+    }
+
+    # SRA packages: one efetch per batch; ids it leaves out go through the library's retries.
+    retried = TRANSIENT.copy()
+
+    def packages(ids: list[str]) -> dict[str, str]:
+        reply = metered.efetch("sra", ids, rettype="full", retmode="xml")
+        got = {a: t for a, t in split_packages(reply).items() if a in set(ids)}
+        missing = [i for i in ids if i not in got]
+        return got | (fetch_package_texts(metered, missing) if missing else {})
+
+    replies, wall, errors = _pool(packages, chunks(sorted(experiments), batch), inflight)
+    sra = {a: t for reply in replies if reply for a, t in reply.items()}
+    result[raw.SRA_XML] = _rate(len(sra), wall, errors, TRANSIENT - retried)
+    result[raw.SRA_XML] |= {
+        "requested": len(experiments),
+        "missing": len(experiments - set(sra)),
+        "bytes": sum(len(t.encode("utf-8")) for t in sra.values()),
+    }
+    result[raw.SRA_XML]["bytes_per_s"] = round(result[raw.SRA_XML]["bytes"] / wall) if wall else 0
+    metered.clear_cache()
+
+    # PubMed [si] for every held Series, linked BioProject and named SRA study.
+    retried = TRANSIENT.copy()
+    studies = {s for text in sra.values() for s in fetch._study_refs(text)}
+    projects = fetch._linked_bioprojects(
+        (s.text for s in soft.values()), linked.values(), sra.values()
+    )
+    queried = sorted(projects | studies | set(held))
+
+    def si(accession: str) -> tuple[str, str]:
+        found = metered.esearch("pubmed", f"{accession}[si]", retmax=fetch.PUBMED_RETMAX)
+        return accession, "\n".join(found)
+
+    replies, wall, errors = _pool(si, queried, inflight)
+    searched = dict(r for r in replies if r)
+    result[raw.PUBMED_SI] = _rate(len(searched), wall, errors, TRANSIENT - retried)
+    result["fetch_wall_s"] = round(time.perf_counter() - begin, 3)
+
+    # The pack: the single writer of raw/, one write per source.
+    texts = {
+        raw.GEO_SOFT: {g: s.text for g, s in soft.items()},
+        raw.GEO_FILELIST: filelists,
+        raw.ENTREZ_LINKS: linked,
+        raw.SRA_XML: sra,
+        raw.PUBMED_SI: searched,
+    }
+    pack: dict[str, Any] = {}
+    start = time.perf_counter()
+    for source, rows in texts.items():
+        began = time.perf_counter()
+        written = raw.write_rows(pilot, source, [raw.RawRow(a, t, date) for a, t in rows.items()])
+        provenance.document_raw(pilot, source)
+        pack[source] = {
+            "rows": len(rows),
+            "buckets": len(written),
+            "seconds": round(time.perf_counter() - began, 3),
+        }
+    result["pack"] = {"wall_s": round(time.perf_counter() - start, 3), "sources": pack}
+    result["calls"] = {
+        k: {"calls": s.calls, "seconds": round(s.seconds, 3), "errors": dict(s.errors)}
+        for k, s in sorted(metered.stats.items())
+    }
+    result["wall_s"] = round(time.perf_counter() - begin, 3)
+    result["maxrss_bytes"] = peak_rss()
+    result["job"] = os.environ.get("SLURM_JOB_ID")
+    write_atomic(path, json.dumps(result, indent=2) + "\n")
+    return result
+
+
+def _rate(items: int, wall: float, errors: dict[str, int], retried: Counter[str]) -> dict[str, Any]:
+    return {
+        "items": items,
+        "wall_s": round(wall, 3),
+        "items_per_s": round(items / wall, 2) if wall else None,
+        "errors": errors,
+        "retried": dict(retried),
+    }
+
+
+def _merge_rounds(rounds: list[dict[str, Any]]) -> dict[str, Any]:
+    """Sum the pooled stats of the SOFT rounds (targets, then SubSeries)."""
+    wall = sum(r["wall_s"] for r in rounds)
+    items = sum(r["items"] for r in rounds)
+    wire = sum(r["wire_bytes"] for r in rounds)
+    events: Counter[str] = Counter()
+    for r in rounds:
+        events.update(r["throttle_events"])
+    return {
+        "rounds": len(rounds),
+        "connections": rounds[0]["connections"],
+        "items": items,
+        "missing_404": [k for r in rounds for k in r["missing_404"]],
+        "failed": {k: v for r in rounds for k, v in r["failed"].items()},
+        "wire_bytes": wire,
+        "wall_s": round(wall, 3),
+        "items_per_s": round(items / wall, 2) if wall else None,
+        "bytes_per_s": round(wire / wall) if wall else None,
+        "item_ms": rounds[0]["item_ms"],
+        "throttle_events": dict(events),
+        "connections_at_end": min(r["connections_at_end"] for r in rounds),
+    }
+
+
+# ---------- build ----------
 
 
 def run_build(pilot: Path, build_id: str) -> dict[str, Any]:
@@ -388,242 +832,7 @@ def run_build(pilot: Path, build_id: str) -> dict[str, Any]:
     return result
 
 
-#: Every transient failure the Entrez seam retried, by kind; see :func:`_record_transient`.
-TRANSIENT: Counter[str] = Counter()
-
-
-def _record_transient(err: BaseException) -> bool:
-    """Count a failure the client is about to judge, then judge it as the client would."""
-    verdict = _is_transient(err)
-    if verdict:
-        code = getattr(err, "code", None)
-        TRANSIENT[f"HTTP {code}" if code else type(err).__name__] += 1
-    return verdict
-
-
-_is_transient = entrez._is_transient
-# Measuring only: the client still decides; this sees the 429s and drops it retries past.
-entrez._is_transient = _record_transient
-
-
-def sra_bench(
-    pilot: Path,
-    step: str,
-    client: EntrezClient,
-    *,
-    inflight: int,
-    batch: int,
-    n: int | None = None,
-    seed: int = DEFAULT_SEED,
-) -> dict[str, Any]:
-    """Time ``efetch`` of the fetched experiments in batches of ``batch``, ``inflight`` at once.
-
-    The experiments are those in ``raw/sra-xml``, or ``n`` of them drawn with ``seed``.
-    Replies are counted and discarded. A package left out counts as missing; a failed call
-    counts its whole batch as missing.
-    """
-    path = pilot_dir(pilot, step) / "sra-bench.json"
-    if path.is_file():
-        return json.loads(path.read_text(encoding="utf-8"))
-    folder = pilot / "raw" / raw.SRA_XML
-    pool = sorted(
-        str(a)
-        for p in sorted(folder.glob("*.parquet"))
-        for a in pq.read_table(p, columns=["accession"]).column("accession").to_pylist()
-    )
-    sample = pool if n is None else sorted(random.Random(seed).sample(pool, min(n, len(pool))))
-    retried = TRANSIENT.copy()
-
-    def one(ids: list[str]) -> tuple[int, int, float, str | None]:
-        start = time.perf_counter()
-        try:
-            reply = client.efetch("sra", ids, rettype="full", retmode="xml", refresh=True)
-        except Exception as exc:
-            return 0, 0, time.perf_counter() - start, type(exc).__name__
-        got = {a: t for a, t in split_packages(reply).items() if a in set(ids)}
-        size = sum(len(t.encode("utf-8")) for t in got.values())
-        return len(got), size, time.perf_counter() - start, None
-
-    start = time.perf_counter()
-    with ThreadPoolExecutor(max_workers=inflight) as workers:
-        replies = list(workers.map(one, chunks(sample, batch)))
-    wall = time.perf_counter() - start
-    client.clear_cache()
-    packages = sum(r[0] for r in replies)
-    size = sum(r[1] for r in replies)
-    credentials = getattr(client, "credentials", None)
-    result = {
-        "inflight": inflight,
-        "batch": batch,
-        "requested": len(sample),
-        "packages": packages,
-        "missing": len(sample) - packages,
-        "failed_calls": dict(Counter(r[3] for r in replies if r[3])),
-        "calls": len(replies),
-        "wall_s": round(wall, 3),
-        "call_ms": quantiles([round(r[2] * 1000) for r in replies]),
-        "retried": dict(TRANSIENT - retried),
-        "bytes": size,
-        "packages_per_s": round(packages / wall, 2) if wall else None,
-        "bytes_per_s": round(size / wall) if wall else None,
-        "s_per_100_packages": round(wall / packages * 100, 3) if packages else None,
-        "bytes_per_package": round(size / packages) if packages else None,
-        "api_key": bool(credentials is not None and credentials.api_key),
-    }
-    write_atomic(path, json.dumps(result, indent=2) + "\n")
-    return result
-
-
-class _ThrottledError(Exception):
-    """The server answered 429 or 503."""
-
-
-def soft_bench(
-    pilot: Path,
-    step: str,
-    *,
-    connections: int,
-    base: str = "https://ftp.ncbi.nlm.nih.gov",
-    timeout: float = 60.0,
-    tries: int = 3,
-) -> dict[str, Any]:
-    """Refetch a step's gzipped family SOFT over ``connections`` kept-open connections.
-
-    Each worker keeps one connection open between files and streams each body, counting
-    bytes and discarding them. A 429, 503 or timeout halves the connections in use, and the
-    file is tried again later, up to ``tries`` times. Nothing is saved to ``raw/``.
-    """
-    path = pilot_dir(pilot, step) / "soft-bench.json"
-    if path.is_file():
-        return json.loads(path.read_text(encoding="utf-8"))
-    url = urllib.parse.urlsplit(base)
-    targets = sorted(read_targets(pilot, step))
-    todo: queue.Queue[str] = queue.Queue()
-    for gse in targets:
-        todo.put(gse)
-    lock = threading.Lock()
-    limit = [connections]
-    attempts: Counter[str] = Counter()
-    events: Counter[str] = Counter()
-    gz_bytes: dict[str, int] = {}
-    seconds: list[int] = []
-    missing: list[str] = []
-    errors: dict[str, str] = {}
-
-    def connect() -> http.client.HTTPConnection:
-        if url.scheme == "https":
-            return http.client.HTTPSConnection(url.netloc, timeout=timeout)
-        return http.client.HTTPConnection(url.netloc, timeout=timeout)
-
-    def get(conn: http.client.HTTPConnection, gse: str) -> int | None:
-        target = urllib.parse.urlsplit(fetch.soft_url(gse))
-        conn.request("GET", f"{url.path}{target.path}", headers={"User-Agent": _USER_AGENT})
-        resp = conn.getresponse()
-        if resp.status != 200:
-            resp.read()
-            if resp.status in _THROTTLED:
-                raise _ThrottledError(str(resp.status))
-            if resp.status == 404:
-                return None
-            raise http.client.HTTPException(f"HTTP {resp.status}")
-        size = 0
-        while block := resp.read(1 << 20):
-            size += len(block)
-        return size
-
-    def worker(index: int) -> None:
-        conn: http.client.HTTPConnection | None = None
-        while index < limit[0]:
-            try:
-                gse = todo.get_nowait()
-            except queue.Empty:
-                break
-            attempts[gse] += 1
-            start = time.perf_counter()
-            try:
-                conn = conn or connect()
-                size = get(conn, gse)
-            except (_ThrottledError, TimeoutError) as exc:
-                kind = f"HTTP {exc}" if isinstance(exc, _ThrottledError) else "timeout"
-                with lock:
-                    events[kind] += 1
-                    limit[0] = max(1, limit[0] // 2)
-                if conn:
-                    conn.close()
-                conn = None
-                if attempts[gse] < tries:
-                    todo.put(gse)
-                else:
-                    errors[gse] = kind
-                time.sleep(min(30.0, 2.0 ** attempts[gse]))
-                continue
-            except (OSError, http.client.HTTPException) as exc:
-                if conn:
-                    conn.close()
-                conn = None
-                if attempts[gse] < tries:
-                    todo.put(gse)
-                else:
-                    errors[gse] = f"{type(exc).__name__}: {exc}"[:200]
-                continue
-            seconds.append(round((time.perf_counter() - start) * 1000))
-            if size is None:
-                missing.append(gse)
-            else:
-                gz_bytes[gse] = size
-        if conn:
-            conn.close()
-
-    start = time.perf_counter()
-    threads = [threading.Thread(target=worker, args=(i,)) for i in range(connections)]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
-    worker(0)  # a file put back by a worker that then stopped
-    wall = time.perf_counter() - start
-    write_atomic(
-        pilot_dir(pilot, step) / "soft-gz-sizes.tsv",
-        "accession\tgz_bytes\n" + "".join(f"{g}\t{n}\n" for g, n in sorted(gz_bytes.items())),
-    )
-    total = sum(gz_bytes.values())
-    result = {
-        "connections": connections,
-        "files": len(gz_bytes),
-        "missing_404": sorted(missing),
-        "failed": errors,
-        "gz_bytes": total,
-        "gz_file_bytes": quantiles(list(gz_bytes.values())),
-        "wall_s": round(wall, 3),
-        "files_per_s": round(len(gz_bytes) / wall, 2) if wall else None,
-        "bytes_per_s": round(total / wall) if wall else None,
-        "file_ms": quantiles(seconds),
-        "throttle_events": dict(events),
-        "connections_at_end": limit[0],
-    }
-    write_atomic(path, json.dumps(result, indent=2) + "\n")
-    return result
-
-
 # ---------- report ----------
-
-
-def table_bytes(text: str) -> int:
-    """Return the UTF-8 bytes of a family SOFT's sample and platform data table blocks.
-
-    The begin and end marker lines count as part of a block.
-    """
-    total = 0
-    inside = False
-    for line in text.splitlines(keepends=True):
-        lower = line.lower()
-        if lower.startswith(_TABLE_BEGIN):
-            inside = True
-        if inside:
-            total += len(line.encode("utf-8"))
-        if lower.startswith(_TABLE_END):
-            inside = False
-    return total
 
 
 def quantiles(values: list[int]) -> dict[str, int]:
@@ -644,33 +853,18 @@ def quantiles(values: list[int]) -> dict[str, int]:
     }
 
 
-def _rows(folder: Path) -> Iterator[tuple[Path, str, str]]:
-    for path in sorted(folder.glob("*.parquet")):
-        table = pq.read_table(path, columns=["accession", "raw_text"]).to_pydict()
-        for accession, text in zip(table["accession"], table["raw_text"], strict=True):
-            yield path, accession, text
-
-
-def source_bytes(pilot: Path, step: str, targets: dict[str, bool]) -> dict[str, Any]:
-    """Return rows, text bytes and Parquet bytes per raw source, with SOFT split by kind."""
+def source_bytes(pilot: Path) -> dict[str, Any]:
+    """Return rows, text bytes and Parquet bytes per raw source in the pilot root."""
     out: dict[str, Any] = {}
     for source in _RAW_SOURCES:
         folder = pilot / "raw" / source
         buckets = sorted(folder.glob("*.parquet")) if folder.is_dir() else []
-        sizes: list[int] = []
-        soft: dict[str, list[int]] = defaultdict(list)
-        stripped: list[int] = []
-        per_file: list[str] = []
-        for _, accession, text in _rows(folder):
-            n = len(text.encode("utf-8"))
-            sizes.append(n)
-            if source == raw.GEO_SOFT:
-                kind = "mixed" if targets.get(accession) else "sequencing-only"
-                kind = kind if accession in targets else "not-a-target"
-                soft[kind].append(n)
-                stripped.append(n - table_bytes(text))
-                per_file.append(f"{accession}\t{kind}\t{n}\t{stripped[-1]}\n")
-        entry: dict[str, Any] = {
+        sizes = [
+            len(str(text).encode("utf-8"))
+            for p in buckets
+            for text in pq.read_table(p, columns=["raw_text"]).column("raw_text").to_pylist()
+        ]
+        out[source] = {
             "rows": len(sizes),
             "text_bytes": sum(sizes),
             "parquet_bytes": sum(p.stat().st_size for p in buckets),
@@ -678,92 +872,111 @@ def source_bytes(pilot: Path, step: str, targets: dict[str, bool]) -> dict[str, 
             "row_text_bytes": quantiles(sizes),
             "bucket_parquet_bytes": quantiles([p.stat().st_size for p in buckets]),
         }
-        if source == raw.GEO_SOFT:
-            entry["by_kind"] = {k: quantiles(v) | {"sum": sum(v)} for k, v in sorted(soft.items())}
-            entry["stripped_text_bytes"] = sum(stripped)
-            entry["row_stripped_bytes"] = quantiles(stripped)
-            write_atomic(
-                pilot_dir(pilot, step) / "soft-sizes.tsv",
-                "accession\tkind\tbytes\tstripped_bytes\n" + "".join(per_file),
-            )
-        out[source] = entry
     return out
 
 
-def summarize_fetch(entries: list[dict[str, Any]], targets: dict[str, bool]) -> dict[str, Any]:
-    """Total the fetch log: wall time per step, failures by kind and SOFT-type skips."""
+def summarize_fetch(entries: list[dict[str, Any]]) -> dict[str, Any]:
+    """Total a stage 1 fetch log: wall time per source, failures by kind, retries."""
     steps: dict[str, dict[str, Any]] = defaultdict(
         lambda: {"calls": 0, "seconds": 0.0, "bytes": 0, "errors": Counter()}
     )
     failures: Counter[str] = Counter()
-    examples: dict[str, list[str]] = defaultdict(list)
-    skipped: dict[str, str] = {}
     retried: Counter[str] = Counter()
+    skipped: dict[str, str] = {}
     wall = 0.0
     for entry in entries:
         wall += entry["wall_s"]
-        for step, s in entry["steps"].items():
-            steps[step]["calls"] += s["calls"]
-            steps[step]["seconds"] += s["seconds"]
-            steps[step]["bytes"] += s["bytes"]
-            steps[step]["errors"].update(s["errors"])
-        for gse, f in entry["failed"].items():
-            kind = f"{f['step']}: {f['error']}"
-            failures[kind] += 1
-            if len(examples[kind]) < 5:
-                examples[kind].append(f"{gse}: {f['message']}")
+        for name, s in entry["steps"].items():
+            steps[name]["calls"] += s["calls"]
+            steps[name]["seconds"] += s["seconds"]
+            steps[name]["bytes"] += s["bytes"]
+            steps[name]["errors"].update(s["errors"])
+        for f in entry["failed"].values():
+            failures[f"{f['step']}: {f['error']}"] += 1
         skipped |= entry["soft_type_skipped"]
         retried.update(entry.get("retried", {}))
     logged = {gse for entry in entries for gse in entry["series"]}
-    failed = {gse for entry in entries for gse in entry["failed"]}
-    network = sum(s["seconds"] for s in steps.values())
     return {
-        "chunks": len(entries),
-        "series_logged": len(logged),
-        "series_not_logged": len(set(targets) - logged),
+        "series": len(logged),
         "wall_s": round(wall, 3),
+        "s_per_series": round(wall / len(logged), 3) if logged else None,
         "steps": {
             k: v | {"seconds": round(v["seconds"], 3), "errors": dict(v["errors"])}
             for k, v in sorted(steps.items())
         },
-        "other_s": round(wall - network, 3),
         "retried": dict(retried),
-        "failed_series": len(failed),
         "failures_by_kind": dict(failures.most_common()),
-        "failure_examples": dict(examples),
-        "soft_type_skipped": len(skipped.keys() & targets.keys()),
-        "soft_type_skipped_types": dict(Counter(skipped[g] for g in skipped).most_common()),
+        "soft_type_skipped": len(skipped),
         "restarts": sorted({str(e.get("restart")) for e in entries}),
         "peak_rss_bytes": max((e.get("maxrss_bytes", 0) for e in entries), default=0),
     }
 
 
+def stability(c: dict[str, Any]) -> dict[str, Any]:
+    """Judge a step stable: no 429 or 503 and timeouts under 1% of requests, per source."""
+    if not c:
+        return {"stable": None}
+    throttled: dict[str, int] = {}
+    timeouts: dict[str, float] = {}
+    for source in _RAW_SOURCES:
+        s = c[source]
+        events = s.get("throttle_events", {}) | s.get("retried", {})
+        throttled |= {f"{source} {k}": v for k, v in events.items() if "429" in k or "503" in k}
+        timed = sum(v for k, v in events.items() if "imeout" in k)
+        timeouts[source] = round(timed / max(1, s["items"]), 4)
+    return {
+        "throttled": throttled,
+        "timeout_share": timeouts,
+        "stable": not throttled and all(v < 0.01 for v in timeouts.values()),
+    }
+
+
+def projections(
+    c: dict[str, Any], shards: dict[str, Any], drawn: int, total_series: int, total_exp: int
+) -> dict[str, Any]:
+    """Return the hours each source would take for the whole set at this step's rate."""
+    out: dict[str, Any] = {"total_series": total_series, "total_experiments": total_exp}
+    scale = total_series / drawn if drawn else 0.0
+    if c:
+        for source in _RAW_SOURCES:
+            s = c[source]
+            if source == raw.SRA_XML:
+                rate = s["items_per_s"]
+                out[source] = round(total_exp / rate / 3600, 2) if rate else None
+            else:
+                out[source] = round(s["wall_s"] * scale / 3600, 2)
+        out["all_sources_in_turn"] = round(
+            sum(v for k, v in out.items() if k in _RAW_SOURCES and v), 2
+        )
+    if shards.get("s_per_series"):
+        out["stage1_serial"] = round(shards["s_per_series"] * total_series / 3600, 2)
+    return out
+
+
 def report(pilot: Path, step: str, total_experiments: int = DEFAULT_EXPERIMENTS) -> dict[str, Any]:
-    """Write a step's ``results.json`` and ``results.md`` from its logs, ``raw/`` and builds."""
+    """Write a step's ``results.json`` and ``results.md``."""
     out = pilot_dir(pilot, step)
     meta = json.loads((out / "targets.json").read_text(encoding="utf-8"))
-    targets = read_targets(pilot, step)
-    fetched = summarize_fetch(read_log(out / "fetch-log.jsonl"), targets)
-    held = set(raw.saved(pilot, raw.GEO_SOFT, targets))
+    concurrent = _load(out / "concurrent.json")
+    logs = fetch_logs(pilot, step)
+    shards = summarize_fetch([e for entries in logs.values() for e in entries])
+    shards["per_shard"] = {k: summarize_fetch(v) for k, v in logs.items()}
     results: dict[str, Any] = {
         "step": step,
         "targets": meta,
-        "fetch": fetched,
-        "held_target_series": len(held),
-        "gaps": len(targets) - len(held),
-        "bytes": source_bytes(pilot, step, targets),
-        "soft_serial": _soft_serial(fetched),
-        "soft_bench": _load(out / "soft-bench.json"),
-        "sra_serial": _sra_serial(fetched, pilot),
-        "sra_bench": _load(out / "sra-bench.json"),
+        "concurrent": concurrent,
+        "stage1_shards": shards,
+        "stability": stability(concurrent),
+        "projection_hours": projections(
+            concurrent, shards, meta["drawn"], meta["sequencing_series"], total_experiments
+        ),
+        "bytes": source_bytes(pilot),
         "builds": [
             json.loads(p.read_text(encoding="utf-8"))
             for p in sorted(pilot_dir(pilot).glob("build-*.json"))
         ],
         "commit": _commit(),
     }
-    results["stability"] = stability(results)
-    results["projection"] = projections(results, meta["sequencing_series"], total_experiments)
     write_atomic(out / "results.json", json.dumps(results, indent=2) + "\n")
     write_atomic(out / "results.md", render(results))
     return results
@@ -773,159 +986,79 @@ def _load(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
 
 
-def _soft_serial(fetched: dict[str, Any]) -> dict[str, Any]:
-    """Return the stage 1 SOFT fetch rate: one new connection per file, held in memory.
-
-    Its bytes are decompressed text; a 429 or 503 the client retried past is not seen.
-    """
-    step = fetched["steps"].get(raw.GEO_SOFT, {"seconds": 0.0, "bytes": 0, "calls": 0})
-    return {
-        "files": step["calls"],
-        "seconds": step["seconds"],
-        "text_bytes": step["bytes"],
-        "files_per_s": round(step["calls"] / step["seconds"], 2) if step["seconds"] else None,
-        "errors": step.get("errors", {}),
-    }
-
-
-def _sra_serial(fetched: dict[str, Any], pilot: Path) -> dict[str, Any]:
-    """Return the stage 1 fetch's SRA ``efetch`` cost per 100 packages and per package."""
-    step = fetched["steps"].get(raw.SRA_XML, {"seconds": 0.0, "bytes": 0, "calls": 0})
-    folder = pilot / "raw" / raw.SRA_XML
-    packages = sum(pq.ParquetFile(p).metadata.num_rows for p in folder.glob("*.parquet"))
-    return {
-        "calls": step["calls"],
-        "packages": packages,
-        "s_per_100_packages": round(step["seconds"] / packages * 100, 3) if packages else None,
-        "bytes_per_package": round(step["bytes"] / packages) if packages else None,
-    }
-
-
 def _commit() -> str | None:
-    from labdata.store.provenance import produced_by
-
-    return produced_by("scripts/store/pilot_stage2.py").get("commit")
-
-
-def stability(r: dict[str, Any]) -> dict[str, Any]:
-    """Judge a step stable: no 429 or 503 and timeouts under 1% of requests, per source."""
-    soft, sra = r["soft_bench"], r["sra_bench"]
-    soft_events = soft.get("throttle_events", {}) if soft else {}
-    sra_events = sra.get("retried", {}) if sra else {}
-    throttled = {
-        k: v
-        for k, v in (soft_events | {f"sra {k}": v for k, v in sra_events.items()}).items()
-        if "429" in k or "503" in k
-    }
-    soft_timeouts = soft_events.get("timeout", 0) / max(1, soft.get("files", 0)) if soft else 0
-    sra_timeouts = (
-        sum(v for k, v in sra_events.items() if "imeout" in k) / max(1, sra.get("calls", 0))
-        if sra
-        else 0
-    )
-    return {
-        "throttled": throttled,
-        "soft_timeout_share": round(soft_timeouts, 4),
-        "sra_timeout_share": round(sra_timeouts, 4),
-        "stable": not throttled and soft_timeouts < 0.01 and sra_timeouts < 0.01,
-    }
-
-
-def projections(r: dict[str, Any], total_series: int, total_experiments: int) -> dict[str, Any]:
-    """Return the hours to fetch every sequencing Series and every experiment at this rate."""
-    soft, sra = r["soft_bench"], r["sra_bench"]
-    soft_rate = soft.get("files_per_s") if soft else None
-    sra_rate = sra.get("packages_per_s") if sra else None
-    return {
-        "total_series": total_series,
-        "total_experiments": total_experiments,
-        "soft_hours": round(total_series / soft_rate / 3600, 2) if soft_rate else None,
-        "sra_hours": round(total_experiments / sra_rate / 3600, 2) if sra_rate else None,
-        "stage1_serial_hours": (
-            round(r["fetch"]["wall_s"] * total_series / r["fetch"]["series_logged"] / 3600, 2)
-            if r["fetch"]["series_logged"]
-            else None
-        ),
-    }
+    return provenance.produced_by("scripts/store/pilot_stage2.py").get("commit")
 
 
 def render(r: dict[str, Any]) -> str:
     """Return a step's results as a short Markdown page; ``results.json`` holds everything."""
-    t, f, p, s = r["targets"], r["fetch"], r["projection"], r["stability"]
-    soft, sra = r["soft_bench"], r["sra_bench"]
-    scale = 1 / t["fraction"]
+    t, c, s, p = r["targets"], r["concurrent"], r["stability"], r["projection_hours"]
     lines = [
         f"# Stage 2 pilot: {r['step']}",
         "",
         f"Written by `scripts/store/pilot_stage2.py` at commit `{r['commit']}`.",
         f"Targets: {t['drawn']} of {t['sequencing_series']} sequencing Series "
         f"({t['drawn_mixed']} mixed) in the {t['snapshot_date']} `geo-series` snapshot, "
-        f"seed {t['seed']}. Held: {r['held_target_series']}. Gaps: {r['gaps']}.",
-        f"Stable: {s['stable']} (429/503: {s['throttled'] or 'none'}; timeouts SOFT "
-        f"{s['soft_timeout_share']:.2%}, SRA {s['sra_timeout_share']:.2%}).",
+        f"seed {t['seed']}.",
+        f"Stable: {s['stable']} (429/503: {s.get('throttled') or 'none'}; "
+        f"timeout share: {s.get('timeout_share')}).",
         "",
-        "## Speed and projection",
-        "",
-        "| Source | Speed | Files/s | Bytes/s | Errors | Whole set, h (inferred) |",
-        "| --- | --- | --- | --- | --- | --- |",
     ]
-    if soft:
-        errors = soft["throttle_events"] | {"404": len(soft["missing_404"])}
-        errors |= {"failed": len(soft["failed"])}
-        lines.append(
-            f"| family SOFT, pooled | {soft['connections']} connections | "
-            f"{soft['files_per_s']} | {soft['bytes_per_s']} | {errors} | {p['soft_hours']} |"
-        )
-    if sra:
-        errors = sra["retried"] | sra["failed_calls"] | {"missing": sra["missing"]}
-        lines.append(
-            f"| SRA packages | {sra['inflight']} in flight, batch {sra['batch']} | "
-            f"{sra['packages_per_s']} | {sra['bytes_per_s']} | {errors} | {p['sra_hours']} |"
-        )
+    if c:
+        lines += [
+            f"## Concurrent fetch: {c['connections']} connections, {c['inflight']} in flight",
+            "",
+            "| Source | Items | Wall s | Items/s | Bytes/s | Errors and retries "
+            "| Whole set, h (inferred) |",
+            "| --- | --- | --- | --- | --- | --- | --- |",
+        ]
+        for source in _RAW_SOURCES:
+            v = c[source]
+            errors = v.get("throttle_events", {}) | v.get("retried", {}) | v.get("errors", {})
+            if v.get("failed"):
+                errors |= {"failed": len(v["failed"])}
+            if v.get("missing_404"):
+                errors |= {"404": len(v["missing_404"])}
+            if v.get("missing"):
+                errors |= {"missing": v["missing"]}
+            lines.append(
+                f"| {source} | {v['items']} | {v['wall_s']:.0f} | {v['items_per_s']} | "
+                f"{v.get('bytes_per_s', '')} | {errors or ''} | {p.get(source)} |"
+            )
+        lines += [
+            "",
+            f"All sources one after another, whole set: {p.get('all_sources_in_turn')} h "
+            f"(inferred). Pack (single writer of `raw/`): {c['pack']['wall_s']:.0f} s. "
+            f"Original and stripped SOFT sizes: `soft-original.tsv`.",
+            "",
+        ]
+    sh = r["stage1_shards"]
+    if sh["series"]:
+        lines += [
+            f"## Serial stage 1 fetch, {len(sh['per_shard'])} shards",
+            "",
+            f"{sh['s_per_series']} s per Series; the whole set takes {p.get('stage1_serial')} "
+            "h on one process (inferred).",
+            "",
+            "| Shard | Series | Wall s | Retried | Failures |",
+            "| --- | --- | --- | --- | --- |",
+        ]
+        lines += [
+            f"| {k} | {v['series']} | {v['wall_s']:.0f} | {v['retried'] or ''} | "
+            f"{v['failures_by_kind'] or ''} |"
+            for k, v in sh["per_shard"].items()
+        ]
+        lines.append("")
     lines += [
+        "## Bytes in the pilot's raw/",
         "",
-        f"The serial stage 1 fetch took {f['wall_s']:.0f} s for {f['series_logged']} Series; "
-        f"the whole set at that rate takes {p['stage1_serial_hours']} h (inferred).",
-        "",
-        "| Stage 1 step | Calls | Seconds | Bytes | Errors |",
+        "| Source | Rows | Text bytes | Parquet bytes | Row p50 / p99 / max |",
         "| --- | --- | --- | --- | --- |",
-    ]
-    lines += [
-        f"| {k} | {v['calls']} | {v['seconds']:.0f} | {v['bytes']} | {v['errors'] or ''} |"
-        for k, v in f["steps"].items()
-    ]
-    lines += [
-        "",
-        f"Retried by the client during the stage 1 fetch: {f['retried'] or 'none'}.",
-        f"Failed Series: {f['failed_series']}.",
-        "",
-    ]
-    lines += [f"- {k}: {n}" for k, n in f["failures_by_kind"].items()]
-    lines += [
-        "",
-        f"Skipped by the SOFT type re-filter: {f['soft_type_skipped']}.",
-        "",
-        "## Bytes per source",
-        "",
-        "| Source | Rows | Text bytes | Parquet bytes | Parquet, whole set (inferred) "
-        "| Row p50 / p99 / max |",
-        "| --- | --- | --- | --- | --- | --- |",
     ]
     for k, v in r["bytes"].items():
         q = v["row_text_bytes"]
         spread = f"{q.get('p50', 0)} / {q.get('p99', 0)} / {q.get('max', 0)}"
-        lines.append(
-            f"| {k} | {v['rows']} | {v['text_bytes']} | {v['parquet_bytes']} | "
-            f"{v['parquet_bytes'] * scale:.0f} | {spread} |"
-        )
-    g = r["bytes"][raw.GEO_SOFT]
-    if g["rows"]:
-        lines += [
-            "",
-            f"SOFT text {g['text_bytes']} B; with sample and platform tables stripped "
-            f"{g['stripped_text_bytes']} B. Per file: `soft-sizes.tsv`, gzip sizes "
-            "`soft-gz-sizes.tsv`.",
-        ]
+        lines.append(f"| {k} | {v['rows']} | {v['text_bytes']} | {v['parquet_bytes']} | {spread} |")
     lines += ["", "## Builds", "", "| Build | Wall s | Peak RSS bytes | Bytes |"]
     lines += ["| --- | --- | --- | --- |"]
     lines += [
@@ -933,33 +1066,6 @@ def render(r: dict[str, Any]) -> str:
         for b in r["builds"]
     ]
     return "\n".join(lines) + "\n"
-
-
-def run_step(
-    pilot: Path,
-    step: str,
-    client: EntrezClient,
-    *,
-    fraction: float,
-    soft_connections: int,
-    sra_inflight: int,
-    batch: int = 300,
-    seed: int = DEFAULT_SEED,
-    chunk: int = DEFAULT_CHUNK,
-    stage1_fetch: bool = True,
-    total_experiments: int = DEFAULT_EXPERIMENTS,
-    soft_base: str = "https://ftp.ncbi.nlm.nih.gov",
-) -> dict[str, Any]:
-    """Run one step: draw, pooled SOFT bench, stage 1 fetch, SRA bench, then the report.
-
-    Each part is skipped when its result file exists, so a killed step resumes.
-    """
-    draw_step(pilot, step, fraction, seed, chunk)
-    soft_bench(pilot, step, connections=soft_connections, base=soft_base)
-    if stage1_fetch:
-        run_fetch(pilot, step, client)
-    sra_bench(pilot, step, client, inflight=sra_inflight, batch=batch)
-    return report(pilot, step, total_experiments)
 
 
 # ---------- command line ----------
@@ -972,19 +1078,24 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("setup")
     p.add_argument("--main", type=Path, required=True, help="the main store root, read only")
     p.add_argument("--pilot", type=Path, required=True)
-    p = sub.add_parser("step")
+    p = sub.add_parser("draw")
     p.add_argument("--pilot", type=Path, required=True)
     p.add_argument("--name", required=True, help="the step's folder under <pilot>/pilot/")
-    p.add_argument("--fraction", type=float, required=True)
-    p.add_argument("--soft-connections", type=int, required=True)
-    p.add_argument("--sra-inflight", type=int, required=True)
-    p.add_argument("--batch", type=int, default=300, help="SRA experiments per efetch")
+    how = p.add_mutually_exclusive_group(required=True)
+    how.add_argument("--fraction", type=float, help="the share of sequencing Series to take")
+    how.add_argument("--size", type=int, help="the number of sequencing Series to take")
     p.add_argument("--seed", type=int, default=DEFAULT_SEED)
-    p.add_argument("--chunk", type=int, default=DEFAULT_CHUNK, help="Series per fetch call")
-    p.add_argument(
-        "--no-stage1-fetch", action="store_true", help="re-time only; raw/ is already fetched"
-    )
-    p.add_argument("--total-experiments", type=int, default=DEFAULT_EXPERIMENTS)
+    p = sub.add_parser("concurrent")
+    p.add_argument("--pilot", type=Path, required=True)
+    p.add_argument("--name", required=True)
+    p.add_argument("--connections", type=int, required=True, help="HTTPS connections to GEO")
+    p.add_argument("--inflight", type=int, required=True, help="E-utilities calls at once")
+    p.add_argument("--batch", type=int, default=300, help="SRA experiments per efetch")
+    p = sub.add_parser("shard")
+    p.add_argument("--pilot", type=Path, required=True)
+    p.add_argument("--name", required=True)
+    p.add_argument("--count", type=int, required=True)
+    p.add_argument("--index", type=int, default=int(os.environ.get("SLURM_ARRAY_TASK_ID", "0")))
     p = sub.add_parser("build")
     p.add_argument("--pilot", type=Path, required=True)
     p.add_argument("--build-id", required=True)
@@ -996,21 +1107,25 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.WARNING)
     if args.command == "setup":
         setup(args.main, args.pilot)
-    elif args.command == "step":
-        run_step(
+    elif args.command == "draw":
+        meta = draw_step(args.pilot, args.name, args.fraction or 0.0, args.seed, size=args.size)
+        print(json.dumps(meta))
+    elif args.command == "concurrent":
+        result = concurrent_fetch(
             args.pilot,
             args.name,
             EntrezClient(allow_prompt=False),
-            fraction=args.fraction,
-            soft_connections=args.soft_connections,
-            sra_inflight=args.sra_inflight,
+            connections=args.connections,
+            inflight=args.inflight,
             batch=args.batch,
-            seed=args.seed,
-            chunk=args.chunk,
-            stage1_fetch=not args.no_stage1_fetch,
-            total_experiments=args.total_experiments,
         )
-        print(pilot_dir(args.pilot, args.name) / "results.md")
+        print(json.dumps({k: v for k, v in result.items() if k in ("wall_s", "pack")}))
+    elif args.command == "shard":
+        print(
+            run_shard(
+                args.pilot, args.name, args.index, args.count, EntrezClient(allow_prompt=False)
+            )
+        )
     elif args.command == "build":
         print(json.dumps(run_build(args.pilot, args.build_id)))
     else:

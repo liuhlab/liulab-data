@@ -1,9 +1,11 @@
-"""The stage 2 pilot script: target draw, metering, resume and the report, on fixture data."""
+"""The stage 2 pilot script: target draw, pooled and concurrent fetch, shards, the report."""
 
 from __future__ import annotations
 
 import gzip
+import hashlib
 import importlib.util
+import io
 import json
 import sys
 import threading
@@ -19,9 +21,10 @@ import pytest
 from labdata.exceptions import PageNotFound
 from labdata.store import raw
 from tests._fakes import ExplodingEntrezClient, FakeEntrezClient
-from tests._slices import geo_client, new_root
+from tests._slices import DATA, geo_client, new_root
 
 _SCRIPT = Path(__file__).parent.parent / "scripts" / "store" / "pilot_stage2.py"
+_SOFT = DATA / "geo_slice" / "soft"
 SEQ = "Expression profiling by high throughput sequencing"
 MIXED = f"{SEQ}; Expression profiling by array"
 
@@ -49,32 +52,44 @@ def _line(accession: str, gdstype: str) -> str:
     return json.dumps({"accession": accession, "gdstype": gdstype}) + "\n"
 
 
+def _with_cache(client: FakeEntrezClient) -> FakeEntrezClient:
+    client._cache = {}  # the fake skips EntrezClient.__init__; the pilot clears this cache
+    return client
+
+
 def test_only_sequencing_series_are_targets_and_mixed_ones_are_marked() -> None:
-    lines = [
-        _line("GSE10", SEQ),
-        _line("GSE9", "Expression profiling by array"),
-        _line("GSE2", MIXED),
-        "\n",
-    ]
+    lines = [_line("GSE10", SEQ), _line("GSE9", "Expression profiling by array")]
+    lines += [_line("GSE2", MIXED), "\n"]
     targets = pilot.sequencing_series(lines)
     assert [(t.accession, t.mixed) for t in targets] == [("GSE2", True), ("GSE10", False)]
 
 
-def test_the_draw_is_seeded_sized_by_fraction_and_sorted() -> None:
-    pool = [pilot.Target(f"GSE{i}", SEQ) for i in range(1, 1001)]
-    first = pilot.draw(pool, 0.01, 50)
-    assert len(first) == 10
-    assert first == pilot.draw(pool, 0.01, 50)
-    assert first != pilot.draw(pool, 0.01, 51)
-    assert [int(t.accession[3:]) for t in first] == sorted(int(t.accession[3:]) for t in first)
-    assert len(pilot.draw(pool[:3], 0.01, 50)) == 1
+def test_draws_are_seeded_sized_by_fraction_and_nested() -> None:
+    pool = [pilot.Target(f"GSE{i}", SEQ) for i in range(1, 10_001)]
+    small = pilot.draw(pool, 0.001, 50)
+    large = pilot.draw(pool, 0.01, 50)
+    assert (len(small), len(large)) == (10, 100)
+    assert {t.accession for t in small} <= {t.accession for t in large}
+    assert pilot.draw(pool, 0.0, 50, size=10) == small
+    assert large == pilot.draw(pool, 0.01, 50)
+    assert large != pilot.draw(pool, 0.01, 51)
+    assert [int(t.accession[3:]) for t in large] == sorted(int(t.accession[3:]) for t in large)
 
 
-def test_table_bytes_counts_only_data_table_blocks() -> None:
-    table = "!sample_table_begin\nID\tVALUE\n1\t2\n!sample_table_end\n"
-    text = "^SAMPLE = GSM1\n!Sample_title = a\n" + table + "^PLATFORM = GPL1\n"
-    assert pilot.table_bytes(text) == len(table)
-    assert pilot.table_bytes("^SERIES = GSE1\n") == 0
+class _Body(io.BytesIO):
+    def getheader(self, name: str) -> str | None:
+        return str(len(self.getvalue())) if name == "Content-Length" else None
+
+
+def test_read_soft_strips_data_tables_and_keeps_the_original_size_and_hash() -> None:
+    table = b"!sample_table_begin\nID\tVALUE\n1\t2\n!sample_table_end\n"
+    head = b"^SAMPLE = GSM1\n!Sample_title = a\n"
+    original = head + table + b"^PLATFORM = GPL1\n"
+    body = gzip.compress(original)
+    soft, wire = pilot.read_soft(_Body(body))
+    assert soft.text == (head + b"^PLATFORM = GPL1\n").decode()
+    assert (soft.original_bytes, wire, soft.gz_bytes) == (len(original), len(body), len(body))
+    assert soft.original_sha256 == hashlib.sha256(original).hexdigest()
 
 
 def test_each_client_call_is_timed_under_the_raw_source_it_feeds() -> None:
@@ -91,50 +106,33 @@ def test_quantiles_use_nearest_rank() -> None:
     assert pilot.quantiles([]) == {"n": 0}
 
 
-@pytest.fixture
-def main_store(tmp_path: Path) -> Path:
-    """A main store: the GEO fixture snapshots, extracted, with typed esummary lines."""
-    root = new_root(tmp_path / "main", "geo_slice")
-    gz = next((root / "snapshots" / "geo-series").glob("*/gds_gse_esummary.jsonl.gz"))
-    lines = [
-        _line("GSE19456", SEQ),
-        _line("GSE28770", MIXED),
-        _line("GSE900001", SEQ),
-        _line("GSE1", "Expression profiling by array"),
-    ]
-    with gzip.open(gz, "wt", encoding="utf-8") as fh:
-        fh.writelines(lines)
-    return root
-
-
-def _with_cache(client: FakeEntrezClient) -> FakeEntrezClient:
-    client._cache = {}  # the fake skips EntrezClient.__init__; the pilot clears this cache
-    return client
-
-
-def _missing_soft_client() -> FakeEntrezClient:
-    client = _with_cache(geo_client())
-    url = (
-        "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE900nnn/GSE900001/soft/GSE900001_family.soft.gz"
-    )
-    client._pages = {**client._pages, url: None}
-    return client
+def test_a_torn_last_log_line_is_ignored(tmp_path: Path) -> None:
+    log = tmp_path / "log.jsonl"
+    log.write_text('{"chunk": 0}\n{"chunk": 1', encoding="utf-8")
+    assert pilot.read_log(log) == [{"chunk": 0}]
 
 
 class _Site(BaseHTTPRequestHandler):
-    """GEO's download site in small: GSE2 is throttled once, GSE3 is missing."""
+    """GEO's download site in small.
+
+    Family SOFT of the fixture Series is served gzipped; GSE2 is throttled once; anything
+    else, ``filelist.txt`` included, is missing.
+    """
 
     throttled: ClassVar[set[str]] = set()
 
     def do_GET(self) -> None:
-        gse = self.path.rsplit("/", 1)[-1].split("_")[0]
+        name = self.path.rsplit("/", 1)[-1]
+        gse = name.split("_")[0]
         if gse == "GSE2" and gse not in self.throttled:
             self.throttled.add(gse)
             self._reply(503, b"busy")
-        elif gse == "GSE3":
-            self._reply(404, b"no")
+        elif gse == "GSE2":
+            self._reply(200, gzip.compress(b"x" * 1000))
+        elif name.endswith("_family.soft.gz") and (_SOFT / f"{gse}.soft").is_file():
+            self._reply(200, gzip.compress((_SOFT / f"{gse}.soft").read_bytes()))
         else:
-            self._reply(200, b"x" * 1000)
+            self._reply(404, b"no")
 
     def _reply(self, status: int, body: bytes) -> None:
         self.send_response(status)
@@ -161,28 +159,28 @@ def site(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
         server.server_close()
 
 
-def test_the_pooled_soft_bench_halves_on_503_and_counts_missing_files(
-    tmp_path: Path, site: str
-) -> None:
-    root = tmp_path / "pilot"
-    (root / "pilot" / "s").mkdir(parents=True)
-    rows = "".join(f"GSE{i}\t0\t{SEQ}\n" for i in range(1, 7))
-    (root / "pilot" / "s" / "targets.tsv").write_text("accession\tmixed\tgdstype\n" + rows)
-    result = pilot.soft_bench(root, "s", connections=4, base=site)
-    assert result["files"] == 5
-    assert result["gz_bytes"] == 5000
-    assert result["missing_404"] == ["GSE3"]
-    assert result["throttle_events"] == {"HTTP 503": 1}
-    assert result["connections_at_end"] == 2
-    assert not result["failed"]
+def test_the_pooled_get_halves_on_503_retries_and_counts_missing(site: str) -> None:
+    paths = {f"GSE{i}": f"/x/GSE{i}_family.soft.gz" for i in (2, 3, 4)}
+    values, stats = pilot.pooled_get(paths, pilot.read_soft, connections=4, base=site)
+    assert values["GSE3"] is None
+    assert values["GSE2"] is not None
+    assert stats["items"] == 1
+    assert stats["missing_404"] == ["GSE3", "GSE4"]
+    assert stats["throttle_events"] == {"HTTP 503": 1}
+    assert stats["connections_at_end"] == 2
+    assert not stats["failed"]
 
 
-def test_nested_draws_put_a_smaller_step_inside_a_larger_one() -> None:
-    pool = [pilot.Target(f"GSE{i}", SEQ) for i in range(1, 10_001)]
-    small = {t.accession for t in pilot.draw(pool, 0.001, 50)}
-    large = {t.accession for t in pilot.draw(pool, 0.01, 50)}
-    assert (len(small), len(large)) == (10, 100)
-    assert small <= large
+@pytest.fixture
+def main_store(tmp_path: Path) -> Path:
+    """A main store: the GEO fixture snapshots, extracted, with typed esummary lines."""
+    root = new_root(tmp_path / "main", "geo_slice")
+    gz = next((root / "snapshots" / "geo-series").glob("*/gds_gse_esummary.jsonl.gz"))
+    lines = [_line("GSE19456", SEQ), _line("GSE28770", MIXED), _line("GSE900001", SEQ)]
+    lines.append(_line("GSE1", "Expression profiling by array"))
+    with gzip.open(gz, "wt", encoding="utf-8") as fh:
+        fh.writelines(lines)
+    return root
 
 
 def test_setup_links_the_main_store_and_a_step_draws_its_targets(
@@ -203,63 +201,77 @@ def test_setup_links_the_main_store_and_a_step_draws_its_targets(
         pilot.setup(main_store, main_store)
 
 
-def test_a_step_pins_failures_to_series_resumes_and_reports(
+def _missing_soft_client() -> FakeEntrezClient:
+    client = _with_cache(geo_client())
+    url = (
+        "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE900nnn/GSE900001/soft/GSE900001_family.soft.gz"
+    )
+    client._pages = {**client._pages, url: None}
+    return client
+
+
+def test_shards_time_the_stage1_fetch_in_their_own_roots_and_resume(
+    main_store: Path, tmp_path: Path
+) -> None:
+    root = tmp_path / "pilot"
+    pilot.setup(main_store, root)
+    pilot.draw_step(root, "s1", 1.0, 50, 1)
+    for index in (0, 1):
+        pilot.run_shard(root, "s1", index, 2, _missing_soft_client())
+    logs = pilot.fetch_logs(root, "s1")
+    assert sorted(s for entries in logs.values() for e in entries for s in e["series"]) == [
+        "GSE19456",
+        "GSE28770",
+        "GSE900001",
+    ]
+    failed = {g: f for entries in logs.values() for e in entries for g, f in e["failed"].items()}
+    assert failed["GSE900001"]["step"] == raw.GEO_SOFT
+    assert failed["GSE900001"]["error"] == PageNotFound.__name__
+    assert not (root / "raw").exists()
+    pilot.run_shard(root, "s1", 0, 2, ExplodingEntrezClient())  # logged chunks make no call
+    with pytest.raises(SystemExit, match="outside"):
+        pilot.run_shard(root, "s1", 2, 2, ExplodingEntrezClient())
+    summary = pilot.summarize_fetch([e for entries in logs.values() for e in entries])
+    assert summary["series"] == 3
+    assert summary["failures_by_kind"] == {"geo-soft: PageNotFound": 1}
+
+
+def test_the_concurrent_fetch_fills_raw_once_per_source_then_builds_and_reports(
     main_store: Path, tmp_path: Path, site: str
 ) -> None:
     root = tmp_path / "pilot"
     pilot.setup(main_store, root)
-    results = pilot.run_step(
-        root,
-        "s1",
-        _missing_soft_client(),
-        fraction=1.0,
-        soft_connections=2,
-        sra_inflight=2,
-        batch=3,
-        chunk=2,
-        soft_base=site,
+    pilot.draw_step(root, "s1", 1.0)
+    client = _with_cache(geo_client())
+    result = pilot.concurrent_fetch(
+        root, "s1", client, connections=2, inflight=2, batch=3, base=site
     )
-    entries = pilot.read_log(root / "pilot" / "s1" / "fetch-log.jsonl")
-    assert [e["series"] for e in entries] == [["GSE19456", "GSE28770"], ["GSE900001"]]
-    assert entries[1]["failed"]["GSE900001"]["step"] == raw.GEO_SOFT
-    assert entries[1]["failed"]["GSE900001"]["error"] == PageNotFound.__name__
-
-    assert results["soft_bench"]["files"] == 3
-    sra = results["sra_bench"]
-    assert sra["packages"] == sra["requested"] == results["bytes"][raw.SRA_XML]["rows"]
-    assert sra["bytes_per_s"] > 0
-    assert results["stability"]["stable"]
-    assert results["projection"]["soft_hours"] is not None
-    assert results["held_target_series"] == 2
-    assert results["gaps"] == 1
-    assert results["fetch"]["failures_by_kind"] == {"geo-soft: PageNotFound": 1}
-    assert results["bytes"][raw.GEO_SOFT]["by_kind"]["mixed"]["n"] == 1
-    sizes = (root / "pilot" / "s1" / "soft-sizes.tsv").read_text().splitlines()
-    assert len(sizes) == 1 + results["bytes"][raw.GEO_SOFT]["rows"]
-
-    # A rerun of a finished step makes no call.
-    pilot.run_step(
-        root,
-        "s1",
-        ExplodingEntrezClient(),
-        fraction=1.0,
-        soft_connections=2,
-        sra_inflight=2,
-        chunk=2,
-        soft_base=site,
+    assert result[raw.GEO_SOFT]["missing_404"] == ["GSE900001"]
+    assert result[raw.GEO_SOFT]["items"] >= 2
+    soft = raw.saved(root, raw.GEO_SOFT, ["GSE19456", "GSE28770"])
+    assert sorted(soft) == ["GSE19456", "GSE28770"]
+    assert "table_begin" not in soft["GSE19456"]
+    original = (root / "pilot" / "s1" / "soft-original.tsv").read_text().splitlines()
+    assert any(line.startswith("GSE19456\t") for line in original)
+    assert raw.saved(root, raw.GEO_FILELIST, ["GSE19456"]) == {"GSE19456": ""}
+    sra = result[raw.SRA_XML]
+    assert sra["items"] == sra["requested"] > 0
+    assert sra["missing"] == 0
+    assert result["pack"]["sources"][raw.SRA_XML]["rows"] == sra["items"]
+    assert result[raw.PUBMED_SI]["items"] > 0
+    assert (
+        pilot.concurrent_fetch(
+            root, "s1", ExplodingEntrezClient(), connections=2, inflight=2, base=site
+        )
+        == result
     )
-    assert len(pilot.read_log(root / "pilot" / "s1" / "fetch-log.jsonl")) == 2
 
     built = pilot.run_build(root, "p1")
     assert built["rows"]["holdings.parquet"] > 0
-    assert built["maxrss_bytes"] > 0
     assert not (main_store / "builds").exists()
     report = pilot.report(root, "s1")
+    assert report["stability"]["stable"]
+    assert report["projection_hours"][raw.SRA_XML] is not None
+    assert report["bytes"][raw.SRA_XML]["rows"] == sra["items"]
     assert [b["build_id"] for b in report["builds"]] == ["p1"]
     assert "Stage 2 pilot: s1" in (root / "pilot" / "s1" / "results.md").read_text()
-
-
-def test_a_torn_last_log_line_is_ignored(tmp_path: Path) -> None:
-    log = tmp_path / "log.jsonl"
-    log.write_text('{"chunk": 0}\n{"chunk": 1', encoding="utf-8")
-    assert pilot.read_log(log) == [{"chunk": 0}]
