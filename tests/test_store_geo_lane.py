@@ -72,7 +72,7 @@ class Reply:
         return data
 
 
-Answer = bytes | int | BaseException
+Answer = bytes | int | BaseException | Reply
 
 
 class Site:
@@ -99,7 +99,9 @@ class Site:
         try:
             if isinstance(answer, BaseException):
                 raise answer
-            if isinstance(answer, int):
+            if isinstance(answer, Reply):
+                yield Reply(answer.body, answer.status, answer.headers)
+            elif isinstance(answer, int):
                 yield Reply(b"", answer)
             else:
                 yield Reply(answer)
@@ -116,6 +118,18 @@ def client(site: Site) -> EntrezClient:
 @pytest.fixture(autouse=True)
 def no_waits(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(geo_lane, "_sleep", lambda _s: None)
+
+
+def test_a_throttled_soft_waits_as_long_as_retry_after_asks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    waits: list[float] = []
+    monkeypatch.setattr(geo_lane, "_sleep", waits.append)
+    busy = Reply(status=503, headers={"Retry-After": "120"})
+    site = Site({soft_url("GSE1"): [busy, gzip.compress(soft("GSE1"))]})
+    report = geo_lane.run(tmp_path, ["GSE1"], client=client(site), date=DATE)
+    assert report.held == 1
+    assert waits == [120.0]
 
 
 def saved(root: Path, source: str) -> dict[str, str]:

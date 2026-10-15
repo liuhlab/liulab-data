@@ -27,7 +27,7 @@ from pathlib import Path
 import pyarrow.parquet as pq
 
 from labdata.exceptions import EntrezError, PageNotFound
-from labdata.ncbi.entrez import EntrezClient
+from labdata.ncbi.entrez import EntrezClient, retry_after
 from labdata.store import gaps, raw
 from labdata.store import progress as progress_lines
 from labdata.store.fetch import filelist_url, soft_url
@@ -378,6 +378,7 @@ class _Pool:
         while True:
             attempt += 1
             kind = None
+            wait = min(60.0, 2.0**attempt)
             with self._gate:
                 try:
                     got: str | _Gap = self._client.stream(url, consume, tries=1)
@@ -386,13 +387,14 @@ class _Pool:
                 except EntrezError as err:
                     cause = err.__cause__ or err
                     kind = _kind(cause)
+                    wait = max(wait, retry_after(cause))
                     progress.add(0, **{kind: 1})
                     got = _Gap(gaps.FETCH_FAILED, f"{kind}: {cause}")
             self._gate.record(kind)
             if not (isinstance(got, _Gap) and got.reason == gaps.FETCH_FAILED) or attempt == TRIES:
                 progress.add(1)
                 return got
-            _sleep(min(60.0, 2.0**attempt))
+            _sleep(wait)
 
 
 def _kind(err: BaseException) -> str:
