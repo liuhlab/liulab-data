@@ -145,6 +145,23 @@ def store_fetch(
         typer.echo(f"{accession}[si]: {', '.join(pmids) or 'no PubMed IDs'}")
 
 
+@store_app.command("pack")
+def store_pack(
+    root: Path | None = typer.Option(
+        None, help="Store root; default: LABDATA_STORE, then pointer."
+    ),
+) -> None:
+    """Merge the fetched parts under work/parts/ into raw/, one bucket file at a time.
+
+    Rerun it after a cut-off run: parts stay until their bucket is rewritten.
+    """
+    from labdata.store.pack import pack
+
+    store = open_store(root)
+    written = pack(store.root)
+    typer.echo(f"Packed {len(written)} bucket files into {store.root / 'raw'}")
+
+
 @store_app.command("build")
 def store_build(
     root: Path | None = typer.Option(

@@ -115,6 +115,9 @@ def document_raw(root: Path, source: str) -> Path:
         entry["rows"] = len(column)
         dates |= set(column.to_pylist())
     what, url = RAW_SOURCES.get(source, (f"Live results of the {source} source.", "NCBI"))
+    width = raw.WIDTHS[source]
+    digits = len(str(width)) - 1
+    example = raw.bucket_of(source, "GSE246310" if source.startswith("geo-") else "SRX24283130")
     _write(
         folder,
         {
@@ -124,13 +127,17 @@ def document_raw(root: Path, source: str) -> Path:
             "date": _span(dates),
             "layout": (
                 "One Parquet file per bucket, rows sorted by accession, columns accession, "
-                "raw_text, hash (sha256 of raw_text) and fetch_date. GEO accessions use GEO's "
-                "thousand folder (GSE246nnn); others a range of 10,000 numbers (SRX2428nnnn)."
+                "raw_text, hash (sha256 of raw_text) and fetch_date. A bucket is a range of "
+                f"{width:,} accession numbers within one prefix, named with the last "
+                f"{digits} digits as n ({example}). The width is set from measured Parquet "
+                "bytes per row so a full-scale bucket file is about 50 MB to 1 GB."
             ),
             "files": files,
-            "produced_by": produced_by("labdata store fetch"),
+            "produced_by": produced_by("labdata store pack"),
             "refresh": (
-                "Run `labdata store fetch <accession> ...`. Saved items are kept; only "
+                "Run `labdata store fetch <accession> ...`, or a fetch lane, then "
+                "`labdata store pack`. Fetching writes parts under work/parts/; pack merges "
+                "them into these files and is their only writer. Saved items are kept; only "
                 "missing ones are fetched. A build refreshes this README and manifest."
             ),
         },
