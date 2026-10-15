@@ -34,7 +34,7 @@ from labdata.geo._base import (
 )
 from labdata.geo.sra_records import Experiment, _experiments_from_ids, _linked_experiments
 from labdata.geo.sratools import _SraDownloadMixin
-from labdata.ncbi.entrez import _chunked, _docsum_uid
+from labdata.ncbi.entrez import _chunked, docsum_uid
 
 if TYPE_CHECKING:
     import pandas
@@ -168,7 +168,7 @@ class _GdsRecord(_Record):
         list of str
             File names, or an empty list when the record has no supplementary files.
         """
-        return _web.list_directory(self.supplementary_http_url)
+        return _web.list_directory(self.supplementary_http_url, self.client)
 
     @property
     def supplementary_file_urls(self) -> list[str]:
@@ -258,7 +258,7 @@ class Series(_SraDownloadMixin, _GdsRecord):
             accession = str(docsum.get("Project_Acc", ""))
             if accession and accession not in found:
                 bioproject = BioProject(accession, client=self.client)
-                bioproject._seed(uid=_docsum_uid(docsum), summary=dict(docsum))
+                bioproject._seed(uid=docsum_uid(docsum), summary=dict(docsum))
                 found[accession] = bioproject
         return list(found.values())
 

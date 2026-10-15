@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, NoReturn
 
 from labdata.exceptions import LabdataError
@@ -35,6 +36,9 @@ class OfflineEntrezClient(EntrezClient):
     def elink(self, dbfrom: str, db: str, uid: str) -> list[str]:
         _refuse("elink")
 
+    def elink_many(self, dbfrom: str, db: str, uids: list[str]) -> dict[str, list[str]]:
+        _refuse("elink")
+
     def efetch(
         self,
         db: str,
@@ -48,6 +52,9 @@ class OfflineEntrezClient(EntrezClient):
 
     def fetch_text(self, url: str) -> str:
         _refuse("fetch_text")
+
+    def _request(self, open_handle: Callable[[], Any], parse: Callable[[Any], Any]) -> Any:
+        _refuse("request")
 
 
 class OfflineSdlClient(SdlClient):

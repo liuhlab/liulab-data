@@ -23,7 +23,7 @@ from labdata.geo._base import _Record
 from labdata.geo.geo_records import Series
 from labdata.geo.sra_records import Experiment, _linked_experiments
 from labdata.geo.sratools import _SraDownloadMixin
-from labdata.ncbi.entrez import _docsum_uid
+from labdata.ncbi.entrez import docsum_uid
 
 
 class BioProject(_SraDownloadMixin, _Record):
@@ -124,7 +124,7 @@ class BioProject(_SraDownloadMixin, _Record):
             accession = str(docsum.get("Accession", ""))
             if accession and accession not in found:
                 series = Series(accession, client=self.client)
-                series._seed(uid=_docsum_uid(docsum), summary=dict(docsum))
+                series._seed(uid=docsum_uid(docsum), summary=dict(docsum))
                 found[accession] = series
         return list(found.values())
 

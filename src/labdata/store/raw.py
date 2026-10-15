@@ -16,6 +16,8 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from labdata.store._files import temp_beside
+
 #: Raw folder of the SRA ``EXPERIMENT_PACKAGE`` XML, one row per experiment.
 SRA_XML = "sra-xml"
 #: Raw folder of PubMed ``<accession>[si]`` results, one row per queried accession.
@@ -104,9 +106,12 @@ def write_rows(root: Path, source: str, rows: list[RawRow]) -> list[Path]:
             },
             schema=_SCHEMA,
         )
-        tmp = path.with_suffix(".parquet.tmp")
-        pq.write_table(table, tmp)
-        tmp.replace(path)
+        tmp = temp_beside(path)
+        try:
+            pq.write_table(table, tmp)
+            tmp.replace(path)
+        finally:
+            tmp.unlink(missing_ok=True)
         written.append(path)
     return written
 

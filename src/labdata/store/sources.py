@@ -1,8 +1,8 @@
 """Turn source text into store records and link rows.
 
 Field names are XML paths with ``@`` for attributes (``RUN@total_spots``), or a SOFT key
-without its ``!`` (``Sample_title``); values are the text exactly as served. Each parser returns rows only; the build owns typed columns from the
-snapshots, copy checks and dedupe.
+without its ``!`` (``Sample_title``); values are the text exactly as served. Each parser
+returns rows only; the build owns typed columns from the snapshots, copy checks and dedupe.
 """
 
 from __future__ import annotations
@@ -54,19 +54,9 @@ def flatten(element: ET.Element, path: str = "") -> list[tuple[str, str]]:
 
 
 def _slices(xml: str, tag: str) -> list[str]:
-    """Return every ``<tag …>…</tag>`` (or self-closing ``<tag …/>``) slice of ``xml``, in order."""
+    """Return every ``<tag …>…</tag>`` or self-closing ``<tag …/>`` slice of ``xml``."""
     pattern = rf"<{tag}\b(?:[^>]*?/>|[^>]*>.*?</{tag}>)"
     return re.findall(pattern, xml, flags=re.S)
-
-
-def split_packages(xml: str) -> dict[str, str]:
-    """Map each experiment accession in an ``efetch db=sra`` reply to its package text."""
-    out = {}
-    for package in _slices(xml, "EXPERIMENT_PACKAGE"):
-        match = re.search(r'<EXPERIMENT\b[^>]*?\baccession="([^"]+)"', package)
-        if match:
-            out[match[1]] = package
-    return out
 
 
 def sra_package(package: str) -> tuple[list[Parsed], list[LinkRow]]:

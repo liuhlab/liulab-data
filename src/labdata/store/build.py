@@ -11,7 +11,7 @@ rename, so readers never see half a build.
 from __future__ import annotations
 
 import datetime as dt
-import json
+import glob
 import re
 import shutil
 import tomllib
@@ -24,6 +24,7 @@ import pyarrow.parquet as pq
 
 from labdata.exceptions import StoreBuildError
 from labdata.store import known, provenance, raw, snapshots, sources, suppl
+from labdata.store._files import temp_beside, toml_line, write_atomic
 from labdata.store.root import MARKER
 from labdata.store.sources import LinkRow, Parsed
 
@@ -96,8 +97,9 @@ def build(root: Path, build_id: str | None = None) -> Path:
     for row in raw.read_rows(root, raw.PUBMED_SI):
         links.update(sources.pubmed_si(row.accession, row.raw_text))
 
-    tmp = root / "builds" / f".{build_id}.tmp"
-    shutil.rmtree(tmp, ignore_errors=True)
+    for stale in out.parent.glob(f".{glob.escape(build_id)}.*.tmp"):
+        shutil.rmtree(stale, ignore_errors=True)
+    tmp = temp_beside(out)
     (tmp / "records").mkdir(parents=True)
     _write_records(tmp, records)
     _write_links(tmp, links)
@@ -245,7 +247,4 @@ def _switch(root: Path, build_id: str) -> None:
     with marker.open("rb") as fh:
         settings = tomllib.load(fh)
     settings[BUILD_KEY] = build_id
-    lines = [f"{key} = {json.dumps(value)}" for key, value in settings.items()]
-    tmp = marker.with_name(f".{MARKER}.tmp")
-    tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    tmp.replace(marker)
+    write_atomic(marker, "".join(f"{toml_line(k, v)}\n" for k, v in settings.items()))

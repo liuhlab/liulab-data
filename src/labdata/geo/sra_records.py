@@ -23,12 +23,14 @@ from labdata.geo._base import _read_structure, _Record
 from labdata.ncbi.entrez import EntrezClient
 from labdata.ncbi.sdl import RemoteFile, SdlClient
 
-#: Ids per package EFetch; a package is a few kilobytes to a few hundred.
+#: Ids per package EFetch.
 _PACKAGE_CHUNK = 100
 #: Fresh requests for the ids a package EFetch left out, before giving up.
 _PACKAGE_RETRIES = 2
 
 _XML_DECLARATION = re.compile(r"<\?xml[^>]*\?>")
+_PACKAGE = re.compile(r"<EXPERIMENT_PACKAGE\b[^>]*>.*?</EXPERIMENT_PACKAGE>", re.S)
+_EXPERIMENT_ACC = re.compile(r'<EXPERIMENT\b[^>]*?\baccession="([^"]+)"')
 _EMPTY = ET.Element("_")
 
 
@@ -108,39 +110,80 @@ def _missing(ids: list[str], packages: dict[str, ET.Element]) -> list[str]:
     return [i for i in ids if i not in named]
 
 
-def _fetch_packages(client: EntrezClient, ids: list[str]) -> dict[str, ET.Element]:
-    """Fetch the packages for SRA UIDs or accessions, checking every id came back.
+def split_packages(xml: str) -> dict[str, str]:
+    """Map each experiment accession in an ``efetch db=sra`` reply to its package text.
+
+    Each value is the ``EXPERIMENT_PACKAGE`` element exactly as served; the first
+    package of an accession wins.
+    """
+    out: dict[str, str] = {}
+    for package in _PACKAGE.findall(xml):
+        match = _EXPERIMENT_ACC.search(package)
+        if match:
+            out.setdefault(match[1], package)
+    return out
+
+
+def fetch_package_texts(client: EntrezClient, ids: list[str]) -> dict[str, str]:
+    """Fetch the package text for SRA UIDs or accessions, checking every id came back.
 
     A batched EFetch can leave packages out with no error, so the ids left out are
     requested again, fresh, before this gives up.
+
+    Parameters
+    ----------
+    client : EntrezClient
+        The Entrez seam.
+    ids : list of str
+        SRA UIDs, or experiment or run accessions.
+
+    Returns
+    -------
+    dict of str to str
+        Each experiment accession mapped to its ``EXPERIMENT_PACKAGE`` text as served.
 
     Raises
     ------
     EntrezError
         If some ids still have no package after the retries.
     """
-    found: dict[str, ET.Element] = {}
+    found: dict[str, str] = {}
     for start in range(0, len(ids), _PACKAGE_CHUNK):
         chunk = [str(i) for i in ids[start : start + _PACKAGE_CHUNK]]
-        packages: dict[str, ET.Element] = {}
+        texts: dict[str, str] = {}
+        parsed: dict[str, ET.Element] = {}
         missing = chunk
         for attempt in range(_PACKAGE_RETRIES + 1):
-            text = client.efetch(
+            reply = client.efetch(
                 db="sra", ids=missing, rettype="full", retmode="xml", refresh=attempt > 0
             )
-            for accession, package in _packages(text).items():
-                packages.setdefault(accession, package)
-            missing = _missing(chunk, packages)
+            for accession, text in split_packages(reply).items():
+                if accession not in texts:
+                    texts[accession] = text
+                    parsed[accession] = _parse_package(text)
+            missing = _missing(chunk, parsed)
             if not missing:
                 break
         else:
             raise EntrezError(
-                f"SRA returned {len(packages)} experiment packages for {len(chunk)} "
+                f"SRA returned {len(texts)} experiment packages for {len(chunk)} "
                 f"requested ids; no package for: {', '.join(missing)}"
             )
-        for accession, package in packages.items():
-            found.setdefault(accession, package)
+        for accession, text in texts.items():
+            found.setdefault(accession, text)
     return found
+
+
+def _parse_package(text: str) -> ET.Element:
+    try:
+        return ET.fromstring(text)
+    except ET.ParseError as err:
+        raise LabdataError(f"not SRA package XML: {err}") from err
+
+
+def _fetch_packages(client: EntrezClient, ids: list[str]) -> dict[str, ET.Element]:
+    """Fetch and parse the packages for SRA UIDs or accessions; see :func:`fetch_package_texts`."""
+    return {a: _parse_package(t) for a, t in fetch_package_texts(client, ids).items()}
 
 
 def _experiments_from_ids(client: EntrezClient, ids: list[str]) -> list[Experiment]:

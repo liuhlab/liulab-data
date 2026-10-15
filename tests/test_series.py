@@ -125,7 +125,7 @@ def test_bioprojects_use_one_batched_summary_and_seed() -> None:
 def test_supplementary_files_lists_directory(monkeypatch: pytest.MonkeyPatch) -> None:
     seen: dict[str, str] = {}
 
-    def fake_list(url: str) -> list[str]:
+    def fake_list(url: str, client: object) -> list[str]:
         seen["url"] = url
         return ["GSE131907_matrix.txt.gz", "GSE131907_meta.csv"]
 
@@ -137,7 +137,9 @@ def test_supplementary_files_lists_directory(monkeypatch: pytest.MonkeyPatch) ->
 
 def test_supplementary_file_urls(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        web_mod, "list_directory", lambda _url: ["GSE131907_matrix.txt.gz", "GSE131907_meta.csv"]
+        web_mod,
+        "list_directory",
+        lambda _url, _client: ["GSE131907_matrix.txt.gz", "GSE131907_meta.csv"],
     )
     s = Series(g.GSE, client=g.build_client())
     base = s.supplementary_http_url
