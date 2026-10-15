@@ -72,6 +72,37 @@ _RUN_TABLE_COLUMNS = [
 ]
 
 
+#: One SRA link line of a sample's SOFT record; each line names exactly one experiment.
+_SOFT_SRA_RELATION = re.compile(
+    r"^!Sample_relation\s*=\s*SRA:\s*\S*?[?&]term=([SED]RX\d+)", re.MULTILINE
+)
+
+
+def _soft_url(accession: str) -> str:
+    """Return the URL of the SOFT text of every sample under ``accession`` (no data tables)."""
+    return (
+        "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi"
+        f"?acc={accession}&targ=gsm&form=text&view=brief"
+    )
+
+
+def _experiments_with_soft(record: _GdsRecord) -> list[Experiment]:
+    """Join ``record``'s ``elink`` experiments with the SRX its samples' SOFT lines name.
+
+    ``elink`` misses some links SOFT carries and SOFT misses a few ``elink`` has. The
+    ``elink`` experiments come first, seeded; the SOFT-only ones follow, unseeded.
+    """
+    found = {
+        experiment.accession: experiment
+        for experiment in _linked_experiments(record.client, record.uid)
+    }
+    soft = record.client.fetch_text(_soft_url(record.accession))
+    for accession in _SOFT_SRA_RELATION.findall(soft):
+        if accession not in found:
+            found[accession] = Experiment(accession, client=record.client)
+    return list(found.values())
+
+
 class _GdsRecord(_Record):
     """Base for GEO records (``GSE``/``GSM``/``GPL``) backed by the ``gds`` database."""
 
@@ -201,8 +232,12 @@ class Series(_SraDownloadMixin, _GdsRecord):
 
     @cached_property
     def experiments(self) -> list[Experiment]:
-        """The SRA experiments (``SRX``) linked to this Series, as :class:`Experiment` instances."""
-        return _linked_experiments(self.client, self.uid)
+        """The SRA experiments (``SRX``) linked to this Series, as :class:`Experiment` instances.
+
+        The union of ``elink`` and every sample's SOFT ``Sample_relation = SRA`` lines,
+        read in one request for the whole Series.
+        """
+        return _experiments_with_soft(self)
 
     @cached_property
     def bioprojects(self) -> list[BioProject]:
@@ -306,8 +341,11 @@ class Sample(_GdsRecord):
 
     @cached_property
     def experiments(self) -> list[Experiment]:
-        """The SRA experiments (``SRX``) for this sample, as :class:`Experiment` instances."""
-        return _linked_experiments(self.client, self.uid)
+        """The SRA experiments (``SRX``) for this sample, as :class:`Experiment` instances.
+
+        The union of ``elink`` and the sample's SOFT ``Sample_relation = SRA`` lines.
+        """
+        return _experiments_with_soft(self)
 
 
 class Platform(_GdsRecord):

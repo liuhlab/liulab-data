@@ -210,6 +210,20 @@ def test_efetch_is_cached(monkeypatch: pytest.MonkeyPatch) -> None:
     assert calls[0]["id"] == "1,2"
 
 
+def test_fetch_text_gets_a_page_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    urls: list[str] = []
+
+    def _urlopen(request: object, **_kw: object) -> _TextHandle:
+        urls.append(request.full_url)  # type: ignore[attr-defined]
+        return _TextHandle(b"^SAMPLE = GSM1\n")
+
+    monkeypatch.setattr(entrez_mod.urllib.request, "urlopen", _urlopen)
+    client = EntrezClient(CREDS)
+    assert client.fetch_text("https://www.ncbi.nlm.nih.gov/x") == "^SAMPLE = GSM1\n"
+    assert client.fetch_text("https://www.ncbi.nlm.nih.gov/x") == "^SAMPLE = GSM1\n"
+    assert urls == ["https://www.ncbi.nlm.nih.gov/x"]
+
+
 def test_clear_cache_forces_refetch(count_entrez) -> None:
     calls = count_entrez("esearch", {"IdList": ["7"]})
     client = EntrezClient(CREDS)
