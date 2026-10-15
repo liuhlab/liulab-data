@@ -263,6 +263,38 @@ def store_coverage(
     raise typer.Exit(1)
 
 
+@store_app.command("_geo", hidden=True)
+def store_geo_lane(
+    series: list[str] = typer.Argument(
+        None, help="GEO Series; default: the target Series list of the snapshot."
+    ),
+    snapshot_date: str | None = typer.Option(
+        None, help="geo-series snapshot date; default: the newest."
+    ),
+    root: Path | None = typer.Option(
+        None, help="Store root; default: LABDATA_STORE, then pointer."
+    ),
+) -> None:
+    """Fetch family SOFT and filelist.txt of every target Series into parts under work/."""
+    import logging
+
+    import pyarrow.parquet as pq
+
+    from labdata.store import geo_lane, targets
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    store = open_store(root)
+    if not series:
+        path = targets.target_list(store.root, snapshot_date)
+        batches = pq.ParquetFile(path).iter_batches(columns=["accession"])
+        series = [gse for batch in batches for gse in batch.column(0).to_pylist()]
+    report = geo_lane.run(store.root, series, client=_store_client())
+    typer.echo(
+        f"GEO lane: {report.held} Series held, {report.filelists} filelists, gaps: "
+        f"{report.soft_missing} soft-missing, {report.fetch_failed} fetch-failed"
+    )
+
+
 @store_app.command("extract")
 def store_extract(
     source: str = typer.Option(..., help="biosample, bioproject, sra-accessions or geo-series."),

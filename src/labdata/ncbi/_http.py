@@ -89,18 +89,18 @@ class HttpTransport:
         if conn.sock is not None:
             conn.sock.settimeout(timeout)
         path = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
+        response: http.client.HTTPResponse | None = None
         try:
             conn.request(method, path, body=body, headers=dict(headers))
             response = conn.getresponse()
             yield response
-        except BaseException:
-            conn.close()
-            raise
-        # A body left unread, or a server that asked to close, makes the connection unusable.
-        if response.will_close or not response.isclosed():
-            conn.close()
-        else:
-            conns[key] = conn
+        finally:
+            # A body left unread, or a server that asked to close, makes the connection
+            # unusable; a reply read in full keeps it, a 404 included.
+            if response is None or response.will_close or not response.isclosed():
+                conn.close()
+            else:
+                conns[key] = conn
 
 
 class RateLimiter:

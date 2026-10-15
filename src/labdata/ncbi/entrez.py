@@ -6,8 +6,8 @@ POSTs over kept-open connections, paced by one limiter per process; Biopython's
 files outside E-utilities. Every request has a socket timeout and is retried with jittered
 backoff when the failure is transient.
 
-Responses are memoized per client instance, except ``efetch_records`` and ``download``,
-which bulk runs use.
+Responses are memoized per client instance, except ``efetch_records``, ``download`` and
+``stream``, which bulk runs use.
 """
 
 from __future__ import annotations
@@ -23,11 +23,11 @@ import socket
 import time
 import urllib.error
 import urllib.parse
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from email.message import Message
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 from Bio import Entrez
 
@@ -37,6 +37,7 @@ from labdata.ncbi.config import NcbiCredentials, load_credentials
 
 # Bio.Entrez ships no type stubs; alias it as Any so the type checker doesn't fight it.
 _entrez: Any = Entrez
+_T = TypeVar("_T")
 
 _EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 
@@ -583,10 +584,53 @@ class EntrezClient:
         part.replace(dest)
         return size
 
-    def _get(self, url: str, read: Callable[[Response], Any]) -> Any:
+    def stream(
+        self, url: str, consume: Callable[[Iterator[bytes]], _T], *, tries: int = _MAX_TRIES
+    ) -> _T:
+        """GET a file from the GEO site and hand its bytes to ``consume`` as they arrive.
+
+        A gzip body is decompressed on the way. The body is read in chunks, so a large file
+        is never whole in memory unless ``consume`` keeps it. Nothing is cached.
+
+        Parameters
+        ----------
+        url : str
+            The file URL.
+        consume : callable
+            Takes an iterator over the body's chunks, decompressed, and returns the result.
+            It runs again from the start on each retry.
+        tries : int
+            Tries before giving up; ``1`` leaves retries and backoff to the caller.
+
+        Returns
+        -------
+        object
+            What ``consume`` returned.
+
+        Raises
+        ------
+        PageNotFound
+            If the server answers 404.
+        EntrezError
+            If the request fails ``tries`` times; the last failure is its ``__cause__``.
+        """
+
+        def read(response: Response) -> _T:
+            body = io.BufferedReader(_RawBody(response), _CHUNK_BYTES)
+            data: io.BufferedIOBase = body
+            if body.peek(2)[:2] == b"\x1f\x8b":
+                data = gzip.GzipFile(fileobj=body)
+            result = consume(iter(lambda: data.read(_CHUNK_BYTES), b""))
+            while body.read(_CHUNK_BYTES):  # drain, so the connection can be reused
+                pass
+            return result
+
+        return self._get(url, read, tries=tries)
+
+    def _get(self, url: str, read: Callable[[Response], Any], *, tries: int = _MAX_TRIES) -> Any:
         """GET a page outside E-utilities; a 404 raises :class:`PageNotFound`."""
         try:
-            return self._send("GET", url, None, _GEO_TIMEOUT, read, limiter=None)
+            return self._send("GET", url, None, _GEO_TIMEOUT, read, limiter=None, tries=tries)
         except EntrezError as err:
             cause = err.__cause__
             if isinstance(cause, urllib.error.HTTPError) and cause.code == 404:
@@ -613,6 +657,7 @@ class EntrezClient:
         read: Callable[[Response], Any],
         *,
         limiter: RateLimiter | None,
+        tries: int = _MAX_TRIES,
     ) -> Any:
         """Send a request and read its reply, retrying transient failures with backoff.
 
@@ -651,9 +696,24 @@ class EntrezClient:
                 if limiter and isinstance(status, int) and status < 500 and not retry:
                     refused += 1
                     retry = status != 404 and not _ids_empty(err) and refused < _REFUSED_TRIES
-                if not retry or attempt >= _MAX_TRIES:
+                if not retry or attempt >= tries:
                     raise EntrezError(f"NCBI E-utilities request failed: {err}") from err
                 time.sleep(wait)
+
+
+class _RawBody(io.RawIOBase):
+    """A response body as a raw stream, so it can be buffered and gunzipped."""
+
+    def __init__(self, response: Response) -> None:
+        self._response = response
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, buffer: Any) -> int:
+        data = self._response.read(min(len(buffer), _CHUNK_BYTES))
+        buffer[: len(data)] = data
+        return len(data)
 
 
 def _headers(response: Response) -> Message:

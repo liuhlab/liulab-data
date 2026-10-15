@@ -34,7 +34,13 @@ _DOWNLOADER = "scripts/bulk/download_ncbi_bulk.py"
 #: What each raw folder holds and where its text comes from.
 RAW_SOURCES: dict[str, tuple[str, str]] = {
     raw.GEO_SOFT: (
-        "The family SOFT of each GEO Series, decompressed, one row per Series.",
+        "The family SOFT of each GEO Series, decompressed, one row per Series. Rows the GEO "
+        "lane wrote have the sample and platform data tables stripped (each "
+        "!Sample_table_begin to !Sample_table_end and !Platform_table_begin to "
+        "!Platform_table_end block, markers included); every other line is kept as served. "
+        "Such a row starts with two lines giving the original decompressed file's size in "
+        "bytes and its sha256: `#labdata_original_size = <bytes>` and "
+        "`#labdata_original_sha256 = <hex>`.",
         f"{_FTP}/geo/series/<GSEnnn>/<GSE>/soft/<GSE>_family.soft.gz",
     ),
     raw.ENTREZ_LINKS: (

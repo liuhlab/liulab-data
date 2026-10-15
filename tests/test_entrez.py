@@ -379,6 +379,41 @@ def test_the_real_transport_times_out_a_hung_connection(monkeypatch: pytest.Monk
         server.close()
 
 
+def test_a_404_keeps_the_connection_open_for_the_next_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(entrez_mod, "_GEO_TIMEOUT", 2.0)
+    server = socket.socket()
+    server.bind(("127.0.0.1", 0))
+    server.listen()
+    port = server.getsockname()[1]
+    accepted: list[socket.socket] = []
+
+    def serve() -> None:
+        conn, _ = server.accept()
+        accepted.append(conn)
+        for status, body in ((b"404 Not Found", b"gone"), (b"200 OK", b"a\n")):
+            conn.recv(65536)
+            head = b"HTTP/1.1 %s\r\nContent-Length: %d\r\n\r\n" % (status, len(body))
+            conn.sendall(head + body)
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    transport = HttpTransport()
+    client = EntrezClient(CREDS, transport=transport, limiter=RateLimiter(1000.0, 8))
+    try:
+        with pytest.raises(PageNotFound):
+            client.stream(f"http://127.0.0.1:{port}/missing", list, tries=1)
+        assert client.stream(f"http://127.0.0.1:{port}/filelist.txt", list, tries=1) == [b"a\n"]
+    finally:
+        transport.close()
+        thread.join(2)
+        for sock in accepted:
+            sock.close()
+        server.close()
+    assert len(accepted) == 1
+
+
 # ---------------------------------------------------------------- batched efetch
 
 
@@ -485,6 +520,40 @@ def test_download_of_a_missing_file_raises_and_leaves_nothing(tmp_path: Path) ->
     with pytest.raises(PageNotFound):
         _client(Reply(b"gone", 404)).download("https://x/f", tmp_path / "f")
     assert list(tmp_path.iterdir()) == []
+
+
+def test_stream_hands_the_caller_decompressed_chunks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(entrez_mod, "_CHUNK_BYTES", 4096)
+    text = b"".join(b"!Sample_title = line %d\n" % i for i in range(5000))
+    replies: list[Reply] = []
+
+    def answer(call: Call) -> Reply:
+        replies.append(Reply(gzip.compress(text) if call.url.endswith(".gz") else b"a\nb"))
+        return replies[-1]
+
+    client = _client(answer)
+    chunks = client.stream("https://x/GSE1_family.soft.gz", list)
+    assert b"".join(chunks) == text
+    assert max(map(len, chunks)) <= 4096
+    assert all(amt is not None and amt <= 4096 for amt in replies[0].reads)
+    assert client.stream("https://x/filelist.txt", list) == [b"a\nb"]
+    assert client.stream("https://x/filelist.txt", list) == [b"a\nb"]
+    assert len(_calls(client)) == 3  # never cached
+
+
+def test_stream_signals_a_missing_page_and_can_leave_retries_to_the_caller(
+    sleeps: list[float],
+) -> None:
+    with pytest.raises(PageNotFound):
+        _client(Reply(b"gone", 404)).stream("https://x/", list)
+    client = _client(Reply(b"busy", 503, {"Retry-After": "9"}))
+    with pytest.raises(EntrezError) as err:
+        client.stream("https://x/", list, tries=1)
+    assert getattr(err.value.__cause__, "code", None) == 503
+    assert len(_calls(client)) == 1
+    assert sleeps == []
 
 
 def test_a_network_that_is_briefly_unreachable_is_retried(sleeps: list[float]) -> None:
