@@ -29,6 +29,9 @@ GEO_SOFT = "geo-soft"
 ENTREZ_LINKS = "entrez-links"
 #: Raw folder of each Series' ``suppl/filelist.txt``, one row per Series; empty when absent.
 GEO_FILELIST = "geo-filelist"
+#: Raw folder of each GEO Series the fetch could not save, one row per Series: its gap
+#: reason, then any detail after a newline (see :mod:`labdata.store.gaps`).
+GEO_GAPS = "geo-gaps"
 
 _SCHEMA = pa.schema(
     [

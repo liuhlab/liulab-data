@@ -40,23 +40,25 @@ class Snapshot:
     date: str
 
 
-def snapshot(root: Path, source: str) -> Snapshot:
-    """Return the newest snapshot of one source.
+def snapshot(root: Path, source: str, date: str | None = None) -> Snapshot:
+    """Return the newest snapshot of one source, or the one of ``date``.
 
     Raises
     ------
     StoreBuildError
-        If the store has no dated folder holding the source's file.
+        If the store has no such dated folder holding the source's file.
     """
     folder = root / "snapshots" / source
     dates = (
         sorted(p.name for p in folder.glob("*") if _DATE.match(p.name)) if folder.is_dir() else []
     )
-    for date in reversed(dates):
-        path = folder / date / _FILES[source]
-        if path.is_file():
-            return Snapshot(path, date)
-    raise StoreBuildError(f"no {source} snapshot: expected {folder}/<date>/{_FILES[source]}")
+    for day in reversed(dates):
+        path = folder / day / _FILES[source]
+        if path.is_file() and date in (None, day):
+            return Snapshot(path, day)
+    raise StoreBuildError(
+        f"no {source} snapshot: expected {folder}/{date or '<date>'}/{_FILES[source]}"
+    )
 
 
 def tab_rows(

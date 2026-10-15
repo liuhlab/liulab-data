@@ -48,6 +48,11 @@ RAW_SOURCES: dict[str, tuple[str, str]] = {
         "names, sizes, dates and archive members. An empty text means the Series has none.",
         f"{_FTP}/geo/series/<GSEnnn>/<GSE>/suppl/filelist.txt",
     ),
+    raw.GEO_GAPS: (
+        "Each target GEO Series whose family SOFT the fetch could not save, one row per "
+        "Series: the gap reason (soft-missing or fetch-failed), then any detail after a newline.",
+        f"{_FTP}/geo/series/<GSEnnn>/<GSE>/soft/<GSE>_family.soft.gz, as answered",
+    ),
     raw.SRA_XML: (
         "The SRA EXPERIMENT_PACKAGE XML of each experiment, one row per experiment.",
         f"{_EUTILS}/efetch.fcgi?db=sra&rettype=full&retmode=xml",
@@ -145,11 +150,14 @@ def document_build(
     *,
     built: str | None = None,
     unknown_labels: dict[str, dict[str, int | str]] | None = None,
+    target_series: dict[str, Any] | None = None,
+    notes: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     """Write a build folder's manifest and README, naming the inputs it was built from.
 
     ``unknown_labels`` maps each GEO relation label the build kept verbatim to its link count
     and an example accession; the manifest lists it only when it is not empty.
+    ``target_series`` is the coverage summary and ``notes`` the note count by kind.
 
     Returns
     -------
@@ -170,11 +178,15 @@ def document_build(
             "links_by_from.parquet and links_by_to.parquet, the same links sorted by each end; "
             "holdings.parquet, every accession held; known.parquet, every accession the "
             "snapshots list with the snapshot date; supplementary_files.parquet, the supplementary "
-            "files of each held record, sorted by owner accession."
+            "files of each held record, sorted by owner accession; gaps.parquet, each target "
+            "Series not held with its reason; notes.parquet, what the build met and kept, such "
+            "as a Series whose SOFT type disagrees with the snapshot."
         ),
         "files": files,
         "inputs": _inputs(root),
         **({"unknown_relation_labels": unknown_labels} if unknown_labels else {}),
+        **({"target_series": target_series} if target_series is not None else {}),
+        **({"notes": notes} if notes is not None else {}),
         "produced_by": produced_by("labdata store build"),
         "refresh": (
             "Run `labdata store build`. It writes a new builds/<build-id>/ and then switches "
@@ -379,6 +391,7 @@ def _render(m: dict[str, Any]) -> str:
         m.get("layout", ""),
         "",
         *_unknown_section(m.get("unknown_relation_labels") or {}),
+        *_coverage_section(m.get("target_series"), m.get("notes") or {}),
         "## How these files were made",
         "",
         f"`{made.get('command')}` at commit `{made.get('commit') or 'unknown'}`"
@@ -406,6 +419,32 @@ def _unknown_section(labels: dict[str, dict[str, Any]]) -> list[str]:
         *rows,
         "",
     ]
+
+
+def _coverage_section(target: dict[str, Any] | None, notes: dict[str, int]) -> list[str]:
+    if target is None:
+        return []
+    lines = [
+        "## Target Series",
+        "",
+        f"From the geo-series snapshot of {target['snapshot_date']}: {target['target']} target "
+        f"Series, {target['held']} held. Gaps by reason:",
+        "",
+        "| Reason | Series |",
+        "| --- | --- |",
+        *(f"| {reason} | {n} |" for reason, n in target["gaps"].items()),
+        "",
+    ]
+    if notes:
+        lines += [
+            "## Notes",
+            "",
+            "| Kind | Notes |",
+            "| --- | --- |",
+            *(f"| {kind} | {n} |" for kind, n in notes.items()),
+            "",
+        ]
+    return lines
 
 
 def _commit() -> str | None:
