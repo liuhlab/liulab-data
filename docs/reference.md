@@ -20,6 +20,20 @@
 
 ::: labdata.store.root
 
+::: labdata.store.pipeline
+
+::: labdata.store.targets
+
+::: labdata.store.geo_lane
+
+::: labdata.store.eutils
+
+::: labdata.store.raw
+
+::: labdata.store.pack
+
+::: labdata.store.gaps
+
 ::: labdata.store.prune
 
 ::: labdata.store.gcs

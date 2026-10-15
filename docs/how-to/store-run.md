@@ -56,8 +56,11 @@ Gaps: 2
   soft-missing: 2
   fetch-failed: 0
   unexplained: 0
+SRA experiments fetch-failed: 0 (not Series gaps)
 Coverage passes.
 ```
+
+If coverage fails, the run stops there: it does not delete old builds or copy the store.
 
 ## Resume
 
@@ -65,10 +68,14 @@ Submit the same command again. The run starts at the first step that did not fin
 fetch steps skip every Series and experiment already saved. A job that the cluster stops to
 make room is put back in the queue and resumes by itself.
 
-A Series whose download kept failing is a `fetch-failed` gap. To try those again, delete the
-round's folder under `work/run/` and submit the round again. Nothing saved is fetched twice.
+The fetch steps ask once more for every item that failed before they finish. A Series that
+still fails is a `fetch-failed` gap, and an SRA experiment that still fails is counted on the
+`SRA experiments fetch-failed` line. To ask for those again, submit the same round again:
+the fetch steps ask only for what failed, and the steps after them run again. Nothing saved
+is fetched twice.
 
 ## Go deeper
 
-The steps are also commands of their own, listed in the [API reference](../reference.md):
-`labdata store pack`, `build`, `coverage`, `prune` and `copy`.
+The steps are also commands of their own: `labdata store pack`, `build`, `coverage`, `prune`
+and `copy`. Run `labdata store --help` to list them, and see the
+[API reference](../reference.md) for the modules behind them.
