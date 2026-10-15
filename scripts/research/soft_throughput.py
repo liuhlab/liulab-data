@@ -17,6 +17,7 @@ import ftplib
 import http.client
 import json
 import random
+import socket
 import statistics
 import sys
 import threading
@@ -30,6 +31,12 @@ HOST = "ftp.ncbi.nlm.nih.gov"
 ESEARCH = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?"
 TERM = 'gse[ETYP] AND "high throughput sequencing"[PTYP]'
 UA = "liulab-data-research (+https://github.com/liuhlab/liulab-data)"
+
+# Some hosts resolve IPv6 first but have no IPv6 route: resolve IPv4 only.
+_getaddrinfo = socket.getaddrinfo
+socket.getaddrinfo = lambda host, port, family=0, *a, **k: _getaddrinfo(
+    host, port, socket.AF_INET, *a, **k
+)
 
 
 def path_of(gse: str) -> str:
