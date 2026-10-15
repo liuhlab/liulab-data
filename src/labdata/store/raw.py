@@ -25,6 +25,8 @@ GEO_SOFT = "geo-soft"
 #: Raw folder of ``elink`` results, one row per Series: tab-separated lines of
 #: from accession, target database, target UID and target accession.
 ENTREZ_LINKS = "entrez-links"
+#: Raw folder of each Series' ``suppl/filelist.txt``, one row per Series; empty when absent.
+GEO_FILELIST = "geo-filelist"
 
 _SCHEMA = pa.schema(
     [

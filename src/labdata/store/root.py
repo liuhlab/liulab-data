@@ -33,6 +33,7 @@ from labdata.store.model import (
     Partial,
     RawText,
     Record,
+    SupplementaryFile,
     forward_name,
     kind_of,
 )
@@ -194,6 +195,35 @@ class Store:
         """
         rows = self.backend.raw_many({_norm(a) for a in accessions})
         return {a: RawText(text, digest) for a, (text, digest) in sorted(rows.items())}
+
+    def supplementary_files(self, accessions: Iterable[str]) -> dict[str, list[SupplementaryFile]]:
+        """Map each accession to the supplementary files its SOFT lists, in one backend call.
+
+        Reads the table only: an accession the store does not hold maps to an empty list.
+        A Series lists its own files; its samples' files are under the samples.
+
+        Parameters
+        ----------
+        accessions : iterable of str
+            GEO accessions, in the order wanted back.
+
+        Returns
+        -------
+        dict
+            Each accession, in input order, mapped to its files sorted by name.
+
+        Raises
+        ------
+        AccessionError
+            If an accession is malformed.
+        """
+        order = [_norm(a) for a in accessions]
+        for accession in order:
+            kind_of(accession)
+        out: dict[str, list[SupplementaryFile]] = {a: [] for a in order}
+        for row in self.backend.supplementary_many(set(order)) if order else []:
+            out[row[0]].append(SupplementaryFile(*row))
+        return out
 
     @overload
     def experiments_for_many(

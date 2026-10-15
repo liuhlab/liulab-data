@@ -1,4 +1,4 @@
-"""Fetch live results into ``raw/``: SOFT, ``elink``, SRA package XML and PubMed ``[si]``.
+"""Fetch live results into ``raw/``: SOFT, ``filelist.txt``, ``elink``, SRA XML, PubMed ``[si]``.
 
 Every call goes through :class:`~labdata.ncbi.entrez.EntrezClient`. Results are saved before
 any build reads them, an empty result included. A fetch resumes: an item whose raw row is
@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import datetime as dt
 import re
+import urllib.error
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -52,7 +53,7 @@ def fetch(
 ) -> FetchReport:
     """Fetch the raw text under some accessions into ``raw/``, skipping what is saved.
 
-    A GEO Series brings its family SOFT, its SubSeries', the ``elink`` gds to sra (per
+    A GEO Series brings its family SOFT and ``filelist.txt``, its SubSeries', the ``elink`` gds to sra (per
     sample) and gds to bioproject (per Series) results, and the SRA packages of every
     experiment those name. A BioProject or SRA study is expanded to its experiments through
     the newest ``SRA_Accessions.tab`` snapshot; an experiment is taken as given. ``[si]`` is
@@ -83,6 +84,7 @@ def fetch(
     given = sorted({a.strip().upper() for a in accessions})
     kinds = {a: kind_of(a) for a in given}
     soft = fetch_series(root, client, [a for a, k in kinds.items() if k == "GEO Series"], date)
+    fetch_filelists(root, client, sorted(soft), date)
     linked = fetch_entrez_links(root, client, soft, date)
 
     experiments = {a for a, k in kinds.items() if k == "SRA experiment"}
@@ -116,9 +118,8 @@ def fetch(
         },
         date,
     )
-    for source in (raw.GEO_SOFT, raw.ENTREZ_LINKS, raw.SRA_XML, raw.PUBMED_SI):
-        if (root / "raw" / source).is_dir():
-            provenance.document_raw(root, source)
+    for folder in sorted(p for p in (root / "raw").glob("*") if p.is_dir()):
+        provenance.document_raw(root, folder.name)
     return FetchReport(
         tuple(sorted(packages)),
         {acc: tuple(text.split()) for acc, text in sorted(searched.items())},
@@ -166,6 +167,35 @@ def fetch_series(root: Path, client: EntrezClient, series: list[str], date: str)
         )
         todo = sorted({sub for gse in todo for sub in sources.subseries(out[gse])} - set(out))
     return out
+
+
+def filelist_url(series: str) -> str:
+    """Return the URL of a Series' ``suppl/filelist.txt`` on GEO's download site."""
+    return f"https://ftp.ncbi.nlm.nih.gov/geo/series/{raw.bucket_of(series)}/{series}/suppl/filelist.txt"
+
+
+def fetch_filelists(
+    root: Path, client: EntrezClient, series: list[str], date: str
+) -> dict[str, str]:
+    """Return each Series' ``filelist.txt``; a Series without one gets an empty text."""
+    return _resume(
+        root,
+        raw.GEO_FILELIST,
+        series,
+        lambda chunk: {gse: _text_or_empty(client, filelist_url(gse)) for gse in chunk},
+        date,
+    )
+
+
+def _text_or_empty(client: EntrezClient, url: str) -> str:
+    """Return a page's text, or ``""`` when the server answers 404."""
+    try:
+        return client.fetch_text(url)
+    except EntrezError as err:
+        cause = err.__cause__
+        if isinstance(cause, urllib.error.HTTPError) and cause.code == 404:
+            return ""
+        raise
 
 
 def fetch_entrez_links(

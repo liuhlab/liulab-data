@@ -187,3 +187,25 @@ def test_verify_reports_a_file_that_no_longer_matches_its_manifest(root: Path) -
     result = runner.invoke(app, ["store", "verify", "--root", str(root)])
     assert result.exit_code == 1
     assert "SRA_Accessions.tab" in result.output
+
+
+def test_a_geo_rebuild_offline_keeps_supplementary_files_and_documents_filelists(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.test_store_suppl import _client as suppl_client
+
+    root = tmp_path / "geo"
+    shutil.copytree(_DATA / "geo_slice" / "snapshots", root / "snapshots")
+    init_store(root)
+    fetch(root, ["GSE15556"], client=suppl_client(), today="2026-10-14")
+    build(root, "b1")
+    monkeypatch.setattr(socket, "socket", _no_network)
+    monkeypatch.setattr(socket, "create_connection", _no_network)
+    build(root, "b2")
+    first, second = _tables(root / "builds" / "b1"), _tables(root / "builds" / "b2")
+    assert first["supplementary_files.parquet"]
+    assert first == second
+    result = CliRunner().invoke(app, ["store", "verify", "--root", str(root), "--write-missing"])
+    assert result.exit_code == 0, result.output
+    _documented(root / "raw" / "geo-filelist")
+    _documented(root / "builds" / "b2")

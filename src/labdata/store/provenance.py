@@ -42,6 +42,11 @@ RAW_SOURCES: dict[str, tuple[str, str]] = {
         f"{_EUTILS}/elink.fcgi (gds to sra per Sample, gds to bioproject per Series) "
         "and esummary.fcgi for the target accessions",
     ),
+    raw.GEO_FILELIST: (
+        "The suppl/filelist.txt of each GEO Series, one row per Series: supplementary file "
+        "names, sizes, dates and archive members. An empty text means the Series has none.",
+        f"{_FTP}/geo/series/<GSEnnn>/<GSE>/suppl/filelist.txt",
+    ),
     raw.SRA_XML: (
         "The SRA EXPERIMENT_PACKAGE XML of each experiment, one row per experiment.",
         f"{_EUTILS}/efetch.fcgi?db=sra&rettype=full&retmode=xml",
@@ -155,7 +160,8 @@ def document_build(
             "records/<type>.parquet, one per record type, sorted by accession; "
             "links_by_from.parquet and links_by_to.parquet, the same links sorted by each end; "
             "holdings.parquet, every accession held; known.parquet, every accession the "
-            "snapshots list with the snapshot date. Any further table is listed in files."
+            "snapshots list with the snapshot date; supplementary_files.parquet, the supplementary "
+            "files of each held record, sorted by owner accession."
         ),
         "files": files,
         "inputs": _inputs(root),

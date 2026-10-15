@@ -13,6 +13,8 @@ Writes, next to this script:
   name in SOFT or through ``elink``.
 - ``entrez.json``: the live ``elink`` answers (sample to sra, Series to bioproject), the
   accession behind each linked UID, and the PubMed ``[si]`` answers.
+- ``soft/GSE15556.soft`` and ``filelist/GSE15556.txt``: a Series with no SRA experiment whose
+  reads are supplementary files only, every sample kept, and its live ``suppl/filelist.txt``.
 - ``snapshots/``: ``bioproject.xml`` with every BioProject named, rewrapped in the bulk file's
   ``<Package>`` shape; a ``biosample_set.xml.gz`` and an ``SRA_Accessions.tab`` that hold
   no record of this slice; a ``gds_gse_esummary.jsonl.gz`` written from the trimmed SOFT,
@@ -52,6 +54,8 @@ KEEP: dict[str, list[str] | None] = {
 #: Series whose first sample is kept, and the SuperSeries that keeps its SubSeries' samples.
 FIRST = ("GSE246308", "GSE246309", "GSE153830", "GSE233931", "GSE233685")
 SUPER = "GSE246310"
+#: Series with reads only as supplementary files, written by ``write_suppl``.
+SUPPL = "GSE15556"
 
 
 def get(url: str) -> bytes:
@@ -161,6 +165,15 @@ def write_geo_series() -> None:
     out.write_bytes(gzip.compress(text.encode(), mtime=0))
 
 
+def write_suppl() -> None:
+    """Write the supplementary-files Series: its trimmed SOFT and its ``filelist.txt``."""
+    folder = f"https://ftp.ncbi.nlm.nih.gov/geo/series/{SUPPL[:-3]}nnn/{SUPPL}"
+    text = gzip.decompress(get(f"{folder}/soft/{SUPPL}_family.soft.gz")).decode()
+    (HERE / "soft" / f"{SUPPL}.soft").write_text(trim(text, None), encoding="utf-8")
+    (HERE / "filelist").mkdir(exist_ok=True)
+    (HERE / "filelist" / f"{SUPPL}.txt").write_bytes(get(f"{folder}/suppl/filelist.txt"))
+
+
 def main() -> None:
     """Fetch and write every fixture file."""
     soft: dict[str, str] = {}
@@ -236,6 +249,7 @@ def main() -> None:
         out = snap / folder / DATE / name
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(data)
+    write_suppl()
     write_geo_series()
 
 
