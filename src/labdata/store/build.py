@@ -2,8 +2,8 @@
 
 No network. Reads family SOFT, ``elink`` results, SRA packages and ``[si]`` results from
 ``raw/``. Writes ``builds/<build-id>/``: ``records/<type>.parquet`` (sorted by accession),
-``links_by_from.parquet``, ``links_by_to.parquet``, ``holdings.parquet`` and
-``known.parquet``.
+``links_by_from.parquet``, ``links_by_to.parquet``, ``holdings.parquet``,
+``known.parquet`` and ``supplementary_files.parquet``.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from labdata.exceptions import StoreBuildError
-from labdata.store import known, raw, snapshots, sources
+from labdata.store import known, raw, snapshots, sources, suppl
 from labdata.store.root import MARKER
 from labdata.store.sources import LinkRow, Parsed
 
@@ -105,6 +105,7 @@ def build(root: Path, build_id: str | None = None) -> Path:
         tmp / "holdings.parquet",
     )
     known.write(root, tmp / "known.parquet")
+    suppl.write(root, tmp / "supplementary_files.parquet")
     tmp.rename(out)
     _switch(root, build_id)
     return out
