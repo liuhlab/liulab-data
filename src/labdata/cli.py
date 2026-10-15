@@ -22,7 +22,7 @@ from labdata.ncbi.config import (
     save_credentials,
 )
 from labdata.ncbi.entrez import EntrezClient
-from labdata.store import open_store, save_pointer
+from labdata.store import init_store, open_store, save_pointer
 from labdata.tenx import bamtofastq
 
 app = typer.Typer(
@@ -66,6 +66,40 @@ def ncbi_configure(
         creds = prompt_and_save()
         path = config_path()
     typer.echo(f"Saved NCBI credentials for {creds.email} to {path}")
+
+
+@store_app.command("init")
+def store_init(
+    root: Path = typer.Argument(..., help="The store root; created if missing."),
+) -> None:
+    """Make a folder a store: write labdata-store.toml. Refuses if one is already there."""
+    try:
+        marker = init_store(root)
+    except LabdataError as err:
+        typer.echo(str(err), err=True)
+        raise typer.Exit(1) from err
+    typer.echo(f"Wrote {marker}")
+
+
+@store_app.command("verify")
+def store_verify(
+    root: Path | None = typer.Option(
+        None, help="Store root; default: LABDATA_STORE, then pointer."
+    ),
+    write_missing: bool = typer.Option(
+        False, help="First write a README and manifest where a snapshot or raw folder lacks one."
+    ),
+) -> None:
+    """Check every snapshots/, raw/ and builds/ folder against its manifest, sha256 included."""
+    from labdata.store.provenance import folders, verify
+
+    store = open_store(root)
+    problems = verify(store.root, write_missing=write_missing)
+    for line in problems:
+        typer.echo(line)
+    if problems:
+        raise typer.Exit(1)
+    typer.echo(f"All {len(folders(store.root))} folders match their manifests")
 
 
 @store_app.command("configure")

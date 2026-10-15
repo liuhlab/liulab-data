@@ -16,7 +16,7 @@ from pathlib import Path
 
 from labdata.exceptions import EntrezError
 from labdata.ncbi.entrez import EntrezClient, _docsum_uid
-from labdata.store import raw, snapshots, sources
+from labdata.store import provenance, raw, snapshots, sources
 from labdata.store.model import kind_of
 from labdata.store.sources import split_packages
 
@@ -116,6 +116,9 @@ def fetch(
         },
         date,
     )
+    for source in (raw.GEO_SOFT, raw.ENTREZ_LINKS, raw.SRA_XML, raw.PUBMED_SI):
+        if (root / "raw" / source).is_dir():
+            provenance.document_raw(root, source)
     return FetchReport(
         tuple(sorted(packages)),
         {acc: tuple(text.split()) for acc, text in sorted(searched.items())},

@@ -115,7 +115,7 @@ def test_fetch_saves_the_pubmed_si_results_an_empty_one_included(root: Path) -> 
         for r in _rows(path)
     }
     assert rows == {_PROJECT: "39637862", _STUDY: ""}
-    assert sorted(p.name for p in (root / "raw" / "pubmed-si").iterdir()) == [
+    assert sorted(p.name for p in (root / "raw" / "pubmed-si").glob("*.parquet")) == [
         "PRJNA102nnnn.parquet",
         "SRP50nnnn.parquet",
     ]

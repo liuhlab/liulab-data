@@ -3,7 +3,8 @@
 No network. Reads family SOFT, ``elink`` results, SRA packages and ``[si]`` results from
 ``raw/``. Writes ``builds/<build-id>/``: ``records/<type>.parquet`` (sorted by accession),
 ``links_by_from.parquet``, ``links_by_to.parquet``, ``holdings.parquet`` and
-``known.parquet``.
+``known.parquet``, with the folder's README and manifest. The folder appears by a rename
+once whole, and the marker switches to it by a rename, so readers never see half a build.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import re
+import shutil
 import tomllib
 from collections import defaultdict
 from dataclasses import dataclass
@@ -20,7 +22,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from labdata.exceptions import StoreBuildError
-from labdata.store import known, raw, snapshots, sources
+from labdata.store import known, provenance, raw, snapshots, sources
 from labdata.store.root import MARKER
 from labdata.store.sources import LinkRow, Parsed
 
@@ -80,6 +82,8 @@ def build(root: Path, build_id: str | None = None) -> Path:
     out = root / "builds" / build_id
     if out.exists():
         raise StoreBuildError(f"build {build_id} already exists: {out}")
+    for folder in sorted(p for p in (root / "raw").glob("*") if p.is_dir()):
+        provenance.document_raw(root, folder.name)
 
     records: dict[str, _Row] = {}
     links: set[LinkRow] = set()
@@ -92,6 +96,7 @@ def build(root: Path, build_id: str | None = None) -> Path:
         links.update(sources.pubmed_si(row.accession, row.raw_text))
 
     tmp = root / "builds" / f".{build_id}.tmp"
+    shutil.rmtree(tmp, ignore_errors=True)
     (tmp / "records").mkdir(parents=True)
     _write_records(tmp, records)
     _write_links(tmp, links)
@@ -105,6 +110,7 @@ def build(root: Path, build_id: str | None = None) -> Path:
         tmp / "holdings.parquet",
     )
     known.write(root, tmp / "known.parquet")
+    provenance.document_build(root, tmp, build_id)
     tmp.rename(out)
     _switch(root, build_id)
     return out

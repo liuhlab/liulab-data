@@ -49,6 +49,9 @@ POINTER_FILENAME = "store.toml"
 #: The marker file every store root carries.
 MARKER = "labdata-store.toml"
 
+#: The store layout version ``labdata store init`` writes.
+FORMAT_VERSION = 1
+
 
 class Store:
     """An opened store, reading the build its marker named when it was opened.
@@ -410,6 +413,41 @@ def open_store(root: str | os.PathLike[str] | None = None) -> Store:
     with marker.open("rb") as fh:
         settings = tomllib.load(fh)
     return Store(root=path, settings=settings)
+
+
+def init_store(root: str | os.PathLike[str]) -> Path:
+    """Create the store root if missing and write its marker, ``format_version = 1``.
+
+    The marker appears whole or not at all, and nothing else in the root is touched.
+
+    Parameters
+    ----------
+    root : str or os.PathLike
+        The store root.
+
+    Returns
+    -------
+    pathlib.Path
+        The marker written.
+
+    Raises
+    ------
+    LabdataError
+        If the root already has a marker.
+    """
+    path = Path(root)
+    path.mkdir(parents=True, exist_ok=True)
+    marker = path / MARKER
+    tmp = path / f".{MARKER}.init.tmp"
+    tmp.write_text(f"format_version = {FORMAT_VERSION}\n", encoding="utf-8")
+    try:
+        # A hard link fails if the marker exists, so two inits cannot both win.
+        os.link(tmp, marker)
+    except FileExistsError:
+        raise LabdataError(f"{marker} already exists; this store is initialised") from None
+    finally:
+        tmp.unlink(missing_ok=True)
+    return marker
 
 
 def pointer_path() -> Path:
