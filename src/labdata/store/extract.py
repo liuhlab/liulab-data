@@ -19,6 +19,7 @@ import re
 import shutil
 import subprocess
 from collections.abc import Callable, Iterable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
@@ -45,8 +46,8 @@ DONE = "_DONE"
 #: The default size of one part's byte range.
 PART_BYTES = 1 << 28
 
-#: The DuckDB memory cap; ``LABDATA_DUCKDB_MEMORY`` overrides it.
-DUCKDB_MEMORY = "8GB"
+#: The share of the job's or machine's memory DuckDB may use; the rest is for Python.
+MEMORY_SHARE = 0.75
 
 _PLAN = "_plan.json"
 _CHUNK = 1 << 24
@@ -171,12 +172,55 @@ def sql_string(text: str) -> str:
     return "'" + text.replace("'", "''") + "'"
 
 
-def connect(root: Path) -> duckdb.DuckDBPyConnection:
-    """Return an in-memory DuckDB with a memory cap that spills to ``<root>/work/tmp``."""
-    temp = root / "work" / "tmp"
+def duckdb_memory() -> str:
+    """Return DuckDB's memory cap: ``LABDATA_DUCKDB_MEMORY``, else a share of the allocation.
+
+    The allocation is ``SLURM_MEM_PER_NODE`` (MB) inside a Slurm job, else the cgroup limit or
+    the machine's memory, whichever is smaller.
+    """
+    override = os.environ.get("LABDATA_DUCKDB_MEMORY")
+    if override:
+        return override
+    return f"{max(int(_allocation_mb() * MEMORY_SHARE), 256)}MB"
+
+
+def _allocation_mb() -> int:
+    slurm = os.environ.get("SLURM_MEM_PER_NODE", "")
+    if slurm.isdigit() and int(slurm) > 0:
+        return int(slurm)
+    limits = [os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")]
+    for path in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
+        try:
+            text = Path(path).read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        if text.isdigit():
+            limits.append(int(text))
+    return min(limits) >> 20
+
+
+@contextmanager
+def connect(root: Path) -> Iterator[duckdb.DuckDBPyConnection]:
+    """Yield an in-memory DuckDB with a memory cap that spills to ``<root>/work/tmp/<pid>``.
+
+    Each process spills to its own folder, removed on exit. Insertion order is not kept, so
+    a query that needs an order says ``ORDER BY``.
+    """
+    temp = root / "work" / "tmp" / str(os.getpid())
     temp.mkdir(parents=True, exist_ok=True)
-    memory = os.environ.get("LABDATA_DUCKDB_MEMORY") or DUCKDB_MEMORY
-    return duckdb.connect(":memory:", config={"memory_limit": memory, "temp_directory": str(temp)})
+    con = duckdb.connect(
+        ":memory:",
+        config={
+            "memory_limit": duckdb_memory(),
+            "temp_directory": str(temp),
+            "preserve_insertion_order": False,
+        },
+    )
+    try:
+        yield con
+    finally:
+        con.close()
+        shutil.rmtree(temp, ignore_errors=True)
 
 
 def lookup(root: Path, source: str, wanted: Iterable[str]) -> tuple[str, list[tuple[object, ...]]]:
@@ -192,13 +236,10 @@ def lookup(root: Path, source: str, wanted: Iterable[str]) -> tuple[str, list[tu
     if not want:
         return date, []
     listed = ", ".join(sql_string(a) for a in want)
-    con = connect(root)
-    try:
+    with connect(root) as con:
         rows = con.execute(
             f"SELECT * FROM read_parquet({parts(folder)}) WHERE accession IN ({listed})"
         ).fetchall()
-    finally:
-        con.close()
     return date, rows
 
 

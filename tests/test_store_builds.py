@@ -13,9 +13,10 @@ import pytest
 from typer.testing import CliRunner
 
 from labdata.cli import app
-from labdata.exceptions import LabdataError
+from labdata.exceptions import LabdataError, StoreBuildError
 from labdata.store import init_store, open_store
-from labdata.store.build import build
+from labdata.store.build import build, build_lock
+from labdata.store.extract import duckdb_memory
 from labdata.store.fetch import fetch
 from tests._fakes import FakeEntrezClient
 from tests._slices import copy_snapshots
@@ -119,6 +120,31 @@ def test_a_build_killed_before_its_rename_leaves_no_build_and_reruns(root: Path)
     build(root, "b2")
     assert not stale.exists()
     assert not (root / "builds" / "b2" / "records" / "half.parquet").exists()
+
+
+def test_a_rebuild_links_the_known_table_computed_once_per_snapshot_set(root: Path) -> None:
+    build(root, "b2")
+    cached = list((root / "work" / "known").glob("known-*.parquet"))
+    assert len(cached) == 1
+    inodes = {(root / "builds" / b / "known.parquet").stat().st_ino for b in ("b1", "b2")}
+    assert inodes == {cached[0].stat().st_ino}
+
+
+def test_a_second_build_while_one_runs_fails_with_a_clear_error(root: Path) -> None:
+    with build_lock(root), pytest.raises(StoreBuildError, match="another build"):
+        build(root, "b2")
+    assert not (root / "builds" / "b2").exists()
+    build(root, "b2")
+
+
+def test_the_duckdb_memory_cap_defaults_from_the_slurm_allocation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("LABDATA_DUCKDB_MEMORY", raising=False)
+    monkeypatch.setenv("SLURM_MEM_PER_NODE", "64000")
+    assert duckdb_memory() == "48000MB"
+    monkeypatch.setenv("LABDATA_DUCKDB_MEMORY", "2GB")
+    assert duckdb_memory() == "2GB"
 
 
 # ---------------------------------------------------------------- provenance
