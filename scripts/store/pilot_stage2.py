@@ -6,9 +6,11 @@ takes a seeded, nested fraction of the sequencing Series for one step.
 
 ``concurrent`` fills the pilot's ``raw/`` the stage 2 way. Family SOFT and ``filelist.txt``
 come over a few kept-open HTTPS connections, with the SOFT data tables stripped as it
-streams. The library's chunked ``elink`` fetch, the SRA package ``efetch`` and the PubMed
-``[si]`` searches run from thread pools. The workers return results, and the script alone
-writes ``raw/``, one :func:`labdata.store.raw.write_rows` call per source (the pack).
+streams. The library's chunked ``elink`` fetch and the SRA package ``efetch`` run from
+thread pools; PubMed ``[si]`` searches wait for stage 4. The workers return results, and
+the script alone writes ``raw/``, one :func:`labdata.store.raw.write_rows` call per source
+(the pack). ``elink-extra`` counts the links ``elink`` adds beyond the SOFT relation lines
+and ``SRA_Accessions.tab``.
 
 ``shard`` times the serial stage 1 fetch, :func:`labdata.store.fetch.fetch`, on one shard of
 a step, in the shard's own root. ``build`` times one build and its peak memory. ``report``
@@ -57,7 +59,7 @@ import pyarrow.parquet as pq
 from labdata.geo.sra_records import fetch_package_texts, split_packages
 from labdata.ncbi import entrez
 from labdata.ncbi.entrez import EntrezClient
-from labdata.store import build, fetch, init_store, provenance, raw, snapshots, sources
+from labdata.store import build, extract, fetch, init_store, provenance, raw, snapshots, sources
 from labdata.store._files import write_atomic
 from labdata.store.root import MARKER
 
@@ -72,6 +74,8 @@ _TABLE_END = (b"!sample_table_end", b"!platform_table_end")
 _THROTTLED = (429, 503)
 _USER_AGENT = "liulab-data (+https://github.com/liuhlab/liulab-data)"
 _RAW_SOURCES = (raw.GEO_SOFT, raw.GEO_FILELIST, raw.ENTREZ_LINKS, raw.SRA_XML, raw.PUBMED_SI)
+#: The sources the concurrent fetch fills; PubMed ``[si]`` waits for stage 4.
+_FETCHED = (raw.GEO_SOFT, raw.GEO_FILELIST, raw.ENTREZ_LINKS, raw.SRA_XML)
 _SOFT_SRX = re.compile(r"^!Sample_relation = SRA: \S*?[?&]term=([SED]RX\d+)", re.M)
 
 
@@ -723,21 +727,7 @@ def concurrent_fetch(
     result[raw.SRA_XML]["bytes_per_s"] = round(result[raw.SRA_XML]["bytes"] / wall) if wall else 0
     metered.clear_cache()
 
-    # PubMed [si] for every held Series, linked BioProject and named SRA study.
-    retried = TRANSIENT.copy()
-    studies = {s for text in sra.values() for s in fetch._study_refs(text)}
-    projects = fetch._linked_bioprojects(
-        (s.text for s in soft.values()), linked.values(), sra.values()
-    )
-    queried = sorted(projects | studies | set(held))
-
-    def si(accession: str) -> tuple[str, str]:
-        found = metered.esearch("pubmed", f"{accession}[si]", retmax=fetch.PUBMED_RETMAX)
-        return accession, "\n".join(found)
-
-    replies, wall, errors = _pool(si, queried, inflight)
-    searched = dict(r for r in replies if r)
-    result[raw.PUBMED_SI] = _rate(len(searched), wall, errors, TRANSIENT - retried)
+    # PubMed [si] searches are left out: papers belong to stage 4.
     result["fetch_wall_s"] = round(time.perf_counter() - begin, 3)
 
     # The pack: the single writer of raw/, one write per source.
@@ -746,7 +736,6 @@ def concurrent_fetch(
         raw.GEO_FILELIST: filelists,
         raw.ENTREZ_LINKS: linked,
         raw.SRA_XML: sra,
-        raw.PUBMED_SI: searched,
     }
     pack: dict[str, Any] = {}
     start = time.perf_counter()
@@ -803,6 +792,96 @@ def _merge_rounds(rounds: list[dict[str, Any]]) -> dict[str, Any]:
         "throttle_events": dict(events),
         "connections_at_end": min(r["connections_at_end"] for r in rounds),
     }
+
+
+def tab_links(root: Path, gsms: set[str]) -> list[tuple[str, str, str]]:
+    """Return (GSM, SRX, BioProject) for the GEO experiments ``SRA_Accessions.tab`` lists.
+
+    An experiment counts when its center is GEO and its alias is one of ``gsms``.
+    """
+    if not gsms:
+        return []
+    tab = snapshots.snapshot(root, snapshots.SRA_ACCESSIONS).path
+    listed = ", ".join(extract.sql_string(g) for g in sorted(gsms))
+    with extract.connect(root) as con:
+        rows = con.execute(
+            "SELECT Alias, Accession, BioProject FROM read_csv("
+            f"{extract.sql_string(str(tab))}, delim='\t', header=true, all_varchar=true, "
+            "quote='') WHERE Type = 'EXPERIMENT' AND Center = 'GEO' "
+            f"AND Alias IN ({listed})"
+        ).fetchall()
+    return [(str(a), str(x), "" if p in (None, "-") else str(p)) for a, x, p in rows]
+
+
+def elink_extra(pilot: Path, step: str) -> dict[str, Any]:
+    """Count the links ``elink`` adds beyond SOFT relation lines and ``SRA_Accessions.tab``.
+
+    Sample to SRX: SOFT ``!Sample_relation = SRA`` lines, else a tab experiment whose alias
+    is the GSM. Series to BioProject: SOFT ``!Series_relation = BioProject`` lines, else the
+    BioProject of a tab experiment under one of the Series' samples. Writes
+    ``elink-extra.json`` and ``elink-extra.tsv`` (per Series).
+    """
+    out = pilot_dir(pilot, step)
+    held = sorted(raw.saved(pilot, raw.GEO_SOFT, read_targets(pilot, step)))
+    soft = raw.saved(pilot, raw.GEO_SOFT, held)
+    linked = raw.saved(pilot, raw.ENTREZ_LINKS, held)
+    stated: set[tuple[str, str, str]] = set()
+    samples: dict[str, list[str]] = {}
+    for gse in held:
+        samples[gse] = [a for e, a, _ in sources.soft_blocks(soft[gse]) if e == "SAMPLE"]
+        try:
+            _, rows = sources.soft(soft[gse])
+        except Exception:
+            rows = []
+        stated |= {(r.from_, r.to, r.relation) for r in rows if r.relation in ("SRA", "BioProject")}
+    start = time.perf_counter()
+    gsm_series = {gsm: gse for gse, gsms in samples.items() for gsm in gsms}
+    tab = tab_links(pilot, set(gsm_series))
+    tab_s = round(time.perf_counter() - start, 3)
+    for gsm, srx, project in tab:
+        stated.add((gsm, srx, "SRA"))
+        if project:
+            stated.add((gsm_series[gsm], project, "BioProject"))
+    per_series: dict[str, Counter[str]] = {}
+    for gse in held:
+        counts: Counter[str] = Counter()
+        for row in sources.entrez_links(linked.get(gse, "")):
+            key = "sample_to_srx" if row.relation == "SRA" else "series_to_bioproject"
+            counts[f"{key}_elink"] += 1
+            if (row.from_, row.to, row.relation) not in stated:
+                counts[f"{key}_extra"] += 1
+        per_series[gse] = counts
+    total: Counter[str] = Counter()
+    for counts in per_series.values():
+        total.update(counts)
+    keys = (
+        "sample_to_srx_elink",
+        "sample_to_srx_extra",
+        "series_to_bioproject_elink",
+        "series_to_bioproject_extra",
+    )
+    write_atomic(
+        out / "elink-extra.tsv",
+        "accession\t"
+        + "\t".join(keys)
+        + "\n"
+        + "".join(
+            f"{g}\t" + "\t".join(str(c[k]) for k in keys) + "\n" for g, c in per_series.items()
+        ),
+    )
+    result = {
+        "series": len(held),
+        "total": {k: total[k] for k in keys},
+        "series_with_extra": sum(
+            1
+            for c in per_series.values()
+            if c["sample_to_srx_extra"] or c["series_to_bioproject_extra"]
+        ),
+        "tab_rows": len(tab),
+        "tab_scan_s": tab_s,
+    }
+    write_atomic(out / "elink-extra.json", json.dumps(result, indent=2) + "\n")
+    return result
 
 
 # ---------- build ----------
@@ -918,7 +997,7 @@ def stability(c: dict[str, Any]) -> dict[str, Any]:
         return {"stable": None}
     throttled: dict[str, int] = {}
     timeouts: dict[str, float] = {}
-    for source in _RAW_SOURCES:
+    for source in _FETCHED:
         s = c[source]
         events = s.get("throttle_events", {}) | s.get("retried", {})
         throttled |= {f"{source} {k}": v for k, v in events.items() if "429" in k or "503" in k}
@@ -938,16 +1017,14 @@ def projections(
     out: dict[str, Any] = {"total_series": total_series, "total_experiments": total_exp}
     scale = total_series / drawn if drawn else 0.0
     if c:
-        for source in _RAW_SOURCES:
+        for source in _FETCHED:
             s = c[source]
             if source == raw.SRA_XML:
                 rate = s["items_per_s"]
                 out[source] = round(total_exp / rate / 3600, 2) if rate else None
             else:
                 out[source] = round(s["wall_s"] * scale / 3600, 2)
-        out["all_sources_in_turn"] = round(
-            sum(v for k, v in out.items() if k in _RAW_SOURCES and v), 2
-        )
+        out["all_sources_in_turn"] = round(sum(v for k, v in out.items() if k in _FETCHED and v), 2)
     if shards.get("s_per_series"):
         out["stage1_serial"] = round(shards["s_per_series"] * total_series / 3600, 2)
     return out
@@ -966,6 +1043,7 @@ def report(pilot: Path, step: str, total_experiments: int = DEFAULT_EXPERIMENTS)
         "targets": meta,
         "concurrent": concurrent,
         "stage1_shards": shards,
+        "elink_extra": _load(out / "elink-extra.json"),
         "stability": stability(concurrent),
         "projection_hours": projections(
             concurrent, shards, meta["drawn"], meta["sequencing_series"], total_experiments
@@ -1012,7 +1090,7 @@ def render(r: dict[str, Any]) -> str:
             "| Whole set, h (inferred) |",
             "| --- | --- | --- | --- | --- | --- | --- |",
         ]
-        for source in _RAW_SOURCES:
+        for source in _FETCHED:
             v = c[source]
             errors = v.get("throttle_events", {}) | v.get("retried", {}) | v.get("errors", {})
             if v.get("failed"):
@@ -1030,6 +1108,18 @@ def render(r: dict[str, Any]) -> str:
             f"All sources one after another, whole set: {p.get('all_sources_in_turn')} h "
             f"(inferred). Pack (single writer of `raw/`): {c['pack']['wall_s']:.0f} s. "
             f"Original and stripped SOFT sizes: `soft-original.tsv`.",
+            "",
+        ]
+    e = r["elink_extra"]
+    if e:
+        lines += [
+            "## What elink adds",
+            "",
+            f"Beyond SOFT relation lines and `SRA_Accessions.tab`, over {e['series']} Series: "
+            f"{e['total']['sample_to_srx_extra']} of {e['total']['sample_to_srx_elink']} "
+            f"sample-to-SRX links and {e['total']['series_to_bioproject_extra']} of "
+            f"{e['total']['series_to_bioproject_elink']} Series-to-BioProject links, in "
+            f"{e['series_with_extra']} Series. Per Series: `elink-extra.tsv`.",
             "",
         ]
     sh = r["stage1_shards"]
@@ -1091,6 +1181,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--connections", type=int, required=True, help="HTTPS connections to GEO")
     p.add_argument("--inflight", type=int, required=True, help="E-utilities calls at once")
     p.add_argument("--batch", type=int, default=300, help="SRA experiments per efetch")
+    p = sub.add_parser("elink-extra")
+    p.add_argument("--pilot", type=Path, required=True)
+    p.add_argument("--name", required=True)
     p = sub.add_parser("shard")
     p.add_argument("--pilot", type=Path, required=True)
     p.add_argument("--name", required=True)
@@ -1120,6 +1213,8 @@ def main(argv: list[str] | None = None) -> int:
             batch=args.batch,
         )
         print(json.dumps({k: v for k, v in result.items() if k in ("wall_s", "pack")}))
+    elif args.command == "elink-extra":
+        print(json.dumps(elink_extra(args.pilot, args.name)))
     elif args.command == "shard":
         print(
             run_shard(

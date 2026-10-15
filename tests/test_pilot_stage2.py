@@ -258,7 +258,11 @@ def test_the_concurrent_fetch_fills_raw_once_per_source_then_builds_and_reports(
     assert sra["items"] == sra["requested"] > 0
     assert sra["missing"] == 0
     assert result["pack"]["sources"][raw.SRA_XML]["rows"] == sra["items"]
-    assert result[raw.PUBMED_SI]["items"] > 0
+    assert raw.PUBMED_SI not in result
+    extra = pilot.elink_extra(root, "s1")
+    assert extra["series"] == 2
+    assert extra["total"]["sample_to_srx_elink"] > 0
+    assert extra["total"]["sample_to_srx_extra"] <= extra["total"]["sample_to_srx_elink"]
     assert (
         pilot.concurrent_fetch(
             root, "s1", ExplodingEntrezClient(), connections=2, inflight=2, base=site
