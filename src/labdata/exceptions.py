@@ -40,3 +40,15 @@ class StoreNotConfiguredError(LabdataError):
 
 class NotAStoreError(LabdataError):
     """A folder is not a labdata store: it has no readable ``labdata-store.toml``."""
+
+
+class NotMirrored(LabdataError):  # noqa: N818 - the spec names it
+    """A valid accession the store does not hold. The message lists every missing accession."""
+
+
+class NotFound(LabdataError):  # noqa: N818 - the spec names it
+    """A valid accession that no snapshot lists. The message gives the snapshot date."""
+
+
+class StoreBuildError(LabdataError):
+    """A store fetch or build cannot finish: an input is missing or sources disagree."""

@@ -23,6 +23,8 @@ dependencies = [
     "pandas>=2.0",
     "typer>=0.12",
     "snakemake>=8",   # orchestrates the download DAG (labdata.geo.pipeline)
+    "duckdb>=1.5.6,<2",
+    "pyarrow>=25.0.0,<26",
 ]
 
 [project.urls]
@@ -78,6 +80,8 @@ curl = "*"
 snakemake-minimal = ">=8"
 # For conformance, which parses mkdocs.yml and the workflows.
 pyyaml = "*"
+duckdb = ">=1.5.6,<2"
+pyarrow = ">=25.0.0,<26"
 
 # The interpreter. `requires-python` is the floor; ruff and pyright take their target from it.
 [tool.pixi.feature.py313.dependencies]
