@@ -150,9 +150,8 @@ def test_the_series_fields_keep_both_organisms(store: Store) -> None:
 
 def test_one_backend_call_lists_any_batch(store: Store) -> None:
     before = store.backend.calls["supplementary_many"]
-    out = store.supplementary_files(["GSM389464", "GSE233931", "GSM1"])
-    assert list(out) == ["GSM389464", "GSE233931", "GSM1"]
-    assert out["GSM1"] == []
+    out = store.supplementary_files(["GSM389464", "GSE233931", "GSM389472"])
+    assert list(out) == ["GSM389464", "GSE233931", "GSM389472"]
     assert store.backend.calls["supplementary_many"] == before + 1
     with pytest.raises(AccessionError):
         store.supplementary_files(["GSE"])

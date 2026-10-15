@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PackageSet>
+  <Package>
+    <Project>
+    <Project>
+        <ProjectID>
+            <ArchiveID accession="PRJNA436361" archive="NCBI" id="436361"/>
+            <LocalID>bp0</LocalID>
+            <LocalID>bp0</LocalID>
+        </ProjectID>
+        <ProjectDescr>
+            <Title>Triticum aestivum Methylome analysis</Title>
+            <Description>Bisulfite treated DNA Sequencing of Chinese Spring cultivar.</Description>
+            <Publication date="2018-08-17T00:00:00Z" id="30115783" status="ePublished">
+                <Reference/>
+                <StructuredCitation>
+                    <Title>Shifting the limits in wheat research and breeding using a fully annotated reference genome.</Title>
+                    <Journal>
+                        <JournalTitle>Science (New York, N.Y.)</JournalTitle>
+                        <Year>2018</Year>
+                        <Volume>361</Volume>
+                        <Issue>6403</Issue>
+                    </Journal>
+                    <AuthorSet>
+                        <Author>
+                            <Name>
+                                <First>Rudi</First>
+                                <Last>Appels</Last>
+                            </Name>
+                            <Consortium>AgriBio, Centre for AgriBioscience, Department of Economic Development, Jobs, Transport, and Resources, 5 Ring Road, La Trobe University, Bundoora, VIC 3083, Australia. rudi.appels@unimelb.edu.au eversole@eversoleassociates.com stein@ipk-gatersleben.de.</Consortium>
+                        </Author>
+                        <Author>
+                            <Name>
+                                <First>Kellye</First>
+                                <Last>Eversole</Last>
+                            </Name>
+                            <Consortium>International Wheat Genome Sequencing Consortium (IWGSC), 5207 Wyoming Road, Bethesda, MD 20816, USA. rudi.appels@unimelb.edu.au eversole@eversoleassociates.com stein@ipk-gatersleben.de.</Consortium>
+                        </Author>
+                        <Author>
+                            <Name>
+                                <First>Catherine</First>
+                                <Last>Feuillet</Last>
+                            </Name>
+                            <Consortium>Bayer CropScience, Crop Science Division, Research and Development, Innovation Centre, 3500 Paramount Parkway, Morrisville, NC 27560, USA.</Consortium>
+                        </Author>
+                    </AuthorSet>
+                </StructuredCitation>
+                <DbType>ePubmed</DbType>
+            </Publication>
+            <Relevance>
+                <Agricultural>yes</Agricultural>
+            </Relevance>
+        </ProjectDescr>
+        <ProjectType>
+            <ProjectTypeSubmission>
+                <Target capture="eWhole" material="eGenome" sample_scope="eMultispecies"/>
+                <Method method_type="eSequencing"/>
+                <Objectives>
+                    <Data data_type="eRawSequenceReads"/>
+                </Objectives>
+                <IntendedDataTypeSet>
+                    <DataType>raw sequence reads</DataType>
+                </IntendedDataTypeSet>
+                <ProjectDataTypeSet>
+                    <DataType>raw sequence reads</DataType>
+                </ProjectDataTypeSet>
+            </ProjectTypeSubmission>
+        </ProjectType>
+    </Project>
+    <Submission last_update="2018-02-28" submission_id="SUB3729104" submitted="2018-02-28">
+        <Description>
+            <!-- Submitter information has been removed -->
+            <Organization role="owner" type="institute">
+                <Name>University of Saskatchewan</Name>
+                <!-- Contact information has been removed -->
+            </Organization>
+            <Access>public</Access>
+        </Description>
+        <Action action_id="SUB3729104-bp0"/>
+    </Submission>
+    </Project>
+  </Package>
+  <Package>
+    <Project>
+    <Project>
+        <ProjectID>
+            <ArchiveID accession="PRJNA530347" archive="NCBI" id="530347"/>
+            <LocalID>bp0</LocalID>
+            <LocalID>bp0</LocalID>
+        </ProjectID>
+        <ProjectDescr>
+            <Name>Oryctolagus cuniculus</Name>
+            <Title>Rabbit Gene sequence reads</Title>
+            <Description>Rabbit PCR genes sequel reads</Description>
+            <LocusTagPrefix biosample_id="SAMN11338333">E5D37</LocusTagPrefix>
+        </ProjectDescr>
+        <ProjectType>
+            <ProjectTypeSubmission>
+                <Target capture="eWhole" material="eGenome" sample_scope="eMonoisolate">
+                    <Organism species="9986" taxID="9986">
+                        <OrganismName>Oryctolagus cuniculus</OrganismName>
+                        <Supergroup>eEukaryotes</Supergroup>
+                    </Organism>
+                </Target>
+                <Method method_type="eSequencing"/>
+                <Objectives>
+                    <Data data_type="eRawSequenceReads"/>
+                </Objectives>
+                <IntendedDataTypeSet>
+                    <DataType>raw sequence reads</DataType>
+                    <DataType>genome sequencing</DataType>
+                </IntendedDataTypeSet>
+                <ProjectDataTypeSet>
+                    <DataType>raw sequence reads</DataType>
+                </ProjectDataTypeSet>
+            </ProjectTypeSubmission>
+        </ProjectType>
+    </Project>
+    <Submission last_update="2019-04-02" submission_id="SUB5393957" submitted="2019-04-02">
+        <Description>
+            <!-- Submitter information has been removed -->
+            <Organization role="owner" type="institute">
+                <Name>Jilin university</Name>
+                <!-- Contact information has been removed -->
+            </Organization>
+            <Access>public</Access>
+        </Description>
+        <Action action_id="SUB5393957-bp0"/>
+    </Submission>
+    </Project>
+  </Package>
+</PackageSet>

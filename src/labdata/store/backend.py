@@ -1,7 +1,7 @@
 """The DuckDB backend: one query per call over one build's sorted Parquet tables.
 
 Every method takes a collection. Results come back as plain tuples through ``fetchall``, so
-this path imports neither pandas nor pyarrow. DuckDB's temp files go in the reader's own
+this path imports neither pandas nor pyarrow; only ``table`` returns Arrow. DuckDB's temp files go in the reader's own
 cache folder, never the store.
 """
 
@@ -9,13 +9,16 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import duckdb
 
 from labdata._cache import liulab_data_cache_dir
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 #: A record row: accession, type, status, submitted, updated, published, fields,
 #: content_hash, snapshot_date.
@@ -111,6 +114,29 @@ class DuckDbBackend:
             f"WHERE accession IN (SELECT unnest({_list(accessions)}))"
         ).fetchall()
         return {row[0]: (row[1], row[2]) for row in rows}
+
+    def table(self, record_type: str, fields: Sequence[str], where: str | None = None) -> pa.Table:
+        """Return one record type's typed columns and the values of ``fields``, by accession.
+
+        Each field becomes a list column holding every value of that name, in source order.
+        ``where`` is a DuckDB condition over the columns. This call imports pyarrow.
+        """
+        self.calls["table"] += 1
+        path = self.build / "records" / f"{record_type.lower().replace(' ', '-')}.parquet"
+        source = _quote(str(path)) if path.is_file() else self._records
+        columns = [
+            "accession, type, status, submitted, updated, published, content_hash, snapshot_date",
+            *(
+                f"list_transform(list_filter(fields, lambda x: x.name = {_quote(name)}), "
+                f'lambda x: x.value) AS "{name.replace('"', '""')}"'
+                for name in fields
+            ),
+        ]
+        condition = f"type = {_quote(record_type)}" + ("" if where is None else f" AND ({where})")
+        return self._con.execute(
+            f"SELECT {', '.join(columns)} FROM read_parquet({source}) "
+            f"WHERE {condition} ORDER BY accession"
+        ).to_arrow_table()
 
     def supplementary_many(self, owners: Collection[str]) -> list[tuple[Any, ...]]:
         """Return the supplementary-file rows of ``owners``, sorted by owner, name and URL."""
