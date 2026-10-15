@@ -35,10 +35,10 @@ HEADERS = (
 PLATFORM = (
     "^PLATFORM = GPL1\n"
     "!Platform_title = A platform\n"
-    "!Platform_table_begin\n"
+    "!platform_table_begin\n"  # GEO writes some markers in lower case
     "ID\tSEQUENCE\n"
     "1\tACGT\n"
-    "!Platform_table_end\n"
+    "!platform_table_end\n"
 )
 SAMPLE = (
     "^SAMPLE = GSM1\n"

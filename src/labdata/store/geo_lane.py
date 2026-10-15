@@ -49,8 +49,8 @@ TIMEOUT_WINDOW = 20
 SIZE_LINE = "#labdata_original_size = "
 SHA256_LINE = "#labdata_original_sha256 = "
 
-_TABLE_BEGIN = re.compile(rb"^!(?:Sample|Platform)_table_begin", re.M)
-_TABLE_END = re.compile(rb"^!(?:Sample|Platform)_table_end[^\n]*(?:\n|\Z)", re.M)
+_TABLE_BEGIN = re.compile(rb"^!(?:Sample|Platform)_table_begin", re.M | re.I)
+_TABLE_END = re.compile(rb"^!(?:Sample|Platform)_table_end[^\n]*(?:\n|\Z)", re.M | re.I)
 _SUBSERIES = re.compile(r"^!Series_relation = SuperSeries of: (GSE\d+)", re.M)
 _sleep = time.sleep
 logger = logging.getLogger(__name__)
