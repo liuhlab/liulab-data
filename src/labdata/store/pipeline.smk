@@ -9,6 +9,10 @@
 # The E-utilities lane runs twice: once beside the GEO lane, and again after it, because
 # the experiment list grows with the SOFT the GEO lane saved. The second run skips every
 # experiment the first saved.
+#
+# A lane that ends with items still failed leaves <lane>.failed beside its marker, and the
+# next `labdata store run` deletes that marker, so the lane asks for those items again and
+# every later step reruns. The round still builds, with the failures as gaps and notes.
 
 import shlex
 
@@ -48,7 +52,7 @@ rule geo:
     resources:
         ncbi=1,
     shell:
-        f"{STORE} _geo --series {{input}} {ROOT} {LOG}"
+        f"{STORE} _geo --series {{input}} --failed-marker geo.failed {ROOT} {LOG}"
 
 
 rule eutils_beside_geo:
@@ -76,7 +80,8 @@ rule eutils_after_geo:
     resources:
         ncbi=1,
     shell:
-        f"{STORE} _eutils --series {TARGETS} --date {SRA_DATE} {ROOT} {LOG}"
+        f"{STORE} _eutils --series {TARGETS} --date {SRA_DATE} --failed-marker eutils.failed "
+        f"{ROOT} {LOG}"
 
 
 rule pack:

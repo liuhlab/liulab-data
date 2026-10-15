@@ -132,6 +132,16 @@ def test_a_throttled_soft_waits_as_long_as_retry_after_asks(
     assert waits == [120.0]
 
 
+def test_a_series_that_fails_every_try_is_asked_again_before_the_lane_ends(
+    tmp_path: Path,
+) -> None:
+    stalls: list[Answer] = [TimeoutError("timed out")] * geo_lane.TRIES
+    site = Site({soft_url("GSE1"): [*stalls, gzip.compress(soft("GSE1"))]})
+    report = geo_lane.run(tmp_path, ["GSE1"], client=client(site), date=DATE)
+    assert (report.held, report.fetch_failed) == (1, 0)
+    assert list(saved(tmp_path, raw.GEO_SOFT)) == ["GSE1"]
+
+
 def saved(root: Path, source: str) -> dict[str, str]:
     pack.pack(root)
     return {row.accession: row.raw_text for row in raw.read_rows(root, source)}
@@ -201,7 +211,8 @@ def test_a_rerun_requests_nothing_saved_and_retries_a_fetch_failed_series(
     with caplog.at_level(logging.INFO, logger="labdata.store.geo_lane"):
         report = geo_lane.run(tmp_path, ["GSE1", "GSE2", "GSE3"], client=client(site), date=DATE)
     assert (report.held, report.soft_missing, report.fetch_failed) == (1, 1, 1)
-    assert site.calls.count(urllib.parse.urlsplit(soft_url("GSE3")).path) == geo_lane.TRIES
+    # every try, then every try again in the final pass over failed Series
+    assert site.calls.count(urllib.parse.urlsplit(soft_url("GSE3")).path) == 2 * geo_lane.TRIES
     assert "GEO site timeout: connections now 2" in caplog.text
     assert re.search(r"\d/3 Series SOFT, round 1 \(.*\), [\d.]+/s, errors: timeout \d", caplog.text)
 

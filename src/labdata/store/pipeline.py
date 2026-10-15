@@ -31,6 +31,9 @@ logger = logging.getLogger(__name__)
 #: Network steps that may run at once: the GEO lane and the E-utilities lane.
 NCBI_STEPS = 2
 
+#: The lanes whose ``<lane>.failed`` file sends them back to work on the next run.
+LANES = ("geo", "eutils")
+
 
 def round_dir(root: Path, date: str, fraction: float | None) -> Path:
     """Return the folder of one round's markers, logs and Snakemake state."""
@@ -58,7 +61,8 @@ def run(
 
     The round uses the newest snapshot of every source and records their dates in
     ``run.json`` in its folder. A rerun of the same round resumes at the first unfinished
-    step; the fetch steps skip every item already saved, by this round or a smaller one.
+    step; the fetch steps skip every item already saved, by this round or a smaller one. A
+    fetch lane that left items failed runs again, and so does every step after it.
 
     Parameters
     ----------
@@ -92,6 +96,10 @@ def run(
     geo_date = dates[snapshots.GEO_SERIES]
     work = round_dir(root, geo_date, fraction)
     work.mkdir(parents=True, exist_ok=True)
+    for lane in LANES:
+        if (work / f"{lane}.failed").is_file():
+            logger.info("the %s lane left items failed last time; it runs again", lane)
+            (work / f"{lane}.done").unlink(missing_ok=True)
     cores = cores or extract.default_workers()
     labdata = f"{shlex.quote(sys.executable)} -m labdata"
     config = {

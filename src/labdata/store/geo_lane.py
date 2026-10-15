@@ -3,8 +3,9 @@
 Each Series' family SOFT is streamed over a few kept-open HTTPS connections with its sample
 and platform data tables stripped on the way; the stored text starts with the original
 file's size and sha256. Every Series and SubSeries met is fetched whatever its SOFT type.
-A SOFT 404 or exhausted retries is saved as a ``raw/geo-gaps/`` row; a ``fetch-failed``
-Series is fetched again on the next run, a ``soft-missing`` one is not. Each held Series
+A SOFT 404 or exhausted retries is saved as a ``raw/geo-gaps/`` row. A ``fetch-failed``
+Series is asked once more before the lane ends, and again on the next run; a
+``soft-missing`` one is not. Each held Series
 then gets its ``filelist.txt``, a 404 saved as an empty text. Results are written as parts
 for the pack step; a saved item makes no request.
 """
@@ -98,15 +99,22 @@ def run(
     date = date or dt.datetime.now(dt.UTC).date().isoformat()
     todo = sorted({s.strip().upper() for s in series})
     seen: set[str] = set()
+    retried = False
     with _Pool(client, connections) as pool:
         rounds = 0
         while todo:
             rounds += 1
             seen |= set(todo)
-            _fetch_soft(root, pool, todo, date, f"Series SOFT, round {rounds}")
+            what = "retry of failed" if retried else f"round {rounds}"
+            _fetch_soft(root, pool, todo, date, f"Series SOFT, {what}")
             todo = sorted(_named_subseries(root, set(todo)) - seen)
+            if not todo and not retried:
+                retried = True
+                todo = sorted(_failed(root, seen - _soft_held(root, seen)))
         held = sorted(_soft_held(root, seen))
         _fetch_filelists(root, pool, held, date)
+        if len(_accessions(root, raw.GEO_FILELIST, set(held))) < len(held):
+            _fetch_filelists(root, pool, held, date)
     reasons = Counter(text.split("\n", 1)[0] for text in _gap_texts(root, seen - set(held)))
     return LaneReport(
         held=len(held),
@@ -276,6 +284,12 @@ def _named_subseries(root: Path, accessions: set[str]) -> set[str]:
                 if gse in accessions:
                     named.update(_SUBSERIES.findall(text))
     return named
+
+
+def _failed(root: Path, accessions: set[str]) -> set[str]:
+    """Return which of ``accessions`` the saved gap rows mark ``fetch-failed``."""
+    gap_rows = raw.saved(root, raw.GEO_GAPS, accessions) if accessions else {}
+    return {a for a, text in gap_rows.items() if text.split("\n", 1)[0] == gaps.FETCH_FAILED}
 
 
 def _gap_texts(root: Path, accessions: set[str]) -> list[str]:

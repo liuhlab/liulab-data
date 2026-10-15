@@ -291,9 +291,28 @@ def fetch_packages(
     Returns
     -------
     LaneReport
-        Counts for this run. An experiment whose call failed is not saved, so the next run
-        asks for it again; one NCBI has no package for is saved as asked, with a gap row.
+        Counts for this run. An experiment whose call failed is asked once more before the
+        lane ends; if that fails too it is not saved, so the next run asks for it again. One
+        NCBI has no package for is saved as asked, with an empty text.
     """
+    first = _fetch_once(root, experiments, client, date, batch, inflight, part_size, log_every)
+    if not first.failed:
+        return first
+    logger.info("asking again for the %d experiments whose calls failed", first.failed)
+    last = _fetch_once(root, experiments, client, date, batch, inflight, part_size, log_every)
+    return LaneReport(first.fetched + last.fetched, first.missing + last.missing, last.failed)
+
+
+def _fetch_once(
+    root: Path,
+    experiments: Path,
+    client: EntrezClient,
+    date: str,
+    batch: int,
+    inflight: int,
+    part_size: int,
+    log_every: float,
+) -> LaneReport:
     spill = root / "work" / "eutils" / "spill"
     shutil.rmtree(spill, ignore_errors=True)
     total = sum(len(p.todo) for _, pieces in _pieces(root, experiments) for p in pieces)

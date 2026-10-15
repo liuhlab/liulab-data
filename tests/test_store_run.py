@@ -178,6 +178,32 @@ def test_run_refuses_a_fraction_outside_zero_to_one(store: Path) -> None:
     assert "fraction" in result.output
 
 
+def test_a_lane_that_left_items_failed_runs_again_on_the_next_submit(
+    store: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    site = Site({soft_url("GSE1"): [TimeoutError("timed out")]})
+    monkeypatch.setattr(cli, "_store_client", lambda: client(site))
+    monkeypatch.setattr("labdata.store.geo_lane._sleep", lambda _s: None)
+    work = store / "work" / "run" / f"{_DATE}-all"
+    work.mkdir(parents=True)
+    marker = work / "geo.failed"
+    args = ["store", "_geo", "GSE1", "--failed-marker", str(marker), "--root", str(store)]
+    result = CliRunner().invoke(app, args)
+    assert result.exit_code == 0, result.output
+    assert marker.is_file()
+    for name in ("geo", "eutils-beside-geo", "eutils"):
+        (work / f"{name}.done").touch()
+    monkeypatch.setattr(pipeline, "_run_snakemake", lambda argv, *, verbose: 0)
+
+    assert CliRunner().invoke(app, ["store", "run", "--root", str(store)]).exit_code == 0
+    assert not (work / "geo.done").exists()
+    assert (work / "eutils.done").exists()
+
+    site.pages[soft_url("GSE1")] = [gzip.compress(soft("GSE1"))]
+    assert CliRunner().invoke(app, args).exit_code == 0
+    assert not marker.exists()
+
+
 def test_prune_and_copy_wait_for_coverage_to_pass(
     store: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
