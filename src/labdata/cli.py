@@ -123,6 +123,27 @@ def store_build(
     typer.echo(f"Built {out} and switched the store to it")
 
 
+@store_app.command("index-known")
+def store_index_known(
+    source: str = typer.Option(..., help="geo-series, sra-accessions, bioproject or biosample."),
+    root: Path | None = typer.Option(
+        None, help="Store root; default: LABDATA_STORE, then pointer."
+    ),
+) -> None:
+    """Index one snapshot's accessions for known.parquet; skipped if already done.
+
+    Run one job per source in parallel; `labdata store build` then merges them.
+    """
+    from labdata.store.known import index_source
+
+    store = open_store(root)
+    try:
+        out = index_source(store.root, source)
+    except ValueError as err:
+        raise typer.BadParameter(str(err), param_hint="--source") from err
+    typer.echo(f"Indexed {source}: {out}")
+
+
 def _record_for_download(accession: str) -> Series | BioProject:
     """Return the downloadable record for ``accession``, auto-detecting its kind.
 

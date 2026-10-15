@@ -21,7 +21,13 @@ import pytest
 from typer.testing import CliRunner
 
 from labdata.cli import app
-from labdata.exceptions import AccessionError, EntrezError, LabdataError, NotMirrored
+from labdata.exceptions import (
+    AccessionError,
+    EntrezError,
+    LabdataError,
+    NotFound,
+    NotMirrored,
+)
 from labdata.geo import Experiment
 from labdata.store import Store, open_store
 from labdata.store.build import build
@@ -274,7 +280,7 @@ def test_open_many_returns_errors_in_place(store: Store) -> None:
     result = store.open_many(["SRX24283130", "nope", "SRX1", "PMID:39637862"])
     assert list(result) == ["SRX24283130", "NOPE", "SRX1", "PMID:39637862"]
     assert isinstance(result["NOPE"], AccessionError)
-    assert isinstance(result["SRX1"], NotMirrored)
+    assert isinstance(result["SRX1"], NotFound)
     assert isinstance(result["PMID:39637862"], AccessionError)
 
 

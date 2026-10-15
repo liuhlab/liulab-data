@@ -1,7 +1,8 @@
 """Build the store's tables from ``raw/`` and ``snapshots/``, then switch the marker to them.
 
 No network. Writes ``builds/<build-id>/``: ``records/<type>.parquet`` (sorted by accession),
-``links_by_from.parquet``, ``links_by_to.parquet`` and ``holdings.parquet``.
+``links_by_from.parquet``, ``links_by_to.parquet``, ``holdings.parquet`` and
+``known.parquet``.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from labdata.exceptions import StoreBuildError
-from labdata.store import raw, snapshots, sources
+from labdata.store import known, raw, snapshots, sources
 from labdata.store.root import MARKER
 from labdata.store.sources import LinkRow, Parsed
 
@@ -101,6 +102,7 @@ def build(root: Path, build_id: str | None = None) -> Path:
         ),
         tmp / "holdings.parquet",
     )
+    known.write(root, tmp / "known.parquet")
     tmp.rename(out)
     _switch(root, build_id)
     return out
