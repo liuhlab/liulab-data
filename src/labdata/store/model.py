@@ -159,6 +159,38 @@ class RawText:
 
 
 @dataclass(frozen=True, slots=True)
+class SupplementaryFile:
+    """One supplementary file a GEO record lists; listed, never downloaded.
+
+    Parameters
+    ----------
+    owner : str
+        The accession whose SOFT names the file, or the Series whose archive holds a file
+        no SOFT line names.
+    name : str
+        The file name.
+    url : str or None
+        The file's URL as SOFT gives it; ``None`` for a file reachable only inside an archive.
+    size : int or None
+        Bytes, from the Series' ``filelist.txt``; ``None`` when that file does not list it.
+    date : str or None
+        The file's time in ``filelist.txt``, as ``YYYY-MM-DDTHH:MM:SS``.
+    type : str or None
+        The file type ``filelist.txt`` gives, such as ``TAR`` or ``FA``.
+    archive : str or None
+        The archive that holds the file, such as ``GSE15556_RAW.tar``.
+    """
+
+    owner: str
+    name: str
+    url: str | None
+    size: int | None
+    date: str | None
+    type: str | None
+    archive: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class Partial[T]:
     """A walk's result with ``partial=True``: the held part and what it could not reach.
 

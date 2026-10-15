@@ -43,6 +43,7 @@ class DuckDbBackend:
         self._by_to = _quote(str(build / "links_by_to.parquet"))
         self._holdings = _quote(str(build / "holdings.parquet"))
         self._known = _quote(str(build / "known.parquet"))
+        self._suppl = _quote(str(build / "supplementary_files.parquet"))
 
     def get_many(self, accessions: Collection[str]) -> dict[str, RecordRow]:
         """Return the held records among ``accessions``; absent ones are left out."""
@@ -110,6 +111,15 @@ class DuckDbBackend:
             f"WHERE accession IN (SELECT unnest({_list(accessions)}))"
         ).fetchall()
         return {row[0]: (row[1], row[2]) for row in rows}
+
+    def supplementary_many(self, owners: Collection[str]) -> list[tuple[Any, ...]]:
+        """Return the supplementary-file rows of ``owners``, sorted by owner, name and URL."""
+        self.calls["supplementary_many"] += 1
+        return self._con.execute(
+            "SELECT owner, name, url, size, date, type, archive "
+            f"FROM read_parquet({self._suppl}) WHERE owner IN (SELECT unnest({_list(owners)})) "
+            "ORDER BY owner, name, url"
+        ).fetchall()
 
 
 def _list(values: Collection[str]) -> str:
