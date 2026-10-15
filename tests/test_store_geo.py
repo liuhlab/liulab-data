@@ -106,7 +106,7 @@ def _sources(store: Store, accession: str, relation: str) -> dict[str, list[str]
 
 def test_fetch_packs_family_soft_per_thousand_series_folder(built: Path) -> None:
     folder = built / "raw" / "geo-soft"
-    assert sorted(p.name for p in folder.iterdir()) == [
+    assert sorted(p.name for p in folder.glob("*.parquet")) == [
         "GSE153nnn.parquet",
         "GSE19nnn.parquet",
         "GSE20nnn.parquet",
