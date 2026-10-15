@@ -280,6 +280,43 @@ def store_extract(
     typer.echo(f"Extracted {source}: {out}")
 
 
+@store_app.command("_eutils", hidden=True)
+def store_eutils(
+    series: Path | None = typer.Option(
+        None, help="Only these GEO Series: a text file, one per line, or a Parquet `accession`."
+    ),
+    date: str | None = typer.Option(None, help="SRA_Accessions.tab snapshot date."),
+    root: Path | None = typer.Option(
+        None, help="Store root; default: LABDATA_STORE, then pointer."
+    ),
+) -> None:
+    """Fetch the SRA package of every GEO-linked experiment into parts under work/parts/."""
+    import datetime as dt
+    import logging
+
+    from labdata.store import eutils
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    store = open_store(root)
+    wanted = None if series is None else _accession_file(series)
+    listed = eutils.experiment_list(store.root, date=date, series=wanted)
+    today = dt.datetime.now(dt.UTC).date().isoformat()
+    report = eutils.fetch_packages(store.root, listed, client=_store_client(), date=today)
+    typer.echo(
+        f"SRA packages: {report.fetched} saved, {report.missing} with none, "
+        f"{report.failed} to retry"
+    )
+
+
+def _accession_file(path: Path) -> list[str]:
+    """Read accessions from a Parquet ``accession`` column or a text file, one per line."""
+    if path.suffix == ".parquet":
+        import pyarrow.parquet as pq
+
+        return [str(a) for a in pq.read_table(path, columns=["accession"]).column(0).to_pylist()]
+    return [line.strip() for line in path.read_text().splitlines() if line.strip()]
+
+
 def _record_for_download(accession: str) -> Series | BioProject:
     """Return the downloadable record for ``accession``, auto-detecting its kind.
 
