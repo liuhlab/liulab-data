@@ -254,6 +254,38 @@ def test_without_the_sra_elink_only_bioproject_is_linked(
     assert len(listed) == result[raw.SRA_XML]["requested"]
 
 
+def test_without_elink_nothing_is_linked_and_bioproject_comes_from_the_snapshot(
+    main_store: Path, tmp_path: Path, site: str
+) -> None:
+    gz = next((main_store / "snapshots" / "geo-series").glob("*/gds_gse_esummary.jsonl.gz"))
+    with gzip.open(gz, "wt", encoding="utf-8") as fh:
+        fh.write(json.dumps({"accession": "GSE19456", "gdstype": SEQ, "bioproject": "PRJNA9"}))
+        fh.write("\n" + json.dumps({"accession": "GSE28770", "gdstype": MIXED, "bioproject": ""}))
+    root = tmp_path / "pilot"
+    pilot.setup(main_store, root)
+    pilot.draw_step(root, "s1", 1.0)
+    eutils = _FakeEUtils(_with_cache(geo_client()))
+    result = pilot.concurrent_fetch(
+        root, "s1", eutils, connections=2, inflight=2, base=site, elink=False
+    )
+    assert eutils.elinks == []
+    assert result["elink"] is False
+    assert raw.ENTREZ_LINKS not in result["pack"]["sources"]
+    assert result[raw.SRA_XML]["items"] > 0
+    extra = pilot.elink_extra(root, "s1")
+    assert extra["link_source"] == "geo-series snapshot"
+    assert extra["total"]["series_to_bioproject_elink"] == 1
+    report = pilot.report(root, "s1")
+    assert report["stability"]["stable"]
+    assert "geo-series snapshot" in (root / "pilot" / "s1" / "results.md").read_text()
+
+
+def test_the_geo_site_socket_timeout_is_short() -> None:
+    import inspect
+
+    assert inspect.signature(pilot.pooled_get).parameters["timeout"].default == 15.0
+
+
 def test_accessions_come_from_json_or_biopython_summaries() -> None:
     expxml = '<Summary/><Experiment acc="SRX1" ver="1"/>'
     assert pilot.accession_of("sra", {"expxml": expxml}) == "SRX1"

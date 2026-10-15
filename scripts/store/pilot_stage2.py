@@ -79,6 +79,7 @@ _USER_AGENT = "liulab-data (+https://github.com/liuhlab/liulab-data)"
 _RAW_SOURCES = (raw.GEO_SOFT, raw.GEO_FILELIST, raw.ENTREZ_LINKS, raw.SRA_XML, raw.PUBMED_SI)
 #: The sources the concurrent fetch fills; PubMed ``[si]`` waits for stage 4.
 _FETCHED = (raw.GEO_SOFT, raw.GEO_FILELIST, raw.ENTREZ_LINKS, raw.SRA_XML)
+_SNAPSHOT_SOURCE = "geo-series snapshot"
 _SOFT_SRX = re.compile(r"^!Sample_relation = SRA: \S*?[?&]term=([SED]RX\d+)", re.M)
 
 
@@ -505,7 +506,7 @@ def pooled_get(
     *,
     connections: int,
     base: str = GEO_SITE,
-    timeout: float = 60.0,
+    timeout: float = 15.0,
     tries: int = 3,
     phase: str = "get",
     every: int = 100,
@@ -960,13 +961,16 @@ def concurrent_fetch(
     batch: int = 300,
     base: str = GEO_SITE,
     sra_elink: bool = True,
+    elink: bool = True,
 ) -> dict[str, Any]:
     """Fill ``raw/`` with a step's records the stage 2 way and time each source and the pack.
 
     Every target and its SubSeries is stored, whatever its SOFT type says (#51 lets the
     target list decide). Without ``sra_elink`` the SRA experiments come from the SOFT
-    relation lines alone and ``elink`` runs only from each Series to BioProject. The result
-    is saved as ``concurrent.json``; a rerun returns it.
+    relation lines alone and ``elink`` runs only from each Series to BioProject. Without
+    ``elink`` no link is asked for and ``entrez-links`` is not written: the ``geo-series``
+    snapshot's ``bioproject`` field stands in. The result is saved as ``concurrent.json``; a
+    rerun returns it.
     """
     out = pilot_dir(pilot, step)
     path = out / "concurrent.json"
@@ -979,6 +983,7 @@ def concurrent_fetch(
         "batch": batch,
         "rate": eutils.rate,
         "sra_elink": sra_elink,
+        "elink": elink,
     }
     begin = time.perf_counter()
 
@@ -1026,6 +1031,7 @@ def concurrent_fetch(
     # elink, only to count what it adds beyond SOFT and SRA_Accessions.tab: one combined
     # call per Series for all its samples, if asked, and one for the Series to BioProject.
     begun = time.perf_counter()
+    linked: dict[str, str] = {}
 
     def to_links(gse: str) -> tuple[str, set[str], set[str]]:
         gsms = [a for e, a, _ in sources.soft_blocks(soft[gse].text) if e == "SAMPLE"]
@@ -1033,7 +1039,7 @@ def concurrent_fetch(
         to_sra = eutils.elink("gds", "sra", uids)
         return gse, to_sra, eutils.elink("gds", "bioproject", [fetch._gds_uid(gse)])
 
-    replies, _, errors = _pool(to_links, held, inflight, "elink", every=10)
+    replies, _, errors = _pool(to_links, held if elink else [], inflight, "elink", every=10)
     sra_uids = {r[0]: r[1] for r in replies if r}
     bp_uids = {r[0]: r[2] for r in replies if r}
 
@@ -1048,8 +1054,7 @@ def concurrent_fetch(
     ]
     replies, _, name_errors = _pool(names, jobs, inflight, "esummary link names")
     accession = {u: a for r in replies if r for u, a in r.items()}
-    linked: dict[str, str] = {}
-    for gse in held:
+    for gse in held if elink else []:
         lines = [f"{gse}\tbioproject\t{u}\t{accession.get(u, '')}" for u in bp_uids.get(gse, ())]
         lines += [f"{gse}\tsra\t{u}\t{accession.get(u, '')}" for u in sra_uids.get(gse, ())]
         linked[gse] = "\n".join(sorted(lines))
@@ -1059,6 +1064,8 @@ def concurrent_fetch(
         len(linked), wall, errors, _throttles(["elink", "esummary"], eutils)
     )
     result[raw.ENTREZ_LINKS]["sample_mapping"] = "lost: sra lines name the Series as source"
+    if not elink:
+        result[raw.ENTREZ_LINKS] |= {"skipped": True, "bioproject_source": _SNAPSHOT_SOURCE}
 
     experiments = {x for s in soft.values() for x in _SOFT_SRX.findall(s.text)}
     experiments |= {
@@ -1098,6 +1105,8 @@ def concurrent_fetch(
     pack: dict[str, Any] = {}
     start = time.perf_counter()
     for source, rows in texts.items():
+        if source == raw.ENTREZ_LINKS and not elink:
+            continue
         began = time.perf_counter()
         say(f"pack {source}: {len(rows)} rows")
         written = raw.write_rows(pilot, source, [raw.RawRow(a, t, date) for a, t in rows.items()])
@@ -1186,7 +1195,8 @@ def tab_projects(root: Path, experiments: set[str]) -> dict[str, str]:
 def elink_extra(pilot: Path, step: str) -> dict[str, Any]:
     """Count the links ``elink`` adds beyond SOFT relation lines and ``SRA_Accessions.tab``.
 
-    Sample to SRX: SOFT ``!Sample_relation = SRA`` lines, else a tab experiment whose alias
+    Without ``elink`` in the step's fetch, the ``geo-series`` snapshot's ``bioproject``
+    field is counted in its place. Sample to SRX: SOFT ``!Sample_relation = SRA`` lines, else a tab experiment whose alias
     is the GSM. Series to BioProject: SOFT ``!Series_relation = BioProject`` lines, else the
     BioProject of a tab experiment under one of the Series' samples. ``..._not_in_tab`` also
     credits the BioProject of any tab row of the Series' SRX, whatever its center. Writes
@@ -1195,7 +1205,11 @@ def elink_extra(pilot: Path, step: str) -> dict[str, Any]:
     out = pilot_dir(pilot, step)
     held = sorted(raw.saved(pilot, raw.GEO_SOFT, read_targets(pilot, step)))
     soft = raw.saved(pilot, raw.GEO_SOFT, held)
-    linked = raw.saved(pilot, raw.ENTREZ_LINKS, held)
+    fetched = _load(out / "concurrent.json")
+    if fetched.get("elink", True):
+        link_source, linked = "elink", raw.saved(pilot, raw.ENTREZ_LINKS, held)
+    else:
+        link_source, linked = _SNAPSHOT_SOURCE, snapshot_bioprojects(pilot, step, held)
     # What each Series' SOFT and the tab already state, keyed by Series: the saved elink
     # lines name the Series, not the sample, as their source.
     stated: dict[str, set[tuple[str, str]]] = defaultdict(set)
@@ -1259,6 +1273,7 @@ def elink_extra(pilot: Path, step: str) -> dict[str, Any]:
     )
     result = {
         "series": len(held),
+        "link_source": link_source,
         "total": {k: total[k] for k in keys},
         "series_with_extra": sum(
             1
@@ -1270,6 +1285,21 @@ def elink_extra(pilot: Path, step: str) -> dict[str, Any]:
     }
     write_atomic(out / "elink-extra.json", json.dumps(result, indent=2) + "\n")
     return result
+
+
+def snapshot_bioprojects(pilot: Path, step: str, series: list[str]) -> dict[str, str]:
+    """Return each Series' ``geo-series`` snapshot BioProject as an ``entrez-links`` row."""
+    meta = json.loads((pilot_dir(pilot, step) / "targets.json").read_text(encoding="utf-8"))
+    wanted, out = set(series), {}
+    with gzip.open(pilot / meta["snapshot"], "rt", encoding="utf-8") as fh:
+        for line in fh:
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            if record.get("accession") in wanted and record.get("bioproject"):
+                gse = record["accession"]
+                out[gse] = f"{gse}\tbioproject\t\t{record['bioproject']}"
+    return out
 
 
 # ---------- build ----------
@@ -1538,7 +1568,19 @@ def render(r: dict[str, Any]) -> str:
             )
         lines.append("")
     e = r["elink_extra"]
-    if e:
+    if e and e.get("link_source") == _SNAPSHOT_SOURCE:
+        lines += [
+            "## What the geo-series snapshot adds",
+            "",
+            "No `elink` ran: Series-to-BioProject links come from the geo-series snapshot's "
+            f"`bioproject` field. It names {e['total']['series_to_bioproject_elink']} of "
+            f"{e['series']} Series; {e['total']['series_to_bioproject_extra']} of those are not "
+            "in SOFT relation lines or `SRA_Accessions.tab`, and "
+            f"{e['total'].get('series_to_bioproject_not_in_tab')} are not in the tab rows of "
+            "the Series' SRX. Per Series: `elink-extra.tsv`.",
+            "",
+        ]
+    elif e:
         lines += [
             "## What elink adds",
             "",
@@ -1628,6 +1670,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument(
         "--no-sra-elink", dest="sra_elink", action="store_false", help="elink to BioProject only"
     )
+    p.add_argument(
+        "--no-elink", dest="elink", action="store_false", help="no elink; BioProject from snapshot"
+    )
     p = sub.add_parser("efetch", help="re-time only the SRA efetch of a fetched step")
     p.add_argument("--pilot", type=Path, required=True)
     p.add_argument("--name", required=True)
@@ -1666,6 +1711,7 @@ def main(argv: list[str] | None = None) -> int:
             inflight=args.inflight,
             batch=args.batch,
             sra_elink=args.sra_elink,
+            elink=args.elink,
         )
         print(json.dumps({k: v for k, v in result.items() if k in ("wall_s", "pack")}))
     elif args.command == "efetch":
