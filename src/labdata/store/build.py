@@ -13,6 +13,7 @@ from __future__ import annotations
 import datetime as dt
 import fcntl
 import glob
+import logging
 import re
 import shutil
 import tomllib
@@ -28,6 +29,7 @@ import pyarrow.parquet as pq
 from labdata.exceptions import StoreBuildError
 from labdata.store import extract, known, provenance, raw, snapshots, sources, suppl
 from labdata.store._files import temp_beside, toml_line, write_atomic
+from labdata.store.model import RELATIONS
 from labdata.store.root import MARKER
 from labdata.store.sources import LinkRow, Parsed
 
@@ -53,6 +55,8 @@ _LINK_SCHEMA = pa.schema(
     [("from", pa.string()), ("to", pa.string()), ("relation", pa.string()), ("source", pa.string())]
 )
 _NUMBER = re.compile(r"(\d+)$")
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -146,9 +150,28 @@ def _build(root: Path, build_id: str | None) -> Path:
     )
     known.write(root, tmp / "known.parquet")
     suppl.write(root, tmp / "supplementary_files.parquet")
-    provenance.document_build(root, tmp, build_id)
+    provenance.document_build(root, tmp, build_id, unknown_labels=_unknown_labels(links))
     tmp.rename(out)
     _switch(root, build_id)
+    return out
+
+
+def _unknown_labels(links: set[LinkRow]) -> dict[str, dict[str, int | str]]:
+    """Count the links under each GEO relation label not in the fixed list, and log each."""
+    found: dict[str, list[str]] = defaultdict(list)
+    for link in links:
+        if link.source == sources.SOFT and link.relation not in RELATIONS:
+            found[link.relation].append(link.from_)
+    out: dict[str, dict[str, int | str]] = {}
+    for label in sorted(found):
+        example = min(found[label])
+        out[label] = {"links": len(found[label]), "example": example}
+        logger.warning(
+            "kept unknown GEO relation label %r verbatim: %d links, e.g. %s",
+            label,
+            len(found[label]),
+            example,
+        )
     return out
 
 

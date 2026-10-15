@@ -523,7 +523,7 @@ def _ends(row: tuple[str, str, str, str]) -> tuple[tuple[str, Link], tuple[str, 
     src, dst, relation, source = row
     return (
         (src, Link(relation, dst, source, forward=True)),
-        (dst, Link(RELATIONS[relation], src, source, forward=False)),
+        (dst, Link(RELATIONS.get(relation, relation), src, source, forward=False)),
     )
 
 
