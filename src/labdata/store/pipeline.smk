@@ -1,5 +1,5 @@
 # One round of the full run: target list -> GEO lane || E-utilities lane -> pack -> build
-# -> prune -> copy, with the snapshot extracts beside the fetch and coverage after the build.
+# -> coverage -> prune -> copy, with the snapshot extracts beside the fetch.
 #
 # Driven by labdata.store.pipeline.run, which runs snakemake in the round's folder with
 # `--resources ncbi=<N>` (network steps at once) and `--cores <M>`. Each rule calls a
