@@ -155,16 +155,11 @@ def _build_into(
     _, geo_date = extract.done_dir(root, snapshots.GEO_SERIES)
     target_list = targets.target_list(root, geo_date)
     _summary_links(target_list, work / "links" / "summary.parquet")
-    inputs = [
-        (kind, path, groups)
-        for kind in _parse.RAW_KINDS
-        for path in sorted((root / "raw" / kind).glob("*.parquet"))
-        for groups in _row_group_runs(path, _TASK_CHUNKS * chunk_bytes)
-    ]
-    tasks = [
-        _parse.Task(kind, path, work, index, chunk_bytes, groups)
-        for index, (kind, path, groups) in enumerate(inputs)
-    ]
+    tasks: list[_parse.Task] = []
+    for kind in _parse.RAW_KINDS:
+        files = sorted((root / "raw" / kind).glob("*.parquet"))
+        for inputs in _runs(files, _TASK_CHUNKS * chunk_bytes, workers):
+            tasks.append(_parse.Task(kind, inputs, work, len(tasks), chunk_bytes))
     logger.info("parsing %d raw tasks on %d workers", len(tasks), workers)
     parsed = extract.run_parallel(_parse.run, ((t,) for t in tasks), workers)
     empty = [srx for got in parsed for srx in got]
@@ -174,7 +169,7 @@ def _build_into(
     with extract.connect(root) as con:
         for folder in sorted((work / "records").glob("*")):
             _check_copies(con, folder)
-        wanted = _wanted_snapshots(con, root, work, len(tasks), chunk_bytes)
+        wanted = _wanted_snapshots(con, root, work, len(tasks), chunk_bytes, workers)
         logger.info("parsing %d snapshot tasks", len(wanted))
         extract.run_parallel(_parse.run, ((t,) for t in wanted), workers)
         logger.info("writing record, link and supplementary-file tables")
@@ -209,19 +204,31 @@ def _build_into(
     )
 
 
-def _row_group_runs(path: Path, size: int) -> Iterator[tuple[int, ...]]:
-    """Split a file's row groups into runs of about ``size`` uncompressed bytes, one per task."""
-    meta = pq.read_metadata(path)
-    run: list[int] = []
+def _runs(
+    files: list[Path], most: int, workers: int
+) -> Iterator[tuple[tuple[Path, tuple[int, ...]], ...]]:
+    """Split files' row groups into runs, one per task.
+
+    A run holds at most ``most`` uncompressed bytes, and is small enough that every worker
+    gets one. A large file is split across tasks; small files share one.
+    """
+    groups = [
+        (path, i, meta.row_group(i).total_byte_size)
+        for path in files
+        for meta in (pq.read_metadata(path),)
+        for i in range(meta.num_row_groups)
+    ]
+    size = min(most, -(-sum(g[2] for g in groups) // workers))
+    run: dict[Path, list[int]] = {}
     held = 0
-    for i in range(meta.num_row_groups):
-        if run and held + meta.row_group(i).total_byte_size > size:
-            yield tuple(run)
-            run, held = [], 0
-        run.append(i)
-        held += meta.row_group(i).total_byte_size
+    for path, i, nbytes in groups:
+        if run and held + nbytes > size:
+            yield tuple((p, tuple(g)) for p, g in run.items())
+            run, held = {}, 0
+        run.setdefault(path, []).append(i)
+        held += nbytes
     if run:
-        yield tuple(run)
+        yield tuple((p, tuple(g)) for p, g in run.items())
 
 
 def _summary_links(target_list: Path, out: Path) -> None:
@@ -271,7 +278,12 @@ def _check_copies(con: duckdb.DuckDBPyConnection, folder: Path) -> None:
 
 
 def _wanted_snapshots(
-    con: duckdb.DuckDBPyConnection, root: Path, work: Path, first: int, chunk_bytes: int
+    con: duckdb.DuckDBPyConnection,
+    root: Path,
+    work: Path,
+    first: int,
+    chunk_bytes: int,
+    workers: int,
 ) -> list[_parse.Task]:
     """Write the snapshot texts the links name, and return the tasks that parse them.
 
@@ -307,12 +319,10 @@ def _wanted_snapshots(
                     WHERE accession IN ({listed})) TO {extract.sql_string(str(path))}
                     (FORMAT parquet, ROW_GROUP_SIZE {_SNAPSHOT_ROW_GROUP})"""
             )
-            groups = pq.read_metadata(path).num_row_groups
-            tasks.extend(
-                _parse.Task(source, path, work, first + len(tasks) + i, chunk_bytes, (i,), date)
-                for i in range(groups)
-            )
         wanted_file.close()
+        files = sorted(out.glob("[0-9]*.parquet"))
+        for inputs in _runs(files, _TASK_CHUNKS * chunk_bytes, workers):
+            tasks.append(_parse.Task(source, inputs, work, first + len(tasks), chunk_bytes, date))
     return tasks
 
 

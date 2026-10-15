@@ -1,6 +1,6 @@
 """Parse raw rows and snapshot texts into record, link and file-list parts for the build.
 
-A task reads one Parquet file, or some of its row groups, in small batches, and writes its
+A task reads some row groups of some Parquet files in small batches, and writes its
 parts a chunk at a time: a worker holds about one chunk of text, never a whole file.
 Parts land under the build's work folder as ``records/<type>/<task>.parquet``,
 ``links/<task>.parquet`` and ``filelist/<task>.parquet``.
@@ -76,18 +76,17 @@ def number(accession: str) -> int:
 
 @dataclass(frozen=True, slots=True)
 class Task:
-    """One file to parse.
+    """Some row groups of some files of one kind to parse.
 
-    ``row_groups`` limits it to some row groups; ``date`` is a snapshot's date, used in place of
-    each raw row's fetch date.
+    ``inputs`` pairs each file with the row groups to read. ``date`` is a snapshot's date, used
+    in place of each raw row's fetch date.
     """
 
     kind: str
-    path: Path
+    inputs: tuple[tuple[Path, tuple[int, ...]], ...]
     out: Path
     index: int
     chunk_bytes: int
-    row_groups: tuple[int, ...] | None = None
     date: str | None = None
 
 
@@ -157,26 +156,26 @@ def run(task: Task) -> list[str]:
     snapshot = task.date is not None
     columns = ["accession", "raw_text"] + ([] if snapshot else ["fetch_date"])
     held = 0
-    source = pq.ParquetFile(task.path, buffer_size=1 << 20, pre_buffer=False)
     try:
-        for batch in source.iter_batches(
-            batch_size=_BATCH_ROWS, row_groups=task.row_groups, columns=columns
-        ):
-            data = batch.to_pydict()
-            dates = data.get("fetch_date") or [task.date] * batch.num_rows
-            for accession, text, date in zip(
-                data["accession"], data["raw_text"], dates, strict=True
-            ):
-                held += len(text)
-                if task.kind == raw.SRA_XML and not text:
-                    empty.append(accession)
-                else:
-                    _parse(parts, task.kind, accession, text, date)
-            if held >= task.chunk_bytes:
-                parts.flush()
-                held = 0
+        for path, groups in task.inputs:
+            with pq.ParquetFile(path, buffer_size=1 << 20, pre_buffer=False) as source:
+                for batch in source.iter_batches(
+                    batch_size=_BATCH_ROWS, row_groups=list(groups), columns=columns
+                ):
+                    data = batch.to_pydict()
+                    dates = data.get("fetch_date") or [task.date] * batch.num_rows
+                    for accession, text, date in zip(
+                        data["accession"], data["raw_text"], dates, strict=True
+                    ):
+                        held += len(text)
+                        if task.kind == raw.SRA_XML and not text:
+                            empty.append(accession)
+                        else:
+                            _parse(parts, task.kind, accession, text, date)
+                    if held >= task.chunk_bytes:
+                        parts.flush()
+                        held = 0
     finally:
-        source.close()
         parts.close()
     return empty
 
