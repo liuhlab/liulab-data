@@ -28,7 +28,7 @@ FAN_IN = 8
 
 
 def pack(
-    root: Path, sources: Iterable[str] | None = None, *, chunk_bytes: int = raw.CHUNK_BYTES
+    root: Path, sources: Iterable[str] | None = None, *, chunk_bytes: int = raw.SORT_CHUNK_BYTES
 ) -> list[Path]:
     """Merge every source's parts into its raw buckets and document the folders changed.
 

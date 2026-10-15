@@ -58,7 +58,7 @@ SWITCHED_KEY = "switched"
 SWITCHED_AWAY_KEY = "switched_away"
 
 #: The default bytes of source text a parse worker holds before it writes its parts.
-CHUNK_BYTES = 1 << 26
+PARSE_CHUNK_BYTES = 1 << 26
 
 #: Chunks of raw text one parse task takes, so a large bucket is parsed by several workers.
 _TASK_CHUNKS = 4
@@ -79,7 +79,7 @@ def build(
     build_id: str | None = None,
     *,
     workers: int | None = None,
-    chunk_bytes: int = CHUNK_BYTES,
+    chunk_bytes: int = PARSE_CHUNK_BYTES,
     fraction: float | None = None,
 ) -> Path:
     """Build every table into a new ``builds/<build-id>/`` and point the marker at it.

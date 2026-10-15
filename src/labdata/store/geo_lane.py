@@ -38,7 +38,7 @@ CONNECTIONS = 4
 #: Tries per file before a Series is a ``fetch-failed`` gap.
 TRIES = 4
 #: Most rows one part holds, so a cut-off run loses little.
-PART_SIZE = 500
+ROWS_PER_PART = 500
 #: Seconds between progress lines.
 PROGRESS_SECONDS = progress_lines.EVERY
 #: Seconds without a throttle before one connection is added back.
@@ -216,8 +216,9 @@ def _fetch_parts(
 ) -> None:
     """Fetch every piece's items in one stream; save each bucket's rows and gap rows as parts.
 
-    A bucket's rows are written once :data:`PART_SIZE` rows or ``raw.CHUNK_BYTES`` of text
-    are held, or the bucket is done, so the connections never wait on a part's slowest file.
+    A bucket's rows are written once :data:`ROWS_PER_PART` rows or ``raw.SORT_CHUNK_BYTES``
+    of text are held, or the bucket is done, so the connections never wait on a part's
+    slowest file.
     """
     if not pieces:
         return
@@ -247,8 +248,8 @@ def _fetch_parts(
             size[bucket] += len(row.raw_text) if row else 0
             if (
                 left[bucket] == 0
-                or len(rows) + len(gap_rows) >= PART_SIZE
-                or size[bucket] >= raw.CHUNK_BYTES
+                or len(rows) + len(gap_rows) >= ROWS_PER_PART
+                or size[bucket] >= raw.SORT_CHUNK_BYTES
             ):
                 flush(bucket)
 

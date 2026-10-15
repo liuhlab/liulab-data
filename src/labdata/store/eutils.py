@@ -36,7 +36,7 @@ BATCH = 300
 #: ``efetch`` calls in flight.
 INFLIGHT = 8
 #: Experiments per part: a bucket's piece is saved in parts this size.
-PART_SIZE = 6_000
+EXPERIMENTS_PER_PART = 6_000
 #: Parts with calls in flight at once.
 OPEN_PARTS = 4
 
@@ -270,7 +270,7 @@ def fetch_packages(
     date: str,
     batch: int = BATCH,
     inflight: int = INFLIGHT,
-    part_size: int = PART_SIZE,
+    part_size: int = EXPERIMENTS_PER_PART,
     log_every: float = EVERY,
 ) -> LaneReport:
     """Fetch the package of every listed experiment no part or raw bucket holds yet.
