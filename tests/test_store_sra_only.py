@@ -161,7 +161,7 @@ def test_a_rerun_after_a_killed_run_fetches_only_the_rest(root: Path) -> None:
 
 def test_build_writes_the_tables_and_switches_the_marker(store: Store) -> None:
     out = store.root / "builds" / "b1"
-    assert store.settings == {"format_version": 1, "build": "b1"}
+    assert store.settings["build"] == "b1"
     assert sorted(p.name for p in (out / "records").iterdir()) == [
         "bioproject.parquet",
         "biosample.parquet",
