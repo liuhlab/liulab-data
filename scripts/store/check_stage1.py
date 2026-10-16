@@ -32,7 +32,7 @@ import pyarrow.parquet as pq  # noqa: E402
 
 from labdata.exceptions import AccessionError, NotFound, NotMirrored  # noqa: E402
 from labdata.geo import Experiment  # noqa: E402
-from labdata.store import open_store, raw  # noqa: E402
+from labdata.store import open_store, raw, targets  # noqa: E402
 from labdata.store.model import Record  # noqa: E402
 
 store = open_store(Path(sys.argv[1]) if len(sys.argv) > 1 else None)
@@ -189,11 +189,16 @@ def _r4() -> str:
     eq(len(studies), 2, "studies")
     ser = store.follow("GSM484820", "series")["GSM484820"]
     assert "GSE19970" in ser, ser
-    try:
-        store.open("GSE19970")
-        raise AssertionError("GSE19970 opened")
-    except NotMirrored as exc:
-        msg = str(exc)
+    # GSE19970 is a target Series: a build mirrors it once its sample takes it in.
+    fraction = (pq.read_metadata(BUILD / "gaps.parquet").metadata or {}).get(b"fraction")
+    if fraction is None or targets.in_sample("GSE19970", float(fraction)):
+        msg = f"GSE19970 mirrored as a target: {store.open('GSE19970').accession}"
+    else:
+        try:
+            store.open("GSE19970")
+            raise AssertionError("GSE19970 opened")
+        except NotMirrored as exc:
+            msg = str(exc)
     return f"SRA={s}; studies={studies}; series={ser}; NotMirrored: {msg[:80]}"
 
 
