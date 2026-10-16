@@ -5,7 +5,7 @@ store (``LABDATA_STORE``, then the pointer file).
 """
 
 import socket
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import Any
 
 ATTEMPTS: list[str] = []
@@ -270,30 +270,41 @@ def _r11() -> str:
 
 # ------------------------------------------------------------ every record
 held = pq.read_table(BUILD / "holdings.parquet").column("accession").to_pylist()
+# Opened records and raw texts are checked a chunk at a time, so memory stays flat as the store grows.
+CHUNK = 20_000
+
+
+def chunks() -> Iterator[list[str]]:
+    """Yield the held accessions in lists of at most ``CHUNK``."""
+    for start in range(0, len(held), CHUNK):
+        yield held[start : start + CHUNK]
 
 
 @check("every: open all held")
 def _open() -> str:
-    opened = store.open_many(held)
-    bad = [a for a, r in opened.items() if not isinstance(r, Record)]
+    bad = []
+    for part in chunks():
+        opened = store.open_many(part)
+        bad += [a for a, r in opened.items() if not isinstance(r, Record)]
     eq(bad, [], "failed opens")
     return f"{len(held)} held, all open"
 
 
 @check("every: content_hash recomputes from store.raw")
 def _hash() -> str:
-    raws = store.raw(held)
-    opened = store.open_many(held)
     bad = []
-    for a in held:
-        rec = opened[a]
-        if not (
-            isinstance(rec, Record)
-            and hashlib.sha256(raws[a].text.encode()).hexdigest()
-            == raws[a].content_hash
-            == rec.content_hash
-        ):
-            bad.append(a)
+    for part in chunks():
+        raws = store.raw(part)
+        opened = store.open_many(part)
+        for a in part:
+            rec = opened[a]
+            if not (
+                isinstance(rec, Record)
+                and hashlib.sha256(raws[a].text.encode()).hexdigest()
+                == raws[a].content_hash
+                == rec.content_hash
+            ):
+                bad.append(a)
     eq(bad, [], "hash mismatch")
     return f"{len(held)} hashes match"
 
