@@ -74,6 +74,20 @@ still fails is a `fetch-failed` gap, and an SRA experiment that still fails is c
 the fetch steps ask only for what failed, and the steps after them run again. Nothing saved
 is fetched twice.
 
+## After the last round
+
+The build writes `README.md` at the store root. It says what each folder holds, how it was
+made, and how to open the store as a database. After you move logs into `support/` or delete
+`work/`, write it again with fresh folder sizes:
+
+```bash
+labdata store readme
+```
+
+The run keeps the old build for a day after the switch. To delete it and the snapshots only
+it read straight away, run `labdata store prune --grace 0`. Prune never deletes the current
+build or anything it reads.
+
 ## Go deeper
 
 The steps are also commands of their own: `labdata store pack`, `build`, `coverage`, `prune`

@@ -38,11 +38,11 @@ labdata store copy
 ```
 
 `prune` deletes builds and snapshots the current build no longer reads. It keeps each one for
-a while after it goes out of use, so a reader can finish. The
-[API reference](../reference.md) gives the time.
+24 hours after it goes out of use, so a reader can finish. `--grace 0` deletes them at once.
 
-`copy` sends the marker file, the current snapshots, `raw/` and the current build, and deletes
-anything else in the bucket's copy. It will not run unless the current build is complete. When
+`copy` sends the marker file, the store's `README.md`, the current snapshots, `raw/` and the
+current build, and deletes anything else in the bucket's copy. It leaves out `work/` and
+`support/`. It will not run unless the current build is complete. When
 the login has expired, it stops and exits cleanly:
 
 ```text

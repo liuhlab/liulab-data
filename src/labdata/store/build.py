@@ -39,6 +39,7 @@ from labdata.store import (
     known,
     provenance,
     raw,
+    readme,
     snapshots,
     suppl,
     targets,
@@ -164,6 +165,7 @@ def _build(
         shutil.rmtree(work, ignore_errors=True)
         shutil.rmtree(tmp, ignore_errors=True)
     _switch(root, build_id)
+    readme.write(root)
     return out
 
 

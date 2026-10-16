@@ -96,6 +96,19 @@ def test_prune_dates_builds_from_before_switch_times_by_the_marker(root: Path) -
     assert prune(root).deleted == [root / "builds" / "b1"]
 
 
+def test_prune_grace_zero_deletes_at_once_all_but_the_current_build_and_its_reads(
+    root: Path,
+) -> None:
+    unread = _snapshot(root, "geo-series", "2026-01-01")
+    build(root, "b2")
+    result = CliRunner().invoke(app, ["store", "prune", "--root", str(root), "--grace", "0"])
+    assert result.exit_code == 0, result.output
+    assert sorted(p.name for p in (root / "builds").iterdir()) == ["b2"]
+    assert not unread.exists()
+    for source in ("bioproject", "biosample", "geo-series", "sra-accessions"):
+        assert (root / "snapshots" / source / "2026-10-14").is_dir()
+
+
 def test_prune_never_deletes_the_current_build(root: Path) -> None:
     result = CliRunner().invoke(app, ["store", "prune", "--root", str(root)])
     assert result.exit_code == 0, result.output
@@ -131,7 +144,7 @@ def _copy(root: Path, *extra: str) -> Result:
     return CliRunner().invoke(app, ["store", "copy", "--root", str(root), *extra])
 
 
-def test_copy_syncs_exactly_the_marker_snapshots_raw_and_current_build(
+def test_copy_syncs_exactly_the_marker_readme_snapshots_raw_and_current_build(
     root: Path, rclone: _Rclone
 ) -> None:
     marker = root / "labdata-store.toml"
@@ -148,6 +161,7 @@ def test_copy_syncs_exactly_the_marker_snapshots_raw_and_current_build(
         "--filter=+ /snapshots/sra-accessions/2026-10-14/**",
         "--filter=+ /raw/**",
         "--filter=+ /builds/b2/**",
+        "--filter=+ /README.md",
     ]
     progress = ["--stats=1m", "--stats-one-line", "--stats-log-level=NOTICE"]
     assert rclone.calls == [

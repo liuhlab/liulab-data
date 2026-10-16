@@ -36,4 +36,6 @@
 
 ::: labdata.store.prune
 
+::: labdata.store.readme
+
 ::: labdata.store.gcs

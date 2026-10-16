@@ -197,21 +197,46 @@ def store_build(
     typer.echo(f"Built {out} and switched the store to it")
 
 
+@store_app.command("readme")
+def store_readme(
+    root: Path | None = typer.Option(
+        None, help="Store root; default: LABDATA_STORE, then pointer."
+    ),
+) -> None:
+    """Write the store's root README.md again for the current build, with fresh folder sizes.
+
+    `labdata store build` writes it at each switch; this rewrites it without a build.
+    """
+    from labdata.store import readme
+
+    try:
+        out = readme.write(open_store(root).root)
+    except LabdataError as err:
+        typer.echo(str(err), err=True)
+        raise typer.Exit(1) from err
+    typer.echo(f"Wrote {out}")
+
+
 @store_app.command("prune")
 def store_prune(
     root: Path | None = typer.Option(
         None, help="Store root; default: LABDATA_STORE, then pointer."
     ),
+    grace: float = typer.Option(
+        24, min=0, help="Hours a build stays after the store switched away from it; 0: none."
+    ),
 ) -> None:
-    """Delete old builds and unread snapshots once they are out of use for 24 hours.
+    """Delete old builds and unread snapshots once they are out of use for --grace hours.
 
-    Keeps the current build and the snapshots it reads. A build stays readable for 24 hours
-    after the store switched away from it.
+    Never deletes the current build or the snapshots it reads. `--grace 0` deletes the rest
+    at once.
     """
+    import datetime as dt
+
     from labdata.store.prune import prune
 
     store = open_store(root)
-    report = prune(store.root)
+    report = prune(store.root, grace=dt.timedelta(hours=grace))
     for path in report.deleted:
         typer.echo(f"Deleted {path}")
     if not report.deleted:
