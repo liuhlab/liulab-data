@@ -214,7 +214,9 @@ def test_a_rerun_requests_nothing_saved_and_retries_a_fetch_failed_series(
     # every try, then every try again in the final pass over failed Series
     assert site.calls.count(urllib.parse.urlsplit(soft_url("GSE3")).path) == 2 * geo_lane.TRIES
     assert "GEO site timeout: connections now 2" in caplog.text
-    assert re.search(r"\d/3 Series SOFT, round 1 \(.*\), [\d.]+/s, errors: timeout \d", caplog.text)
+    assert re.search(
+        r"\d/3 Series SOFT, round 1 \(.*\), [\d,.]+/s, errors: timeout \d", caplog.text
+    )
 
     site.pages[soft_url("GSE3")] = [TimeoutError("timed out"), gzip.compress(soft("GSE3"))]
     site.calls.clear()
