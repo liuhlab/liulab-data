@@ -267,7 +267,8 @@ def _r11() -> str:
     eq(store.follow(studies, "BioProject"), {s: [] for s in studies}, "study BioProject")
     bp = sources("GSE28770", "BioProject")
     eq(len(bp), 1)
-    eq(list(bp.values()), [["Entrez link"]], "BP source")
+    # A target Series' snapshot summary names the same BioProject once the build covers it.
+    eq([sorted(set(v) - {"GEO summary"}) for v in bp.values()], [["Entrez link"]], "BP source")
     [prj] = bp
     kids = store.follow(prj, "umbrella of")[prj]
     return f"studies={studies}; BP={bp}; umbrella of {len(kids)} children"
