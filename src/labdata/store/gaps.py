@@ -37,6 +37,8 @@ UNKNOWN_LABEL = "unknown GEO relation label"
 COPIES_DIFFER = "copies differ"
 #: Note kind: an SRA experiment NCBI served no package for.
 NO_PACKAGE = "no SRA package"
+#: Note kind: an SRA experiment whose saved package is not well-formed XML; it adds no record.
+UNPARSABLE_PACKAGE = "unparsable SRA package"
 #: Note kind: a listed SRA experiment whose package fetch failed; a rerun asks again.
 #: It is not a Series gap.
 PACKAGE_FETCH_FAILED = FETCH_FAILED

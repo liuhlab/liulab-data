@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import pickle
 import shutil
 import sys
 import tracemalloc
@@ -20,7 +21,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from labdata.store import extract, init_store, open_store
+from labdata.exceptions import StoreBuildError
+from labdata.store import _parse, extract, init_store, open_store
 from labdata.store.build import build
 from tests._slices import DATA, SLICES, built_root, copy_snapshots
 
@@ -134,6 +136,33 @@ def test_an_experiment_with_no_package_is_a_build_note(tmp_path: Path) -> None:
         "detail": "SRA_Accessions.tab status: not listed",
     } in notes
     assert json.loads((out / "manifest.json").read_text())["notes"]["no SRA package"] == 1
+
+
+def test_an_unparsable_package_is_a_build_note_and_adds_no_record(tmp_path: Path) -> None:
+    root = built_root(tmp_path / "store", "prjna1027859")
+    spliced = (DATA / "sra_package" / "SRX10340496-spliced.xml").read_text()
+    _write_raw(root, "sra-xml", "SRX10nnnnnn", [("SRX10340496", spliced)])
+    out = build(root, "b2")
+    notes = [
+        n
+        for n in pq.read_table(out / "notes.parquet").to_pylist()
+        if n["kind"] == "unparsable SRA package"
+    ]
+    assert [n["accession"] for n in notes] == ["SRX10340496"]
+    assert "not well-formed" in notes[0]["detail"]
+    experiments = pq.read_table(out / "records" / "sra-experiment.parquet", columns=["accession"])
+    assert "SRX10340496" not in experiments.column(0).to_pylist()
+
+
+def test_a_record_that_fails_to_parse_names_itself_in_the_error(tmp_path: Path) -> None:
+    source = tmp_path / "biosample.parquet"
+    pq.write_table(pa.table({"accession": ["SAMN1"], "raw_text": ["<BioSample"]}), source)
+    task = _parse.Task("biosample", ((source, (0,)),), tmp_path / "work", 0, 1 << 20, "2026-10-14")
+    with pytest.raises(StoreBuildError) as caught:
+        _parse.run(task)
+    revived = pickle.loads(pickle.dumps(caught.value))
+    assert "SAMN1" in str(revived)
+    assert "ParseError" in str(revived)
 
 
 def test_differing_copies_keep_the_lowest_numbered_and_note_each_other_one(

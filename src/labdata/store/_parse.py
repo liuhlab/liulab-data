@@ -9,12 +9,14 @@ Parts land under the build's work folder as ``records/<type>/<task>.parquet``,
 from __future__ import annotations
 
 import re
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from labdata.exceptions import StoreBuildError
 from labdata.store import raw, snapshots, sources, suppl
 
 _FIELDS = pa.list_(pa.struct([("name", pa.string()), ("value", pa.string())]))
@@ -143,16 +145,37 @@ class _Parts:
         self.writers[folder].write_table(pa.Table.from_pylist(rows, schema=schema))
 
 
-def run(task: Task) -> list[str]:
+@dataclass(slots=True)
+class Left:
+    """The SRA experiments a task made no records for.
+
+    Attributes
+    ----------
+    empty : list of str
+        Experiments whose saved package is empty: NCBI served none.
+    unparsable : list of tuple of str
+        Experiments whose saved package is not well-formed XML, each with the parse error.
+    """
+
+    empty: list[str] = field(default_factory=list)
+    unparsable: list[tuple[str, str]] = field(default_factory=list)
+
+
+def run(task: Task) -> Left:
     """Parse one task's rows into parts.
 
     Returns
     -------
-    list of str
-        The SRA experiments whose saved package is empty: NCBI served none.
+    Left
+        The SRA experiments the task made no records for.
+
+    Raises
+    ------
+    StoreBuildError
+        If any other row fails to parse; the message names the row and the reason.
     """
     parts = _Parts(task)
-    empty: list[str] = []
+    left = Left()
     snapshot = task.date is not None
     columns = ["accession", "raw_text"] + ([] if snapshot else ["fetch_date"])
     held = 0
@@ -169,15 +192,27 @@ def run(task: Task) -> list[str]:
                     ):
                         held += len(text)
                         if task.kind == raw.SRA_XML and not text:
-                            empty.append(accession)
-                        else:
+                            left.empty.append(accession)
+                            continue
+                        try:
                             _parse(parts, task.kind, accession, text, date)
+                        except ET.ParseError as err:
+                            if task.kind != raw.SRA_XML:
+                                raise _failed(task.kind, accession, err) from None
+                            left.unparsable.append((accession, str(err)))
+                        except Exception as err:
+                            # Ray loses a parse error's message; this one carries it as text.
+                            raise _failed(task.kind, accession, err) from None
                     if held >= task.chunk_bytes:
                         parts.flush()
                         held = 0
     finally:
         parts.close()
-    return empty
+    return left
+
+
+def _failed(kind: str, accession: str, err: Exception) -> StoreBuildError:
+    return StoreBuildError(f"{kind} {accession} did not parse: {type(err).__name__}: {err}")
 
 
 def _parse(parts: _Parts, kind: str, accession: str, text: str, date: str) -> None:

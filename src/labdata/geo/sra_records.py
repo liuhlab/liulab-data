@@ -30,6 +30,7 @@ _PACKAGE_RETRIES = 2
 
 _XML_DECLARATION = re.compile(r"<\?xml[^>]*\?>")
 _PACKAGE = re.compile(r"<EXPERIMENT_PACKAGE\b[^>]*>.*?</EXPERIMENT_PACKAGE>", re.S)
+_PACKAGE_START = re.compile(r"<EXPERIMENT_PACKAGE\b")
 _EXPERIMENT_ACC = re.compile(r'<EXPERIMENT\b[^>]*?\baccession="([^"]+)"')
 _EMPTY = ET.Element("_")
 
@@ -114,10 +115,17 @@ def split_packages(xml: str) -> dict[str, str]:
     """Map each experiment accession in an ``efetch db=sra`` reply to its package text.
 
     Each value is the ``EXPERIMENT_PACKAGE`` element exactly as served; the first
-    package of an accession wins.
+    package of an accession wins. NCBI sometimes cuts a package off mid-text and goes on
+    with the next one; a package that is not well-formed is left out, so it reads as
+    dropped and is asked for again.
     """
     out: dict[str, str] = {}
-    for package in _PACKAGE.findall(xml):
+    for found in _PACKAGE.findall(xml):
+        package = found[[m.start() for m in _PACKAGE_START.finditer(found)][-1] :]
+        try:
+            ET.fromstring(package)
+        except ET.ParseError:
+            continue
         match = _EXPERIMENT_ACC.search(package)
         if match:
             out.setdefault(match[1], package)

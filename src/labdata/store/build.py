@@ -188,7 +188,12 @@ def _build_into(
             tasks.append(_parse.Task(kind, inputs, work, len(tasks), chunk_bytes))
     logger.info("parsing %d raw tasks on %d workers", len(tasks), workers)
     parsed = extract.run_parallel(_parse.run, ((t,) for t in tasks), workers)
-    empty = [srx for got in parsed for srx in got]
+    empty = [srx for got in parsed for srx in got.empty]
+    unparsable = [
+        gaps.Note(srx, gaps.UNPARSABLE_PACKAGE, f"not well-formed XML as saved: {reason}")
+        for got in parsed
+        for srx, reason in got.unparsable
+    ]
     logger.info("parsed raw/; checking copies and looking up snapshot records")
 
     (tmp / "records").mkdir(parents=True)
@@ -225,7 +230,7 @@ def _build_into(
         root,
         tmp,
         target_list,
-        [*copy_notes, *label_notes, *_no_package_notes(root, empty)],
+        [*copy_notes, *label_notes, *unparsable, *_no_package_notes(root, empty)],
         experiments=eutils.list_path(root, sra_date),
     )
     provenance.document_build(
