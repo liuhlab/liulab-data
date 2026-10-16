@@ -34,7 +34,13 @@ _DOWNLOADER = "scripts/bulk/download_ncbi_bulk.py"
 #: What each raw folder holds and where its text comes from.
 RAW_SOURCES: dict[str, tuple[str, str]] = {
     raw.GEO_SOFT: (
-        "The family SOFT of each GEO Series, decompressed, one row per Series.",
+        "The family SOFT of each GEO Series, decompressed, one row per Series. Rows the GEO "
+        "lane wrote have the sample and platform data tables stripped (each "
+        "!Sample_table_begin to !Sample_table_end and !Platform_table_begin to "
+        "!Platform_table_end block, markers included); every other line is kept as served. "
+        "Such a row starts with two lines giving the original decompressed file's size in "
+        "bytes and its sha256: `#labdata_original_size = <bytes>` and "
+        "`#labdata_original_sha256 = <hex>`.",
         f"{_FTP}/geo/series/<GSEnnn>/<GSE>/soft/<GSE>_family.soft.gz",
     ),
     raw.ENTREZ_LINKS: (
@@ -47,6 +53,11 @@ RAW_SOURCES: dict[str, tuple[str, str]] = {
         "The suppl/filelist.txt of each GEO Series, one row per Series: supplementary file "
         "names, sizes, dates and archive members. An empty text means the Series has none.",
         f"{_FTP}/geo/series/<GSEnnn>/<GSE>/suppl/filelist.txt",
+    ),
+    raw.GEO_GAPS: (
+        "Each target GEO Series whose family SOFT the fetch could not save, one row per "
+        "Series: the gap reason (soft-missing or fetch-failed), then any detail after a newline.",
+        f"{_FTP}/geo/series/<GSEnnn>/<GSE>/soft/<GSE>_family.soft.gz, as answered",
     ),
     raw.SRA_XML: (
         "The SRA EXPERIMENT_PACKAGE XML of each experiment, one row per experiment.",
@@ -115,6 +126,9 @@ def document_raw(root: Path, source: str) -> Path:
         entry["rows"] = len(column)
         dates |= set(column.to_pylist())
     what, url = RAW_SOURCES.get(source, (f"Live results of the {source} source.", "NCBI"))
+    width = raw.WIDTHS[source]
+    digits = len(str(width)) - 1
+    example = raw.bucket_of(source, "GSE246310" if source.startswith("geo-") else "SRX24283130")
     _write(
         folder,
         {
@@ -124,13 +138,17 @@ def document_raw(root: Path, source: str) -> Path:
             "date": _span(dates),
             "layout": (
                 "One Parquet file per bucket, rows sorted by accession, columns accession, "
-                "raw_text, hash (sha256 of raw_text) and fetch_date. GEO accessions use GEO's "
-                "thousand folder (GSE246nnn); others a range of 10,000 numbers (SRX2428nnnn)."
+                "raw_text, hash (sha256 of raw_text) and fetch_date. A bucket is a range of "
+                f"{width:,} accession numbers within one prefix, named with the last "
+                f"{digits} digits as n ({example}). The width is set from measured Parquet "
+                "bytes per row so a full-scale bucket file is about 50 MB to 1 GB."
             ),
             "files": files,
-            "produced_by": produced_by("labdata store fetch"),
+            "produced_by": produced_by("labdata store pack"),
             "refresh": (
-                "Run `labdata store fetch <accession> ...`. Saved items are kept; only "
+                "Run `labdata store fetch <accession> ...`, or a fetch lane, then "
+                "`labdata store pack`. Fetching writes parts under work/parts/; pack merges "
+                "them into these files and is their only writer. Saved items are kept; only "
                 "missing ones are fetched. A build refreshes this README and manifest."
             ),
         },
@@ -145,11 +163,14 @@ def document_build(
     *,
     built: str | None = None,
     unknown_labels: dict[str, dict[str, int | str]] | None = None,
+    target_series: dict[str, Any] | None = None,
+    notes: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     """Write a build folder's manifest and README, naming the inputs it was built from.
 
     ``unknown_labels`` maps each GEO relation label the build kept verbatim to its link count
     and an example accession; the manifest lists it only when it is not empty.
+    ``target_series`` is the coverage summary and ``notes`` the note count by kind.
 
     Returns
     -------
@@ -170,11 +191,15 @@ def document_build(
             "links_by_from.parquet and links_by_to.parquet, the same links sorted by each end; "
             "holdings.parquet, every accession held; known.parquet, every accession the "
             "snapshots list with the snapshot date; supplementary_files.parquet, the supplementary "
-            "files of each held record, sorted by owner accession."
+            "files of each held record, sorted by owner accession; gaps.parquet, each target "
+            "Series not held with its reason; notes.parquet, what the build met and kept, such "
+            "as a Series whose SOFT type disagrees with the snapshot."
         ),
         "files": files,
         "inputs": _inputs(root),
         **({"unknown_relation_labels": unknown_labels} if unknown_labels else {}),
+        **({"target_series": target_series} if target_series is not None else {}),
+        **({"notes": notes} if notes is not None else {}),
         "produced_by": produced_by("labdata store build"),
         "refresh": (
             "Run `labdata store build`. It writes a new builds/<build-id>/ and then switches "
@@ -379,6 +404,7 @@ def _render(m: dict[str, Any]) -> str:
         m.get("layout", ""),
         "",
         *_unknown_section(m.get("unknown_relation_labels") or {}),
+        *_coverage_section(m.get("target_series"), m.get("notes") or {}),
         "## How these files were made",
         "",
         f"`{made.get('command')}` at commit `{made.get('commit') or 'unknown'}`"
@@ -406,6 +432,32 @@ def _unknown_section(labels: dict[str, dict[str, Any]]) -> list[str]:
         *rows,
         "",
     ]
+
+
+def _coverage_section(target: dict[str, Any] | None, notes: dict[str, int]) -> list[str]:
+    if target is None:
+        return []
+    lines = [
+        "## Target Series",
+        "",
+        f"From the geo-series snapshot of {target['snapshot_date']}: {target['target']} target "
+        f"Series, {target['held']} held. Gaps by reason:",
+        "",
+        "| Reason | Series |",
+        "| --- | --- |",
+        *(f"| {reason} | {n} |" for reason, n in target["gaps"].items()),
+        "",
+    ]
+    if notes:
+        lines += [
+            "## Notes",
+            "",
+            "| Kind | Notes |",
+            "| --- | --- |",
+            *(f"| {kind} | {n} |" for kind, n in notes.items()),
+            "",
+        ]
+    return lines
 
 
 def _commit() -> str | None:

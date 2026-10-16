@@ -50,6 +50,8 @@ KEEP: dict[str, list[str] | None] = {
     "GSE233685": [],
     "GSE20301": ["GSM517436", "GSM517440"],
     "GSE28770": None,
+    "GSE73693": ["GSM1900997"],
+    "GSE73694": ["GSM1900997"],
 }
 #: Series whose first sample is kept, and the SuperSeries that keeps its SubSeries' samples.
 FIRST = ("GSE246308", "GSE246309", "GSE153830", "GSE233931", "GSE233685")

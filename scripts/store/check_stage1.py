@@ -5,7 +5,7 @@ store (``LABDATA_STORE``, then the pointer file).
 """
 
 import socket
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import Any
 
 ATTEMPTS: list[str] = []
@@ -32,7 +32,7 @@ import pyarrow.parquet as pq  # noqa: E402
 
 from labdata.exceptions import AccessionError, NotFound, NotMirrored  # noqa: E402
 from labdata.geo import Experiment  # noqa: E402
-from labdata.store import open_store, raw  # noqa: E402
+from labdata.store import open_store, raw, targets  # noqa: E402
 from labdata.store.model import Record  # noqa: E402
 
 store = open_store(Path(sys.argv[1]) if len(sys.argv) > 1 else None)
@@ -110,7 +110,8 @@ def _done() -> str:
     assert all(isinstance(r, Record) for r in recs.values()), recs
     return (
         f"SRX={srx}; runs={len(runs)}; props read={nprops}; "
-        f"SRS={len(srs)}; SAMN={sorted(v[0] for v in samn.values())}; studies={sorted({e.study for e in exps})}"
+        f"SRS={len(srs)}; SAMN={sorted(v[0] for v in samn.values())}; "
+        f"studies={sorted({e.study for e in exps})}"
     )
 
 
@@ -188,11 +189,16 @@ def _r4() -> str:
     eq(len(studies), 2, "studies")
     ser = store.follow("GSM484820", "series")["GSM484820"]
     assert "GSE19970" in ser, ser
-    try:
-        store.open("GSE19970")
-        raise AssertionError("GSE19970 opened")
-    except NotMirrored as exc:
-        msg = str(exc)
+    # GSE19970 is a target Series: a build mirrors it once its sample takes it in.
+    fraction = (pq.read_metadata(BUILD / "gaps.parquet").metadata or {}).get(b"fraction")
+    if fraction is None or targets.in_sample("GSE19970", float(fraction)):
+        msg = f"GSE19970 mirrored as a target: {store.open('GSE19970').accession}"
+    else:
+        try:
+            store.open("GSE19970")
+            raise AssertionError("GSE19970 opened")
+        except NotMirrored as exc:
+            msg = str(exc)
     return f"SRA={s}; studies={studies}; series={ser}; NotMirrored: {msg[:80]}"
 
 
@@ -251,7 +257,11 @@ def _r10() -> str:
     s = store.open("GSE15556")
     tax = s.field("Series_sample_taxid")
     eq(tax, ["8355", "8364"], "Series_sample_taxid")
-    return f"[]; {len(reads)} read files w/ size+date e.g. {reads[0].name} {reads[0].size} {reads[0].date}; taxid={tax}"
+    first = reads[0]
+    return (
+        f"[]; {len(reads)} read files w/ size+date e.g. {first.name} {first.size} {first.date}; "
+        f"taxid={tax}"
+    )
 
 
 @check("11 GSE28770")
@@ -262,7 +272,8 @@ def _r11() -> str:
     eq(store.follow(studies, "BioProject"), {s: [] for s in studies}, "study BioProject")
     bp = sources("GSE28770", "BioProject")
     eq(len(bp), 1)
-    eq(list(bp.values()), [["Entrez link"]], "BP source")
+    # A target Series' snapshot summary names the same BioProject once the build covers it.
+    eq([sorted(set(v) - {"GEO summary"}) for v in bp.values()], [["Entrez link"]], "BP source")
     [prj] = bp
     kids = store.follow(prj, "umbrella of")[prj]
     return f"studies={studies}; BP={bp}; umbrella of {len(kids)} children"
@@ -270,30 +281,41 @@ def _r11() -> str:
 
 # ------------------------------------------------------------ every record
 held = pq.read_table(BUILD / "holdings.parquet").column("accession").to_pylist()
+# Records and raw texts are checked a chunk at a time, so memory stays flat as the store grows.
+CHUNK = 20_000
+
+
+def chunks() -> Iterator[list[str]]:
+    """Yield the held accessions in lists of at most ``CHUNK``."""
+    for start in range(0, len(held), CHUNK):
+        yield held[start : start + CHUNK]
 
 
 @check("every: open all held")
 def _open() -> str:
-    opened = store.open_many(held)
-    bad = [a for a, r in opened.items() if not isinstance(r, Record)]
+    bad = []
+    for part in chunks():
+        opened = store.open_many(part)
+        bad += [a for a, r in opened.items() if not isinstance(r, Record)]
     eq(bad, [], "failed opens")
     return f"{len(held)} held, all open"
 
 
 @check("every: content_hash recomputes from store.raw")
 def _hash() -> str:
-    raws = store.raw(held)
-    opened = store.open_many(held)
     bad = []
-    for a in held:
-        rec = opened[a]
-        if not (
-            isinstance(rec, Record)
-            and hashlib.sha256(raws[a].text.encode()).hexdigest()
-            == raws[a].content_hash
-            == rec.content_hash
-        ):
-            bad.append(a)
+    for part in chunks():
+        raws = store.raw(part)
+        opened = store.open_many(part)
+        for a in part:
+            rec = opened[a]
+            if not (
+                isinstance(rec, Record)
+                and hashlib.sha256(raws[a].text.encode()).hexdigest()
+                == raws[a].content_hash
+                == rec.content_hash
+            ):
+                bad.append(a)
     eq(bad, [], "hash mismatch")
     return f"{len(held)} hashes match"
 

@@ -104,7 +104,8 @@ class Link:
     other : str
         The accession at the far end, which the store may not hold.
     source : str
-        Who stated it: ``SOFT``, ``SRA XML``, ``BioProject XML``, ``Entrez link`` or ``PubMed``.
+        Who stated it: ``SOFT``, ``SRA XML``, ``BioProject XML``, ``Entrez link``,
+        ``GEO summary`` or ``PubMed``.
     forward : bool
         Whether this end is the link's ``from``.
     """

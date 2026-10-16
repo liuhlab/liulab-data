@@ -1,4 +1,4 @@
-"""GEO records and links: thin-slice records 2, 3, 4, 7, 8, 9 and 11, fetched and built.
+"""GEO records and links: thin-slice records 2-4, 7-9, 11 and 12, fetched and built.
 
 Fixtures in ``tests/data/geo_slice/`` are cut from live NCBI by ``make_fixtures.py`` beside
 them: trimmed family SOFT, the packages of the experiments the kept samples name, the live
@@ -19,7 +19,7 @@ from typer.testing import CliRunner
 
 from labdata.cli import app
 from labdata.exceptions import AccessionError, LabdataError, NotFound, NotMirrored, StoreBuildError
-from labdata.store import Store, open_store, raw
+from labdata.store import Store, open_store, pack, raw
 from labdata.store.build import build
 from labdata.store.fetch import fetch
 from labdata.store.model import Link
@@ -106,17 +106,16 @@ def _sources(store: Store, accession: str, relation: str) -> dict[str, list[str]
 # ---------------------------------------------------------------- fetch
 
 
-def test_fetch_packs_family_soft_per_thousand_series_folder(built: Path) -> None:
+def test_fetch_packs_family_soft_per_ten_thousand_series(built: Path) -> None:
     folder = built / "raw" / "geo-soft"
     assert sorted(p.name for p in folder.glob("*.parquet")) == [
-        "GSE153nnn.parquet",
-        "GSE19nnn.parquet",
-        "GSE20nnn.parquet",
-        "GSE233nnn.parquet",
-        "GSE246nnn.parquet",
-        "GSE28nnn.parquet",
+        "GSE15nnnn.parquet",
+        "GSE1nnnn.parquet",
+        "GSE23nnnn.parquet",
+        "GSE24nnnn.parquet",
+        "GSE2nnnn.parquet",
     ]
-    rows = {r["accession"]: r for r in _rows(folder / "GSE246nnn.parquet")}
+    rows = {r["accession"]: r for r in _rows(folder / "GSE24nnnn.parquet")}
     assert sorted(rows) == [*_SUBSERIES, "GSE246310"]
     assert rows["GSE246307"]["raw_text"] == _soft("GSE246307")
     assert rows["GSE246307"]["fetch_date"] == "2026-10-14"
@@ -124,7 +123,7 @@ def test_fetch_packs_family_soft_per_thousand_series_folder(built: Path) -> None
 
 def test_fetch_saves_the_entrez_links_per_series_as_text(built: Path) -> None:
     rows = {
-        r["accession"]: r["raw_text"] for r in _rows(built / "raw/entrez-links/GSE19nnn.parquet")
+        r["accession"]: r["raw_text"] for r in _rows(built / "raw/entrez-links/GSEnnnnnn.parquet")
     }
     assert rows["GSE19456"].splitlines() == [
         "GSE19456\tbioproject\t120321\tPRJNA120321",
@@ -139,7 +138,8 @@ def test_fetch_pulls_packages_of_every_linked_experiment_and_si_for_each_series(
     built: Path,
 ) -> None:
     packages = {r.accession for r in raw.read_rows(built, raw.SRA_XML)}
-    assert packages == {p.stem for p in (_DATA / "packages").iterdir()}
+    # Record 12's experiment belongs to a Series its own test fetches.
+    assert packages == {p.stem for p in (_DATA / "packages").iterdir()} - {"SRX1301523"}
     searched = {r.accession: r.raw_text for r in raw.read_rows(built, raw.PUBMED_SI)}
     assert {*_SERIES, *_SUBSERIES} <= set(searched)
     assert searched["GSE20301"] == "20194744"
@@ -167,8 +167,8 @@ def test_a_rerun_makes_no_call_for_items_already_saved(built: Path, tmp_path: Pa
 def test_a_rerun_fetches_only_what_a_killed_run_left_out(root: Path) -> None:
     fetch(root, ["GSE19456"], client=_client(), today="2026-10-14")
     lost = [r for r in raw.read_rows(root, raw.SRA_XML) if r.accession != "SRX018710"]
-    (root / "raw" / "sra-xml" / f"{raw.bucket_of('SRX018710')}.parquet").unlink()
-    raw.write_rows(root, raw.SRA_XML, lost)
+    (root / "raw" / "sra-xml" / f"{raw.bucket_of(raw.SRA_XML, 'SRX018710')}.parquet").unlink()
+    pack.write_rows(root, raw.SRA_XML, lost)
     client = _client()
     fetch(root, ["GSE19456"], client=client, today="2026-10-15")
     assert client.calls == [("efetch", ("sra", ("SRX018710",), "full"))]
@@ -279,7 +279,7 @@ def _with_relation(root: Path, line: str) -> None:
     [row] = raw.read_rows(root, raw.GEO_SOFT)
     anchor = "!Series_relation = BioProject:"
     text = row.raw_text.replace(anchor, f"{line}\n{anchor}", 1)
-    raw.write_rows(root, raw.GEO_SOFT, [raw.RawRow(row.accession, text, row.fetch_date)])
+    pack.write_rows(root, raw.GEO_SOFT, [raw.RawRow(row.accession, text, row.fetch_date)])
 
 
 def test_an_unknown_relation_label_is_kept_verbatim_and_reported(
@@ -312,13 +312,39 @@ def test_a_relation_line_naming_no_accession_fails_the_build(root: Path) -> None
         build(root, "bad")
 
 
-def test_copies_of_a_sample_that_differ_fail_the_build(root: Path) -> None:
+def test_copies_of_a_sample_that_differ_keep_the_lowest_numbered_and_are_noted(
+    root: Path,
+) -> None:
     fetch(root, ["GSE246310"], client=_client(), today="2026-10-14")
     rows = {r.accession: r for r in raw.read_rows(root, raw.GEO_SOFT)}
-    text = rows["GSE246310"].raw_text.replace("!Sample_title = ", "!Sample_title = changed ", 1)
-    raw.write_rows(root, raw.GEO_SOFT, [raw.RawRow("GSE246310", text, "2026-10-14")])
-    with pytest.raises(LabdataError, match="GSE246310"):
-        build(root, "bad")
+    head, sample, tail = rows["GSE246310"].raw_text.partition("^SAMPLE = GSM8571270\n")
+    block, nxt, rest = tail.partition("\n^")
+    block = block.replace("= NextSeq 500", "= Illumina NextSeq 500")
+    text = head + sample + block + nxt + rest
+    pack.write_rows(root, raw.GEO_SOFT, [raw.RawRow("GSE246310", text, "2026-10-14")])
+    out = build(root, "b1")
+    store = open_store(root)
+    assert "= NextSeq 500" in store.raw(["GSM8571270"])["GSM8571270"].text
+    notes = pq.read_table(out / "notes.parquet").to_pylist()
+    assert {
+        "accession": "GSM8571270",
+        "kind": "copies differ",
+        "detail": "kept GSE246307; GSE246310 differs in: Sample_instrument_model",
+    } in notes
+
+
+def test_a_sample_geo_renders_differently_in_two_series_is_noted(root: Path) -> None:
+    fetch(root, ["GSE73693", "GSE73694"], client=_client(), today="2026-10-14")
+    out = build(root, "b1")
+    assert "= NextSeq 500" in open_store(root).raw(["GSM1900997"])["GSM1900997"].text
+    notes = pq.read_table(out / "notes.parquet").to_pylist()
+    assert [n for n in notes if n["kind"] == "copies differ"] == [
+        {
+            "accession": "GSM1900997",
+            "kind": "copies differ",
+            "detail": "kept GSE73693; GSE73694 differs in: Sample_instrument_model",
+        }
+    ]
 
 
 # ---------------------------------------------------------------- record 2

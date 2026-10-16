@@ -7,6 +7,7 @@ import json
 import shutil
 import socket
 from pathlib import Path
+from typing import Any
 
 import pyarrow.parquet as pq
 import pytest
@@ -14,7 +15,7 @@ from typer.testing import CliRunner
 
 from labdata.cli import app
 from labdata.exceptions import LabdataError, StoreBuildError
-from labdata.store import init_store, open_store
+from labdata.store import extract, init_store, open_store
 from labdata.store.build import build, build_lock
 from labdata.store.extract import duckdb_memory
 from labdata.store.fetch import fetch
@@ -110,7 +111,11 @@ def test_an_old_store_keeps_reading_its_build_after_the_switch(root: Path) -> No
 def test_the_marker_keeps_a_build_id_toml_must_escape(root: Path) -> None:
     build_id = 'b2 "quoted" \\ \x7f \U0001f9ec'
     build(root, build_id)
-    assert open_store(root).settings == {"format_version": 1, "build": build_id}
+    assert open_store(root).settings["build"] == build_id
+    build(root, "b3")
+    settings = open_store(root).settings
+    assert settings["build"] == "b3"
+    assert sorted(settings["switched_away"]) == ["b1", build_id]
 
 
 def test_a_build_killed_before_its_rename_leaves_no_build_and_reruns(root: Path) -> None:
@@ -141,10 +146,36 @@ def test_the_duckdb_memory_cap_defaults_from_the_slurm_allocation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("LABDATA_DUCKDB_MEMORY", raising=False)
+    monkeypatch.delenv("LABDATA_MEMORY_MB", raising=False)
     monkeypatch.setenv("SLURM_MEM_PER_NODE", "64000")
-    assert duckdb_memory() == "48000MB"
+    assert duckdb_memory() == "32000MB"
     monkeypatch.setenv("LABDATA_DUCKDB_MEMORY", "2GB")
     assert duckdb_memory() == "2GB"
+
+
+def test_a_pipeline_steps_duckdb_and_ray_stay_inside_its_memory_and_threads(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("LABDATA_DUCKDB_MEMORY", raising=False)
+    monkeypatch.setenv("SLURM_MEM_PER_NODE", "64000")
+    monkeypatch.setenv("LABDATA_MEMORY_MB", "8000")
+    monkeypatch.setenv("LABDATA_THREADS", "3")
+    with extract.connect(root) as con:
+        limit, threads = con.execute(
+            "SELECT current_setting('memory_limit'), current_setting('threads')"
+        ).fetchone()  # type: ignore[misc]
+    assert threads == 3
+    seen: dict[str, Any] = {}
+    import ray
+
+    monkeypatch.setattr(ray, "is_initialized", lambda: False)
+    monkeypatch.setattr(ray, "init", lambda **kw: seen.update(kw))
+    monkeypatch.setattr(ray, "shutdown", lambda: None)
+    with extract.parallel(4):
+        pass
+    duckdb_mb = float(limit.split()[0]) * {"MiB": 1.048576, "GiB": 1073.741824}[limit.split()[1]]
+    ray_mb = seen["object_store_memory"] / 1e6
+    assert duckdb_mb + ray_mb <= 8000 * 0.75
 
 
 # ---------------------------------------------------------------- provenance

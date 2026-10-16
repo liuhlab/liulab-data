@@ -1,28 +1,30 @@
 """Extract each bulk snapshot once, in parallel, into Parquet parts the build reads.
 
 One pass per snapshot writes ``<root>/work/extract/<source>-<date>/part-NNNNN.parquet``, one
-part per byte range of the (decompressed) snapshot. A worker seeks to its range, skips to the
-first record that starts inside it, and stops at the first record that starts at or after the
-range's end, so each record lands in exactly one part. Records are found by byte scanning.
+part per byte range of the (decompressed) snapshot: a part holds each record that starts in
+its range, so each record lands in exactly one part. Records are found by byte scanning.
 
-Every step resumes: a gzip snapshot is decompressed once into ``<root>/work/tmp/``, each part
-appears by a rename and is skipped when present, and ``_DONE`` marks the source finished. The
-range plan is saved before the first part, so a rerun splits the file the same way.
+A plain snapshot is read by range, a worker seeking to each. A gzip snapshot is decompressed
+as one stream and cut into the same ranges on the fly; no unpacked copy is written. Every step
+resumes: each part appears by a rename and is skipped when present, and ``_DONE`` marks the
+source finished. The part size is saved before the first part, so a rerun cuts the same way.
 """
 
 from __future__ import annotations
 
+import io
 import json
 import math
 import os
 import re
 import shutil
 import subprocess
+import sys
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import BinaryIO
+from typing import Any, BinaryIO, cast
 
 import duckdb
 import pyarrow as pa
@@ -46,13 +48,28 @@ DONE = "_DONE"
 #: The default size of one part's byte range.
 PART_BYTES = 1 << 28
 
-#: The share of the job's or machine's memory DuckDB may use; the rest is for Python.
-MEMORY_SHARE = 0.75
+#: Rows per row group of a part, so a reader holds a few thousand records, not a whole part.
+ROW_GROUP_ROWS = 4096
+
+#: The memory (MB) and threads a pipeline step was given; set by the pipeline for each step.
+MEMORY_ENV = "LABDATA_MEMORY_MB"
+THREADS_ENV = "LABDATA_THREADS"
+
+#: The share of a step's memory DuckDB may use.
+MEMORY_SHARE = 0.5
+#: The share of a step's memory Ray's object store may use. The rest is for Python.
+OBJECT_STORE_SHARE = 0.2
 
 _PLAN = "_plan.json"
+_RAY_MIN_STORE = 100 << 20
+_RAY_MAC_STORE = 2 << 30
 _CHUNK = 1 << 24
 _BIOPROJECT_KEY = re.compile(rb'<ArchiveID\b[^>]*?\baccession="(PRJ[A-Z]+\d+)"')
 _BIOSAMPLE_KEY = re.compile(rb'<BioSample\b[^>]*?\baccession="(SAM[A-Z]+\d+)"')
+_TAGS = {
+    snapshots.BIOSAMPLE: re.compile(rb"<BioSample[\s>]"),
+    snapshots.BIOPROJECT: re.compile(rb"<Package[\s>]"),
+}
 
 _TEXT_SCHEMA = pa.schema([("accession", pa.string()), ("raw_text", pa.string())])
 _TAB_SCHEMA = pa.schema(
@@ -125,22 +142,25 @@ def extract(
         return out
     workers = workers or default_workers()
     out.mkdir(parents=True, exist_ok=True)
-    path = _plain(root, snap, workers)
-    size = path.stat().st_size
-    part = _plan(out, size, part_bytes)
-    tasks = [
-        Task(source, path, i, i * part, min((i + 1) * part, size), out)
-        for i in range(max(1, math.ceil(size / part)))
-        if not (out / _part_name(i)).is_file()
-    ]
-    if workers == 1:
-        for task in tasks:
-            _write_part(task)
+    if snap.path.suffix == ".gz":
+        part = _plan(out, None, part_bytes)
+        with _decompressed(snap.path, workers) as stream:
+            calls = (
+                (source, block, out / _part_name(i))
+                for i, block in _blocks(stream, source, part)
+                if not (out / _part_name(i)).is_file()
+            )
+            run_parallel(_write_block, calls, workers)
     else:
-        _run_ray(tasks, workers)
+        size = snap.path.stat().st_size
+        part = _plan(out, size, part_bytes)
+        tasks = (
+            (Task(source, snap.path, i, i * part, min((i + 1) * part, size), out),)
+            for i in range(max(1, math.ceil(size / part)))
+            if not (out / _part_name(i)).is_file()
+        )
+        run_parallel(_write_part, tasks, workers)
     write_atomic(out / DONE, "")
-    if path != snap.path:
-        path.unlink()
     return out
 
 
@@ -172,19 +192,31 @@ def sql_string(text: str) -> str:
     return "'" + text.replace("'", "''") + "'"
 
 
-def duckdb_memory() -> str:
-    """Return DuckDB's memory cap: ``LABDATA_DUCKDB_MEMORY``, else a share of the allocation.
+def step_memory_mb() -> int:
+    """Return this step's memory in MB: ``LABDATA_MEMORY_MB``, else :func:`allocation_mb`."""
+    given = os.environ.get(MEMORY_ENV, "")
+    return int(given) if given.isdigit() and int(given) > 0 else allocation_mb()
 
-    The allocation is ``SLURM_MEM_PER_NODE`` (MB) inside a Slurm job, else the cgroup limit or
-    the machine's memory, whichever is smaller.
-    """
+
+def step_threads() -> int:
+    """Return this step's threads: ``LABDATA_THREADS``, else :func:`default_workers`."""
+    given = os.environ.get(THREADS_ENV, "")
+    return int(given) if given.isdigit() and int(given) > 0 else default_workers()
+
+
+def duckdb_memory() -> str:
+    """Return DuckDB's memory cap: ``LABDATA_DUCKDB_MEMORY``, else a share of the step's memory."""
     override = os.environ.get("LABDATA_DUCKDB_MEMORY")
     if override:
         return override
-    return f"{max(int(_allocation_mb() * MEMORY_SHARE), 256)}MB"
+    return f"{max(int(step_memory_mb() * MEMORY_SHARE), 256)}MB"
 
 
-def _allocation_mb() -> int:
+def allocation_mb() -> int:
+    """Return the job's memory in MB: ``SLURM_MEM_PER_NODE`` in a Slurm job.
+
+    Outside one it is the cgroup limit or the machine's memory, whichever is smaller.
+    """
     slurm = os.environ.get("SLURM_MEM_PER_NODE", "")
     if slurm.isdigit() and int(slurm) > 0:
         return int(slurm)
@@ -203,8 +235,8 @@ def _allocation_mb() -> int:
 def connect(root: Path) -> Iterator[duckdb.DuckDBPyConnection]:
     """Yield an in-memory DuckDB with a memory cap that spills to ``<root>/work/tmp/<pid>``.
 
-    Each process spills to its own folder, removed on exit. Insertion order is not kept, so
-    a query that needs an order says ``ORDER BY``.
+    It runs on :func:`step_threads` threads. Each process spills to its own folder, removed
+    on exit. Insertion order is not kept, so a query that needs an order says ``ORDER BY``.
     """
     temp = root / "work" / "tmp" / str(os.getpid())
     temp.mkdir(parents=True, exist_ok=True)
@@ -214,6 +246,7 @@ def connect(root: Path) -> Iterator[duckdb.DuckDBPyConnection]:
             "memory_limit": duckdb_memory(),
             "temp_directory": str(temp),
             "preserve_insertion_order": False,
+            "threads": step_threads(),
         },
     )
     try:
@@ -247,12 +280,12 @@ def _part_name(index: int) -> str:
     return f"part-{index:05d}.parquet"
 
 
-def _plan(out: Path, size: int, part_bytes: int) -> int:
-    """Save or read the range plan; return its part size."""
+def _plan(out: Path, size: int | None, part_bytes: int) -> int:
+    """Save or read the range plan; return its part size. A streamed file has no size."""
     plan = out / _PLAN
     if plan.is_file():
         saved = json.loads(plan.read_text(encoding="utf-8"))
-        if saved["file_bytes"] != size:
+        if saved.get("file_bytes") != size:
             raise StoreBuildError(
                 f"{out} was planned for a {saved['file_bytes']}-byte file, not {size}; "
                 "delete the folder to extract again"
@@ -262,58 +295,145 @@ def _plan(out: Path, size: int, part_bytes: int) -> int:
     return part_bytes
 
 
-def _plain(root: Path, snap: snapshots.Snapshot, workers: int) -> Path:
-    """Return the snapshot as a plain file, decompressing a ``.gz`` into ``work/tmp`` once."""
-    if snap.path.suffix != ".gz":
-        return snap.path
-    out = root / "work" / "tmp" / f"{snap.path.parent.parent.name}-{snap.date}-{snap.path.stem}"
-    if out.is_file():
-        return out
-    out.parent.mkdir(parents=True, exist_ok=True)
-    tmp = temp_beside(out)
+def _popen(command: list[str]) -> subprocess.Popen[bytes]:
+    """Start a decompressor writing to a pipe; the seam tests replace."""
+    return subprocess.Popen(command, stdout=subprocess.PIPE)
+
+
+@contextmanager
+def _decompressed(path: Path, workers: int) -> Iterator[BinaryIO]:
+    """Yield a gzip file's decompressed bytes as a stream from rapidgzip, else pigz."""
     if shutil.which("rapidgzip"):
-        command = ["rapidgzip", "-d", "-c", "-P", str(workers), str(snap.path)]
+        command = ["rapidgzip", "-d", "-c", "-P", str(workers), str(path)]
     else:
-        command = ["pigz", "-dc", str(snap.path)]
+        command = ["pigz", "-dc", str(path)]
+    proc = _popen(command)
+    assert proc.stdout is not None
     try:
-        with tmp.open("wb") as fh:
-            subprocess.run(command, stdout=fh, check=True)
-        tmp.replace(out)
+        yield cast(BinaryIO, proc.stdout)
+    except BaseException:
+        proc.kill()
+        raise
     finally:
-        tmp.unlink(missing_ok=True)
-    return out
+        proc.stdout.close()
+        code = proc.wait()
+    if code:
+        raise StoreBuildError(f"{command[0]} failed on {path} (exit {code})")
 
 
-def _run_ray(tasks: list[Task], workers: int) -> None:
+def _next_start(source: str, buf: bytearray, pos: int) -> int | None:
+    """Return the first record start at or after ``pos`` in ``buf``, or None if not yet seen."""
+    if source in _TAGS:
+        found = _TAGS[source].search(buf, pos)
+        return None if found is None else found.start()
+    if pos == 0:
+        return 0
+    newline = buf.find(b"\n", pos - 1)
+    return None if newline < 0 else newline + 1
+
+
+def _blocks(stream: BinaryIO, source: str, part: int) -> Iterator[tuple[int, bytes]]:
+    """Cut a stream into each part's bytes.
+
+    Part ``i`` runs from the first record start at or after ``i * part`` to the first at or
+    after ``(i + 1) * part``, so it holds the records a range read of ``[i * part,
+    (i + 1) * part)`` would.
+    """
+    if source not in _TAGS and source != snapshots.GEO_SERIES:
+        raise StoreBuildError(f"the {source} snapshot cannot be extracted from a gzip stream")
+    buf, base, index, eof = bytearray(), 0, 0, False
+    while True:
+        if eof and not buf:
+            for i in range(index, max(1, -(-base // part))):
+                yield i, b""
+            return
+        target = (index + 1) * part
+        cut = _next_start(source, buf, target - base) if base + len(buf) >= target else None
+        if cut is None:
+            if not eof:
+                chunk = stream.read(_CHUNK)
+                buf += chunk
+                eof = not chunk
+                continue
+            cut = len(buf)
+        yield index, bytes(buf[:cut])
+        del buf[:cut]
+        base += cut
+        index += 1
+
+
+@contextmanager
+def parallel(workers: int) -> Iterator[None]:
+    """Hold one Ray session for ``workers`` across several :func:`run_parallel` calls.
+
+    A session this starts caps its object store at a share of the step's memory.
+    """
+    if workers == 1:
+        yield
+        return
     import ray
 
     started = not ray.is_initialized()
     if started:
-        ray.init(
-            num_cpus=None if os.environ.get("RAY_ADDRESS") else workers,
-            include_dashboard=False,
-            log_to_driver=False,
-        )
+        local: dict[str, Any] = {}
+        if not os.environ.get("RAY_ADDRESS"):
+            store = max(int(step_memory_mb() * OBJECT_STORE_SHARE) << 20, _RAY_MIN_STORE)
+            if sys.platform == "darwin":  # Ray refuses a larger store on macOS
+                store = min(store, _RAY_MAC_STORE)
+            local = {"num_cpus": workers, "object_store_memory": store}
+        ray.init(include_dashboard=False, log_to_driver=False, **local)
     try:
-        remote = ray.remote(num_cpus=1)(_write_part)
-        ray.get([remote.remote(task) for task in tasks])
+        yield
     finally:
         if started:
             ray.shutdown()
 
 
+def run_parallel[T](
+    fn: Callable[..., T], calls: Iterable[tuple[object, ...]], workers: int
+) -> list[T]:
+    """Return ``fn(*args)`` for each call, in order, on up to ``workers`` Ray workers.
+
+    ``calls`` is consumed lazily and at most ``workers`` calls are in flight, so a generator of
+    large arguments stays bounded. ``workers == 1`` runs in this process without Ray.
+    """
+    if workers == 1:
+        return [fn(*args) for args in calls]
+    import ray
+
+    with parallel(workers):
+        remote = ray.remote(num_cpus=1)(fn)
+        refs: list[Any] = []
+        pending: list[Any] = []
+        for args in calls:
+            if len(pending) >= workers:
+                _, pending = ray.wait(pending, num_returns=1)
+            refs.append(remote.remote(*args))
+            pending.append(refs[-1])
+        return ray.get(refs)
+
+
 def _write_part(task: Task) -> None:
-    """Write one part by a temporary file renamed into place."""
-    schema, rows = _READERS[task.source]
-    columns: dict[str, list[str | None]] = {name: [] for name in schema.names}
+    """Write one part of a plain snapshot file."""
     with task.path.open("rb") as fh:
-        for row in rows(fh, task.start, task.end):
-            for name, value in zip(schema.names, row, strict=True):
-                columns[name].append(value)
-    final = task.out / _part_name(task.index)
+        _write_rows(task.source, fh, task.start, task.end, task.out / _part_name(task.index))
+
+
+def _write_block(source: str, block: bytes, final: Path) -> None:
+    """Write one part from its bytes cut out of a decompressed stream."""
+    _write_rows(source, io.BytesIO(block), 0, len(block), final)
+
+
+def _write_rows(source: str, fh: BinaryIO, start: int, end: int, final: Path) -> None:
+    """Write the rows of the records starting in ``[start, end)`` by a renamed temporary file."""
+    schema, rows = _READERS[source]
+    columns: dict[str, list[str | None]] = {name: [] for name in schema.names}
+    for row in rows(fh, start, end):
+        for name, value in zip(schema.names, row, strict=True):
+            columns[name].append(value)
     tmp = temp_beside(final)
     try:
-        pq.write_table(pa.table(columns, schema=schema), tmp)
+        pq.write_table(pa.table(columns, schema=schema), tmp, row_group_size=ROW_GROUP_ROWS)
         tmp.replace(final)
     finally:
         tmp.unlink(missing_ok=True)

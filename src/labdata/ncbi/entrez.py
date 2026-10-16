@@ -1,74 +1,92 @@
-"""A thin, mockable wrapper over Biopython's :mod:`Bio.Entrez`.
+"""The one seam for NCBI E-utilities and the GEO download site.
 
-Every NCBI E-utilities call in liulab-data goes through :class:`EntrezClient`,
-which sets the contact email / API key from
-:func:`labdata.ncbi.config.load_credentials` and exposes small typed helpers
-(``esearch``, ``esummary``, ``esummary_many``, ``elink``, ``elink_many``) that
-parse the XML handle into plain Python structures, plus ``efetch`` for raw (e.g.
-CSV) responses and ``fetch_text`` for NCBI web pages outside E-utilities.
-Concentrating network access in one seam keeps the rest of the package easy to
-unit-test by substituting a fake client.
+Every NCBI call in liulab-data goes through :class:`EntrezClient`. E-utilities calls are
+POSTs over kept-open connections, paced by one limiter per process; Biopython's
+:func:`Bio.Entrez.read` parses the XML replies. ``fetch_text`` and ``download`` GET pages and
+files outside E-utilities. Every request has a socket timeout and is retried with jittered
+backoff when the failure is transient.
 
-Responses are memoized per client instance, so records that share a client never
-repeat an identical request; ``esummary_many`` further collapses a list of UIDs
-into one batched request.
+Responses are memoized per client instance, except ``efetch_records``, ``download`` and
+``stream``, which bulk runs use.
 """
 
 from __future__ import annotations
 
+import contextlib
+import errno
 import gzip
+import http
 import http.client
+import io
+import random
 import socket
 import time
 import urllib.error
-import urllib.request
-from collections.abc import Callable
-from typing import Any
+import urllib.parse
+from collections.abc import Callable, Iterator, Mapping
+from dataclasses import dataclass, field
+from email.message import Message
+from pathlib import Path
+from typing import Any, TypeVar
 
 from Bio import Entrez
 
 from labdata.exceptions import EntrezError, PageNotFound
+from labdata.ncbi._http import HttpTransport, RateLimiter, Response, Transport
 from labdata.ncbi.config import NcbiCredentials, load_credentials
 
-# Bio.Entrez ships no type stubs and exposes mutable module-level globals; alias
-# it as Any so the type checker doesn't fight Biopython's dynamic API.
+# Bio.Entrez ships no type stubs; alias it as Any so the type checker doesn't fight it.
 _entrez: Any = Entrez
+_T = TypeVar("_T")
 
+_EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 
-#: Maximum UIDs per batched esummary request (keeps the GET URL within limits).
+#: Maximum UIDs per batched esummary request.
 _ESUMMARY_CHUNK = 200
 
-#: A request is tried this many times before giving up (one initial try plus
-#: retries). NCBI drops a response mid-stream far more often than it refuses one,
-#: and a single dropped efetch is not a reason to fail a whole records fetch.
-_MAX_TRIES = 4
+#: Tries per request (one initial try plus retries).
+_MAX_TRIES = 6
 
-#: Base seconds for the exponential backoff between retries (1s, 2s, 4s). Even with
-#: an API key (10 req/s) NCBI occasionally closes a connection early, so backing off
-#: and trying again is the difference between a transient blip and a failed fetch.
-_RETRY_BASE_DELAY = 1.0
+#: Tries of a 4xx other than 404 and 429: NCBI sometimes refuses a request it answers when
+#: repeated. "ID list is empty" is never retried.
+_REFUSED_TRIES = 2
 
-#: Socket timeout in seconds for :meth:`EntrezClient.fetch_text`.
-_PAGE_TIMEOUT = 60.0
+#: Socket timeouts in seconds.
+_EUTILS_TIMEOUT = 30.0
+_GEO_TIMEOUT = 15.0
+
+#: Bytes per read when streaming a download to disk.
+_CHUNK_BYTES = 1 << 20
+
+#: NCBI's cap without an API key, in requests per second.
+_KEYLESS_RATE = 3.0
 
 _USER_AGENT = "liulab-data (+https://github.com/liuhlab/liulab-data)"
+_TOOL = "liulab-data"
+_THROTTLED = (429, 503)
+_EMPTY_IDS = "ID list is empty"
 
-#: Connection-level failures worth retrying — the request reached NCBI and the
-#: response, not the query, is what went wrong.
+#: One limiter per process paces every E-utilities call of every client.
+EUTILS_LIMITER = RateLimiter(5.0, 8)
+
+#: Socket errors of a network that may come back.
+_TRANSIENT_ERRNOS = frozenset(
+    {errno.ENETUNREACH, errno.EHOSTUNREACH, errno.ENETDOWN, errno.ECONNREFUSED, errno.ETIMEDOUT}
+)
+
 _TRANSIENT_EXCEPTIONS: tuple[type[BaseException], ...] = (
     http.client.IncompleteRead,
     http.client.RemoteDisconnected,
     ConnectionError,
     TimeoutError,
     socket.timeout,
+    socket.gaierror,
     EOFError,
 )
 
 #: Substrings marking a transient drop when it reaches us as a bare ``RuntimeError``.
-#: Bio.Entrez raises ``RuntimeError`` both for NCBI's own logical errors (permanent —
-#: "ID list is empty") and, via the XML parser, when the connection closes mid-parse
-#: ("Response ended prematurely" / "Read failed: EOF"). Matching the message is how we
-#: retry the latter without also hammering NCBI over a query it will never accept.
+#: Bio.Entrez raises ``RuntimeError`` both for NCBI's own logical errors ("ID list is
+#: empty") and when a reply ends mid-parse; only the latter is retried.
 _TRANSIENT_MESSAGES: tuple[str, ...] = (
     "ended prematurely",
     "response ended",
@@ -80,16 +98,79 @@ _TRANSIENT_MESSAGES: tuple[str, ...] = (
 )
 
 
+class _StatusError(urllib.error.HTTPError):
+    """A non-200 reply, carrying its body."""
+
+    def __init__(self, url: str, status: int, headers: Message, body: bytes) -> None:
+        try:
+            reason = http.HTTPStatus(status).phrase
+        except ValueError:
+            reason = "Unknown"
+        super().__init__(url, status, reason, headers, io.BytesIO(body))
+        self.body = body
+
+
 def _is_transient(err: BaseException) -> bool:
     """Decide whether a failure is a retryable drop or the query's own permanent fault."""
     if isinstance(err, urllib.error.HTTPError):
-        # 429 (rate limited) and 5xx (server) may clear on a retry; 4xx is our request.
         return err.code == 429 or err.code >= 500
     if isinstance(err, urllib.error.URLError):
-        return True  # DNS / refused / reset at the socket layer
+        return True
     if isinstance(err, _TRANSIENT_EXCEPTIONS):
         return True
+    if isinstance(err, OSError) and err.errno in _TRANSIENT_ERRNOS:
+        return True
     return any(marker in str(err).lower() for marker in _TRANSIENT_MESSAGES)
+
+
+def _ids_empty(err: BaseException) -> bool:
+    """Tell NCBI's "ID list is empty" answer (no requested id resolves) from other failures."""
+    body = getattr(err, "body", b"")
+    return _EMPTY_IDS.encode() in body or _EMPTY_IDS in str(err)
+
+
+def _backoff(attempt: int) -> float:
+    """Exponential backoff with jitter, capped at 60 s."""
+    return min(60.0, 2.0**attempt) * random.uniform(0.5, 1.0)
+
+
+def retry_after(err: BaseException) -> float:
+    """Return the seconds a throttled reply asked us to wait, or zero."""
+    headers = getattr(err, "headers", None)
+    value = headers.get("Retry-After") if headers is not None else None
+    with contextlib.suppress(TypeError, ValueError):
+        return max(0.0, float(value))  # type: ignore[arg-type]
+    return 0.0
+
+
+def _read_xml(response: Response) -> Any:
+    return _entrez.read(io.BytesIO(response.read()))
+
+
+def _read_text(response: Response) -> str:
+    data = response.read()
+    if data[:2] == b"\x1f\x8b":
+        data = gzip.decompress(data)
+    return data.decode()
+
+
+@dataclass
+class FetchedRecords:
+    """What a batched :meth:`EntrezClient.efetch_records` got back.
+
+    Attributes
+    ----------
+    records : dict of str to str
+        Each requested id mapped to its record text.
+    missing : list of str
+        Ids NCBI answered with "ID list is empty": it has no record for them.
+    failed : dict of str to str
+        Ids whose re-ask failed for another reason, mapped to the error; worth a later try.
+    """
+
+    records: dict[str, str] = field(default_factory=dict)
+    missing: list[str] = field(default_factory=list)
+    failed: dict[str, str] = field(default_factory=dict)
 
 
 def _docsums(record: Any) -> list[Any]:
@@ -137,7 +218,7 @@ def _chunked(items: list[str], size: int) -> list[list[str]]:
 
 
 class EntrezClient:
-    """Authenticated entry point to NCBI E-utilities.
+    """Authenticated entry point to NCBI E-utilities and the GEO download site.
 
     Parameters
     ----------
@@ -146,6 +227,11 @@ class EntrezClient:
         :func:`labdata.ncbi.config.load_credentials`.
     allow_prompt : bool
         Forwarded to :func:`load_credentials` when ``credentials`` is ``None``.
+    transport : Transport or None
+        Sends the HTTP requests; kept-open connections by default.
+    limiter : RateLimiter or None
+        Paces E-utilities calls; the process-wide :data:`EUTILS_LIMITER` by default. A 429
+        or 503 halves its rate. Without an API key it is capped at NCBI's keyless limit.
     """
 
     def __init__(
@@ -153,11 +239,17 @@ class EntrezClient:
         credentials: NcbiCredentials | None = None,
         *,
         allow_prompt: bool = True,
+        transport: Transport | None = None,
+        limiter: RateLimiter | None = None,
     ) -> None:
         self.credentials = credentials or load_credentials(allow_prompt=allow_prompt)
-        _entrez.email = self.credentials.email
+        self._transport: Transport = transport or HttpTransport()
+        self._limiter = limiter or EUTILS_LIMITER
+        self._identity = {"tool": _TOOL, "email": self.credentials.email}
         if self.credentials.api_key:
-            _entrez.api_key = self.credentials.api_key
+            self._identity["api_key"] = self.credentials.api_key
+        else:
+            self._limiter.lower_to(_KEYLESS_RATE)
         # Per-instance response cache keyed by call signature. Redundant lookups
         # across records that share this client are served without a request.
         self._cache: dict[tuple[Any, ...], Any] = {}
@@ -186,9 +278,7 @@ class EntrezClient:
         key = ("esearch", db, term, retmax)
         cached = self._cache.get(key)
         if cached is None:
-            record = self._request(
-                lambda: _entrez.esearch(db=db, term=term, retmax=retmax), _entrez.read
-            )
+            record = self._eutil("esearch", {"db": db, "term": term, "retmax": retmax})
             cached = self._cache[key] = [str(uid) for uid in record.get("IdList", [])]
         return list(cached)
 
@@ -219,7 +309,7 @@ class EntrezClient:
         key = ("esummary", db, str(uid))
         cached = self._cache.get(key)
         if cached is None:
-            record = self._request(lambda: _entrez.esummary(db=db, id=str(uid)), _entrez.read)
+            record = self._eutil("esummary", {"db": db, "id": str(uid)})
             docsums = _docsums(record)
             if not docsums:
                 raise EntrezError(f"empty esummary for {db} uid {uid!r}")
@@ -255,12 +345,7 @@ class EntrezClient:
         if cached is None:
             docsums: list[Any] = []
             for chunk in _chunked(ids, _ESUMMARY_CHUNK):
-                # Bind the chunk's id string by value: the lambda outlives the loop iteration,
-                # and a plain default (not a call) keeps both B023 and B008 happy.
-                chunk_ids = ",".join(chunk)
-                record = self._request(
-                    lambda cid=chunk_ids: _entrez.esummary(db=db, id=cid), _entrez.read
-                )
+                record = self._eutil("esummary", {"db": db, "id": ",".join(chunk)})
                 docsums.extend(_docsums(record))
             cached = self._cache[key] = docsums
         return list(cached)
@@ -286,9 +371,7 @@ class EntrezClient:
         key = ("elink", dbfrom, db, str(uid))
         cached = self._cache.get(key)
         if cached is None:
-            record = self._request(
-                lambda: _entrez.elink(dbfrom=dbfrom, db=db, id=str(uid)), _entrez.read
-            )
+            record = self._eutil("elink", {"dbfrom": dbfrom, "db": db, "id": str(uid)})
             linked: list[str] = []
             for linkset in record:
                 for linksetdb in linkset.get("LinkSetDb", []):
@@ -318,9 +401,7 @@ class EntrezClient:
         for start in range(0, len(wanted), _ESUMMARY_CHUNK):
             chunk = wanted[start : start + _ESUMMARY_CHUNK]
             # A list ``id`` is sent as repeated parameters, so NCBI answers one set per UID.
-            record = self._request(
-                lambda chunk=chunk: _entrez.elink(dbfrom=dbfrom, db=db, id=chunk), _entrez.read
-            )
+            record = self._eutil("elink", {"dbfrom": dbfrom, "db": db, "id": chunk})
             for linkset in record:
                 source = str((linkset.get("IdList") or [""])[0])
                 for linksetdb in linkset.get("LinkSetDb", []):
@@ -369,11 +450,70 @@ class EntrezClient:
         key = ("efetch", db, tuple(uids), rettype, retmode)
         cached = None if refresh else self._cache.get(key)
         if cached is None:
-            cached = self._cache[key] = self._request(
-                lambda: _entrez.efetch(db=db, id=",".join(uids), rettype=rettype, retmode=retmode),
-                self._parse_text,
-            )
+            params = {"db": db, "id": ",".join(uids), "rettype": rettype, "retmode": retmode}
+            cached = self._cache[key] = self._eutil("efetch", params, _read_text)
         return cached
+
+    def efetch_records(
+        self,
+        db: str,
+        ids: list[str],
+        *,
+        rettype: str,
+        retmode: str = "xml",
+        split: Callable[[str], Mapping[str, str]],
+    ) -> FetchedRecords:
+        """Fetch one batch of records, re-asking once for the ids the reply left out.
+
+        NCBI can leave records out of a batch with no error; those ids are asked for again
+        together. An "ID list is empty" answer marks the ids it covers missing and is not
+        retried. A failed re-ask never drops what the batch already returned. Nothing is
+        cached.
+
+        Parameters
+        ----------
+        db : str
+            Entrez database (e.g. ``"sra"``).
+        ids : list of str
+            The ids to fetch in one request.
+        rettype : str
+            EFetch return type (e.g. ``"full"``).
+        retmode : str
+            EFetch return mode (default ``"xml"``).
+        split : callable
+            Maps a reply's text to ``{id: record text}``, keyed as ``ids`` are.
+
+        Returns
+        -------
+        FetchedRecords
+            The records got, the ids NCBI has none for, and the ids whose re-ask failed.
+
+        Raises
+        ------
+        EntrezError
+            If the first request fails for a reason other than "ID list is empty".
+        """
+        out = FetchedRecords()
+        todo = list(dict.fromkeys(str(i) for i in ids))
+        for ask in range(2):
+            params = {"db": db, "id": ",".join(todo), "rettype": rettype, "retmode": retmode}
+            try:
+                reply = self._eutil("efetch", params, _read_text)
+            except EntrezError as err:
+                if _ids_empty(err.__cause__ or err):
+                    out.missing = todo
+                elif ask == 0:
+                    raise
+                else:
+                    out.failed = dict.fromkeys(todo, str(err))
+                return out
+            asked = set(todo)
+            out.records |= {k: v for k, v in split(reply).items() if k in asked}
+            todo = [i for i in todo if i not in out.records]
+            if not todo:
+                break
+        out.missing = todo
+        return out
 
     def fetch_text(self, url: str) -> str:
         """GET an NCBI web page that E-utilities does not serve and return its text.
@@ -398,48 +538,188 @@ class EntrezClient:
         key = ("fetch_text", url)
         cached = self._cache.get(key)
         if cached is None:
-            request = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
-            try:
-                cached = self._request(
-                    lambda: urllib.request.urlopen(request, timeout=_PAGE_TIMEOUT),
-                    self._parse_text,
-                )
-            except EntrezError as err:
-                cause = err.__cause__
-                if isinstance(cause, urllib.error.HTTPError) and cause.code == 404:
-                    raise PageNotFound(f"no page at {url}") from cause
-                raise
-            self._cache[key] = cached
+            cached = self._cache[key] = self._get(url, _read_text)
         return cached
 
-    def _request(self, open_handle: Callable[[], Any], parse: Callable[[Any], Any]) -> Any:
-        """Open an E-utilities handle and parse it, retrying transient failures with backoff.
+    def download(self, url: str, dest: Path) -> int:
+        """Stream a file from the GEO site to ``dest`` as it arrives, never whole in memory.
 
-        The open and the parse are one retryable unit on purpose: NCBI most often fails
-        by accepting the request and then dropping the *response* mid-stream, so the error
-        surfaces inside ``parse`` (``Entrez.read`` / ``handle.read``), not at open time.
-        Retrying only the open would replay the same drop. A permanent failure (a 4xx, an
-        empty id list) is not retried — :func:`_is_transient` tells them apart — and every
-        failure still normalizes to :class:`EntrezError`, so callers are unchanged.
+        The bytes are written as served (a ``.gz`` stays compressed) to a temporary file
+        beside ``dest`` and renamed into place once complete.
+
+        Parameters
+        ----------
+        url : str
+            The file URL.
+        dest : Path
+            Where to write it.
+
+        Returns
+        -------
+        int
+            Bytes written.
+
+        Raises
+        ------
+        PageNotFound
+            If the server answers 404.
+        EntrezError
+            If the request fails after the transient-failure retries.
         """
-        last: BaseException | None = None
-        for attempt in range(_MAX_TRIES):
-            try:
-                with open_handle() as handle:
-                    return parse(handle)
-            except Exception as err:
-                last = err
-                if _is_transient(err) and attempt + 1 < _MAX_TRIES:
-                    time.sleep(_RETRY_BASE_DELAY * 2**attempt)
-                    continue
-                raise EntrezError(f"NCBI E-utilities request failed: {err}") from err
-        # The loop returns a value or raises; this line only satisfies the type checker.
-        raise EntrezError(f"NCBI E-utilities request failed: {last}") from last
+        part = dest.with_name(dest.name + ".part")
 
-    @staticmethod
-    def _parse_text(handle: Any) -> str:
-        """Read a raw E-utilities handle to text (EFetch serves formats Biopython won't parse)."""
-        data = handle.read()
-        if isinstance(data, bytes) and data[:2] == b"\x1f\x8b":
-            data = gzip.decompress(data)
-        return data.decode() if isinstance(data, bytes) else str(data)
+        def write(response: Response) -> int:
+            size = 0
+            with part.open("wb") as fh:
+                while chunk := response.read(_CHUNK_BYTES):
+                    fh.write(chunk)
+                    size += len(chunk)
+            return size
+
+        try:
+            size = self._get(url, write)
+        except BaseException:
+            part.unlink(missing_ok=True)
+            raise
+        part.replace(dest)
+        return size
+
+    def stream(
+        self, url: str, consume: Callable[[Iterator[bytes]], _T], *, tries: int = _MAX_TRIES
+    ) -> _T:
+        """GET a file from the GEO site and hand its bytes to ``consume`` as they arrive.
+
+        A gzip body is decompressed on the way. The body is read in chunks, so a large file
+        is never whole in memory unless ``consume`` keeps it. Nothing is cached.
+
+        Parameters
+        ----------
+        url : str
+            The file URL.
+        consume : callable
+            Takes an iterator over the body's chunks, decompressed, and returns the result.
+            It runs again from the start on each retry.
+        tries : int
+            Tries before giving up; ``1`` leaves retries and backoff to the caller.
+
+        Returns
+        -------
+        object
+            What ``consume`` returned.
+
+        Raises
+        ------
+        PageNotFound
+            If the server answers 404.
+        EntrezError
+            If the request fails ``tries`` times; the last failure is its ``__cause__``.
+        """
+
+        def read(response: Response) -> _T:
+            body = io.BufferedReader(_RawBody(response), _CHUNK_BYTES)
+            data: io.BufferedIOBase = body
+            if body.peek(2)[:2] == b"\x1f\x8b":
+                data = gzip.GzipFile(fileobj=body)
+            result = consume(iter(lambda: data.read(_CHUNK_BYTES), b""))
+            while body.read(_CHUNK_BYTES):  # drain, so the connection can be reused
+                pass
+            return result
+
+        return self._get(url, read, tries=tries)
+
+    def _get(self, url: str, read: Callable[[Response], Any], *, tries: int = _MAX_TRIES) -> Any:
+        """GET a page outside E-utilities; a 404 raises :class:`PageNotFound`."""
+        try:
+            return self._send("GET", url, None, _GEO_TIMEOUT, read, limiter=None, tries=tries)
+        except EntrezError as err:
+            cause = err.__cause__
+            if isinstance(cause, urllib.error.HTTPError) and cause.code == 404:
+                raise PageNotFound(f"no page at {url}") from cause
+            raise
+
+    def _eutil(
+        self,
+        util: str,
+        params: Mapping[str, Any],
+        read: Callable[[Response], Any] = _read_xml,
+    ) -> Any:
+        """POST one E-utilities call, paced by the shared limiter."""
+        body = urllib.parse.urlencode({**params, **self._identity}, doseq=True).encode()
+        url = f"{_EUTILS}/{util}.fcgi"
+        return self._send("POST", url, body, _EUTILS_TIMEOUT, read, limiter=self._limiter)
+
+    def _send(
+        self,
+        method: str,
+        url: str,
+        body: bytes | None,
+        timeout: float,
+        read: Callable[[Response], Any],
+        *,
+        limiter: RateLimiter | None,
+        tries: int = _MAX_TRIES,
+    ) -> Any:
+        """Send a request and read its reply, retrying transient failures with backoff.
+
+        The send and the read are one retryable unit: NCBI most often fails by dropping the
+        reply mid-stream. A 429 or 503 waits at least its ``Retry-After`` and halves the
+        limiter's rate. Every failure ends as :class:`EntrezError`.
+        """
+        headers = {"User-Agent": _USER_AGENT}
+        if body is not None:
+            headers["Content-Type"] = "application/x-www-form-urlencoded"
+        refused = 0
+        attempt = 0
+        while True:
+            try:
+                pace = limiter.turn() if limiter else contextlib.nullcontext()
+                with (
+                    pace,
+                    self._transport.open(
+                        method, url, body=body, headers=headers, timeout=timeout
+                    ) as response,
+                ):
+                    if response.status != 200:
+                        raise _StatusError(
+                            url, response.status, _headers(response), response.read()
+                        )
+                    return read(response)
+            except Exception as err:
+                attempt += 1
+                wait = _backoff(attempt - 1)
+                status = getattr(err, "code", None)
+                if status in _THROTTLED:
+                    wait = max(wait, retry_after(err))
+                    if limiter:
+                        limiter.halve()
+                retry = _is_transient(err)
+                if limiter and isinstance(status, int) and status < 500 and not retry:
+                    refused += 1
+                    retry = status != 404 and not _ids_empty(err) and refused < _REFUSED_TRIES
+                if not retry or attempt >= tries:
+                    raise EntrezError(f"NCBI E-utilities request failed: {err}") from err
+                time.sleep(wait)
+
+
+class _RawBody(io.RawIOBase):
+    """A response body as a raw stream, so it can be buffered and gunzipped."""
+
+    def __init__(self, response: Response) -> None:
+        self._response = response
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, buffer: Any) -> int:
+        data = self._response.read(min(len(buffer), _CHUNK_BYTES))
+        buffer[: len(data)] = data
+        return len(data)
+
+
+def _headers(response: Response) -> Message:
+    """Keep the one header the retry reads."""
+    headers = Message()
+    retry_after = response.getheader("Retry-After")
+    if retry_after is not None:
+        headers["Retry-After"] = retry_after
+    return headers

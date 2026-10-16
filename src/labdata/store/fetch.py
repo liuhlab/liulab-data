@@ -1,9 +1,9 @@
 """Fetch live results into ``raw/``: SOFT, ``filelist.txt``, ``elink``, SRA XML, PubMed ``[si]``.
 
 Every call goes through :class:`~labdata.ncbi.entrez.EntrezClient`. Results are saved before
-any build reads them, an empty result included. A fetch resumes: an item whose raw row is
-already saved is read back, not fetched again, and rows are written chunk by chunk, so a
-killed run keeps what it saved.
+any build reads them, an empty result included. Each source's work is split into pieces, one
+per raw bucket, and each finished piece is saved as a part (see :mod:`labdata.store.raw`); a
+rerun reads saved items back and fetches only the rest. The fetch ends with a pack.
 """
 
 from __future__ import annotations
@@ -11,19 +11,19 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import re
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from labdata.exceptions import PageNotFound
 from labdata.geo.sra_records import fetch_package_texts
 from labdata.ncbi.entrez import EntrezClient, docsum_uid
-from labdata.store import provenance, raw, snapshots, sources
+from labdata.store import pack, provenance, raw, snapshots, sources
 from labdata.store.model import kind_of
 
 #: Upper bound on PMIDs kept per ``[si]`` search.
 PUBMED_RETMAX = 10_000
-#: Items fetched between two writes of their raw rows.
+#: Most items one request batch, or one ``elink`` round, covers.
 CHUNK = 100
 #: GEO's ``gds`` UID of a Series or Sample is this offset plus its number.
 GDS_OFFSET = {"GSE": 200_000_000, "GSM": 300_000_000}
@@ -121,6 +121,7 @@ def fetch(
         },
         date,
     )
+    pack.pack(root)
     for folder in sorted(p for p in (root / "raw").glob("*") if p.is_dir()):
         provenance.document_raw(root, folder.name)
     return FetchReport(
@@ -136,22 +137,26 @@ def _resume(
     accessions: list[str],
     get: Callable[[list[str]], dict[str, str]],
     date: str,
-    chunk: int = CHUNK,
 ) -> dict[str, str]:
-    """Return each accession's raw text: read back if saved, else fetched and saved per chunk."""
-    out = raw.saved(root, source, accessions)
-    todo = [a for a in accessions if a not in out]
-    for start in range(0, len(todo), chunk):
-        got = get(todo[start : start + chunk])
-        raw.write_rows(root, source, [raw.RawRow(a, text, date) for a, text in got.items()])
-        out.update(got)
-    return out
+    """Return each accession's raw text: read back if saved, else fetched piece by piece."""
+
+    def chunked(todo: list[str]) -> Iterator[tuple[str, str]]:
+        for start in range(0, len(todo), CHUNK):
+            yield from get(todo[start : start + CHUNK]).items()
+
+    raw.fetch_pieces(root, source, accessions, chunked, date)
+    return raw.saved(root, source, accessions)
+
+
+def _geo_folder(series: str) -> str:
+    """Return a Series' thousand folder on GEO's download site (``GSE246310`` -> ``GSE246nnn``)."""
+    return f"{series[:3]}{series[3:-3]}nnn"
 
 
 def soft_url(series: str) -> str:
     """Return the URL of a Series' gzipped family SOFT on GEO's download site."""
     return (
-        f"https://ftp.ncbi.nlm.nih.gov/geo/series/{raw.bucket_of(series)}/{series}"
+        f"https://ftp.ncbi.nlm.nih.gov/geo/series/{_geo_folder(series)}/{series}"
         f"/soft/{series}_family.soft.gz"
     )
 
@@ -169,23 +174,26 @@ def fetch_series(root: Path, client: EntrezClient, series: list[str], date: str)
     todo = sorted(set(series))
     while todo:
         seen |= set(todo)
+        got: dict[str, str] = {}
+
+        def get(chunk: list[str], got: dict[str, str] = got) -> Iterator[tuple[str, str]]:
+            for gse in chunk:
+                got[gse] = text = client.fetch_text(soft_url(gse))
+                if _sequencing(text):
+                    yield gse, text
+
+        raw.fetch_pieces(root, raw.GEO_SOFT, todo, get, date, remember_misses=False)
         texts = raw.saved(root, raw.GEO_SOFT, todo)
         out |= texts
-        rest = [gse for gse in todo if gse not in texts]
-        for start in range(0, len(rest), CHUNK):
-            got = {gse: client.fetch_text(soft_url(gse)) for gse in rest[start : start + CHUNK]}
-            kept = {gse: text for gse, text in got.items() if _sequencing(text)}
-            raw.write_rows(root, raw.GEO_SOFT, [raw.RawRow(g, t, date) for g, t in kept.items()])
-            out |= kept
-            pending |= {gse: text for gse, text in got.items() if gse not in kept}
-            texts |= got
+        pending |= {gse: text for gse, text in got.items() if gse not in texts}
+        texts |= got
         todo = sorted({sub for text in texts.values() for sub in sources.subseries(text)} - seen)
     while kept := {
         gse: text
         for gse, text in pending.items()
         if any(sub in out for sub in sources.subseries(text))
     }:
-        raw.write_rows(root, raw.GEO_SOFT, [raw.RawRow(g, t, date) for g, t in kept.items()])
+        raw.fetch_pieces(root, raw.GEO_SOFT, kept, lambda todo: ((g, kept[g]) for g in todo), date)
         out |= kept
         pending = {gse: text for gse, text in pending.items() if gse not in kept}
     for gse, text in sorted(pending.items()):
@@ -202,8 +210,7 @@ def _sequencing(soft: str) -> bool:
 def filelist_url(series: str) -> str:
     """Return the URL of a Series' ``suppl/filelist.txt`` on GEO's download site."""
     return (
-        f"https://ftp.ncbi.nlm.nih.gov/geo/series/{raw.bucket_of(series)}/{series}"
-        "/suppl/filelist.txt"
+        f"https://ftp.ncbi.nlm.nih.gov/geo/series/{_geo_folder(series)}/{series}/suppl/filelist.txt"
     )
 
 

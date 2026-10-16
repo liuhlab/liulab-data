@@ -9,7 +9,7 @@ come over a few kept-open HTTPS connections, with the SOFT data tables stripped 
 streams. The E-utilities calls, a combined ``elink`` per Series and the SRA package
 ``efetch``, are POSTs paced by one shared rate (:class:`EUtils`); PubMed ``[si]`` searches
 wait for stage 4. The workers return results, and
-the script alone writes ``raw/``, one :func:`labdata.store.raw.write_rows` call per source
+the script alone writes ``raw/``, one :func:`labdata.store.pack.write_rows` call per source
 (the pack). ``elink-extra`` counts the links ``elink`` adds beyond the SOFT relation lines
 and ``SRA_Accessions.tab``.
 
@@ -62,7 +62,17 @@ from labdata.geo.sra_records import split_packages
 from labdata.ncbi import entrez
 from labdata.ncbi.config import load_credentials
 from labdata.ncbi.entrez import EntrezClient
-from labdata.store import build, extract, fetch, init_store, provenance, raw, snapshots, sources
+from labdata.store import (
+    build,
+    extract,
+    fetch,
+    init_store,
+    pack,
+    provenance,
+    raw,
+    snapshots,
+    sources,
+)
 from labdata.store._files import write_atomic
 from labdata.store.root import MARKER
 
@@ -1102,21 +1112,21 @@ def concurrent_fetch(
         raw.ENTREZ_LINKS: linked,
         raw.SRA_XML: sra,
     }
-    pack: dict[str, Any] = {}
+    packed: dict[str, Any] = {}
     start = time.perf_counter()
     for source, rows in texts.items():
         if source == raw.ENTREZ_LINKS and not elink:
             continue
         began = time.perf_counter()
         say(f"pack {source}: {len(rows)} rows")
-        written = raw.write_rows(pilot, source, [raw.RawRow(a, t, date) for a, t in rows.items()])
+        written = pack.write_rows(pilot, source, [raw.RawRow(a, t, date) for a, t in rows.items()])
         provenance.document_raw(pilot, source)
-        pack[source] = {
+        packed[source] = {
             "rows": len(rows),
             "buckets": len(written),
             "seconds": round(time.perf_counter() - began, 3),
         }
-    result["pack"] = {"wall_s": round(time.perf_counter() - start, 3), "sources": pack}
+    result["pack"] = {"wall_s": round(time.perf_counter() - start, 3), "sources": packed}
     result["wall_s"] = round(time.perf_counter() - begin, 3)
     result["maxrss_bytes"] = peak_rss()
     result["job"] = os.environ.get("SLURM_JOB_ID")

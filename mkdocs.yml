@@ -66,6 +66,9 @@ nav:
       - Understanding GEO & SRA: tutorials/understanding-geo.md
       - GEO Series: tutorials/geo-series.md
       - 10x cellranger BAM → FASTQ: tutorials/tenx-bam.md
+  - How-to:
+      - Run the full download: how-to/store-run.md
+      - Copy the store to GCS: how-to/store-gcs.md
   - API reference: reference.md
 
 # `--strict` misses an absolute link (`/gone/`) and a link with no `.md` extension; check

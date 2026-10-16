@@ -145,19 +145,268 @@ def store_fetch(
         typer.echo(f"{accession}[si]: {', '.join(pmids) or 'no PubMed IDs'}")
 
 
+@store_app.command("pack")
+def store_pack(
+    root: Path | None = typer.Option(
+        None, help="Store root; default: LABDATA_STORE, then pointer."
+    ),
+) -> None:
+    """Merge the fetched parts under work/parts/ into raw/, one bucket file at a time.
+
+    Rerun it after a cut-off run: parts stay until their bucket is rewritten.
+    """
+    from labdata.store.pack import pack
+
+    store = open_store(root)
+    written = pack(store.root)
+    typer.echo(f"Packed {len(written)} bucket files into {store.root / 'raw'}")
+
+
 @store_app.command("build")
 def store_build(
     root: Path | None = typer.Option(
         None, help="Store root; default: LABDATA_STORE, then pointer."
     ),
     build_id: str | None = typer.Option(None, help="Build folder name; default: a UTC timestamp."),
+    workers: int | None = typer.Option(
+        None, min=1, help="Parallel workers; default: SLURM_CPUS_ON_NODE, then the CPU count."
+    ),
+    chunk_mb: int = typer.Option(64, min=1, help="MB of source text a worker parses at a time."),
+    fraction: float | None = typer.Option(
+        None, help="Gaps and coverage over this seeded sample of the target list; default: all."
+    ),
 ) -> None:
-    """Build the store's tables from raw/ and snapshots/ with no network, then switch to them."""
+    """Build the store's tables from raw/ and snapshots/ with no network, then switch to them.
+
+    Memory is bounded by about one chunk per worker plus DuckDB's cap
+    (LABDATA_DUCKDB_MEMORY, default a share of the job's memory).
+    """
+    import logging
+
     from labdata.store.build import build as build_store
 
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     store = open_store(root)
-    out = build_store(store.root, build_id)
+    out = build_store(
+        store.root,
+        build_id,
+        workers=workers,
+        chunk_bytes=chunk_mb << 20,
+        fraction=_fraction(fraction),
+    )
     typer.echo(f"Built {out} and switched the store to it")
+
+
+@store_app.command("readme")
+def store_readme(
+    root: Path | None = typer.Option(
+        None, help="Store root; default: LABDATA_STORE, then pointer."
+    ),
+) -> None:
+    """Write the store's root README.md again for the current build, with fresh folder sizes.
+
+    `labdata store build` writes it at each switch; this rewrites it without a build.
+    """
+    from labdata.store import readme
+
+    try:
+        out = readme.write(open_store(root).root)
+    except LabdataError as err:
+        typer.echo(str(err), err=True)
+        raise typer.Exit(1) from err
+    typer.echo(f"Wrote {out}")
+
+
+@store_app.command("prune")
+def store_prune(
+    root: Path | None = typer.Option(
+        None, help="Store root; default: LABDATA_STORE, then pointer."
+    ),
+    grace: float | None = typer.Option(
+        None,
+        min=0,
+        help="Hours a build stays after the store switched away from it; "
+        "default: labdata.store.prune.GRACE.",
+    ),
+) -> None:
+    """Delete old builds and unread snapshots once they are out of use for --grace hours.
+
+    Never deletes the current build or the snapshots it reads. `--grace 0` is a one-off for
+    tidying a store nobody is reading: a reader of an old build loses it at once.
+    """
+    import datetime as dt
+
+    from labdata.store.prune import GRACE, prune
+
+    store = open_store(root)
+    report = prune(store.root, grace=GRACE if grace is None else dt.timedelta(hours=grace))
+    for path in report.deleted:
+        typer.echo(f"Deleted {path}")
+    if not report.deleted:
+        typer.echo("Deleted nothing")
+
+
+@store_app.command("copy")
+def store_copy(
+    root: Path | None = typer.Option(
+        None, help="Store root; default: LABDATA_STORE, then pointer."
+    ),
+    to: str | None = typer.Option(
+        None, help="rclone destination <remote>:<bucket>/<path>; default: copy_to in the marker."
+    ),
+) -> None:
+    """Copy the marker, current snapshots, raw/ and current build to a bucket with rclone.
+
+    Refused unless the current build is complete. When rclone's Google login has expired,
+    it skips with a message and exits 0; rerun after `rclone config reconnect`.
+    """
+    from labdata.store.gcs import copy
+
+    try:
+        result = copy(root if root is not None else open_store().root, to)
+    except LabdataError as err:
+        typer.echo(str(err), err=True)
+        raise typer.Exit(1) from err
+    typer.echo(result.message if result.skipped else f"Copied the store to {result.destination}")
+
+
+@store_app.command("coverage")
+def store_coverage(
+    root: Path | None = typer.Option(
+        None, help="Store root; default: LABDATA_STORE, then pointer."
+    ),
+) -> None:
+    """Print target, held and gap counts of the current build; exit 1 if coverage fails.
+
+    Coverage fails when a target Series is neither held nor a gap, or a gap is unexplained.
+    """
+    from labdata.store.gaps import coverage
+
+    store = open_store(root)
+    build = store.settings.get("build")
+    if not build:
+        raise typer.BadParameter("the store names no build; run `labdata store build`")
+    report = coverage(store.root, store.root / "builds" / str(build))
+    typer.echo(f"Target Series: {report.target} (geo-series snapshot {report.snapshot_date})")
+    typer.echo(f"Held: {report.held}")
+    typer.echo(f"Gaps: {sum(report.gaps.values())}")
+    for reason, count in report.gaps.items():
+        typer.echo(f"  {reason}: {count}")
+    typer.echo(f"SRA experiments fetch-failed: {report.failed_experiments} (not Series gaps)")
+    if report.passed:
+        typer.echo("Coverage passes.")
+        return
+    typer.echo(f"Coverage fails for {report.failures} Series:")
+    for accession, problem in report.failing:
+        typer.echo(f"  {accession}: {problem}")
+    if report.failures > len(report.failing):
+        typer.echo(f"  ... and {report.failures - len(report.failing)} more")
+    raise typer.Exit(1)
+
+
+def _fraction(fraction: float | None) -> float | None:
+    from labdata.store import targets
+
+    try:
+        return targets.check_fraction(fraction)
+    except ValueError as err:
+        raise typer.BadParameter(str(err), param_hint="--fraction") from err
+
+
+@store_app.command("run")
+def store_run(
+    fraction: float | None = typer.Option(
+        None, help="Run on this seeded sample of the target list, e.g. 0.01; default: all."
+    ),
+    cores: int | None = typer.Option(
+        None, min=1, help="Cores the steps may use; default: SLURM_CPUS_ON_NODE, then all."
+    ),
+    ncbi: int = typer.Option(2, min=1, help="Network steps that may run at once."),
+    root: Path | None = typer.Option(
+        None, help="Store root; default: LABDATA_STORE, then pointer."
+    ),
+) -> None:
+    """Fetch, pack, build, prune and copy the store in one resumable run.
+
+    Uses the newest snapshot of each source. Rerun the same command to resume: it starts at
+    the first unfinished step and fetches only what is not saved yet. Markers and logs are
+    under work/run/<snapshot date>-<fraction>/.
+    """
+    import logging
+
+    from labdata.store import pipeline
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    code = pipeline.run(open_store(root).root, fraction=_fraction(fraction), cores=cores, ncbi=ncbi)
+    if code:
+        typer.echo(f"The run stopped with steps unfinished (snakemake exit {code}).", err=True)
+        raise typer.Exit(code)
+    typer.echo("The run finished: every step done.")
+
+
+@store_app.command("_targets", hidden=True)
+def store_targets(
+    fraction: float | None = typer.Option(
+        None, help="This seeded sample of the target list; default: all."
+    ),
+    snapshot_date: str | None = typer.Option(
+        None, help="geo-series snapshot date; default: the newest."
+    ),
+    root: Path | None = typer.Option(
+        None, help="Store root; default: LABDATA_STORE, then pointer."
+    ),
+) -> None:
+    """Write the target Series list, or a round's sample of it, under work/targets/."""
+    import pyarrow.parquet as pq
+
+    from labdata.store import targets
+
+    store = open_store(root)
+    path = targets.target_list(store.root, snapshot_date, _fraction(fraction))
+    typer.echo(f"{pq.read_metadata(path).num_rows} target Series in {path}")
+
+
+@store_app.command("_geo", hidden=True)
+def store_geo_lane(
+    accessions: list[str] = typer.Argument(
+        None, help="GEO Series; default: the target Series list of the snapshot."
+    ),
+    series: Path | None = typer.Option(
+        None, help="Only these GEO Series: a text file, one per line, or a Parquet `accession`."
+    ),
+    snapshot_date: str | None = typer.Option(
+        None, help="geo-series snapshot date; default: the newest."
+    ),
+    failed_marker: Path | None = typer.Option(
+        None, help="Write this file when items are left failed, remove it when none are."
+    ),
+    root: Path | None = typer.Option(
+        None, help="Store root; default: LABDATA_STORE, then pointer."
+    ),
+) -> None:
+    """Fetch family SOFT and filelist.txt of every target Series into parts under work/."""
+    import logging
+
+    import pyarrow.parquet as pq
+
+    from labdata.store import geo_lane, targets
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    store = open_store(root)
+    series_list = list(accessions or [])
+    if series is not None:
+        series_list += _accession_file(series)
+    elif not series_list:
+        path = targets.target_list(store.root, snapshot_date)
+        batches = pq.ParquetFile(path).iter_batches(columns=["accession"])
+        series_list = [gse for batch in batches for gse in batch.column(0).to_pylist()]
+    report = geo_lane.run(store.root, series_list, client=_store_client())
+    typer.echo(
+        f"GEO lane: {report.held} Series held, {report.filelists} filelists, gaps: "
+        f"{report.soft_missing} soft-missing, {report.fetch_failed} fetch-failed"
+    )
+    left = report.fetch_failed + report.held - report.filelists
+    _mark_failed(failed_marker, left)
 
 
 @store_app.command("extract")
@@ -183,6 +432,57 @@ def store_extract(
     except ValueError as err:
         raise typer.BadParameter(str(err), param_hint="--source") from err
     typer.echo(f"Extracted {source}: {out}")
+
+
+@store_app.command("_eutils", hidden=True)
+def store_eutils(
+    series: Path | None = typer.Option(
+        None, help="Only these GEO Series: a text file, one per line, or a Parquet `accession`."
+    ),
+    date: str | None = typer.Option(None, help="SRA_Accessions.tab snapshot date."),
+    failed_marker: Path | None = typer.Option(
+        None, help="Write this file when items are left failed, remove it when none are."
+    ),
+    root: Path | None = typer.Option(
+        None, help="Store root; default: LABDATA_STORE, then pointer."
+    ),
+) -> None:
+    """Fetch the SRA package of every GEO-linked experiment into parts under work/parts/."""
+    import datetime as dt
+    import logging
+
+    from labdata.store import eutils
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    store = open_store(root)
+    wanted = None if series is None else _accession_file(series)
+    listed = eutils.experiment_list(store.root, date=date, series=wanted)
+    today = dt.datetime.now(dt.UTC).date().isoformat()
+    report = eutils.fetch_packages(store.root, listed, client=_store_client(), date=today)
+    typer.echo(
+        f"SRA packages: {report.fetched} saved, {report.missing} with none, "
+        f"{report.failed} to retry"
+    )
+    _mark_failed(failed_marker, report.failed)
+
+
+def _mark_failed(marker: Path | None, failed: int) -> None:
+    """Write ``marker`` with the count of items left failed, or remove it when none are."""
+    if marker is None:
+        return
+    if failed:
+        marker.write_text(f"{failed}\n")
+    else:
+        marker.unlink(missing_ok=True)
+
+
+def _accession_file(path: Path) -> list[str]:
+    """Read accessions from a Parquet ``accession`` column or a text file, one per line."""
+    if path.suffix == ".parquet":
+        import pyarrow.parquet as pq
+
+        return [str(a) for a in pq.read_table(path, columns=["accession"]).column(0).to_pylist()]
+    return [line.strip() for line in path.read_text().splitlines() if line.strip()]
 
 
 def _record_for_download(accession: str) -> Series | BioProject:

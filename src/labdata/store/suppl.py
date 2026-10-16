@@ -3,7 +3,7 @@
 Names and URLs come from SOFT ``!…_supplementary_file`` lines. Sizes, dates, types and
 archive contents come from ``filelist.txt``, where each ``File`` row belongs to the
 ``Archive`` row above it. A file several Series list takes its facts from the lowest-numbered
-Series. No network.
+Series. No network; the table is one DuckDB query over the build's parts.
 """
 
 from __future__ import annotations
@@ -12,24 +12,9 @@ import datetime as dt
 import re
 from pathlib import Path
 
-import pyarrow as pa
-import pyarrow.parquet as pq
+import duckdb
 
-from labdata.store import raw, sources
-
-_SCHEMA = pa.schema(
-    [
-        ("owner", pa.string()),
-        ("name", pa.string()),
-        ("url", pa.string()),
-        ("size", pa.int64()),
-        ("date", pa.string()),
-        ("type", pa.string()),
-        ("archive", pa.string()),
-    ]
-)
 _SUPPL_FIELD = re.compile(r"^(?:Series|Sample|Platform)_supplementary_file(?:_\d+)?$")
-_NUMBER = re.compile(r"(\d+)$")
 
 #: One ``filelist.txt`` entry: size, date, type and the archive holding it.
 Listed = tuple[int, str, str, str | None]
@@ -53,50 +38,57 @@ def filelist(text: str) -> dict[str, Listed]:
     return out
 
 
-def rows(root: Path) -> list[dict[str, object]]:
-    """Return the table's rows from ``raw/``, sorted by owner, then name and URL."""
-    soft = sorted(raw.read_rows(root, raw.GEO_SOFT), key=lambda r: _number(r.accession))
-    listed: dict[str, tuple[str, Listed]] = {}
-    for row in sorted(raw.read_rows(root, raw.GEO_FILELIST), key=lambda r: _number(r.accession)):
-        for name, facts in filelist(row.raw_text).items():
-            listed.setdefault(name, (row.accession, facts))
+def write(
+    con: duckdb.DuckDBPyConnection, out: Path, geo_records: list[Path], filelists: list[Path]
+) -> None:
+    """Write ``supplementary_files.parquet``, sorted by owner accession, then name and URL.
 
-    named: dict[tuple[str, str], str] = {}
-    for row in soft:
-        for _, accession, block in sources.soft_blocks(row.raw_text):
-            for name, value in sources.soft_fields(block):
-                url = value.strip()
-                if _SUPPL_FIELD.match(name) and url and url != "NONE":
-                    named.setdefault((accession, url), url.rsplit("/", 1)[-1])
+    Parameters
+    ----------
+    con : duckdb.DuckDBPyConnection
+        A connection from :func:`labdata.store.extract.connect`.
+    out : pathlib.Path
+        The table's path.
+    geo_records : list of pathlib.Path
+        The build's GEO record tables, whose SOFT fields name the files.
+    filelists : list of pathlib.Path
+        Parts of ``filelist.txt`` entries: Series, its number, name, size, date, type, archive.
+    """
+    empty_named = "SELECT NULL::VARCHAR AS owner, NULL::VARCHAR AS url WHERE false"
+    named = (
+        f"""SELECT DISTINCT accession AS owner, url FROM (
+              SELECT accession, regexp_replace(f.value, '^\\s+|\\s+$', '', 'g') AS url, f.name
+              FROM (SELECT accession, unnest(fields) AS f FROM read_parquet({_list(geo_records)})))
+            WHERE regexp_full_match(name, '{_SUPPL_FIELD.pattern[1:-1]}')
+              AND url <> '' AND url <> 'NONE'"""
+        if geo_records
+        else empty_named
+    )
+    listed = (
+        f"""SELECT name, arg_min({{'series': series, 'size': size, 'date': date,
+              'type': type, 'archive': archive}}, number) AS l
+            FROM read_parquet({_list(filelists)}) GROUP BY name"""
+        if filelists
+        else "SELECT NULL::VARCHAR AS name, NULL::STRUCT(series VARCHAR, size BIGINT, "
+        "date VARCHAR, type VARCHAR, archive VARCHAR) AS l WHERE false"
+    )
+    con.execute(
+        f"""COPY (SELECT * FROM (
+        WITH n AS (SELECT owner, regexp_extract(url, '[^/]*$') AS name, url FROM ({named})),
+        l AS ({listed})
+        SELECT owner, name, url, l.size::BIGINT AS size, l.date AS date, l.type AS type,
+          l.archive AS archive
+        FROM n LEFT JOIN l USING (name)
+        UNION ALL
+        SELECT l.series, name, NULL, l.size::BIGINT, l.date, l.type, l.archive FROM l
+        WHERE name NOT IN (SELECT name FROM n)
+        ) ORDER BY owner, name, coalesce(url, '')) TO '{_escape(str(out))}' (FORMAT parquet)"""
+    )
 
-    out: list[dict[str, object]] = []
-    for (owner, url), name in named.items():
-        out.append(_row(owner, name, url, listed.get(name, ("", None))[1]))
-    seen = set(named.values())
-    for name, (series, facts) in listed.items():
-        if name not in seen:
-            out.append(_row(series, name, None, facts))
-    return sorted(out, key=lambda r: (r["owner"], r["name"], r["url"] or ""))
+
+def _list(paths: list[Path]) -> str:
+    return "[" + ", ".join(f"'{_escape(str(p))}'" for p in paths) + "]"
 
 
-def write(root: Path, out: Path) -> None:
-    """Write ``supplementary_files.parquet``, sorted by owner accession."""
-    pq.write_table(pa.Table.from_pylist(rows(root), schema=_SCHEMA), out)
-
-
-def _row(owner: str, name: str, url: str | None, facts: Listed | None) -> dict[str, object]:
-    size, date, file_type, archive = facts or (None, None, None, None)
-    return {
-        "owner": owner,
-        "name": name,
-        "url": url,
-        "size": size,
-        "date": date,
-        "type": file_type,
-        "archive": archive,
-    }
-
-
-def _number(accession: str) -> int:
-    match = _NUMBER.search(accession)
-    return int(match[1]) if match else 0
+def _escape(text: str) -> str:
+    return text.replace("'", "''")

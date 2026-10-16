@@ -7,13 +7,44 @@ seeded with canned responses — and never touch the network.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import gzip
+from collections.abc import Callable, Iterator
 from typing import Any
 
 import pytest
 
 from tests import _geodata as g
 from tests._fakes import FakeEntrezClient
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _serial_workers() -> Iterator[None]:
+    """Default every parallel step to one worker, so no test starts Ray unasked."""
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("SLURM_CPUS_ON_NODE", "1")
+        yield
+
+
+class Decompressor:
+    """Stands in for rapidgzip or pigz: a gzip file's bytes on ``stdout``, then ``code``."""
+
+    def __init__(self, command: list[str], code: int = 0) -> None:
+        self.stdout = gzip.open(command[-1], "rb")  # noqa: SIM115 - the caller closes the pipe
+        self._code = code
+
+    def kill(self) -> None:
+        pass
+
+    def wait(self) -> int:
+        return self._code
+
+
+@pytest.fixture(autouse=True)
+def _no_decompressor_binaries(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Decompress snapshots in Python at the extract's subprocess seam."""
+    from labdata.store import extract
+
+    monkeypatch.setattr(extract, "_popen", Decompressor)
 
 
 @pytest.fixture

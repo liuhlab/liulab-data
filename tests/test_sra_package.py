@@ -1,7 +1,8 @@
 """Building SRA experiments and runs from ``EXPERIMENT_PACKAGE`` XML.
 
 The fixtures under ``tests/data/sra_package/`` are real ``efetch db=sra rettype=full``
-responses, one experiment per file.
+responses, one experiment per file. ``SRX10340496-spliced.xml`` is one saved package as
+NCBI served it: SRX10340496's package cut off mid-text, then SRX10340499's whole package.
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ import pytest
 from labdata import experiments_for
 from labdata.exceptions import LabdataError
 from labdata.geo import Experiment, Run
-from labdata.geo.sra_records import experiments_from_package_xml
+from labdata.geo.sra_records import experiments_from_package_xml, split_packages
 from tests._fakes import ExplodingEntrezClient, FakeEntrezClient
 
 _DATA = Path(__file__).parent / "data" / "sra_package"
@@ -161,3 +162,8 @@ def test_a_short_batch_of_uids_is_fetched_again() -> None:
     experiments = experiments_for("SRP502277", client=client)
     assert [e.accession for e in experiments] == ["SRX24283130", "SRX24283131"]
     assert client.count("efetch") == 2
+
+
+def test_a_package_cut_off_by_the_next_one_is_left_out_of_the_split() -> None:
+    reply = _package("SRX10340496-spliced") + _package("SRX24283130")
+    assert sorted(split_packages(reply)) == ["SRX10340499", "SRX24283130"]

@@ -19,6 +19,8 @@ BIOSAMPLE_XML = "BioSample XML"
 PUBMED = "PubMed"
 SOFT = "SOFT"
 ENTREZ_LINK = "Entrez link"
+#: A Series' BioProject as the ``geo-series`` snapshot's ``esummary`` gives it.
+GEO_SUMMARY = "GEO summary"
 
 
 @dataclass(frozen=True, slots=True)
