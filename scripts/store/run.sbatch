@@ -27,4 +27,6 @@ args=(store run --root "$LABDATA_STORE")
 if [[ $# -gt 0 ]]; then
   args+=(--fraction "$1")
 fi
-exec pixi run --manifest-path "$repo/pyproject.toml" labdata "${args[@]}"
+# sbatch passes on the submitting shell's PATH, and a non-interactive shell often lacks pixi.
+pixi="$(command -v pixi || echo "$HOME/.pixi/bin/pixi")"
+exec "$pixi" run --manifest-path "$repo/pyproject.toml" labdata "${args[@]}"
