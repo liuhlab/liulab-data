@@ -18,6 +18,7 @@ from __future__ import annotations
 import datetime as dt
 import fcntl
 import glob
+import itertools
 import logging
 import shutil
 import tomllib
@@ -69,6 +70,8 @@ _LOOKUP_BATCH = 10_000
 
 #: Rows per row group of the wanted snapshot texts; one parse task takes one row group.
 _SNAPSHOT_ROW_GROUP = 2048
+#: Parsed record bytes per DuckDB memory byte that one sorted write of a record table may take.
+_RANGE_SHARE = 1 / 16
 _TYPED = ("status", "submitted", "updated", "published")
 _HOLDINGS = pa.schema([("accession", pa.string()), ("type", pa.string())])
 
@@ -158,8 +161,9 @@ def _build(
     work.mkdir(parents=True)
     tmp = temp_beside(out)
     try:
-        with extract.parallel(workers):
-            _build_into(root, build_id, work, tmp, workers, chunk_bytes, fraction)
+        # Each parse phase holds its own Ray session, so its workers are gone before DuckDB
+        # writes the tables.
+        _build_into(root, build_id, work, tmp, workers, chunk_bytes, fraction)
         tmp.rename(out)
     finally:
         shutil.rmtree(work, ignore_errors=True)
@@ -390,11 +394,53 @@ def _wanted_snapshots(
     return tasks
 
 
+def _range_bytes() -> int:
+    """Return the parsed record bytes one sorted write takes: a share of DuckDB's memory."""
+    return max(int((extract.step_memory_mb() << 20) * extract.MEMORY_SHARE * _RANGE_SHARE), 1)
+
+
 def _write_records(con: duckdb.DuckDBPyConnection, root: Path, folder: Path, out: Path) -> None:
     """Write one record type, keeping each record's lowest-numbered copy, sorted by accession.
 
-    SRA records take their typed columns from the ``SRA_Accessions.tab`` extract.
+    A large type is written in accession ranges, each sorted on its own, then joined in order,
+    so DuckDB never sorts more than one range's texts at once.
     """
+    size = sum(p.stat().st_size for p in folder.glob("*.parquet"))
+    count = -(-size // _range_bytes())
+    if count <= 1:
+        _write_record_range(con, root, folder, out, "TRUE")
+        return
+    quantiles = ", ".join(str(i / count) for i in range(1, count))
+    cuts = con.execute(
+        f"SELECT unnest(quantile_disc(accession, [{quantiles}])) FROM {_read(folder)}"
+    ).fetchall()
+    bounds: list[str | None] = [None, *dict.fromkeys(str(c[0]) for c in cuts), None]
+    pieces: list[Path] = []
+    for i, (lo, hi) in enumerate(itertools.pairwise(bounds)):
+        terms = []
+        if lo is not None:
+            terms.append(f"accession >= {extract.sql_string(lo)}")
+        if hi is not None:
+            terms.append(f"accession < {extract.sql_string(hi)}")
+        where = " AND ".join(terms)
+        pieces.append(out.with_name(f".{out.stem}.{i:04d}.parquet"))
+        _write_record_range(con, root, folder, pieces[-1], where)
+    logger.info("wrote %s in %d accession ranges", out.stem, len(pieces))
+    try:
+        with pq.ParquetWriter(out, pq.read_schema(pieces[0])) as writer:
+            for piece in pieces:
+                with pq.ParquetFile(piece) as source:
+                    for group in range(source.num_row_groups):
+                        writer.write_table(source.read_row_group(group))
+    finally:
+        for piece in pieces:
+            piece.unlink(missing_ok=True)
+
+
+def _write_record_range(
+    con: duckdb.DuckDBPyConnection, root: Path, folder: Path, out: Path, where: str
+) -> None:
+    """Write the records of one accession range; SRA records take typed columns from the tab."""
     if folder.name.startswith("sra-"):
         tab, _ = extract.done_dir(root, snapshots.SRA_ACCESSIONS)
         fields = ", ".join(f"{name}: {name}" for name in _TYPED)
@@ -409,7 +455,7 @@ def _write_records(con: duckdb.DuckDBPyConnection, root: Path, folder: Path, out
         typed = ", ".join(f"r.{name}" for name in _TYPED)
     con.execute(
         f"""COPY (
-            WITH r AS (SELECT * FROM {_read(folder)}),
+            WITH r AS (SELECT * FROM {_read(folder)} WHERE {where}),
             k AS (SELECT min({{'n': number, 'o': origin, 's': seq}}).s AS seq
                   FROM r GROUP BY accession)
             SELECT r.accession, r.type, {typed}, r.fields, r.raw_text, r.content_hash,

@@ -23,6 +23,7 @@ import pytest
 
 from labdata.exceptions import StoreBuildError
 from labdata.store import _parse, extract, init_store, open_store
+from labdata.store import build as build_module
 from labdata.store.build import build
 from tests._slices import DATA, SLICES, built_root, copy_snapshots
 
@@ -85,6 +86,19 @@ def test_parsing_on_two_workers_gives_the_same_tables(tmp_path: Path) -> None:
     root = built_root(tmp_path / "store", "geo_slice")
     build(root, "b2", workers=2)
     assert _digest(root / "builds" / "b2") == _STAGE1["geo_slice"]
+
+
+# Ray leaves a log file handle open at shutdown.
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")
+def test_records_written_in_accession_ranges_equal_one_pass(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = built_root(tmp_path / "store", "geo_slice")
+    monkeypatch.setattr(build_module, "_range_bytes", lambda: 1 << 10)
+    build(root, "b2", workers=2)
+    assert _digest(root / "builds" / "b2") == _STAGE1["geo_slice"]
+    samples = pq.ParquetFile(root / "builds" / "b2" / "records" / "geo-sample.parquet")
+    assert samples.num_row_groups > 1
 
 
 def _package(n: int, padding: int) -> str:
