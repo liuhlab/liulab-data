@@ -50,6 +50,8 @@ labdata store verify --root <store>
   use; and, if set, `copy_to`, where `labdata store copy` sends the store.
 - **Made by:** `labdata store init` writes it. `labdata store build` sets `build` and
   `switched` when a new build is whole. Do not edit `build` by hand.
+- **Refresh:** nothing to do. Each build updates it, and `labdata store prune` drops the
+  builds it deletes from `[switched_away]`.
 
 ## builds/
 
@@ -155,7 +157,17 @@ labdata store verify --root <store>
   - `logs/jobs/`: the Slurm job log of each run, `labdata-run.<job id>.log`.
   - `logs/snapshots-<date>/`: the logs of the snapshot download of that date.
   - `scripts/`: the commands run by hand to make the snapshots.
-- **Made by:** moved here by hand from `work/run/` and the job folder after a run.
+- **Made by:** `scripts/store/keep_run_logs.sh` in the liulab-data repository copies a
+  round's step logs, its `run.json` and its Slurm job logs from `work/run/` into `logs/`.
+  The snapshot download logs and `scripts/` are kept by hand.
+- **Refresh:** after each round, from a checkout of liulab-data:
+
+  ```bash
+  scripts/store/keep_run_logs.sh <store> <round>
+  ```
+
+  `<round>` is the round's folder under `work/run/`, such as `2026-10-14-all`. The script
+  only copies, so running it again is safe.
 
 ## work/
 
@@ -173,8 +185,8 @@ From a checkout of liulab-data, on a computer that can reach NCBI:
 1. Download new snapshots into `snapshots/` (see above).
 2. Save your NCBI email and API key once: `labdata ncbi configure`.
 3. Run the download. It fetches what is missing, builds the tables, checks coverage, switches
-   the store to the new build, deletes builds and snapshots out of use for a day, and copies
-   the store to GCS:
+   the store to the new build, deletes builds and snapshots out of use for longer than a grace
+   period, and copies the store to GCS:
 
    ```bash
    labdata store run --root <store>
@@ -182,17 +194,19 @@ From a checkout of liulab-data, on a computer that can reach NCBI:
 
    On a Slurm cluster, `scripts/store/run.sbatch` runs the same command as a job.
 
-4. To delete the old build and the snapshots it read at once, without waiting a day:
-
-   ```bash
-   labdata store prune --root <store> --grace 0
-   ```
-
-   `prune` never deletes the current build or anything it reads.
+4. Keep the round's logs in `support/`: `scripts/store/keep_run_logs.sh <store> <round>`.
 
 5. Copy the store to GCS: `labdata store copy --root <store>`. The copy holds
    `labdata-store.toml`, this file, the snapshots the current build reads, `raw/` and the
    current build.
+
+An old build stays for a grace period after the switch, so a reader that opened it can
+finish. The liulab-data API reference for `labdata.store.prune` gives its length.
+
+To tidy a store that nobody is reading, `labdata store prune --root <store> --grace 0` deletes
+the old builds and the snapshots only they read at once. A reader still on an old build loses
+it, so this is a one-off, not a refresh step. `prune` never deletes the current build or
+anything it reads.
 
 The liulab-data documentation pages "Run the full download" and "Copy the store to GCS" give
 the details.

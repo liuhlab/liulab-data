@@ -6,6 +6,7 @@ import datetime as dt
 import os
 import shutil
 import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -14,7 +15,7 @@ from typer.testing import CliRunner, Result
 from labdata.cli import app
 from labdata.store import extract
 from labdata.store.build import build
-from labdata.store.prune import prune
+from labdata.store.prune import GRACE, prune
 from tests._slices import built_root
 
 _HOUR = dt.timedelta(hours=1)
@@ -84,6 +85,29 @@ def test_prune_deletes_an_old_snapshot_no_build_reads_after_the_grace(root: Path
     build(root, "b2")
     assert prune(root, now=_now() + _HOUR).deleted == []
     assert prune(root, now=_now() + 25 * _HOUR).deleted == [root / "builds" / "b1", unread]
+
+
+def test_prune_keeps_a_build_out_of_use_for_exactly_the_grace(root: Path) -> None:
+    unread = _snapshot(root, "geo-series", "2026-01-01")
+    build(root, "b2")
+    with (root / "labdata-store.toml").open("rb") as fh:
+        away = dt.datetime.fromisoformat(tomllib.load(fh)["switched_away"]["b1"])
+    assert prune(root, now=away + GRACE).deleted == []
+    second = dt.timedelta(seconds=1)
+    assert prune(root, now=away + GRACE + second).deleted == [root / "builds" / "b1", unread]
+
+
+def test_prune_rewrites_the_readme_sizes_after_it_deletes(root: Path) -> None:
+    _snapshot(root, "geo-series", "2026-01-01")
+    build(root, "b2")
+    readme = root / "README.md"
+    before = readme.read_text(encoding="utf-8")
+    assert prune(root, grace=dt.timedelta(0)).deleted
+    after = readme.read_text(encoding="utf-8")
+    assert after != before
+    result = CliRunner().invoke(app, ["store", "readme", "--root", str(root)])
+    assert result.exit_code == 0, result.output
+    assert readme.read_text(encoding="utf-8") == after
 
 
 def test_prune_dates_builds_from_before_switch_times_by_the_marker(root: Path) -> None:

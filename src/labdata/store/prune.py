@@ -1,10 +1,10 @@
 """Delete the builds and snapshots the store no longer reads, after a grace period.
 
-A non-current build goes once the store switched away from it at least the grace period ago,
-24 hours by default. A snapshot goes once it is older than the one the current build reads and
-every build that read it went out of use at least the grace period ago; its extract parts
-under ``work/`` go with it. A snapshot newer than the current build's is waiting for the next
-build and stays. Neither the current build nor what it reads is ever deleted.
+A non-current build goes once the store switched away from it more than the grace period
+ago, ``GRACE`` by default. A snapshot goes once it is older than the one the current build
+reads and every build that read it went out of use more than the grace period ago; its extract
+parts under ``work/`` go with it. A snapshot newer than the current build's is waiting for the
+next build and stays. Neither the current build nor what it reads is ever deleted.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from labdata.store import extract
+from labdata.store import extract, readme
 from labdata.store.build import (
     BUILD_KEY,
     SWITCHED_AWAY_KEY,
@@ -47,7 +47,8 @@ def prune(
     """Delete old builds and unread snapshots, keeping everything inside the grace period.
 
     A build switched away from before switch times were recorded counts as switched away
-    when the current build was switched to.
+    when the current build was switched to. After deleting anything, it rewrites the root
+    ``README.md`` so its sizes stay current.
 
     Parameters
     ----------
@@ -56,7 +57,8 @@ def prune(
     now : datetime.datetime or None
         The time to measure the grace period from; defaults to the current UTC time.
     grace : datetime.timedelta
-        How long a build stays after the store switched away from it. Zero deletes at once.
+        How long a build stays after the store switched away from it: ``GRACE``, 24 hours,
+        by default. Zero deletes at once.
 
     Returns
     -------
@@ -87,7 +89,7 @@ def prune(
         unused_since = {
             b.name: _time(away.get(b.name)) or switched for b in builds if b.name != current
         }
-        old = [root / "builds" / name for name, t in unused_since.items() if now - t >= grace]
+        old = [root / "builds" / name for name, t in unused_since.items() if now - t > grace]
         latest = dict(reads.get(str(current), set()))
         snaps = []
         for folder in sorted((root / "snapshots").glob("*/*")):
@@ -95,7 +97,7 @@ def prune(
             if not (folder.is_dir() and _DATE.match(date)) or date >= latest.get(source, date):
                 continue
             readers = [n for n, t in unused_since.items() if (source, date) in reads[n]]
-            if now - max((unused_since[n] for n in readers), default=switched) >= grace:
+            if now - max((unused_since[n] for n in readers), default=switched) > grace:
                 snaps.append(folder)
         for folder in [*old, *snaps]:
             shutil.rmtree(folder)
@@ -106,6 +108,8 @@ def prune(
         if any(p.name in away for p in old):
             settings[SWITCHED_AWAY_KEY] = {k: v for k, v in away.items() if not _gone(root, k)}
             write_marker(root, settings)
+        if old or snaps:
+            readme.try_write(root)
         return PruneReport([*old, *snaps])
 
 

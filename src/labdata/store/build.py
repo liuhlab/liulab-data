@@ -165,7 +165,7 @@ def _build(
         shutil.rmtree(work, ignore_errors=True)
         shutil.rmtree(tmp, ignore_errors=True)
     _switch(root, build_id)
-    readme.write(root)
+    readme.try_write(root)
     return out
 
 
@@ -291,16 +291,20 @@ def _differing_copies(con: duckdb.DuckDBPyConnection, folder: Path) -> list[gaps
     """Note each record whose copies differ: the copy kept, the others and the fields that differ.
 
     The build keeps the lowest-numbered copy; GEO renders one sample differently in two
-    Series' family SOFT files, so a difference is reported, never fatal.
+    Series' family SOFT files, so a difference is reported, never fatal. ``fields`` is read
+    only for records whose copies differ, so memory follows those, not the store.
     """
+    parts = _read(folder)
     rows = con.execute(
-        f"""WITH r AS (SELECT * FROM {_read(folder)}),
+        f"""WITH r AS (SELECT accession, content_hash, number, origin FROM {parts}),
+            m AS (SELECT accession FROM (SELECT DISTINCT accession, content_hash FROM r)
+                  GROUP BY accession HAVING count(*) > 1),
             c AS (SELECT accession, content_hash,
                     min({{'n': number, 'o': origin}}) AS first,
                     arg_min(fields, {{'n': number, 'o': origin}}) AS fields
-                  FROM r GROUP BY accession, content_hash),
-            d AS (SELECT accession, min(first) AS kept FROM c GROUP BY accession
-                  HAVING count(*) > 1),
+                  FROM {parts} WHERE accession IN (SELECT accession FROM m)
+                  GROUP BY accession, content_hash),
+            d AS (SELECT accession, min(first) AS kept FROM c GROUP BY accession),
             o AS (SELECT DISTINCT r.accession, {{'n': r.number, 'o': r.origin}} AS at, x.fields
                   FROM r JOIN d USING (accession)
                   JOIN c x ON x.accession = r.accession AND x.content_hash = r.content_hash

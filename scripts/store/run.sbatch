@@ -22,7 +22,8 @@ set -euo pipefail
 : "${LABDATA_STORE:?set LABDATA_STORE to the store root}"
 repo="${LABDATA_REPO:-${SLURM_SUBMIT_DIR:-$PWD}}"
 
-echo "$(date -u +%FT%TZ) job ${SLURM_JOB_ID:-local} restart ${SLURM_RESTART_COUNT:-0} on $(hostname)"
+echo "$(date -u +%FT%TZ) job ${SLURM_JOB_ID:-local}" \
+  "restart ${SLURM_RESTART_COUNT:-0} on $(hostname)"
 args=(store run --root "$LABDATA_STORE")
 if [[ $# -gt 0 ]]; then
   args+=(--fraction "$1")

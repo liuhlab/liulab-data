@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+import json
+import os
 import re
 import shutil
 import tomllib
+from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 from typer.testing import CliRunner
 
 from labdata.cli import app
+from labdata.store.build import build
 from tests._slices import built_root
 
 
@@ -66,3 +71,47 @@ def test_the_readme_examples_run_against_the_store(
     monkeypatch.chdir(root)
     for block in blocks:
         exec(block.replace("<store>", str(root)), {})
+
+
+def test_a_build_still_switches_when_its_readme_cannot_be_written(
+    root: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    (root / "README.md").unlink()
+    (root / "README.md").mkdir()
+    build(root, "b2")
+    with (root / "labdata-store.toml").open("rb") as fh:
+        assert tomllib.load(fh)["build"] == "b2"
+    assert "labdata store readme" in caplog.text
+
+
+def test_the_readme_sizes_skip_files_that_vanish_while_it_counts(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    work = root / "work" / "vanishing"
+    work.mkdir(parents=True)
+    (work / "gone.parquet").write_bytes(b"x" * 10)
+    real_walk = os.walk
+
+    def walk(top: Path, *args: Any, **kwargs: Any) -> Iterator[tuple[str, list[str], list[str]]]:
+        for dirpath, dirs, names in real_walk(top, *args, **kwargs):
+            for name in names:
+                if name == "gone.parquet":
+                    (Path(dirpath) / name).unlink()
+            yield dirpath, dirs, names
+
+    monkeypatch.setattr(os, "walk", walk)
+    result = CliRunner().invoke(app, ["store", "readme", "--root", str(root)])
+    assert result.exit_code == 0, result.output
+    assert "Current build: `b1`" in (root / "README.md").read_text(encoding="utf-8")
+
+
+def test_the_readme_credits_no_checkout_when_the_build_names_no_producer(root: Path) -> None:
+    manifest = root / "builds" / "b1" / "manifest.json"
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    commit = data.pop("produced_by")["commit"]
+    manifest.write_text(json.dumps(data), encoding="utf-8")
+    result = CliRunner().invoke(app, ["store", "readme", "--root", str(root)])
+    assert result.exit_code == 0, result.output
+    text = (root / "README.md").read_text(encoding="utf-8")
+    assert "It was made by\nan unrecorded command, at an unrecorded commit." in text
+    assert commit not in text

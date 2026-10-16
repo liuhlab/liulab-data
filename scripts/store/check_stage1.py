@@ -110,7 +110,8 @@ def _done() -> str:
     assert all(isinstance(r, Record) for r in recs.values()), recs
     return (
         f"SRX={srx}; runs={len(runs)}; props read={nprops}; "
-        f"SRS={len(srs)}; SAMN={sorted(v[0] for v in samn.values())}; studies={sorted({e.study for e in exps})}"
+        f"SRS={len(srs)}; SAMN={sorted(v[0] for v in samn.values())}; "
+        f"studies={sorted({e.study for e in exps})}"
     )
 
 
@@ -251,7 +252,11 @@ def _r10() -> str:
     s = store.open("GSE15556")
     tax = s.field("Series_sample_taxid")
     eq(tax, ["8355", "8364"], "Series_sample_taxid")
-    return f"[]; {len(reads)} read files w/ size+date e.g. {reads[0].name} {reads[0].size} {reads[0].date}; taxid={tax}"
+    first = reads[0]
+    return (
+        f"[]; {len(reads)} read files w/ size+date e.g. {first.name} {first.size} {first.date}; "
+        f"taxid={tax}"
+    )
 
 
 @check("11 GSE28770")
@@ -270,7 +275,7 @@ def _r11() -> str:
 
 # ------------------------------------------------------------ every record
 held = pq.read_table(BUILD / "holdings.parquet").column("accession").to_pylist()
-# Opened records and raw texts are checked a chunk at a time, so memory stays flat as the store grows.
+# Records and raw texts are checked a chunk at a time, so memory stays flat as the store grows.
 CHUNK = 20_000
 
 

@@ -38,7 +38,9 @@ labdata store copy
 ```
 
 `prune` deletes builds and snapshots the current build no longer reads. It keeps each one for
-24 hours after it goes out of use, so a reader can finish. `--grace 0` deletes them at once.
+a grace period after it goes out of use, so a reader can finish; the
+[API reference](../reference.md#labdata.store.prune) gives its length. `--grace 0` deletes
+them at once: use it only as a one-off to tidy a store nobody is reading.
 
 `copy` sends the marker file, the store's `README.md`, the current snapshots, `raw/` and the
 current build, and deletes anything else in the bucket's copy. It leaves out `work/` and

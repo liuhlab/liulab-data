@@ -222,21 +222,24 @@ def store_prune(
     root: Path | None = typer.Option(
         None, help="Store root; default: LABDATA_STORE, then pointer."
     ),
-    grace: float = typer.Option(
-        24, min=0, help="Hours a build stays after the store switched away from it; 0: none."
+    grace: float | None = typer.Option(
+        None,
+        min=0,
+        help="Hours a build stays after the store switched away from it; "
+        "default: labdata.store.prune.GRACE.",
     ),
 ) -> None:
     """Delete old builds and unread snapshots once they are out of use for --grace hours.
 
-    Never deletes the current build or the snapshots it reads. `--grace 0` deletes the rest
-    at once.
+    Never deletes the current build or the snapshots it reads. `--grace 0` is a one-off for
+    tidying a store nobody is reading: a reader of an old build loses it at once.
     """
     import datetime as dt
 
-    from labdata.store.prune import prune
+    from labdata.store.prune import GRACE, prune
 
     store = open_store(root)
-    report = prune(store.root, grace=dt.timedelta(hours=grace))
+    report = prune(store.root, grace=GRACE if grace is None else dt.timedelta(hours=grace))
     for path in report.deleted:
         typer.echo(f"Deleted {path}")
     if not report.deleted:

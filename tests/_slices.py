@@ -1,8 +1,7 @@
 """The thin-slice fixtures as stores: each fixture's fake Entrez client, fetch and build.
 
-Three fixture folders under ``tests/data/`` hold the 12 thin-slice records:
-``prjna1027859`` (record 1), ``geo_slice`` (records 2-4 and 7-12) and ``sra_slice``
-(records 5 and 6).
+Three fixture folders under ``tests/data/`` hold the thin-slice records:
+``prjna1027859`` (record 1), ``sra_slice`` (records 5 and 6) and ``geo_slice`` (the rest).
 """
 
 from __future__ import annotations

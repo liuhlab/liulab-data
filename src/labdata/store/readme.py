@@ -8,18 +8,22 @@ from __future__ import annotations
 
 import importlib.resources
 import json
+import logging
 import os
+import stat
 import string
 import tomllib
 from pathlib import Path
 
 from labdata.exceptions import NotAStoreError
 from labdata.store._files import write_atomic
-from labdata.store.provenance import MANIFEST, README, produced_by
+from labdata.store.provenance import MANIFEST, README
 from labdata.store.root import MARKER
 
 #: The top-level folders whose sizes the README gives, after the current build.
 _SIZED = ("raw", "snapshots", "support", "work")
+
+logger = logging.getLogger(__name__)
 
 
 def write(root: Path) -> Path:
@@ -53,7 +57,7 @@ def write(root: Path) -> Path:
     manifest = (
         json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.is_file() else {}
     )
-    made = manifest.get("produced_by") or produced_by("labdata store build")
+    made = manifest.get("produced_by")
     snaps = manifest.get("inputs", {}).get("snapshots", {})
     sizes = [(f"builds/{build}/", _size(folder))] + [
         (f"{name}/", _size(root / name)) for name in _SIZED if (root / name).is_dir()
@@ -61,10 +65,7 @@ def write(root: Path) -> Path:
     text = string.Template(_template()).substitute(
         build=build,
         switched=settings.get("switched", "an unrecorded time"),
-        made_by=(
-            f"`{made.get('command')}` at commit `{made.get('commit') or 'unknown'}`"
-            + (f", labdata {made['version']}." if made.get("version") else ".")
-        ),
+        made_by=_made_by(made),
         snapshot_table=_table(
             ("Source", "Date", "File"),
             [(f"`{s}`", v["date"], f"`{v['name']}`") for s, v in sorted(snaps.items())],
@@ -74,6 +75,30 @@ def write(root: Path) -> Path:
     out = root / README
     write_atomic(out, text)
     return out
+
+
+def try_write(root: Path) -> Path | None:
+    """Write the README as ``write`` does, but log a warning instead of raising.
+
+    Returns
+    -------
+    pathlib.Path or None
+        The README written, or ``None`` if it could not be.
+    """
+    try:
+        return write(root)
+    except Exception as err:
+        logger.warning(
+            "could not write %s: %s; run `labdata store readme` to write it", root / README, err
+        )
+        return None
+
+
+def _made_by(made: dict[str, str | None] | None) -> str:
+    if not made:
+        return "an unrecorded command, at an unrecorded commit."
+    version = f", labdata {made['version']}." if made.get("version") else "."
+    return f"`{made.get('command')}` at commit `{made.get('commit') or 'unknown'}`{version}"
 
 
 def _template() -> str:
@@ -86,13 +111,19 @@ def _table(header: tuple[str, ...], rows: list[tuple[str, ...]]) -> str:
 
 
 def _size(folder: Path) -> int:
-    """Return the summed sizes of the files under ``folder``, not following symlinks."""
+    """Return the summed sizes of the files under ``folder``, skipping symlinks.
+
+    A file deleted while the walk runs counts as gone.
+    """
     total = 0
     for dirpath, _, names in os.walk(folder):
         for name in names:
-            path = Path(dirpath) / name
-            if not path.is_symlink():
-                total += path.stat().st_size
+            try:
+                info = (Path(dirpath) / name).lstat()
+            except FileNotFoundError:
+                continue
+            if not stat.S_ISLNK(info.st_mode):
+                total += info.st_size
     return total
 
 

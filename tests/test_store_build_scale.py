@@ -159,6 +159,36 @@ def test_differing_copies_keep_the_lowest_numbered_and_note_each_other_one(
     assert json.loads((out / "manifest.json").read_text())["notes"]["copies differ"] == 1
 
 
+def test_differing_copies_among_many_note_only_the_records_that_differ(tmp_path: Path) -> None:
+    root = tmp_path / "store"
+    copy_snapshots(SLICES["prjna1027859"][0], root)
+    init_store(root)
+
+    def study(n: int, title: str, extra: str = "") -> str:
+        return _package(n, 5).replace("<STUDY_TITLE>t<", f"{extra}<STUDY_TITLE>{title}<")
+
+    abstract = "<STUDY_ABSTRACT>a</STUDY_ABSTRACT>"
+    rows = [
+        *((f"SRX{n}", study(n, "t")) for n in (30, 31)),
+        *((f"SRX{n}", study(n, "u")) for n in (32, 34)),
+        ("SRX33", study(33, "v", abstract)),
+        *((f"SRX{n}", study(n, "t")) for n in (40, 41, 42)),
+        ("SRX50", study(50, "z")),
+        *((f"SRX{n}", study(n, "t")) for n in (51, 52)),
+    ]
+    _write_raw(root, "sra-xml", "SRX0nnnn", rows)
+    out = build(root, "b1", workers=1)
+    notes = pq.read_table(out / "notes.parquet").to_pylist()
+    assert [(n["accession"], n["detail"]) for n in notes if n["kind"] == "copies differ"] == [
+        (
+            "SRP3",
+            "kept SRX30; SRX32, SRX33, SRX34 differ in: "
+            "STUDY/DESCRIPTOR/STUDY_ABSTRACT, STUDY/DESCRIPTOR/STUDY_TITLE",
+        ),
+        ("SRP5", "kept SRX50; SRX51, SRX52 differ in: STUDY/DESCRIPTOR/STUDY_TITLE"),
+    ]
+
+
 class _Writes:
     """Record every file opened for writing while switched on (an audit hook stays for life)."""
 

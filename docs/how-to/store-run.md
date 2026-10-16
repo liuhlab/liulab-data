@@ -76,17 +76,26 @@ is fetched twice.
 
 ## After the last round
 
+To keep each round's logs with the store, copy them into `support/`. `<round>` is the round's
+folder under `work/run/`, such as `2026-10-14-all`:
+
+```bash
+scripts/store/keep_run_logs.sh "$LABDATA_STORE" <round>
+```
+
 The build writes `README.md` at the store root. It says what each folder holds, how it was
-made, and how to open the store as a database. After you move logs into `support/` or delete
+made, and how to open the store as a database. After you copy logs into `support/` or delete
 `work/`, write it again with fresh folder sizes:
 
 ```bash
 labdata store readme
 ```
 
-The run keeps the old build for a day after the switch. To delete it and the snapshots only
-it read straight away, run `labdata store prune --grace 0`. Prune never deletes the current
-build or anything it reads.
+The run keeps the old build for a grace period after the switch, so a reader that opened it
+can finish; the [API reference](../reference.md#labdata.store.prune) gives its length.
+`labdata store prune --grace 0` deletes it and the snapshots only it read at once. Use that
+only as a one-off to tidy a store nobody is reading, not as a refresh step. Prune never
+deletes the current build or anything it reads.
 
 ## Go deeper
 
