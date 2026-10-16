@@ -79,10 +79,11 @@ labdata store verify --root <store>
   - `fields` is a list of `{name, value}` pairs: the source's own field names and values, in
     source order, with repeats kept. GEO names are the SOFT names without the `!`, such as
     `Series_title`. SRA names are XML paths, such as `EXPERIMENT/TITLE`.
-  - Each link is stored once, under its forward name, such as `sample` (Series to Sample) or
-    `SRA` (Sample to SRA experiment). The far end of a link can be an accession the store
-    does not hold, or a paper, written `PMID:<n>`. `source` says who stated the link, such
-    as `SOFT` or `SRA XML`.
+  - Each link is stored under its forward name, such as `sample` (Series to Sample) or
+    `SRA` (Sample to SRA experiment), once for each source that states it. `source` says
+    who stated the link, such as `SOFT` or `SRA XML`, so select `DISTINCT` to list a link
+    once. The far end of a link can be an accession the store does not hold, or a paper,
+    written `PMID:<n>`.
   - Supplementary files are listed, never downloaded.
   - The build's `README.md` gives the coverage of the target Series, the count of notes by
     kind, and any GEO relation label kept as written.
@@ -262,11 +263,12 @@ duckdb.sql(f"""
 
 # The samples of a Series, then their SRA experiments
 duckdb.sql(f"""
-    SELECT s."to" AS sample, x."to" AS experiment
+    SELECT DISTINCT s."to" AS sample, x."to" AS experiment
     FROM read_parquet('{build}/links_by_from.parquet') s
     JOIN read_parquet('{build}/links_by_from.parquet') x
       ON x."from" = s."to" AND x.relation = 'SRA'
     WHERE s."from" = 'GSE20301' AND s.relation = 'sample'
+    ORDER BY sample, experiment
 """).show()
 
 # The supplementary files of a Series, with sizes

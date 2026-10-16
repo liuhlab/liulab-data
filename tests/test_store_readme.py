@@ -73,6 +73,30 @@ def test_the_readme_examples_run_against_the_store(
         exec(block.replace("<store>", str(root)), {})
 
 
+def test_the_readme_duckdb_examples_list_each_row_once(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import duckdb
+
+    text = (root / "README.md").read_text(encoding="utf-8")
+    block = re.findall(r"^```python\n(.*?)^```", text, re.MULTILINE | re.DOTALL)[1]
+    results: list[list[tuple[Any, ...]]] = []
+    sql = duckdb.sql
+
+    def run(query: str) -> Any:
+        relation = sql(query)
+        results.append(relation.fetchall())
+        return relation
+
+    monkeypatch.setattr(duckdb, "sql", run)
+    monkeypatch.chdir(root)
+    exec(block, {})
+    assert results
+    for rows in results:
+        assert rows
+        assert len(rows) == len(set(rows)), rows
+
+
 def test_a_build_still_switches_when_its_readme_cannot_be_written(
     root: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
