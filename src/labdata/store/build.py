@@ -108,8 +108,8 @@ def build(
     Raises
     ------
     StoreBuildError
-        If a snapshot is missing or not extracted, a build of that id exists, two copies of a
-        record differ, or another build of this store is running.
+        If a snapshot is missing or not extracted, a build of that id exists, or another
+        build of this store is running.
     """
     fraction = targets.check_fraction(fraction)
     with build_lock(root):
@@ -191,8 +191,11 @@ def _build_into(
 
     (tmp / "records").mkdir(parents=True)
     with extract.connect(root) as con:
-        for folder in sorted((work / "records").glob("*")):
-            _check_copies(con, folder)
+        copy_notes = [
+            note
+            for folder in sorted((work / "records").glob("*"))
+            for note in _differing_copies(con, folder)
+        ]
         wanted = _wanted_snapshots(con, root, work, len(tasks), chunk_bytes, workers)
         logger.info("parsing %d snapshot tasks", len(wanted))
         extract.run_parallel(_parse.run, ((t,) for t in wanted), workers)
@@ -220,7 +223,7 @@ def _build_into(
         root,
         tmp,
         target_list,
-        [*label_notes, *_no_package_notes(root, empty)],
+        [*copy_notes, *label_notes, *_no_package_notes(root, empty)],
         experiments=eutils.list_path(root, sra_date),
     )
     provenance.document_build(
@@ -282,28 +285,49 @@ def _read(path: Path) -> str:
     return f"read_parquet([{', '.join(extract.sql_string(str(p)) for p in paths)}])"
 
 
-def _check_copies(con: duckdb.DuckDBPyConnection, folder: Path) -> None:
-    """Fail when two copies of a record differ, naming the lowest-numbered one that differs."""
-    row = con.execute(
-        f"""WITH c AS (
-              SELECT accession, content_hash, min({{'n': number, 'o': origin}}) AS first
-              FROM {_read(folder)} GROUP BY accession, content_hash),
+def _differing_copies(con: duckdb.DuckDBPyConnection, folder: Path) -> list[gaps.Note]:
+    """Note each record whose copies differ: the copy kept, the others and the fields that differ.
+
+    The build keeps the lowest-numbered copy; GEO renders one sample differently in two
+    Series' family SOFT files, so a difference is reported, never fatal.
+    """
+    rows = con.execute(
+        f"""WITH r AS (SELECT * FROM {_read(folder)}),
+            c AS (SELECT accession, content_hash,
+                    min({{'n': number, 'o': origin}}) AS first,
+                    arg_min(fields, {{'n': number, 'o': origin}}) AS fields
+                  FROM r GROUP BY accession, content_hash),
             d AS (SELECT accession, min(first) AS kept FROM c GROUP BY accession
-              HAVING count(*) > 1)
-            SELECT d.accession, c.first.o FROM d JOIN c USING (accession)
-            WHERE c.first <> d.kept ORDER BY d.accession, c.first LIMIT 1"""
-    ).fetchone()
-    if row is None:
-        return
-    accession, origin = row
-    if folder.name.startswith("geo-"):
-        between, kept = "family SOFT files", "Series"
-    else:
-        between, kept = "experiment packages", "one"
-    raise StoreBuildError(
-        f"copies of {accession} differ between {between} "
-        f"(kept the copy in the lowest-numbered {kept}; {origin} differs)"
-    )
+                  HAVING count(*) > 1),
+            o AS (SELECT DISTINCT r.accession, {{'n': r.number, 'o': r.origin}} AS at, x.fields
+                  FROM r JOIN d USING (accession)
+                  JOIN c x ON x.accession = r.accession AND x.content_hash = r.content_hash
+                  WHERE x.first <> d.kept)
+            SELECT o.accession, d.kept.o, list(o.at.o ORDER BY o.at),
+              list_sort(list_distinct(flatten(list(list_transform(
+                list_filter(o.fields, f -> NOT list_contains(k.fields, f))
+                || list_filter(k.fields, f -> NOT list_contains(o.fields, f)),
+                f -> f.name)))))
+            FROM o JOIN d USING (accession)
+            JOIN c k ON k.accession = d.accession AND k.first = d.kept
+            GROUP BY o.accession, d.kept ORDER BY o.accession"""
+    ).fetchall()
+    if rows:
+        logger.warning(
+            "kept the lowest-numbered copy of %d %s records whose copies differ, e.g. %s",
+            len(rows),
+            folder.name,
+            rows[0][0],
+        )
+    return [
+        gaps.Note(
+            str(accession),
+            gaps.COPIES_DIFFER,
+            f"kept {kept}; {', '.join(others)} "
+            f"{'differs' if len(others) == 1 else 'differ'} in: {', '.join(names) or 'text only'}",
+        )
+        for accession, kept, others, names in rows
+    ]
 
 
 def _wanted_snapshots(

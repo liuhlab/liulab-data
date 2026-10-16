@@ -1,4 +1,4 @@
-"""GEO records and links: thin-slice records 2, 3, 4, 7, 8, 9 and 11, fetched and built.
+"""GEO records and links: thin-slice records 2-4, 7-9, 11 and 12, fetched and built.
 
 Fixtures in ``tests/data/geo_slice/`` are cut from live NCBI by ``make_fixtures.py`` beside
 them: trimmed family SOFT, the packages of the experiments the kept samples name, the live
@@ -138,7 +138,8 @@ def test_fetch_pulls_packages_of_every_linked_experiment_and_si_for_each_series(
     built: Path,
 ) -> None:
     packages = {r.accession for r in raw.read_rows(built, raw.SRA_XML)}
-    assert packages == {p.stem for p in (_DATA / "packages").iterdir()}
+    # Record 12's experiment belongs to a Series its own test fetches.
+    assert packages == {p.stem for p in (_DATA / "packages").iterdir()} - {"SRX1301523"}
     searched = {r.accession: r.raw_text for r in raw.read_rows(built, raw.PUBMED_SI)}
     assert {*_SERIES, *_SUBSERIES} <= set(searched)
     assert searched["GSE20301"] == "20194744"
@@ -311,13 +312,39 @@ def test_a_relation_line_naming_no_accession_fails_the_build(root: Path) -> None
         build(root, "bad")
 
 
-def test_copies_of_a_sample_that_differ_fail_the_build(root: Path) -> None:
+def test_copies_of_a_sample_that_differ_keep_the_lowest_numbered_and_are_noted(
+    root: Path,
+) -> None:
     fetch(root, ["GSE246310"], client=_client(), today="2026-10-14")
     rows = {r.accession: r for r in raw.read_rows(root, raw.GEO_SOFT)}
-    text = rows["GSE246310"].raw_text.replace("!Sample_title = ", "!Sample_title = changed ", 1)
+    head, sample, tail = rows["GSE246310"].raw_text.partition("^SAMPLE = GSM8571270\n")
+    block, nxt, rest = tail.partition("\n^")
+    block = block.replace("= NextSeq 500", "= Illumina NextSeq 500")
+    text = head + sample + block + nxt + rest
     pack.write_rows(root, raw.GEO_SOFT, [raw.RawRow("GSE246310", text, "2026-10-14")])
-    with pytest.raises(LabdataError, match="GSE246310"):
-        build(root, "bad")
+    out = build(root, "b1")
+    store = open_store(root)
+    assert "= NextSeq 500" in store.raw(["GSM8571270"])["GSM8571270"].text
+    notes = pq.read_table(out / "notes.parquet").to_pylist()
+    assert {
+        "accession": "GSM8571270",
+        "kind": "copies differ",
+        "detail": "kept GSE246307; GSE246310 differs in: Sample_instrument_model",
+    } in notes
+
+
+def test_a_sample_geo_renders_differently_in_two_series_is_noted(root: Path) -> None:
+    fetch(root, ["GSE73693", "GSE73694"], client=_client(), today="2026-10-14")
+    out = build(root, "b1")
+    assert "= NextSeq 500" in open_store(root).raw(["GSM1900997"])["GSM1900997"].text
+    notes = pq.read_table(out / "notes.parquet").to_pylist()
+    assert [n for n in notes if n["kind"] == "copies differ"] == [
+        {
+            "accession": "GSM1900997",
+            "kind": "copies differ",
+            "detail": "kept GSE73693; GSE73694 differs in: Sample_instrument_model",
+        }
+    ]
 
 
 # ---------------------------------------------------------------- record 2

@@ -20,7 +20,6 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from labdata.exceptions import StoreBuildError
 from labdata.store import extract, init_store, open_store
 from labdata.store.build import build
 from tests._slices import DATA, SLICES, built_root, copy_snapshots
@@ -137,16 +136,27 @@ def test_an_experiment_with_no_package_is_a_build_note(tmp_path: Path) -> None:
     assert json.loads((out / "manifest.json").read_text())["notes"]["no SRA package"] == 1
 
 
-def test_differing_copies_name_the_record_and_both_origins(tmp_path: Path) -> None:
+def test_differing_copies_keep_the_lowest_numbered_and_note_each_other_one(
+    tmp_path: Path,
+) -> None:
     root = tmp_path / "store"
     copy_snapshots(SLICES["prjna1027859"][0], root)
     init_store(root)
     changed = _package(21, 5).replace("<STUDY_TITLE>t<", "<STUDY_TITLE>changed<")
-    _write_raw(root, "sra-xml", "SRX0nnnn", [("SRX20", _package(20, 5)), ("SRX21", changed)])
-    with pytest.raises(StoreBuildError, match=r"copies of SRP2 differ.*SRX21 differs"):
-        build(root, "bad", workers=1)
-    assert not (root / "builds" / "bad").exists()
-    assert not list((root / "work" / "build").glob("*"))
+    rows = [("SRX20", _package(20, 5)), ("SRX21", changed), ("SRX22", changed)]
+    _write_raw(root, "sra-xml", "SRX0nnnn", rows)
+    out = build(root, "b1", workers=1)
+    [study] = pq.read_table(out / "records" / "sra-study.parquet").to_pylist()
+    assert "<STUDY_TITLE>t<" in study["raw_text"]
+    notes = pq.read_table(out / "notes.parquet").to_pylist()
+    assert [n for n in notes if n["kind"] == "copies differ"] == [
+        {
+            "accession": "SRP2",
+            "kind": "copies differ",
+            "detail": "kept SRX20; SRX21, SRX22 differ in: STUDY/DESCRIPTOR/STUDY_TITLE",
+        }
+    ]
+    assert json.loads((out / "manifest.json").read_text())["notes"]["copies differ"] == 1
 
 
 class _Writes:

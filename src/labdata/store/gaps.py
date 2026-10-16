@@ -33,6 +33,8 @@ REASONS = (SOFT_MISSING, FETCH_FAILED, UNEXPLAINED)
 TYPE_DISAGREES = "series type disagrees"
 #: Note kind: a GEO relation label not in the fixed list, kept verbatim.
 UNKNOWN_LABEL = "unknown GEO relation label"
+#: Note kind: a record whose copies differ; the lowest-numbered copy is kept.
+COPIES_DIFFER = "copies differ"
 #: Note kind: an SRA experiment NCBI served no package for.
 NO_PACKAGE = "no SRA package"
 #: Note kind: a listed SRA experiment whose package fetch failed; a rerun asks again.

@@ -206,15 +206,18 @@ def test_bioproject_and_biosample_text_come_from_the_snapshots(store: Store) -> 
     assert ("Package/Project/Project/ProjectID/ArchiveID@accession", _PROJECT) in project.fields
 
 
-def test_copies_of_a_study_that_differ_fail_the_build(root: Path) -> None:
+def test_copies_of_a_study_that_differ_are_noted(root: Path) -> None:
     fetch(root, [_PROJECT], client=_client(), today="2026-10-14")
     from labdata.store import pack, raw
 
     rows = raw.read_rows(root, raw.SRA_XML)
     changed = rows[-1].raw_text.replace("<STUDY_TITLE>A Single", "<STUDY_TITLE>One")
     pack.write_rows(root, raw.SRA_XML, [raw.RawRow(rows[-1].accession, changed, "2026-10-14")])
-    with pytest.raises(LabdataError, match=_STUDY):
-        build(root, "bad")
+    out = build(root, "b1")
+    notes = pq.read_table(out / "notes.parquet").to_pylist()
+    [note] = [n for n in notes if n["kind"] == "copies differ"]
+    assert note["accession"] == _STUDY
+    assert note["detail"].endswith("differs in: STUDY/DESCRIPTOR/STUDY_TITLE")
 
 
 # ---------------------------------------------------------------- the acceptance checks
