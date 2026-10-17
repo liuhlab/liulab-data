@@ -222,7 +222,7 @@ def test_run_refuses_a_fraction_outside_zero_to_one(store: Path) -> None:
     assert "fraction" in result.output
 
 
-def test_a_lane_that_left_items_failed_runs_again_on_the_next_submit(
+def test_a_lane_run_that_saves_every_item_clears_its_failed_file(
     store: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     site = Site({soft_url("GSE1"): [TimeoutError("timed out")]})
@@ -237,15 +237,46 @@ def test_a_lane_that_left_items_failed_runs_again_on_the_next_submit(
     assert marker.is_file()
     for name in ("geo", "eutils-beside-geo", "eutils"):
         (work / f"{name}.done").touch()
-    monkeypatch.setattr(pipeline, "_run_snakemake", lambda argv, *, verbose: 0)
-
-    assert CliRunner().invoke(app, ["store", "run", "--root", str(store)]).exit_code == 0
-    assert not (work / "geo.done").exists()
-    assert (work / "eutils.done").exists()
-
     site.pages[soft_url("GSE1")] = [gzip.compress(soft("GSE1"))]
     assert CliRunner().invoke(app, args).exit_code == 0
     assert not marker.exists()
+
+
+_AFTER_EUTILS = {"eutils_after_geo": 1, "pack": 1, "build": 1, "coverage": 1, "prune": 1, "copy": 1}
+
+
+@pytest.mark.parametrize(
+    ("failed", "jobs"),
+    [
+        ("geo", {"all": 1, "geo": 1, **_AFTER_EUTILS}),
+        ("eutils", {"all": 1, **_AFTER_EUTILS}),
+        (None, {}),
+    ],
+)
+def test_a_lane_that_left_items_failed_reruns_with_every_step_after_it(
+    store: Path, monkeypatch: pytest.MonkeyPatch, failed: str | None, jobs: dict[str, int]
+) -> None:
+    work = store / "work" / "run" / f"{_DATE}-all"
+    work.mkdir(parents=True)
+    target_list = targets.list_path(store, _DATE, None)
+    target_list.parent.mkdir(parents=True)
+    target_list.touch()
+    extracts = [f"extract-{s}" for s in ("biosample", "bioproject", "sra-accessions", "geo-series")]
+    steps = ["geo", "eutils-beside-geo", "eutils", "pack", "build", "coverage", "prune", "copy"]
+    for marker in [*extracts, *steps]:
+        (work / f"{marker}.done").touch()
+    if failed:
+        (work / f"{failed}.failed").touch()
+    seen: dict[str, dict[str, int]] = {}
+
+    def fake(argv: list[str], *, verbose: bool) -> int:
+        seen["jobs"] = _dry_run(argv)
+        return 0
+
+    monkeypatch.setattr(pipeline, "_run_snakemake", fake)
+    result = CliRunner().invoke(app, ["store", "run", "--root", str(store)])
+    assert result.exit_code == 0, result.output
+    assert seen["jobs"] == jobs
 
 
 def test_prune_and_copy_wait_for_coverage_to_pass(
