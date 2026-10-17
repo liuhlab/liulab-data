@@ -94,7 +94,7 @@ def test_records_written_in_accession_ranges_equal_one_pass(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = built_root(tmp_path / "store", "geo_slice")
-    monkeypatch.setattr(build_module, "_range_bytes", lambda: 1 << 10)
+    monkeypatch.setattr(build_module, "_range_bytes", lambda con: 1 << 10)
     build(root, "b2", workers=2)
     assert _digest(root / "builds" / "b2") == _STAGE1["geo_slice"]
     samples = pq.ParquetFile(root / "builds" / "b2" / "records" / "geo-sample.parquet")
@@ -137,6 +137,30 @@ def test_peak_memory_is_bounded_by_the_chunk_not_the_store(tmp_path: Path) -> No
     assert pq.read_metadata(root / "builds" / "big" / "records" / "sra-run.parquet").num_rows == (
         experiments
     )
+
+
+def test_text_that_expands_many_times_writes_under_a_small_cap_on_many_threads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "store"
+    copy_snapshots(SLICES["prjna1027859"][0], root)
+    init_store(root)
+    experiments, padding = 800, 200_000
+    for start in range(0, experiments, 100):
+        rows = [(f"SRX{n}", _package(n, padding)) for n in range(start + 1, start + 101)]
+        _write_raw(root, "sra-xml", f"SRX{start}", rows)
+    monkeypatch.setenv("LABDATA_DUCKDB_MEMORY", "512MB")
+    monkeypatch.setenv("LABDATA_THREADS", "16")
+    out = build(root, "big", workers=1, chunk_bytes=1 << 20)
+    raw = out / "records" / "sra-experiment.parquet"
+    assert raw.stat().st_size < experiments * padding / 10  # the text compresses many times
+    accessions = pq.read_table(raw, columns=["accession"]).column(0).to_pylist()
+    assert accessions == sorted(f"SRX{n}" for n in range(1, experiments + 1))
+    # Each row group passes through Python outside DuckDB's cap, so it holds at most a quarter
+    # of one range: the step's peak stays near the cap.
+    meta = pq.read_metadata(raw)
+    groups = [meta.row_group(i).total_byte_size for i in range(meta.num_row_groups)]
+    assert max(groups) <= 512e6 / 16 / 4 * 1.05
 
 
 def test_an_experiment_with_no_package_is_a_build_note(tmp_path: Path) -> None:
