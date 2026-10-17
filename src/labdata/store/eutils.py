@@ -5,8 +5,10 @@ lines and the ``SRA_Accessions.tab`` experiments with ``Center=GEO`` and a GSM a
 its tab status. Packages come from ``efetch`` in batches, several calls in flight under the
 client's shared rate cap. Each bucket's piece is split into parts of a few thousand
 experiments, so a preempted run loses at most a few open parts. An experiment NCBI serves no
-package for is saved as an ``sra-xml`` row with empty text, which the build lists in its notes. Every step streams: the tab, the SOFT text and the list are read
-in chunks and spilled to Parquet under ``work/eutils/``.
+package for is saved as an ``sra-xml`` row with empty text, which the build lists in its
+notes. Each run also asks again for a saved package that is empty while the tab says ``live``,
+or that the current build notes as not well-formed. Every step streams: the tab, the SOFT text and the list are read in chunks and spilled to
+Parquet under ``work/eutils/``.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ import json
 import logging
 import re
 import shutil
+import xml.etree.ElementTree as ET
 from collections.abc import Iterable, Iterator
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
@@ -27,7 +30,7 @@ import pyarrow.parquet as pq
 from labdata.exceptions import EntrezError
 from labdata.geo.sra_records import split_packages
 from labdata.ncbi.entrez import EntrezClient, FetchedRecords
-from labdata.store import extract, raw, snapshots
+from labdata.store import extract, gaps, raw, snapshots
 from labdata.store._files import temp_beside
 from labdata.store.progress import EVERY, Progress
 
@@ -53,16 +56,24 @@ _TAB_SCHEMA = pa.schema(
 _SOFT_SCHEMA = pa.schema([("accession", pa.string())])
 _SPILL_SCHEMA = pa.schema([("accession", pa.string()), ("raw_text", pa.string())])
 _ROWS = 500_000
+_EMPTY = raw.sha256("")
 logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
 class LaneReport:
-    """What one lane run did: packages saved, experiments with none, experiments to retry."""
+    """What one lane run did: packages saved, new experiments with none, experiments to retry.
+
+    ``reasked`` counts saved bad packages asked for again, ``recovered`` those that came back
+    good. A bad saved package NCBI again serves none for is kept as saved and is not in
+    ``missing``.
+    """
 
     fetched: int
     missing: int
     failed: int
+    reasked: int = 0
+    recovered: int = 0
 
 
 def experiment_list(
@@ -233,14 +244,21 @@ class _Part:
     piece: raw.Piece
     batches: int
     spill: Path
+    again: frozenset[str] = frozenset()
     fetched: int = 0
+    recovered: int = 0
     missing: list[str] = field(default_factory=list)
     failed: set[str] = field(default_factory=set)
     _writer: pq.ParquetWriter | None = None
 
-    def add(self, got: FetchedRecords) -> None:
-        """Spill one batch's packages, an empty text for each it has none for."""
-        texts = got.records | dict.fromkeys(got.missing, "")
+    def add(self, got: FetchedRecords) -> int:
+        """Spill one batch's packages, an empty text for each new one it has none for.
+
+        Returns the new experiments it has none for; a bad saved package asked again and
+        still served none is left as saved and not counted.
+        """
+        missing = [a for a in got.missing if a not in self.again]
+        texts = got.records | dict.fromkeys(missing, "")
         if texts:
             if self._writer is None:
                 self.spill.parent.mkdir(parents=True, exist_ok=True)
@@ -248,9 +266,11 @@ class _Part:
             columns = {"accession": list(texts), "raw_text": list(texts.values())}
             self._writer.write_table(pa.table(columns, schema=_SPILL_SCHEMA))
         self.fetched += len(got.records)
-        self.missing += got.missing
+        self.recovered += len(self.again & got.records.keys())
+        self.missing += missing
         self.failed |= set(got.failed)
         self.batches -= 1
+        return len(missing)
 
     def rows(self, date: str) -> Iterator[raw.RawRow]:
         """Yield the spilled packages back, a few at a time."""
@@ -297,15 +317,31 @@ def fetch_packages(
     -------
     LaneReport
         Counts for this run. An experiment whose call failed is asked once more before the
-        lane ends; if that fails too it is not saved, so the next run asks for it again. One
-        NCBI has no package for is saved as asked, with an empty text.
+        lane ends; if that fails too it is not saved, so the next run asks for it again. A new
+        one NCBI has no package for is saved with an empty text and counted in ``missing``.
+        Saved bad packages are asked again: ``reasked`` counts them, ``recovered`` those that
+        came back good and replace the saved copy.
     """
-    first = _fetch_once(root, experiments, client, date, batch, inflight, part_size, log_every)
-    if not first.failed:
-        return first
-    logger.info("asking again for the %d experiments whose calls failed", first.failed)
-    last = _fetch_once(root, experiments, client, date, batch, inflight, part_size, log_every)
-    return LaneReport(first.fetched + last.fetched, first.missing + last.missing, last.failed)
+    sizes = (batch, inflight, part_size)
+    noted = gaps.noted(root, gaps.UNPARSABLE_PACKAGE)
+    first, settled = _fetch_once(root, experiments, client, date, sizes, log_every, noted, set())
+    report = first
+    if first.failed:
+        logger.info("asking again for the %d experiments whose calls failed", first.failed)
+        last, _ = _fetch_once(root, experiments, client, date, sizes, log_every, noted, settled)
+        report = LaneReport(
+            first.fetched + last.fetched,
+            first.missing + last.missing,
+            last.failed,
+            len(settled) + last.reasked,
+            first.recovered + last.recovered,
+        )
+    logger.info(
+        "asked again for %d saved bad packages; %d came back good",
+        report.reasked,
+        report.recovered,
+    )
+    return report
 
 
 def _fetch_once(
@@ -313,16 +349,19 @@ def _fetch_once(
     experiments: Path,
     client: EntrezClient,
     date: str,
-    batch: int,
-    inflight: int,
-    part_size: int,
+    sizes: tuple[int, int, int],
     log_every: float,
-) -> LaneReport:
+    noted: set[str],
+    settled: set[str],
+) -> tuple[LaneReport, set[str]]:
+    """Run the lane once; also return the saved experiments asked again whose call worked."""
+    batch, inflight, part_size = sizes
     spill = root / "work" / "eutils" / "spill"
     shutil.rmtree(spill, ignore_errors=True)
-    total = sum(len(p.todo) for _, pieces in _pieces(root, experiments) for p in pieces)
-    report = {"fetched": 0, "missing": 0, "failed": 0}
-    jobs = _jobs(root, experiments, batch, part_size, spill)
+    total = sum(len(p.todo) for p in _pieces(root, experiments, noted, settled))
+    report = {"fetched": 0, "missing": 0, "failed": 0, "reasked": 0, "recovered": 0}
+    asked_again: set[str] = set()
+    jobs = _jobs(root, experiments, batch, part_size, spill, noted, settled)
     pending: dict[Future[FetchedRecords], _Part] = {}
     opened: set[_Part] = set()
     upcoming: list[tuple[_Part, list[str]]] = []
@@ -350,10 +389,10 @@ def _fetch_once(
             for future in finished:
                 part = pending.pop(future)
                 got = future.result()
-                part.add(got)
+                missing = part.add(got)
                 progress.add(
                     len(got.records) + len(got.missing) + len(got.failed),
-                    missing=len(got.missing),
+                    missing=missing,
                     failed=len(got.failed),
                 )
                 if part.batches == 0:
@@ -362,8 +401,11 @@ def _fetch_once(
                     report["fetched"] += part.fetched
                     report["missing"] += len(part.missing)
                     report["failed"] += len(part.failed)
+                    report["reasked"] += len(part.again)
+                    report["recovered"] += part.recovered
+                    asked_again |= part.again - part.failed
             refill()
-    return LaneReport(**report)
+    return LaneReport(**report), asked_again
 
 
 def _fetch(client: EntrezClient, ids: list[str]) -> FetchedRecords:
@@ -384,25 +426,78 @@ def _save(root: Path, part: _Part, date: str) -> None:
 
 
 def _jobs(
-    root: Path, experiments: Path, batch: int, part_size: int, spill: Path
+    root: Path,
+    experiments: Path,
+    batch: int,
+    part_size: int,
+    spill: Path,
+    noted: set[str],
+    settled: set[str],
 ) -> Iterator[tuple[_Part, list[str]]]:
-    for _, pieces in _pieces(root, experiments):
-        for piece in pieces:
-            for start in range(0, len(piece.todo), part_size):
-                todo = piece.todo[start : start + part_size]
-                part = _Part(
-                    raw.Piece(piece.source, piece.bucket, todo),
-                    -(-len(todo) // batch),
-                    spill / f"{piece.bucket}.{start}.parquet",
-                )
-                for at in range(0, len(todo), batch):
-                    yield part, list(todo[at : at + batch])
+    for piece in _pieces(root, experiments, noted, settled):
+        for start in range(0, len(piece.todo), part_size):
+            todo = piece.todo[start : start + part_size]
+            part = _Part(
+                raw.Piece(piece.source, piece.bucket, todo),
+                -(-len(todo) // batch),
+                spill / f"{piece.bucket}.{start}.parquet",
+                piece.again & frozenset(todo),
+            )
+            for at in range(0, len(todo), batch):
+                yield part, list(todo[at : at + batch])
 
 
-def _pieces(root: Path, experiments: Path) -> Iterator[tuple[dict[str, str], list[raw.Piece]]]:
-    """Yield each bucket's experiment statuses and its unsaved piece, one bucket at a time."""
+@dataclass(frozen=True, slots=True)
+class _Work(raw.Piece):
+    """A bucket's piece: its unsaved experiments and the saved ones to ask for again."""
+
+    again: frozenset[str] = frozenset()
+
+
+def _pieces(root: Path, experiments: Path, noted: set[str], settled: set[str]) -> Iterator[_Work]:
+    """Yield each bucket's work, one bucket at a time; ``settled`` are not asked again."""
     for status in _buckets(experiments):
-        yield status, raw.pieces(root, raw.SRA_XML, status)
+        unsaved = {a for p in raw.pieces(root, raw.SRA_XML, status) for a in p.todo}
+        again = _bad_saved(root, status, noted) - settled - unsaved
+        if unsaved or again:
+            bucket = raw.bucket_of(raw.SRA_XML, next(iter(status)))
+            yield _Work(raw.SRA_XML, bucket, tuple(sorted(unsaved | again)), frozenset(again))
+
+
+def _bad_saved(root: Path, status: dict[str, str], noted: set[str]) -> set[str]:
+    """Return one bucket's listed experiments whose newest saved package is bad.
+
+    A package is bad when it is empty while the tab says ``live``, or when ``noted`` lists it
+    and it is still not well-formed.
+    """
+    bucket = raw.bucket_of(raw.SRA_XML, next(iter(status)))
+    paths = [root / "raw" / raw.SRA_XML / f"{bucket}.parquet"]
+    paths += [p for p in raw.part_files(root, raw.SRA_XML) if raw.part_bucket(p) == bucket]
+    look = sorted(noted.intersection(status))
+    empty: set[str] = set()
+    newest: dict[str, str] = {}
+    for path in filter(Path.is_file, paths):
+        for chunk in pq.ParquetFile(path).iter_batches(columns=["accession", "hash"]):
+            for accession, digest in zip(*chunk.to_pydict().values(), strict=True):
+                if digest == _EMPTY:
+                    empty.add(accession)
+                else:
+                    empty.discard(accession)
+        if look:
+            found = pq.read_table(
+                path, columns=["accession", "raw_text"], filters=[("accession", "in", look)]
+            )
+            newest |= dict(zip(*found.to_pydict().values(), strict=True))
+    live = {a for a in empty if status.get(a) == "live"}
+    return live | {a for a, text in newest.items() if text and not _well_formed(text)}
+
+
+def _well_formed(text: str) -> bool:
+    try:
+        ET.fromstring(text)
+    except ET.ParseError:
+        return False
+    return True
 
 
 def _buckets(experiments: Path) -> Iterator[dict[str, str]]:

@@ -13,8 +13,8 @@
 # experiment the first saved.
 #
 # A lane that ends with items still failed leaves <lane>.failed beside its marker, and the
-# next `labdata store run` deletes that marker, so the lane asks for those items again and
-# every later step reruns. The round still builds, with the failures as gaps and notes.
+# next `labdata store run` forces that lane's rule, so the lane asks for those items again
+# and every later step reruns. The round still builds, with the failures as gaps and notes.
 
 import shlex
 

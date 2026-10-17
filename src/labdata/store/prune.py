@@ -13,7 +13,6 @@ import datetime as dt
 import json
 import re
 import shutil
-import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -26,7 +25,7 @@ from labdata.store.build import (
     write_marker,
 )
 from labdata.store.provenance import MANIFEST
-from labdata.store.root import MARKER
+from labdata.store.root import MARKER, read_marker
 
 #: How long a build stays readable after the store switched away from it, by default.
 GRACE = dt.timedelta(hours=24)
@@ -73,8 +72,7 @@ def prune(
     now = now or dt.datetime.now(dt.UTC)
     with build_lock(root):
         marker = root / MARKER
-        with marker.open("rb") as fh:
-            settings = tomllib.load(fh)
+        settings = read_marker(root)
         current = settings.get(BUILD_KEY)
         if not current:
             return PruneReport()

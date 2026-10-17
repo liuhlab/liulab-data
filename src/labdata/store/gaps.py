@@ -19,6 +19,7 @@ import pyarrow.parquet as pq
 
 from labdata.exceptions import StoreBuildError
 from labdata.store import extract, raw, targets
+from labdata.store.root import current_build
 
 #: The download site answered 404 for the Series' family SOFT.
 SOFT_MISSING = "soft-missing"
@@ -243,6 +244,18 @@ def write_notes(
         )
         counts = con.execute(f"SELECT kind, count(*) FROM {_read(out)} GROUP BY 1 ORDER BY 1")
         return {str(kind): int(n) for kind, n in counts.fetchall()}
+
+
+def noted(root: Path, kind: str) -> set[str]:
+    """Return the accessions the current build notes as ``kind``; none before a first build."""
+    current = current_build(root)
+    if current is None:
+        return set()
+    notes = root / "builds" / current / "notes.parquet"
+    if not notes.is_file():
+        return set()
+    table = pq.read_table(notes, columns=["accession"], filters=[("kind", "==", kind)])
+    return set(table.column(0).to_pylist())
 
 
 def coverage(root: Path, build_dir: Path) -> Coverage:
