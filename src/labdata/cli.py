@@ -460,7 +460,7 @@ def store_eutils(
     today = dt.datetime.now(dt.UTC).date().isoformat()
     report = eutils.fetch_packages(store.root, listed, client=_store_client(), date=today)
     typer.echo(
-        f"SRA packages: {report.fetched} saved, {report.missing} with none, "
+        f"SRA packages: {report.fetched} saved, {report.missing} new with none, "
         f"{report.failed} to retry; {report.reasked} bad saved packages asked again, "
         f"{report.recovered} came back good"
     )

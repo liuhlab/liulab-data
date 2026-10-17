@@ -166,6 +166,42 @@ def test_a_record_range_follows_the_duckdb_cap_override(
     assert sizes == [(1 << 30) // 16, (4 << 30) // 16]
 
 
+class _ShownCap:
+    """A connection whose ``memory_limit`` shows as a given string, or as no row."""
+
+    def __init__(self, shown: str | None) -> None:
+        self.shown = shown
+
+    def execute(self, _sql: str) -> _ShownCap:
+        return self
+
+    def fetchone(self) -> tuple[str] | None:
+        return None if self.shown is None else (self.shown,)
+
+
+@pytest.mark.parametrize(
+    ("shown", "cap"),
+    [
+        ("1.5 GiB", 3 << 29),
+        ("2.0 TiB", 2 << 40),
+        ("1.5 GB", 1_500_000_000),
+        ("8 MB", 8_000_000),
+        ("32000 bytes", 32_000),
+        ("1 byte", 16),
+    ],
+)
+def test_a_record_range_reads_every_unit_duckdb_shows_its_cap_in(shown: str, cap: int) -> None:
+    con: Any = _ShownCap(shown)
+    assert build_module._range_bytes(con) == max(cap // 16, 1)
+
+
+@pytest.mark.parametrize("shown", ["unlimited", "12 parsecs", "", None])
+def test_a_duckdb_cap_that_cannot_be_read_stops_the_build(shown: str | None) -> None:
+    con: Any = _ShownCap(shown)
+    with pytest.raises(StoreBuildError, match="memory_limit"):
+        build_module._range_bytes(con)
+
+
 def test_a_pipeline_steps_duckdb_and_ray_stay_inside_its_memory_and_threads(
     root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
