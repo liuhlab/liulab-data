@@ -70,8 +70,12 @@ _LOOKUP_BATCH = 10_000
 
 #: Rows per row group of the wanted snapshot texts; one parse task takes one row group.
 _SNAPSHOT_ROW_GROUP = 2048
-#: Parsed record bytes per DuckDB memory byte that one sorted write of a record table may take.
+#: Decompressed record bytes per byte of DuckDB's cap that one sorted write may take.
 _RANGE_SHARE = 1 / 16
+#: The share of one range's bytes a written row group holds, outside DuckDB's cap.
+_BATCH_SHARE = 1 / 4
+#: The binary units DuckDB shows its memory cap in.
+_BINARY_UNITS = {"bytes": 0, "KiB": 10, "MiB": 20, "GiB": 30, "TiB": 40, "PiB": 50}
 _TYPED = ("status", "submitted", "updated", "published")
 #: The record type that keeps its newest copy; every other type keeps its lowest-numbered one.
 _NEWEST_FIRST = "geo-sample"
@@ -414,53 +418,67 @@ def _wanted_snapshots(
     return tasks
 
 
-def _range_bytes() -> int:
-    """Return the parsed record bytes one sorted write takes: a share of DuckDB's memory."""
-    return max(int((extract.step_memory_mb() << 20) * extract.MEMORY_SHARE * _RANGE_SHARE), 1)
+def _range_bytes(con: duckdb.DuckDBPyConnection) -> int:
+    """Return the decompressed record bytes one sorted write takes: a share of DuckDB's cap."""
+    row = con.execute("SELECT current_setting('memory_limit')").fetchone()
+    assert row is not None
+    number, unit = str(row[0]).split()
+    return max(int(float(number) * (1 << _BINARY_UNITS[unit]) * _RANGE_SHARE), 1)
+
+
+def _decompressed_bytes(folder: Path) -> tuple[int, int]:
+    """Return the rows of a folder's parts and their bytes as DuckDB holds them, not as stored."""
+    rows = size = 0
+    for path in folder.glob("*.parquet"):
+        meta = pq.read_metadata(path)
+        rows += meta.num_rows
+        size += sum(meta.row_group(i).total_byte_size for i in range(meta.num_row_groups))
+    return rows, size
 
 
 def _write_records(con: duckdb.DuckDBPyConnection, root: Path, folder: Path, out: Path) -> None:
     """Write one record type, keeping each record's copy as ``_kept_order`` ranks it.
 
-    A large type is written in accession ranges, each sorted on its own, then joined in order,
-    so DuckDB never sorts more than one range's texts at once.
+    A large type is written in accession ranges, each sorted on its own and streamed out in
+    order, so DuckDB never sorts more than one range's texts at once.
     """
-    size = sum(p.stat().st_size for p in folder.glob("*.parquet"))
-    count = -(-size // _range_bytes())
-    if count <= 1:
-        _write_record_range(con, root, folder, out, "TRUE")
-        return
-    quantiles = ", ".join(str(i / count) for i in range(1, count))
-    cuts = con.execute(
-        f"SELECT unnest(quantile_disc(accession, [{quantiles}])) FROM {_read(folder)}"
-    ).fetchall()
-    bounds: list[str | None] = [None, *dict.fromkeys(str(c[0]) for c in cuts), None]
-    pieces: list[Path] = []
-    for i, (lo, hi) in enumerate(itertools.pairwise(bounds)):
-        terms = []
-        if lo is not None:
-            terms.append(f"accession >= {extract.sql_string(lo)}")
-        if hi is not None:
-            terms.append(f"accession < {extract.sql_string(hi)}")
-        where = " AND ".join(terms)
-        pieces.append(out.with_name(f".{out.stem}.{i:04d}.parquet"))
-        _write_record_range(con, root, folder, pieces[-1], where)
-    logger.info("wrote %s in %d accession ranges", out.stem, len(pieces))
+    rows, size = _decompressed_bytes(folder)
+    range_bytes = _range_bytes(con)
+    batch_rows = max(int(range_bytes * _BATCH_SHARE * rows // max(size, 1)), 1)
+    count = -(-size // range_bytes)
+    bounds: list[str | None] = [None, None]
+    if count > 1:
+        quantiles = ", ".join(str(i / count) for i in range(1, count))
+        cuts = con.execute(
+            f"SELECT unnest(quantile_disc(accession, [{quantiles}])) FROM {_read(folder)}"
+        ).fetchall()
+        bounds = [None, *dict.fromkeys(str(c[0]) for c in cuts), None]
+    writer: pq.ParquetWriter | None = None
     try:
-        with pq.ParquetWriter(out, pq.read_schema(pieces[0])) as writer:
-            for piece in pieces:
-                with pq.ParquetFile(piece) as source:
-                    for group in range(source.num_row_groups):
-                        writer.write_table(source.read_row_group(group))
+        for lo, hi in itertools.pairwise(bounds):
+            terms = ["TRUE"]
+            if lo is not None:
+                terms.append(f"accession >= {extract.sql_string(lo)}")
+            if hi is not None:
+                terms.append(f"accession < {extract.sql_string(hi)}")
+            reader = _record_range(con, root, folder, " AND ".join(terms), batch_rows)
+            writer = writer or pq.ParquetWriter(out, reader.schema)
+            for batch in reader:
+                writer.write_batch(batch)
     finally:
-        for piece in pieces:
-            piece.unlink(missing_ok=True)
+        if writer is not None:
+            writer.close()
+    logger.info("wrote %s in %d accession ranges", out.stem, len(bounds) - 1)
 
 
-def _write_record_range(
-    con: duckdb.DuckDBPyConnection, root: Path, folder: Path, out: Path, where: str
-) -> None:
-    """Write the records of one accession range; SRA records take typed columns from the tab."""
+def _record_range(
+    con: duckdb.DuckDBPyConnection, root: Path, folder: Path, where: str, batch_rows: int
+) -> pa.RecordBatchReader:
+    """Stream the records of one accession range; SRA records take typed columns from the tab.
+
+    DuckDB's own sorted ``COPY`` holds several times the range in memory, so the sorted rows
+    are streamed out instead.
+    """
     if folder.name.startswith("sra-"):
         tab, _ = extract.done_dir(root, snapshots.SRA_ACCESSIONS)
         fields = ", ".join(f"{name}: {name}" for name in _TYPED)
@@ -475,18 +493,16 @@ def _write_record_range(
         typed = ", ".join(f"r.{name}" for name in _TYPED)
     key, dated = _kept_order(folder)
     join = "JOIN u USING (accession)" if dated else ""
-    con.execute(
-        f"""COPY (
-            WITH r AS (SELECT * FROM {_read(folder)} WHERE {where}),
+    return con.execute(
+        f"""WITH r AS (SELECT * FROM {_read(folder)} WHERE {where}),
             {dated}
             k AS (SELECT min({{'k': {key}, 's': seq}}).s AS seq
                   FROM r {join} GROUP BY accession)
             SELECT r.accession, r.type, {typed}, r.fields, r.raw_text, r.content_hash,
               r.snapshot_date
             FROM r JOIN k USING (seq) {typed_join}
-            ORDER BY r.accession
-        ) TO {extract.sql_string(str(out))} (FORMAT parquet)"""
-    )
+            ORDER BY r.accession"""
+    ).to_arrow_reader(batch_rows)
 
 
 def _write_links(con: duckdb.DuckDBPyConnection, work: Path, out: Path) -> None:

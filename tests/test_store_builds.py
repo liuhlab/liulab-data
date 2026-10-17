@@ -15,6 +15,7 @@ from typer.testing import CliRunner
 
 from labdata.cli import app
 from labdata.exceptions import LabdataError, StoreBuildError
+from labdata.store import build as build_module
 from labdata.store import extract, init_store, open_store
 from labdata.store.build import build, build_lock
 from labdata.store.extract import duckdb_memory
@@ -151,6 +152,18 @@ def test_the_duckdb_memory_cap_defaults_from_the_slurm_allocation(
     assert duckdb_memory() == "32000MB"
     monkeypatch.setenv("LABDATA_DUCKDB_MEMORY", "2GB")
     assert duckdb_memory() == "2GB"
+
+
+def test_a_record_range_follows_the_duckdb_cap_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("LABDATA_MEMORY_MB", "8000")
+    sizes = []
+    for cap in ("1GiB", "4GiB"):
+        monkeypatch.setenv("LABDATA_DUCKDB_MEMORY", cap)
+        with extract.connect(tmp_path) as con:
+            sizes.append(build_module._range_bytes(con))
+    assert sizes == [(1 << 30) // 16, (4 << 30) // 16]
 
 
 def test_a_pipeline_steps_duckdb_and_ray_stay_inside_its_memory_and_threads(
