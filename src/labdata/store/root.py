@@ -558,12 +558,30 @@ def open_store(root: str | os.PathLike[str] | None = None) -> Store:
             "or run `labdata store configure <root>`"
         )
     path = Path(root)
-    marker = path / MARKER
+    return Store(root=path, settings=read_marker(path))
+
+
+def read_marker(root: Path) -> dict[str, Any]:
+    """Return the store's parsed ``labdata-store.toml``.
+
+    Raises
+    ------
+    NotAStoreError
+        If the root has no marker.
+    """
+    marker = root / MARKER
     if not marker.is_file():
-        raise NotAStoreError(f"{path} is not a labdata store: it has no {MARKER}")
+        raise NotAStoreError(f"{root} is not a labdata store: it has no {MARKER}")
     with marker.open("rb") as fh:
-        settings = tomllib.load(fh)
-    return Store(root=path, settings=settings)
+        return tomllib.load(fh)
+
+
+def current_build(root: Path) -> str | None:
+    """Return the build id the marker names; ``None`` with no marker or no build yet."""
+    if not (root / MARKER).is_file():
+        return None
+    build = read_marker(root).get("build")
+    return str(build) if build else None
 
 
 def init_store(root: str | os.PathLike[str]) -> Path:

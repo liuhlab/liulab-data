@@ -20,8 +20,8 @@ import fcntl
 import glob
 import itertools
 import logging
+import re
 import shutil
-import tomllib
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -47,7 +47,7 @@ from labdata.store import (
 )
 from labdata.store._files import temp_beside, toml_line, write_atomic
 from labdata.store.model import RELATIONS
-from labdata.store.root import MARKER
+from labdata.store.root import MARKER, read_marker
 from labdata.store.sources import SOFT
 
 #: The marker key naming the current build.
@@ -74,8 +74,13 @@ _SNAPSHOT_ROW_GROUP = 2048
 _RANGE_SHARE = 1 / 16
 #: The share of one range's bytes a written row group holds, outside DuckDB's cap.
 _BATCH_SHARE = 1 / 4
-#: The binary units DuckDB shows its memory cap in.
-_BINARY_UNITS = {"bytes": 0, "KiB": 10, "MiB": 20, "GiB": 30, "TiB": 40, "PiB": 50}
+#: Bytes per unit DuckDB can show its memory cap in, binary and decimal.
+_CAP_UNITS = {
+    "byte": 1,
+    "bytes": 1,
+    **{f"{p}iB": 1 << (10 * i) for i, p in enumerate("KMGTPE", 1)},
+    **{f"{p}B": 1000**i for i, p in enumerate("KMGTPE", 1)},
+}
 _TYPED = ("status", "submitted", "updated", "published")
 #: The record type that keeps its newest copy; every other type keeps its lowest-numbered one.
 _NEWEST_FIRST = "geo-sample"
@@ -302,19 +307,21 @@ def _read(path: Path) -> str:
     return f"read_parquet([{', '.join(extract.sql_string(str(p)) for p in paths)}])"
 
 
-def _kept_order(folder: Path) -> tuple[str, str]:
-    """Return the SQL key whose least copy is kept, and the CTE ``u`` it needs.
+def _kept_order(folder: Path) -> tuple[str, str, str]:
+    """Return the SQL key whose least copy is kept, the CTE ``u`` it needs and its ``JOIN``.
 
     A GEO Sample whose copies are all dated keeps its newest copy; everything else keeps its
-    lowest-numbered one. ``u`` reads the copies from a CTE ``r``.
+    lowest-numbered one. ``u`` reads the copies from a CTE ``r``; the ``JOIN`` brings ``u``
+    into a query over the copies.
     """
     if folder.name != _NEWEST_FIRST:
-        return "{'a': 0, 'n': number, 'o': origin}", ""
+        return "{'a': 0, 'n': number, 'o': origin}", "", ""
     age = "date_diff('day', CAST(updated AS DATE), DATE '9999-12-31')"
     return (
         f"{{'a': CASE WHEN u.dated THEN {age} ELSE 0 END, 'n': number, 'o': origin}}",
         "u AS (SELECT accession, bool_and(updated IS NOT NULL) AS dated FROM r "
         "GROUP BY accession),",
+        "JOIN u USING (accession)",
     )
 
 
@@ -326,8 +333,7 @@ def _differing_copies(con: duckdb.DuckDBPyConnection, folder: Path) -> list[gaps
     read only for records whose copies differ, so memory follows those, not the store.
     """
     parts = _read(folder)
-    key, dated = _kept_order(folder)
-    join = "JOIN u USING (accession)" if dated else ""
+    key, dated, join = _kept_order(folder)
     rows = con.execute(
         f"""WITH r AS (SELECT accession, content_hash, number, origin, updated FROM {parts}),
             m AS (SELECT accession FROM (SELECT DISTINCT accession, content_hash FROM r)
@@ -421,9 +427,11 @@ def _wanted_snapshots(
 def _range_bytes(con: duckdb.DuckDBPyConnection) -> int:
     """Return the decompressed record bytes one sorted write takes: a share of DuckDB's cap."""
     row = con.execute("SELECT current_setting('memory_limit')").fetchone()
-    assert row is not None
-    number, unit = str(row[0]).split()
-    return max(int(float(number) * (1 << _BINARY_UNITS[unit]) * _RANGE_SHARE), 1)
+    shown = "" if row is None else str(row[0])
+    match = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*([A-Za-z]+)\s*", shown)
+    if match is None or match[2] not in _CAP_UNITS:
+        raise StoreBuildError(f"cannot read DuckDB's memory_limit {shown!r} as a size")
+    return max(int(float(match[1]) * _CAP_UNITS[match[2]] * _RANGE_SHARE), 1)
 
 
 def _decompressed_bytes(folder: Path) -> tuple[int, int]:
@@ -474,11 +482,7 @@ def _write_records(con: duckdb.DuckDBPyConnection, root: Path, folder: Path, out
 def _record_range(
     con: duckdb.DuckDBPyConnection, root: Path, folder: Path, where: str, batch_rows: int
 ) -> pa.RecordBatchReader:
-    """Stream the records of one accession range; SRA records take typed columns from the tab.
-
-    DuckDB's own sorted ``COPY`` holds several times the range in memory, so the sorted rows
-    are streamed out instead.
-    """
+    """Stream the records of one accession range; SRA records take typed columns from the tab."""
     if folder.name.startswith("sra-"):
         tab, _ = extract.done_dir(root, snapshots.SRA_ACCESSIONS)
         fields = ", ".join(f"{name}: {name}" for name in _TYPED)
@@ -491,8 +495,7 @@ def _record_range(
     else:
         typed_join = ""
         typed = ", ".join(f"r.{name}" for name in _TYPED)
-    key, dated = _kept_order(folder)
-    join = "JOIN u USING (accession)" if dated else ""
+    key, dated, join = _kept_order(folder)
     return con.execute(
         f"""WITH r AS (SELECT * FROM {_read(folder)} WHERE {where}),
             {dated}
@@ -566,9 +569,7 @@ def _no_package_notes(root: Path, experiments: list[str]) -> list[gaps.Note]:
 
 def _switch(root: Path, build_id: str) -> None:
     """Point the marker at the new build and record when the old one was switched away from."""
-    marker = root / MARKER
-    with marker.open("rb") as fh:
-        settings = tomllib.load(fh)
+    settings = read_marker(root)
     now = dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     old = settings.get(BUILD_KEY)
     if old and old != build_id:

@@ -402,7 +402,7 @@ def test_a_spliced_package_ncbi_again_serves_none_for_stays_and_is_asked_next_ru
     report = _run(root, ncbi)
 
     assert ncbi.asked[0] == ["SRX10340496"]
-    assert (report.reasked, report.recovered, report.failed) == (1, 0, 0)
+    assert (report.reasked, report.recovered, report.failed, report.missing) == (1, 0, 0, 0)
     assert _packed(root, raw.SRA_XML) == {"SRX10340496": _SPLICED}
     later = _Ncbi(known=set())
     _run(root, later)

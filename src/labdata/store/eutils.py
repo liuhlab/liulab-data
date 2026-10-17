@@ -7,8 +7,7 @@ client's shared rate cap. Each bucket's piece is split into parts of a few thous
 experiments, so a preempted run loses at most a few open parts. An experiment NCBI serves no
 package for is saved as an ``sra-xml`` row with empty text, which the build lists in its
 notes. Each run also asks again for a saved package that is empty while the tab says ``live``,
-or that the current build notes as not well-formed; a good reply replaces it at the next pack.
-Every step streams: the tab, the SOFT text and the list are read in chunks and spilled to
+or that the current build notes as not well-formed. Every step streams: the tab, the SOFT text and the list are read in chunks and spilled to
 Parquet under ``work/eutils/``.
 """
 
@@ -63,10 +62,11 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class LaneReport:
-    """What one lane run did: packages saved, experiments with none, experiments to retry.
+    """What one lane run did: packages saved, new experiments with none, experiments to retry.
 
     ``reasked`` counts saved bad packages asked for again, ``recovered`` those that came back
-    good.
+    good. A bad saved package NCBI again serves none for is kept as saved and is not in
+    ``missing``.
     """
 
     fetched: int
@@ -251,9 +251,14 @@ class _Part:
     failed: set[str] = field(default_factory=set)
     _writer: pq.ParquetWriter | None = None
 
-    def add(self, got: FetchedRecords) -> None:
-        """Spill one batch's packages, an empty text for each new one it has none for."""
-        texts = got.records | dict.fromkeys([a for a in got.missing if a not in self.again], "")
+    def add(self, got: FetchedRecords) -> int:
+        """Spill one batch's packages, an empty text for each new one it has none for.
+
+        Returns the new experiments it has none for; a bad saved package asked again and
+        still served none is left as saved and not counted.
+        """
+        missing = [a for a in got.missing if a not in self.again]
+        texts = got.records | dict.fromkeys(missing, "")
         if texts:
             if self._writer is None:
                 self.spill.parent.mkdir(parents=True, exist_ok=True)
@@ -262,9 +267,10 @@ class _Part:
             self._writer.write_table(pa.table(columns, schema=_SPILL_SCHEMA))
         self.fetched += len(got.records)
         self.recovered += len(self.again & got.records.keys())
-        self.missing += got.missing
+        self.missing += missing
         self.failed |= set(got.failed)
         self.batches -= 1
+        return len(missing)
 
     def rows(self, date: str) -> Iterator[raw.RawRow]:
         """Yield the spilled packages back, a few at a time."""
@@ -311,8 +317,10 @@ def fetch_packages(
     -------
     LaneReport
         Counts for this run. An experiment whose call failed is asked once more before the
-        lane ends; if that fails too it is not saved, so the next run asks for it again. One
-        NCBI has no package for is saved as asked, with an empty text.
+        lane ends; if that fails too it is not saved, so the next run asks for it again. A new
+        one NCBI has no package for is saved with an empty text and counted in ``missing``.
+        Saved bad packages are asked again: ``reasked`` counts them, ``recovered`` those that
+        came back good and replace the saved copy.
     """
     sizes = (batch, inflight, part_size)
     noted = gaps.noted(root, gaps.UNPARSABLE_PACKAGE)
@@ -381,10 +389,10 @@ def _fetch_once(
             for future in finished:
                 part = pending.pop(future)
                 got = future.result()
-                part.add(got)
+                missing = part.add(got)
                 progress.add(
                     len(got.records) + len(got.missing) + len(got.failed),
-                    missing=len(got.missing),
+                    missing=missing,
                     failed=len(got.failed),
                 )
                 if part.batches == 0:

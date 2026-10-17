@@ -12,13 +12,12 @@ import logging
 import os
 import stat
 import string
-import tomllib
 from pathlib import Path
 
 from labdata.exceptions import NotAStoreError
 from labdata.store._files import write_atomic
 from labdata.store.provenance import MANIFEST, README
-from labdata.store.root import MARKER
+from labdata.store.root import MARKER, read_marker
 
 #: The top-level folders whose sizes the README gives, after the current build.
 _SIZED = ("raw", "snapshots", "support", "work")
@@ -44,14 +43,10 @@ def write(root: Path) -> Path:
     NotAStoreError
         If the root has no marker, or the marker names no build.
     """
-    marker = root / MARKER
-    if not marker.is_file():
-        raise NotAStoreError(f"{root} is not a labdata store: it has no {MARKER}")
-    with marker.open("rb") as fh:
-        settings = tomllib.load(fh)
+    settings = read_marker(root)
     build = settings.get("build")
     if not build:
-        raise NotAStoreError(f"{marker} names no build; run `labdata store build`")
+        raise NotAStoreError(f"{root / MARKER} names no build; run `labdata store build`")
     folder = root / "builds" / str(build)
     manifest_path = folder / MANIFEST
     manifest = (
