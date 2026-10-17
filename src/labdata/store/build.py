@@ -73,6 +73,8 @@ _SNAPSHOT_ROW_GROUP = 2048
 #: Parsed record bytes per DuckDB memory byte that one sorted write of a record table may take.
 _RANGE_SHARE = 1 / 16
 _TYPED = ("status", "submitted", "updated", "published")
+#: The record type that keeps its newest copy; every other type keeps its lowest-numbered one.
+_NEWEST_FIRST = "geo-sample"
 _HOLDINGS = pa.schema([("accession", pa.string()), ("type", pa.string())])
 
 logger = logging.getLogger(__name__)
@@ -296,22 +298,40 @@ def _read(path: Path) -> str:
     return f"read_parquet([{', '.join(extract.sql_string(str(p)) for p in paths)}])"
 
 
+def _kept_order(folder: Path) -> tuple[str, str]:
+    """Return the SQL key whose least copy is kept, and the CTE ``u`` it needs.
+
+    A GEO Sample whose copies are all dated keeps its newest copy; everything else keeps its
+    lowest-numbered one. ``u`` reads the copies from a CTE ``r``.
+    """
+    if folder.name != _NEWEST_FIRST:
+        return "{'a': 0, 'n': number, 'o': origin}", ""
+    age = "date_diff('day', CAST(updated AS DATE), DATE '9999-12-31')"
+    return (
+        f"{{'a': CASE WHEN u.dated THEN {age} ELSE 0 END, 'n': number, 'o': origin}}",
+        "u AS (SELECT accession, bool_and(updated IS NOT NULL) AS dated FROM r "
+        "GROUP BY accession),",
+    )
+
+
 def _differing_copies(con: duckdb.DuckDBPyConnection, folder: Path) -> list[gaps.Note]:
     """Note each record whose copies differ: the copy kept, the others and the fields that differ.
 
-    The build keeps the lowest-numbered copy; GEO renders one sample differently in two
-    Series' family SOFT files, so a difference is reported, never fatal. ``fields`` is read
-    only for records whose copies differ, so memory follows those, not the store.
+    The build keeps the copy ``_kept_order`` ranks first; GEO renders one sample differently
+    in two Series' family SOFT files, so a difference is reported, never fatal. ``fields`` is
+    read only for records whose copies differ, so memory follows those, not the store.
     """
     parts = _read(folder)
+    key, dated = _kept_order(folder)
+    join = "JOIN u USING (accession)" if dated else ""
     rows = con.execute(
-        f"""WITH r AS (SELECT accession, content_hash, number, origin FROM {parts}),
+        f"""WITH r AS (SELECT accession, content_hash, number, origin, updated FROM {parts}),
             m AS (SELECT accession FROM (SELECT DISTINCT accession, content_hash FROM r)
                   GROUP BY accession HAVING count(*) > 1),
-            c AS (SELECT accession, content_hash,
-                    min({{'n': number, 'o': origin}}) AS first,
-                    arg_min(fields, {{'n': number, 'o': origin}}) AS fields
-                  FROM {parts} WHERE accession IN (SELECT accession FROM m)
+            {dated}
+            c AS (SELECT accession, content_hash, min({key}) AS first,
+                    arg_min(fields, {key}) AS fields
+                  FROM {parts} {join} WHERE accession IN (SELECT accession FROM m)
                   GROUP BY accession, content_hash),
             d AS (SELECT accession, min(first) AS kept FROM c GROUP BY accession),
             o AS (SELECT DISTINCT r.accession, {{'n': r.number, 'o': r.origin}} AS at, x.fields
@@ -329,7 +349,7 @@ def _differing_copies(con: duckdb.DuckDBPyConnection, folder: Path) -> list[gaps
     ).fetchall()
     if rows:
         logger.warning(
-            "kept the lowest-numbered copy of %d %s records whose copies differ, e.g. %s",
+            "kept one copy of %d %s records whose copies differ, e.g. %s",
             len(rows),
             folder.name,
             rows[0][0],
@@ -400,7 +420,7 @@ def _range_bytes() -> int:
 
 
 def _write_records(con: duckdb.DuckDBPyConnection, root: Path, folder: Path, out: Path) -> None:
-    """Write one record type, keeping each record's lowest-numbered copy, sorted by accession.
+    """Write one record type, keeping each record's copy as ``_kept_order`` ranks it.
 
     A large type is written in accession ranges, each sorted on its own, then joined in order,
     so DuckDB never sorts more than one range's texts at once.
@@ -453,11 +473,14 @@ def _write_record_range(
     else:
         typed_join = ""
         typed = ", ".join(f"r.{name}" for name in _TYPED)
+    key, dated = _kept_order(folder)
+    join = "JOIN u USING (accession)" if dated else ""
     con.execute(
         f"""COPY (
             WITH r AS (SELECT * FROM {_read(folder)} WHERE {where}),
-            k AS (SELECT min({{'n': number, 'o': origin, 's': seq}}).s AS seq
-                  FROM r GROUP BY accession)
+            {dated}
+            k AS (SELECT min({{'k': {key}, 's': seq}}).s AS seq
+                  FROM r {join} GROUP BY accession)
             SELECT r.accession, r.type, {typed}, r.fields, r.raw_text, r.content_hash,
               r.snapshot_date
             FROM r JOIN k USING (seq) {typed_join}
