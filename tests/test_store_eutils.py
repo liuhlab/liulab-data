@@ -22,7 +22,7 @@ import labdata.ncbi.entrez as entrez_mod
 from labdata.ncbi._http import RateLimiter
 from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
-from labdata.store import eutils, pack, raw
+from labdata.store import build, eutils, gaps, pack, raw
 
 TODAY = "2026-10-15"
 _HEADER = (
@@ -345,3 +345,79 @@ def test_a_slow_call_holds_back_only_its_own_part(tmp_path: Path) -> None:
 
     assert seen == [3]  # the three other parts were saved while the first call hung
     assert len(raw.part_files(root, raw.SRA_XML)) == 4
+
+
+# ---------------------------------------------------------------- bad saved packages
+
+
+def test_a_saved_empty_package_of_a_live_experiment_is_asked_for_again(
+    tmp_path: Path, no_backoff: None
+) -> None:
+    root = _store(tmp_path, _geo(("SRX1", "live"), ("SRX3", "live")))
+    _run(root, _Ncbi(known={"SRX1"}))
+    assert _packed(root, raw.SRA_XML) == {"SRX1": _package("SRX1"), "SRX3": ""}
+    ncbi = _Ncbi(known={"SRX1", "SRX3"})
+
+    report = _run(root, ncbi)
+
+    assert ncbi.asked == [["SRX3"]]
+    assert (report.reasked, report.recovered, report.failed) == (1, 1, 0)
+    assert _packed(root, raw.SRA_XML) == {"SRX1": _package("SRX1"), "SRX3": _package("SRX3")}
+
+
+_SPLICED = (Path(__file__).parent / "data" / "sra_package" / "SRX10340496-spliced.xml").read_text()
+
+
+def _saved_spliced(tmp_path: Path) -> Path:
+    """A store holding SRX10340496 as spliced, which its current build notes as unparsable."""
+    root = _store(tmp_path, _geo(("SRX10340496", "live")))
+    pack.write_rows(root, raw.SRA_XML, [raw.RawRow("SRX10340496", _SPLICED, TODAY)])
+    folder = root / "builds" / "b1"
+    folder.mkdir(parents=True)
+    note = gaps.Note("SRX10340496", gaps.UNPARSABLE_PACKAGE, "not well-formed XML as saved")
+    gaps.write_notes(root, folder, folder / "no-target-list.parquet", [note])
+    build.write_marker(root, {"format_version": 1, "build": "b1"})
+    return root
+
+
+def test_a_saved_spliced_package_is_asked_for_again_and_replaced(
+    tmp_path: Path, no_backoff: None
+) -> None:
+    root = _saved_spliced(tmp_path)
+    ncbi = _Ncbi(known={"SRX10340496"})
+
+    report = _run(root, ncbi)
+
+    assert ncbi.asked == [["SRX10340496"]]
+    assert (report.reasked, report.recovered) == (1, 1)
+    assert _packed(root, raw.SRA_XML) == {"SRX10340496": _package("SRX10340496")}
+
+
+def test_a_spliced_package_ncbi_again_serves_none_for_stays_and_is_asked_next_run(
+    tmp_path: Path, no_backoff: None
+) -> None:
+    root = _saved_spliced(tmp_path)
+    ncbi = _Ncbi(known=set())
+
+    report = _run(root, ncbi)
+
+    assert ncbi.asked[0] == ["SRX10340496"]
+    assert (report.reasked, report.recovered, report.failed) == (1, 0, 0)
+    assert _packed(root, raw.SRA_XML) == {"SRX10340496": _SPLICED}
+    later = _Ncbi(known=set())
+    _run(root, later)
+    assert later.asked[0] == ["SRX10340496"]
+
+
+@pytest.mark.parametrize("status", ["unpublished", "suppressed"])
+def test_a_saved_empty_package_of_an_experiment_not_live_is_not_asked_again(
+    tmp_path: Path, no_backoff: None, status: str
+) -> None:
+    root = _store(tmp_path, _geo(("SRX1", "live"), ("SRX5", status)))
+    _run(root, _Ncbi(known={"SRX1"}))
+    ncbi = _Ncbi(known={"SRX1", "SRX5"})
+
+    report = _run(root, ncbi)
+
+    assert ncbi.asked == []  # nothing to ask again makes no call
+    assert report == eutils.LaneReport(0, 0, 0)

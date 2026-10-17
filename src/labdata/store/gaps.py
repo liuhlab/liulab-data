@@ -9,6 +9,7 @@ through DuckDB, so memory is bounded by DuckDB's cap, not by the store.
 
 from __future__ import annotations
 
+import tomllib
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,6 +20,7 @@ import pyarrow.parquet as pq
 
 from labdata.exceptions import StoreBuildError
 from labdata.store import extract, raw, targets
+from labdata.store.root import MARKER
 
 #: The download site answered 404 for the Series' family SOFT.
 SOFT_MISSING = "soft-missing"
@@ -243,6 +245,20 @@ def write_notes(
         )
         counts = con.execute(f"SELECT kind, count(*) FROM {_read(out)} GROUP BY 1 ORDER BY 1")
         return {str(kind): int(n) for kind, n in counts.fetchall()}
+
+
+def noted(root: Path, kind: str) -> set[str]:
+    """Return the accessions the current build notes as ``kind``; none before a first build."""
+    marker = root / MARKER
+    if not marker.is_file():
+        return set()
+    with marker.open("rb") as fh:
+        current = tomllib.load(fh).get("build")
+    notes = root / "builds" / str(current) / "notes.parquet"
+    if not current or not notes.is_file():
+        return set()
+    table = pq.read_table(notes, columns=["accession"], filters=[("kind", "==", kind)])
+    return set(table.column(0).to_pylist())
 
 
 def coverage(root: Path, build_dir: Path) -> Coverage:
