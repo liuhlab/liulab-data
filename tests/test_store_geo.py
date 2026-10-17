@@ -312,24 +312,56 @@ def test_a_relation_line_naming_no_accession_fails_the_build(root: Path) -> None
         build(root, "bad")
 
 
-def test_copies_of_a_sample_that_differ_keep_the_lowest_numbered_and_are_noted(
-    root: Path,
+def _edit_sample(root: Path, series: str, sample: str, old: str, new: str) -> None:
+    """Replace ``old`` with ``new`` in one sample's block of one saved family SOFT."""
+    rows = {r.accession: r for r in raw.read_rows(root, raw.GEO_SOFT)}
+    head, start, tail = rows[series].raw_text.partition(f"^SAMPLE = {sample}\n")
+    block, nxt, rest = tail.partition("\n^")
+    text = head + start + block.replace(old, new) + nxt + rest
+    pack.write_rows(root, raw.GEO_SOFT, [raw.RawRow(series, text, "2026-10-14")])
+
+
+_UPDATED = "!Sample_last_update_date = Dec 31 2024"
+
+
+@pytest.mark.parametrize(
+    ("dates", "kept", "other", "text", "differs"),
+    [
+        pytest.param(
+            {"GSE246310": "!Sample_last_update_date = Jan 05 2025"},
+            "GSE246310",
+            "GSE246307",
+            "= Illumina NextSeq 500",
+            "Sample_instrument_model, Sample_last_update_date",
+            id="newer-date-kept",
+        ),
+        pytest.param(
+            {}, "GSE246307", "GSE246310", "= NextSeq 500", "Sample_instrument_model", id="tie"
+        ),
+        pytest.param(
+            {"GSE246307": ""},
+            "GSE246307",
+            "GSE246310",
+            "= NextSeq 500",
+            "Sample_instrument_model, Sample_last_update_date",
+            id="missing-date",
+        ),
+    ],
+)
+def test_differing_copies_of_a_sample_keep_the_newest_then_the_lowest_numbered(
+    root: Path, dates: dict[str, str], kept: str, other: str, text: str, differs: str
 ) -> None:
     fetch(root, ["GSE246310"], client=_client(), today="2026-10-14")
-    rows = {r.accession: r for r in raw.read_rows(root, raw.GEO_SOFT)}
-    head, sample, tail = rows["GSE246310"].raw_text.partition("^SAMPLE = GSM8571270\n")
-    block, nxt, rest = tail.partition("\n^")
-    block = block.replace("= NextSeq 500", "= Illumina NextSeq 500")
-    text = head + sample + block + nxt + rest
-    pack.write_rows(root, raw.GEO_SOFT, [raw.RawRow("GSE246310", text, "2026-10-14")])
+    _edit_sample(root, "GSE246310", "GSM8571270", "= NextSeq 500", "= Illumina NextSeq 500")
+    for series, line in dates.items():
+        _edit_sample(root, series, "GSM8571270", _UPDATED, line)
     out = build(root, "b1")
-    store = open_store(root)
-    assert "= NextSeq 500" in store.raw(["GSM8571270"])["GSM8571270"].text
+    assert text in open_store(root).raw(["GSM8571270"])["GSM8571270"].text
     notes = pq.read_table(out / "notes.parquet").to_pylist()
     assert {
         "accession": "GSM8571270",
         "kind": "copies differ",
-        "detail": "kept GSE246307; GSE246310 differs in: Sample_instrument_model",
+        "detail": f"kept {kept}; {other} differs in: {differs}",
     } in notes
 
 

@@ -35,8 +35,9 @@ NCBI_STEPS = 2
 #: The share of the job's memory the steps may hold at once; the rest is for Snakemake.
 STEPS_SHARE = 0.9
 
-#: The lanes whose ``<lane>.failed`` file sends them back to work on the next run.
-LANES = ("geo", "eutils")
+#: The lanes whose ``<lane>.failed`` file sends them back to work on the next run, each with
+#: the DAG rule that writes that file.
+LANES = {"geo": "geo", "eutils": "eutils_after_geo"}
 
 
 def memory_plan(total_mb: int) -> dict[str, int]:
@@ -120,10 +121,12 @@ def run(
     geo_date = dates[snapshots.GEO_SERIES]
     work = round_dir(root, geo_date, fraction)
     work.mkdir(parents=True, exist_ok=True)
-    for lane in LANES:
+    # --forcerun reruns a rule and every rule after it, even where their markers exist.
+    rerun = []
+    for lane, rule in LANES.items():
         if (work / f"{lane}.failed").is_file():
             logger.info("the %s lane left items failed last time; it runs again", lane)
-            (work / f"{lane}.done").unlink(missing_ok=True)
+            rerun.append(rule)
     cores = cores or extract.default_workers()
     memory = int(extract.allocation_mb() * STEPS_SHARE)
     labdata = f"{shlex.quote(sys.executable)} -m labdata"
@@ -156,5 +159,6 @@ def run(
         str(config_path),
         "--printshellcmds",
         *RESILIENCE_FLAGS,
+        *(["--forcerun", *rerun] if rerun else []),
     ]
     return _run_snakemake(argv, verbose=verbose)
