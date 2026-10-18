@@ -28,6 +28,14 @@ TIMESTAMP = "timestamp"
 #: A record's source fields, in source order: a list of name and value pairs.
 FIELDS = "fields"
 
+_DUCKDB_TYPES = {
+    STRING: "VARCHAR",
+    INT64: "BIGINT",
+    DATE: "DATE",
+    TIMESTAMP: "TIMESTAMP",
+    FIELDS: "STRUCT(name VARCHAR, value VARCHAR)[]",
+}
+
 #: Rows a record table's row group holds; a lookup reads whole row groups.
 RECORD_ROW_GROUP = 2048
 #: The zstd level of record tables; every other table takes the default level.
@@ -70,6 +78,13 @@ class Table:
     def column_names(self) -> tuple[str, ...]:
         """The column names, in order."""
         return tuple(name for name, _ in self.columns)
+
+    def empty(self) -> str:
+        """Return a DuckDB query of no rows with the table's columns and types."""
+        columns = ", ".join(
+            f"NULL::{_DUCKDB_TYPES[kind]} AS {_ident(name)}" for name, kind in self.columns
+        )
+        return f"SELECT {columns} WHERE false"
 
     def schema(self) -> pa.Schema:
         """Return the table's Arrow schema; this call imports pyarrow."""

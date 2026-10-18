@@ -218,7 +218,9 @@ class BuildReader:
         """
         self.calls["table"] += 1
         path = records_path(self.path, record_type)
-        source = sql_string(str(path)) if path.is_file() else self._records()
+        source = (
+            f"read_parquet({sql_string(str(path))})" if path.is_file() else f"({RECORDS.empty()})"
+        )
         columns = [
             _columns(c for c in _RECORD_COLUMNS if c != "fields"),
             *(
@@ -231,12 +233,8 @@ class BuildReader:
             "" if where is None else f" AND ({where})"
         )
         return self.connection.execute(
-            f"SELECT {', '.join(columns)} FROM read_parquet({source}) "
-            f"WHERE {condition} ORDER BY accession"
+            f"SELECT {', '.join(columns)} FROM {source} WHERE {condition} ORDER BY accession"
         ).to_arrow_table()
-
-    def _records(self) -> str:
-        return sql_string(str(RECORDS.path(self.path) / "*.parquet"))
 
     def _file(self, table: Table) -> str:
         return sql_string(str(table.path(self.path)))
