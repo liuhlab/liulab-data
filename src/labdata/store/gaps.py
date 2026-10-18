@@ -19,7 +19,15 @@ import pyarrow.parquet as pq
 
 from labdata.exceptions import StoreBuildError
 from labdata.store import extract, raw, targets
-from labdata.store.root import current_build
+from labdata.store.reader import (
+    GAPS,
+    HOLDINGS,
+    NOTES,
+    BuildReader,
+    current_build,
+    records_path,
+    table_path,
+)
 
 #: The download site answered 404 for the Series' family SOFT.
 SOFT_MISSING = "soft-missing"
@@ -142,7 +150,7 @@ def write_gaps(
         ``snapshot_date``, ``target`` and ``held`` counts, and ``gaps``: the count by reason,
         every reason listed; ``fraction`` too for a round's sample.
     """
-    out = build_dir / "gaps.parquet"
+    out = table_path(build_dir, GAPS)
     kv = f"{DATE_KEY}: {extract.sql_string(date)}"
     if fraction is not None:
         kv += f", {FRACTION_KEY}: {extract.sql_string(repr(fraction))}"
@@ -195,8 +203,8 @@ def write_notes(
     dict of str to int
         The note count by kind.
     """
-    out = build_dir / "notes.parquet"
-    series = build_dir / "records" / "geo-series.parquet"
+    out = table_path(build_dir, NOTES)
+    series = records_path(build_dir, "GEO Series")
     rows = list(extra)
     extra_table = pa.table(
         {
@@ -248,17 +256,16 @@ def write_notes(
 
 def noted(root: Path, kind: str) -> set[str]:
     """Return the accessions the current build notes as ``kind``; none before a first build."""
-    current = current_build(root)
-    if current is None:
+    if current_build(root) is None:
         return set()
-    notes = root / "builds" / current / "notes.parquet"
+    notes = BuildReader.current(root).table_path(NOTES)
     if not notes.is_file():
         return set()
     table = pq.read_table(notes, columns=["accession"], filters=[("kind", "==", kind)])
     return set(table.column(0).to_pylist())
 
 
-def coverage(root: Path, build_dir: Path) -> Coverage:
+def coverage(root: Path, build: BuildReader) -> Coverage:
     """Check one build against the target list of the snapshot its gaps were made from.
 
     The target list is re-read from the snapshot, so a stale or partial ``gaps.parquet``
@@ -269,18 +276,16 @@ def coverage(root: Path, build_dir: Path) -> Coverage:
     StoreBuildError
         If the build has no ``gaps.parquet`` or its snapshot is gone.
     """
-    gaps_file = build_dir / "gaps.parquet"
+    gaps_file = build.table_path(GAPS)
     if not gaps_file.is_file():
-        raise StoreBuildError(
-            f"{build_dir} has no gaps.parquet; rebuild with `labdata store build`"
-        )
+        raise StoreBuildError(f"{build.path} has no {GAPS}; rebuild with `labdata store build`")
     meta = pq.read_metadata(gaps_file).metadata or {}
     date = meta[DATE_KEY.encode()].decode()
     fraction = meta.get(FRACTION_KEY.encode())
     target_list = targets.target_list(root, date, None if fraction is None else float(fraction))
     with extract.connect(root) as con:
         con.execute(f"CREATE VIEW t AS SELECT DISTINCT accession FROM {_read(target_list)}")
-        con.execute(f"CREATE VIEW h AS {_held_series(build_dir)}")
+        con.execute(f"CREATE VIEW h AS {_held_series(build.path)}")
         con.execute(f"CREATE VIEW g AS SELECT accession, reason, detail FROM {_read(gaps_file)}")
         target = _count(con, "SELECT count(*) FROM t")
         held = _count(con, "SELECT count(*) FROM t WHERE accession IN (SELECT accession FROM h)")
@@ -297,7 +302,7 @@ def coverage(root: Path, build_dir: Path) -> Coverage:
               WHERE reason = '{UNEXPLAINED}'"""
         failures = _count(con, f"SELECT count(*) FROM ({problems})")
         failing = con.execute(f"SELECT * FROM ({problems}) ORDER BY 1, 2 LIMIT {NAMED}").fetchall()
-        notes = build_dir / "notes.parquet"
+        notes = build.table_path(NOTES)
         failed_experiments = (
             _count(
                 con,
@@ -329,7 +334,7 @@ def _read(path: Path) -> str:
 
 def _held_series(build_dir: Path) -> str:
     return (
-        f"SELECT accession FROM {_read(build_dir / 'holdings.parquet')} WHERE type = 'GEO Series'"
+        f"SELECT accession FROM {_read(table_path(build_dir, HOLDINGS))} WHERE type = 'GEO Series'"
     )
 
 

@@ -33,7 +33,8 @@ src/labdata/
                        (Snakemake driver), pipeline.smk (the download DAG)
   store/             the source record store: fetch lanes (geo_lane.py, eutils.py),
                        raw/ pieces and pack, snapshot extract, build, gaps, prune,
-                       GCS copy (gcs.py); pipeline.py + pipeline.smk (the full-run DAG)
+                       GCS copy (gcs.py); reader.py (the build reader, the only
+                       way to open a build); pipeline.py + pipeline.smk (the full-run DAG)
 tests/               pytest suite, mirrors src; mocks the EntrezClient + subprocess seams
 scripts/check.sh     the gate runner
 scripts/conformance.py  the lab template's rules, checked against this repo

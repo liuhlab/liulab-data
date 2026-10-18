@@ -24,7 +24,7 @@ from pathlib import Path
 
 from labdata import _pipeline
 from labdata._pipeline import RESILIENCE_FLAGS
-from labdata.store import extract, gcs, snapshots, targets
+from labdata.store import _limits, extract, gcs, snapshots, targets
 from labdata.store.root import open_store
 
 logger = logging.getLogger(__name__)
@@ -96,7 +96,7 @@ def run(
     fraction : float or None
         The round's sample of the target list, in (0, 1]; ``None`` or ``1`` for all of it.
     cores : int or None
-        Cores the steps may use; defaults to :func:`labdata.store.extract.default_workers`.
+        Cores the steps may use; defaults to :func:`labdata.store._limits.default_workers`.
     ncbi : int
         Network steps that may run at once.
     verbose : bool
@@ -127,8 +127,8 @@ def run(
         if (work / f"{lane}.failed").is_file():
             logger.info("the %s lane left items failed last time; it runs again", lane)
             rerun.append(rule)
-    cores = cores or extract.default_workers()
-    memory = int(extract.allocation_mb() * STEPS_SHARE)
+    cores = cores or _limits.default_workers()
+    memory = int(_limits.allocation_mb() * STEPS_SHARE)
     labdata = f"{shlex.quote(sys.executable)} -m labdata"
     config = {
         "labdata": labdata,

@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import tomllib
 from collections.abc import Collection, Iterable, Sequence
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, overload
 
@@ -41,7 +42,7 @@ from labdata.store.model import (
 if TYPE_CHECKING:
     import pyarrow as pa
 
-    from labdata.store.backend import DuckDbBackend
+    from labdata.store.reader import BuildReader
 
 #: Environment variable naming the store root.
 STORE_ENV = "LABDATA_STORE"
@@ -70,31 +71,31 @@ class Store:
     def __init__(self, root: Path, settings: dict[str, Any]) -> None:
         self.root = root
         self.settings = settings
-        self._backend: DuckDbBackend | None = None
+        self._reader: BuildReader | None = None
 
     def __repr__(self) -> str:
         """Return the root and the build."""
         return f"Store({str(self.root)!r}, build={self.settings.get('build')!r})"
 
     @property
-    def backend(self) -> DuckDbBackend:
-        """The backend over this store's build, opened on first use.
+    def reader(self) -> BuildReader:
+        """The reader over the build the marker named at open, opened on first use.
 
         Raises
         ------
         NotAStoreError
             If the marker names no build.
         """
-        if self._backend is None:
+        if self._reader is None:
             build = self.settings.get("build")
             if not build:
                 raise NotAStoreError(
                     f"{self.root / MARKER} names no build; run `labdata store build`"
                 )
-            from labdata.store.backend import DuckDbBackend
+            from labdata.store.reader import BuildReader, build_path
 
-            self._backend = DuckDbBackend(self.root / "builds" / str(build))
-        return self._backend
+            self._reader = BuildReader(build_path(self.root, str(build)))
+        return self._reader
 
     def open_many(self, accessions: Iterable[str]) -> dict[str, Record | LabdataError]:
         """Open many records: one record lookup and one link lookup for the whole batch.
@@ -126,25 +127,15 @@ class Store:
                 valid.append(accession)
             except AccessionError as err:
                 out[accession] = err
-        rows = self.backend.get_many(valid) if valid else {}
-        by_end = self._links(rows) if rows else {}
-        absent = self._absent_errors(set(valid) - set(rows))
+        records = self.reader.records(valid) if valid else {}
+        by_end = self._links(records) if records else {}
+        absent = self._absent_errors(set(valid) - set(records))
         for accession in valid:
-            row = rows.get(accession)
-            if row is None:
-                out[accession] = absent[accession]
-                continue
-            out[accession] = Record(
-                accession=row[0],
-                type=row[1],
-                status=row[2],
-                submitted=row[3],
-                updated=row[4],
-                published=row[5],
-                fields=tuple((pair["name"], pair["value"]) for pair in row[6]),
-                content_hash=row[7],
-                snapshot_date=row[8],
-                links=tuple(by_end[accession]),
+            record = records.get(accession)
+            out[accession] = (
+                absent[accession]
+                if record is None
+                else replace(record, links=tuple(by_end[accession]))
             )
         return {a: out[a] for a in order}
 
@@ -168,7 +159,7 @@ class Store:
     def links(
         self, accessions: str | Iterable[str], relation: str | None = None
     ) -> dict[str, list[Link]]:
-        """Map each accession to its link rows as read from its end, in one backend call.
+        """Map each accession to its link rows as read from its end, in one reader call.
 
         A far end may be an accession the store does not hold.
 
@@ -202,7 +193,7 @@ class Store:
     def follow(self, accessions: str | Iterable[str], relation: str) -> dict[str, list[str]]:
         """Map each accession to the sorted accessions at the far end of one relation.
 
-        Reads links only, in one backend call, so a far end may be an accession the store
+        Reads links only, in one reader call, so a far end may be an accession the store
         does not hold. ``relation`` takes a forward or a reverse name.
 
         Raises
@@ -220,9 +211,9 @@ class Store:
     def _links(
         self, accessions: Collection[str], relations: list[str] | None = None
     ) -> dict[str, list[Link]]:
-        """Read the links of ``accessions`` from their own end, with one backend call."""
+        """Read the links of ``accessions`` from their own end, with one reader call."""
         out: dict[str, list[Link]] = {a: [] for a in accessions}
-        for row in self.backend.links_many(accessions, relations):
+        for row in self.reader.links(accessions, relations):
             for end, link in _ends(row):
                 if end in out:
                     out[end].append(link)
@@ -244,12 +235,12 @@ class Store:
             If no snapshot lists an accession. The message gives the snapshot date.
         """
         wanted = set(_accessions(accessions))
-        rows = self.backend.raw_many(wanted) if wanted else {}
-        self._raise_absent(wanted - set(rows))
-        return {a: RawText(text, digest) for a, (text, digest) in sorted(rows.items())}
+        texts = self.reader.raw(wanted) if wanted else {}
+        self._raise_absent(wanted - set(texts))
+        return dict(sorted(texts.items()))
 
     def supplementary_files(self, accessions: Iterable[str]) -> dict[str, list[SupplementaryFile]]:
-        """Map each accession to the supplementary files its SOFT lists, in two backend calls.
+        """Map each accession to the supplementary files its SOFT lists, in two reader calls.
 
         A Series lists its own files; its samples' files are under the samples. An
         accession the store holds with no files maps to an empty list.
@@ -277,8 +268,8 @@ class Store:
         order = _accessions(accessions)
         self._require_held(set(order))
         out: dict[str, list[SupplementaryFile]] = {a: [] for a in order}
-        for row in self.backend.supplementary_many(set(order)) if order else []:
-            out[row[0]].append(SupplementaryFile(*row))
+        for file in self.reader.supplementary_files(set(order)) if order else []:
+            out[file.owner].append(file)
         return out
 
     @overload
@@ -337,12 +328,12 @@ class Store:
             if not todo:
                 break
             children: dict[str, set[str]] = {}
-            for row in self.backend.links_many({acc for _, acc in todo}):
+            for row in self.reader.links({acc for _, acc in todo}):
                 for end, link in _ends(row):
                     if _leads_down(kind_of(end), link):
                         children.setdefault(end, set()).add(link.other)
             reached = {c for cs in children.values() for c in cs}
-            held = self.backend.held_many(reached) if reached else set()
+            held = self.reader.held(reached) if reached else set()
             missing |= reached - held
             level = {
                 (root, child)
@@ -353,11 +344,11 @@ class Store:
         if missing and not partial:
             raise NotMirrored(f"not held in this store: {', '.join(sorted(missing))}")
         wanted = {acc for accs in found.values() for acc in accs}
-        packages = self.backend.raw_many(wanted) if wanted else {}
+        packages = self.reader.raw(wanted) if wanted else {}
         built = {
             experiment.accession: experiment
             for experiment in experiments_from_package_xml(
-                "".join(text for text, _ in packages.values()),
+                "".join(text.text for text in packages.values()),
                 client=OfflineEntrezClient(),
                 sdl_client=OfflineSdlClient(),
             )
@@ -405,7 +396,7 @@ class Store:
         Raises ``NotFound`` if a snapshot lists none of them, and ``NotMirrored`` for the
         rest unless ``not_held_ok``.
         """
-        missing = accessions - self.backend.held_many(accessions) if accessions else set()
+        missing = accessions - self.reader.held(accessions) if accessions else set()
         self._raise_absent(missing, not_held_ok=not_held_ok)
         return missing
 
@@ -448,15 +439,15 @@ class Store:
             raise ValueError(f"unknown record type {type!r}; known: {sorted(_SNAPSHOT_OF)}")
         if where is not None and ";" in where:
             raise ValueError(f"where must be one condition, without ';': {where!r}")
-        return self.backend.table(type, list(fields), where)
+        return self.reader.table(type, list(fields), where)
 
     def _absent_errors(self, accessions: set[str]) -> dict[str, NotMirrored | NotFound]:
         """Classify accessions the store does not hold, with one ``known`` lookup for all."""
         if not accessions:
             return {}
-        known = self.backend.known_many(accessions)
+        known = self.reader.known(accessions)
         unknown = accessions - set(known)
-        dates = self.backend.snapshot_dates() if unknown else {}
+        dates = self.reader.snapshot_dates() if unknown else {}
         out: dict[str, NotMirrored | NotFound] = {
             a: NotMirrored(f"not held in this store: {a}") for a in known
         }
@@ -574,14 +565,6 @@ def read_marker(root: Path) -> dict[str, Any]:
         raise NotAStoreError(f"{root} is not a labdata store: it has no {MARKER}")
     with marker.open("rb") as fh:
         return tomllib.load(fh)
-
-
-def current_build(root: Path) -> str | None:
-    """Return the build id the marker names; ``None`` with no marker or no build yet."""
-    if not (root / MARKER).is_file():
-        return None
-    build = read_marker(root).get("build")
-    return str(build) if build else None
 
 
 def init_store(root: str | os.PathLike[str]) -> Path:

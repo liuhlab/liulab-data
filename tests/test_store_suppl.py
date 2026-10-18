@@ -150,11 +150,11 @@ def test_the_series_fields_keep_both_organisms(store: Store) -> None:
     assert series.field("Series_platform_taxid") == ["8355", "8364"]
 
 
-def test_one_backend_call_lists_any_batch(store: Store) -> None:
-    before = store.backend.calls["supplementary_many"]
+def test_one_reader_call_lists_any_batch(store: Store) -> None:
+    before = store.reader.calls["supplementary_files"]
     out = store.supplementary_files(["GSM389464", "GSE233931", "GSM389472"])
     assert list(out) == ["GSM389464", "GSE233931", "GSM389472"]
-    assert store.backend.calls["supplementary_many"] == before + 1
+    assert store.reader.calls["supplementary_files"] == before + 1
     with pytest.raises(AccessionError):
         store.supplementary_files(["GSE"])
 

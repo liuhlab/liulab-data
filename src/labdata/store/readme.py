@@ -14,10 +14,10 @@ import stat
 import string
 from pathlib import Path
 
-from labdata.exceptions import NotAStoreError
 from labdata.store._files import write_atomic
 from labdata.store.provenance import MANIFEST, README
-from labdata.store.root import MARKER, read_marker
+from labdata.store.reader import BuildReader
+from labdata.store.root import read_marker
 
 #: The top-level folders whose sizes the README gives, after the current build.
 _SIZED = ("raw", "snapshots", "support", "work")
@@ -44,17 +44,15 @@ def write(root: Path) -> Path:
         If the root has no marker, or the marker names no build.
     """
     settings = read_marker(root)
-    build = settings.get("build")
-    if not build:
-        raise NotAStoreError(f"{root / MARKER} names no build; run `labdata store build`")
-    folder = root / "builds" / str(build)
+    reader = BuildReader.current(root)
+    build, folder = reader.build_id, reader.path
     manifest_path = folder / MANIFEST
     manifest = (
         json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.is_file() else {}
     )
     made = manifest.get("produced_by")
     snaps = manifest.get("inputs", {}).get("snapshots", {})
-    sizes = [(f"builds/{build}/", _size(folder))] + [
+    sizes = [(f"{folder.relative_to(root).as_posix()}/", _size(folder))] + [
         (f"{name}/", _size(root / name)) for name in _SIZED if (root / name).is_dir()
     ]
     text = string.Template(_template()).substitute(

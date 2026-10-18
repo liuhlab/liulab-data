@@ -20,6 +20,13 @@ never changed afterward. The store names one build as current, and readers open 
 
 _Avoid_: snapshot (a dated copy of one bulk source, which a build reads)
 
+### Build reader
+
+The one way to open a build: it knows where the build lives, reads its tables through a DuckDB
+connection capped in memory and threads, and turns rows into records by column name.
+
+_Avoid_: backend
+
 ### Target Series list
 
 The GEO Series a full download must hold: the sequencing Series in a dated `geo-series`

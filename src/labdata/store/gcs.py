@@ -20,6 +20,7 @@ from pathlib import Path
 from labdata.exceptions import LabdataError, NotAStoreError
 from labdata.store.build import build_lock
 from labdata.store.provenance import MANIFEST, README
+from labdata.store.reader import build_path
 from labdata.store.root import MARKER, open_store
 
 #: The marker key naming the rclone destination, ``<remote>:<bucket>/<path>``.
@@ -113,13 +114,14 @@ def _selected(root: Path, build: object) -> list[str]:
     """Return the include filters for the current state, after checking it is all there."""
     if not build:
         raise StoreCopyError(f"copy refused: {root / MARKER} names no build")
-    folder = root / "builds" / str(build)
+    folder = build_path(root, str(build))
+    rel = folder.relative_to(root).as_posix()
     manifest = folder / MANIFEST
     if not manifest.is_file():
-        raise StoreCopyError(f"copy refused: builds/{build} is missing or has no {MANIFEST}")
+        raise StoreCopyError(f"copy refused: {rel} is missing or has no {MANIFEST}")
     data = json.loads(manifest.read_text(encoding="utf-8"))
     missing = [
-        f"builds/{build}/{f['name']}"
+        f"{rel}/{f['name']}"
         for f in data.get("files", [])
         if not (folder / f["name"]).is_file()
         or (folder / f["name"]).stat().st_size != f.get("bytes")
@@ -146,7 +148,7 @@ def _selected(root: Path, build: object) -> list[str]:
         "--filter=- .*/**",
         *(f"--filter=+ /snapshots/{s}/{date}/**" for s, date, _ in snaps),
         "--filter=+ /raw/**",
-        f"--filter=+ /builds/{build}/**",
+        f"--filter=+ /{rel}/**",
         f"--filter=+ /{README}",
     ]
 

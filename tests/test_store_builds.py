@@ -17,8 +17,8 @@ from labdata.cli import app
 from labdata.exceptions import LabdataError, StoreBuildError
 from labdata.store import build as build_module
 from labdata.store import extract, init_store, open_store
+from labdata.store._limits import duckdb_memory
 from labdata.store.build import build, build_lock
-from labdata.store.extract import duckdb_memory
 from labdata.store.fetch import fetch
 from tests._fakes import FakeEntrezClient
 from tests._slices import copy_snapshots

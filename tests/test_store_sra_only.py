@@ -281,7 +281,7 @@ def test_each_experiment_reaches_its_biosample(store: Store) -> None:
 def test_each_content_hash_recomputes_from_raw_text_served_in_one_call(store: Store) -> None:
     held = [r["accession"] for r in _rows(store.root / "builds" / "b1" / "holdings.parquet")]
     raw = store.raw(held)
-    assert store.backend.calls["raw_many"] == 1
+    assert store.reader.calls["raw"] == 1
     assert sorted(raw) == held
     for accession in held:
         text = raw[accession].text
@@ -308,13 +308,26 @@ def test_raw_text_is_byte_identical_to_the_fetched_source(store: Store) -> None:
 # ---------------------------------------------------------------- the API around them
 
 
+def test_the_reader_caps_its_memory_and_threads(
+    store: Store, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("LABDATA_MEMORY_MB", "2000")
+    monkeypatch.setenv("LABDATA_THREADS", "3")
+    monkeypatch.delenv("LABDATA_DUCKDB_MEMORY", raising=False)
+    con = open_store(store.root).reader.connection
+    [(memory, threads)] = con.execute(
+        "SELECT current_setting('memory_limit'), current_setting('threads')"
+    ).fetchall()
+    assert (memory, threads) == ("953.6 MiB", 3)  # half of 2000 MB, as DuckDB prints it
+
+
 def test_open_is_open_many_of_one(store: Store) -> None:
     record = store.open("srx24283130")
     assert record.accession == "SRX24283130"
     assert record.follow("study") == [_STUDY]
     assert record.follow("run") == ["SRR28716558"]
-    assert store.backend.calls["get_many"] == 1
-    assert store.backend.calls["links_many"] == 1
+    assert store.reader.calls["records"] == 1
+    assert store.reader.calls["links"] == 1
 
 
 def test_open_many_returns_errors_in_place(store: Store) -> None:
@@ -325,12 +338,12 @@ def test_open_many_returns_errors_in_place(store: Store) -> None:
     assert isinstance(result["PMID:39637862"], AccessionError)
 
 
-def test_backend_calls_do_not_scale_with_the_batch(store: Store) -> None:
+def test_reader_calls_do_not_scale_with_the_batch(store: Store) -> None:
     store.open_many(_SRX)
     store.follow(_SRX, "run")
     store.experiments_for_many([_PROJECT, _STUDY])
-    assert store.backend.calls == {"get_many": 1, "links_many": 1 + 1 + 2, "held_many": 3,
-                                   "raw_many": 1}  # fmt: skip
+    assert store.reader.calls == {"records": 1, "links": 1 + 1 + 2, "held": 3,
+                                   "raw": 1}  # fmt: skip
 
 
 def test_a_walk_from_a_root_not_held_raises_not_mirrored(root: Path) -> None:
