@@ -22,7 +22,7 @@ import pyarrow.parquet as pq
 import pytest
 
 from labdata.exceptions import StoreBuildError
-from labdata.store import _parse, extract, init_store, open_store
+from labdata.store import _parse, extract, init_store, layout, open_store
 from labdata.store import build as build_module
 from labdata.store.build import build
 from tests._slices import DATA, SLICES, built_root, copy_snapshots
@@ -91,14 +91,17 @@ def test_parsing_on_two_workers_gives_the_same_tables(tmp_path: Path) -> None:
 # Ray leaves a log file handle open at shutdown.
 @pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")
 def test_records_written_in_accession_ranges_equal_one_pass(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     root = built_root(tmp_path / "store", "geo_slice")
     monkeypatch.setattr(build_module, "_range_bytes", lambda con: 1 << 10)
-    build(root, "b2", workers=2)
+    with caplog.at_level("INFO", logger=build_module.__name__):
+        build(root, "b2", workers=2)
     assert _digest(root / "builds" / "b2") == _STAGE1["geo_slice"]
-    samples = pq.ParquetFile(root / "builds" / "b2" / "records" / "geo-sample.parquet")
-    assert samples.num_row_groups > 1
+    assert any(
+        m.startswith("wrote geo-sample in") and not m.endswith(" 1 accession ranges")
+        for m in caplog.messages
+    )
 
 
 def _package(n: int, padding: int) -> str:
@@ -156,11 +159,7 @@ def test_text_that_expands_many_times_writes_under_a_small_cap_on_many_threads(
     assert raw.stat().st_size < experiments * padding / 10  # the text compresses many times
     accessions = pq.read_table(raw, columns=["accession"]).column(0).to_pylist()
     assert accessions == sorted(f"SRX{n}" for n in range(1, experiments + 1))
-    # Each row group passes through Python outside DuckDB's cap, so it holds at most a quarter
-    # of one range: the step's peak stays near the cap.
-    meta = pq.read_metadata(raw)
-    groups = [meta.row_group(i).total_byte_size for i in range(meta.num_row_groups)]
-    assert max(groups) <= 512e6 / 16 / 4 * 1.05
+    assert layout.check(out) == []
 
 
 def test_an_experiment_with_no_package_is_a_build_note(tmp_path: Path) -> None:

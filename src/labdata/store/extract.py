@@ -40,6 +40,7 @@ from labdata.store._limits import (
     step_memory_mb,
     step_threads,
 )
+from labdata.store.layout import sql_string
 
 #: The snapshot sources an extract covers.
 SOURCES = (
@@ -178,11 +179,6 @@ def done_dir(root: Path, source: str) -> tuple[Path, str]:
 def parts(folder: Path) -> str:
     """Return the SQL string literal of a folder's part glob."""
     return sql_string(str(folder / "part-*.parquet"))
-
-
-def sql_string(text: str) -> str:
-    """Return ``text`` as a quoted SQL string literal."""
-    return "'" + text.replace("'", "''") + "'"
 
 
 @contextmanager
