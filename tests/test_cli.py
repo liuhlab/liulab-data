@@ -10,6 +10,9 @@ back into are covered directly with just the tools faked.
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -394,3 +397,26 @@ def test_tenx_bamtofastq_stage_reports_failure_nonzero(tmp_path: Path) -> None:
     result = runner.invoke(cli_mod.app, ["tenx", "_bamtofastq", g.SRR_TENX, str(tmp_path)])
     assert result.exit_code == 1
     assert "error:" in result.output
+
+
+_RAISING_SUBCOMMAND = """
+import labdata.cli as cli
+
+@cli.store_app.command("boom")
+def boom() -> None:
+    raise RuntimeError("boom")
+
+cli.app(["store", "boom"])
+"""
+
+
+# Typer installs its exception hook only when app() runs, so CliRunner cannot see it.
+def test_failing_subcommand_prints_plain_traceback() -> None:
+    env = {k: v for k, v in os.environ.items() if "TYPER_STANDARD_TRACEBACK" not in k}
+    proc = subprocess.run(
+        [sys.executable, "-c", _RAISING_SUBCOMMAND], capture_output=True, text=True, env=env
+    )
+    assert proc.returncode == 1
+    assert proc.stderr.startswith("Traceback (most recent call last):")
+    assert proc.stderr.rstrip().endswith("RuntimeError: boom")
+    assert "\u256d" not in proc.stderr  # the top-left corner of Rich's traceback box

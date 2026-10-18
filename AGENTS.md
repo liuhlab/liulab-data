@@ -37,7 +37,11 @@ src/labdata/
 tests/               pytest suite, mirrors src; mocks the EntrezClient + subprocess seams
 scripts/check.sh     the gate runner
 scripts/conformance.py  the lab template's rules, checked against this repo
+scripts/bulk/        the NCBI bulk snapshot downloader
+scripts/store/       the store full-run job script and its checks
 ```
+
+Running the store on a cluster: follow `docs/how-to/store-run.md`.
 
 ## Quality gates (all green before commit)
 

@@ -28,6 +28,7 @@ from labdata.tenx import bamtofastq
 app = typer.Typer(
     help="Liu Lab data curation, download, and organization utilities.",
     no_args_is_help=True,
+    pretty_exceptions_enable=False,  # plain tracebacks grep cleanly in batch logs
 )
 ncbi_app = typer.Typer(help="Manage NCBI E-utilities credentials.", no_args_is_help=True)
 app.add_typer(ncbi_app, name="ncbi")

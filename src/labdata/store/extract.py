@@ -381,6 +381,7 @@ def parallel(workers: int) -> Iterator[None]:
             if sys.platform == "darwin":  # Ray refuses a larger store on macOS
                 store = min(store, _RAY_MAC_STORE)
             local = {"num_cpus": workers, "object_store_memory": store}
+        os.environ.setdefault("GRPC_VERBOSITY", "ERROR")  # gRPC info lines flood step logs
         ray.init(include_dashboard=False, log_to_driver=False, **local)
     try:
         yield
