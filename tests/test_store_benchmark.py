@@ -31,6 +31,9 @@ def test_it_reports_each_query_and_each_table_and_writes_nothing_in_the_store(
     root = built_root(tmp_path / "store", "geo_slice")
     before = _files(root)
     out = tmp_path / "result.json"
+    # The agreed limits are for a full build on a cluster node; this run sets none.
+    no_limits = tmp_path / "limits.json"
+    no_limits.write_text("{}")
 
     done = subprocess.run(
         [
@@ -43,6 +46,8 @@ def test_it_reports_each_query_and_each_table_and_writes_nothing_in_the_store(
             "7",
             "--out",
             str(out),
+            "--limits",
+            str(no_limits),
         ],
         capture_output=True,
         text=True,
@@ -78,3 +83,21 @@ def test_it_reports_each_query_and_each_table_and_writes_nothing_in_the_store(
     assert "readme 1" in done.stdout
     assert "records/geo-sample.parquet" in done.stdout
     assert _files(root) == before
+
+
+def test_a_query_over_its_limit_fails_the_run_naming_the_query(tmp_path: Path) -> None:
+    root = built_root(tmp_path / "store", "geo_slice")
+    limits = tmp_path / "limits.json"
+    limits.write_text(json.dumps({"get 1": [0, 100_000], "readme *": [100, 0]}))
+    done = subprocess.run(
+        [sys.executable, str(SCRIPT), str(root), "--sizes", "1,5", "--limits", str(limits)],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=tmp_path,
+    )
+    assert done.returncode == 1, done.stderr
+    breaches = [line for line in done.stdout.splitlines() if line.startswith("over the limit")]
+    assert len(breaches) == 4, done.stdout
+    assert "get 1: wall" in breaches[0]
+    assert all("peak" in line for line in breaches[1:])

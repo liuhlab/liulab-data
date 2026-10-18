@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -140,10 +141,19 @@ def test_table_filters_rows_with_a_where_clause(geo_root: Path) -> None:
     assert table.column("accession").to_pylist() == ["SRX018673", "SRX018710"]
 
 
-def test_table_of_a_type_the_build_lacks_is_empty(sra_root: Path) -> None:
-    table = open_store(sra_root).table("GEO Series", ["!Series_title"])
+def test_table_of_a_type_the_build_lacks_is_empty_and_reads_no_record_file(
+    sra_root: Path, tmp_path: Path
+) -> None:
+    root = tmp_path / "store"
+    shutil.copytree(sra_root, root)
+    for path in (root / "builds" / "b1" / "records").glob("*.parquet"):
+        path.write_bytes(b"not parquet")
+    table = open_store(root).table(
+        "GEO Series", ["!Series_title"], where="published >= DATE '2020-01-01'"
+    )
     assert table.num_rows == 0
     assert table.column_names[-1] == "!Series_title"
+    assert str(table.schema.field("published").type) == "date32[day]"
 
 
 def test_table_names_an_unknown_type(sra_root: Path) -> None:

@@ -5,6 +5,7 @@ Stdlib only: the one-record path imports neither pandas nor pyarrow.
 
 from __future__ import annotations
 
+import datetime as dt
 import re
 from dataclasses import dataclass
 
@@ -121,18 +122,18 @@ class Record:
     """One source record, as the store holds it.
 
     ``fields`` are the source's own (name, value) pairs in source order, repeats kept.
-    Dates are ISO ``YYYY-MM-DD`` strings.
+    Dates are ``datetime.date``.
     """
 
     accession: str
     type: str
     status: str | None
-    submitted: str | None
-    updated: str | None
-    published: str | None
+    submitted: dt.date | None
+    updated: dt.date | None
+    published: dt.date | None
     fields: tuple[tuple[str, str], ...]
     content_hash: str
-    snapshot_date: str
+    snapshot_date: dt.date
     links: tuple[Link, ...]
 
     def field(self, name: str) -> list[str]:
@@ -174,8 +175,8 @@ class SupplementaryFile:
         The file's URL as SOFT gives it; ``None`` for a file reachable only inside an archive.
     size : int or None
         Bytes, from the Series' ``filelist.txt``; ``None`` when that file does not list it.
-    date : str or None
-        The file's time in ``filelist.txt``, as ``YYYY-MM-DDTHH:MM:SS``.
+    date : datetime.datetime or None
+        The file's time in ``filelist.txt``.
     type : str or None
         The file type ``filelist.txt`` gives, such as ``TAR`` or ``FA``.
     archive : str or None
@@ -186,7 +187,7 @@ class SupplementaryFile:
     name: str
     url: str | None
     size: int | None
-    date: str | None
+    date: dt.datetime | None
     type: str | None
     archive: str | None
 

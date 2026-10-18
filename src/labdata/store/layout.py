@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from labdata.exceptions import StoreBuildError
+
 if TYPE_CHECKING:
     import duckdb
     import pyarrow as pa
@@ -21,11 +23,23 @@ if TYPE_CHECKING:
 #: Column type names of a declaration, each an Arrow type.
 STRING = "string"
 INT64 = "int64"
+DATE = "date"
+TIMESTAMP = "timestamp"
 #: A record's source fields, in source order: a list of name and value pairs.
 FIELDS = "fields"
 
+_DUCKDB_TYPES = {
+    STRING: "VARCHAR",
+    INT64: "BIGINT",
+    DATE: "DATE",
+    TIMESTAMP: "TIMESTAMP",
+    FIELDS: "STRUCT(name VARCHAR, value VARCHAR)[]",
+}
+
 #: Rows a record table's row group holds; a lookup reads whole row groups.
-RECORD_ROW_GROUP = 4096
+RECORD_ROW_GROUP = 2048
+#: The zstd level of record tables; every other table takes the default level.
+RECORD_LEVEL = 9
 #: Rows any other table's row group holds.
 ROW_GROUP = 122_880
 
@@ -41,7 +55,8 @@ class Table:
     name : str
         The file name in the build folder; for records, the folder of one file per type.
     columns : tuple of tuple of str
-        Each column's name and type name (``STRING``, ``INT64`` or ``FIELDS``), in order.
+        Each column's name and type name (``STRING``, ``INT64``, ``DATE``, ``TIMESTAMP`` or
+        ``FIELDS``), in order. A query's text dates are cast to ``DATE`` and ``TIMESTAMP``.
     sort_key : tuple of str
         The DuckDB ``ORDER BY`` terms the rows are written in.
     compression : str
@@ -64,6 +79,13 @@ class Table:
         """The column names, in order."""
         return tuple(name for name, _ in self.columns)
 
+    def empty(self) -> str:
+        """Return a DuckDB query of no rows with the table's columns and types."""
+        columns = ", ".join(
+            f"NULL::{_DUCKDB_TYPES[kind]} AS {_ident(name)}" for name, kind in self.columns
+        )
+        return f"SELECT {columns} WHERE false"
+
     def schema(self) -> pa.Schema:
         """Return the table's Arrow schema; this call imports pyarrow."""
         import pyarrow as pa
@@ -71,6 +93,8 @@ class Table:
         types = {
             STRING: pa.string(),
             INT64: pa.int64(),
+            DATE: pa.date32(),
+            TIMESTAMP: pa.timestamp("us"),
             FIELDS: pa.list_(pa.struct([("name", pa.string()), ("value", pa.string())])),
         }
         return pa.schema([(name, types[kind]) for name, kind in self.columns])
@@ -84,14 +108,21 @@ def _strings(*names: str) -> tuple[tuple[str, str], ...]:
     return tuple((name, STRING) for name in names)
 
 
+def _dates(*names: str) -> tuple[tuple[str, str], ...]:
+    return tuple((name, DATE) for name in names)
+
+
 RECORDS = Table(
     "records",
     (
-        *_strings("accession", "type", "status", "submitted", "updated", "published"),
+        *_strings("accession", "type", "status"),
+        *_dates("submitted", "updated", "published"),
         ("fields", FIELDS),
-        *_strings("raw_text", "content_hash", "snapshot_date"),
+        *_strings("raw_text", "content_hash"),
+        *_dates("snapshot_date"),
     ),
     ("accession",),
+    compression_level=RECORD_LEVEL,
     row_group_rows=RECORD_ROW_GROUP,
 )
 _LINK_COLUMNS = _strings("from", "to", "relation", "source")
@@ -101,11 +132,18 @@ LINKS_BY_FROM = Table(
 LINKS_BY_TO = Table("links_by_to.parquet", _LINK_COLUMNS, ('"to"', '"from"', "relation", "source"))
 HOLDINGS = Table("holdings.parquet", _strings("accession", "type"), ("accession",))
 KNOWN = Table(
-    "known.parquet", _strings("accession", "source", "snapshot_date"), ("accession", "source")
+    "known.parquet",
+    (*_strings("accession", "source"), *_dates("snapshot_date")),
+    ("accession", "source"),
 )
 SUPPLEMENTARY_FILES = Table(
     "supplementary_files.parquet",
-    (*_strings("owner", "name", "url"), ("size", INT64), *_strings("date", "type", "archive")),
+    (
+        *_strings("owner", "name", "url"),
+        ("size", INT64),
+        ("date", TIMESTAMP),
+        *_strings("type", "archive"),
+    ),
     ("owner", "name", "coalesce(url, '')"),
 )
 GAPS = Table(
@@ -170,30 +208,40 @@ def write(
         DuckDB queries selecting at least the table's columns, by name.
     metadata : dict of str to str or None
         Key-value metadata stored in the file.
+
+    Raises
+    ------
+    StoreBuildError
+        If a date column holds text that does not parse as its type; the message names the
+        file, the column and the value. Only NULL and empty text become NULL.
     """
+    import duckdb
     import pyarrow as pa
     import pyarrow.parquet as pq
 
     schema = table.schema().with_metadata(metadata)
-    columns = ", ".join(_ident(name) for name in table.column_names)
+    columns = ", ".join(_select(name, kind) for name, kind in table.columns)
     size = table.row_group_rows
     held: list[pa.RecordBatch] = []
     count = 0
     with pq.ParquetWriter(
         out, schema, compression=table.compression, compression_level=table.compression_level
     ) as writer:
-        for query in [queries] if isinstance(queries, str) else queries:
-            reader = con.execute(
-                f"SELECT {columns} FROM ({query}) ORDER BY {', '.join(table.sort_key)}"
-            ).to_arrow_reader(min(size, _BATCH_ROWS))
-            for batch in reader:
-                held.append(batch.cast(schema))
-                count += batch.num_rows
-                while count >= size:
-                    rows = pa.Table.from_batches(held, schema)
-                    writer.write_table(rows.slice(0, size), row_group_size=size)
-                    held = rows.slice(size).to_batches()
-                    count -= size
+        try:
+            for query in [queries] if isinstance(queries, str) else queries:
+                reader = con.execute(
+                    f"SELECT {columns} FROM ({query}) ORDER BY {', '.join(table.sort_key)}"
+                ).to_arrow_reader(min(size, _BATCH_ROWS))
+                for batch in reader:
+                    held.append(batch.cast(schema))
+                    count += batch.num_rows
+                    while count >= size:
+                        rows = pa.Table.from_batches(held, schema)
+                        writer.write_table(rows.slice(0, size), row_group_size=size)
+                        held = rows.slice(size).to_batches()
+                        count -= size
+        except duckdb.ConversionException as error:
+            raise StoreBuildError(f"{out.name}: {error}") from error
         if count:
             writer.write_table(pa.Table.from_batches(held, schema), row_group_size=size)
 
@@ -261,6 +309,14 @@ def _sorted(con: duckdb.DuckDBPyConnection, table: Table, file: Path) -> bool:
 
 def _columns(schema: pa.Schema) -> str:
     return "(" + ", ".join(f"{f.name}: {f.type}" for f in schema) + ")"
+
+
+def _select(name: str, kind: str) -> str:
+    """Return the select term of one column; text dates are cast to the declared type."""
+    if kind in (DATE, TIMESTAMP):
+        # Empty text is the one value that becomes NULL; any other text must parse.
+        return f"CAST(nullif({_ident(name)}, '') AS {kind.upper()}) AS {_ident(name)}"
+    return _ident(name)
 
 
 def _ident(name: str) -> str:

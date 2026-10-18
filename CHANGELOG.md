@@ -10,6 +10,27 @@ tags of the form `vYYYY.M.PATCH` (e.g. `v2026.6.0`).
 
 ### Changed
 
+- The store's dates are typed. Rebuild the store to get them. Direct DuckDB and Parquet readers
+  see these column types change:
+
+  | Table | Column | Old type | New type |
+  | --- | --- | --- | --- |
+  | `records/<type>.parquet` | `submitted` | string | `DATE` |
+  | `records/<type>.parquet` | `updated` | string | `DATE` |
+  | `records/<type>.parquet` | `published` | string | `DATE` |
+  | `records/<type>.parquet` | `snapshot_date` | string | `DATE` |
+  | `known.parquet` | `snapshot_date` | string | `DATE` |
+  | `supplementary_files.parquet` | `date` | string | `TIMESTAMP` |
+
+  `Record.submitted`, `updated`, `published` and `snapshot_date` are now `datetime.date`, and
+  `SupplementaryFile.date` is `datetime.datetime`. Compare dates with a date: write
+  `published >= DATE '2024-01-01'` in DuckDB. A `where` filter of `Store.table` also accepts
+  `published >= '2024-01-01'`. A build fails if a date does not parse; only an empty date
+  becomes NULL.
+- Store tables use zstd compression. Record files hold 2,048 rows per row group, so a lookup
+  of a few accessions reads only the row groups that hold them.
+- `Store.backend` is renamed `Store.reader`, a `labdata.store.reader.BuildReader`.
+
 - Python 3.13 is now the minimum; 3.12 is no longer supported.
 - Releases publish to PyPI when a GitHub Release is published, not when a tag is pushed.
 - The repository moved to `liuhlab/liulab-data`. Project URLs and the HTTP User-Agent
