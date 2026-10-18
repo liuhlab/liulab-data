@@ -27,6 +27,14 @@ connection capped in memory and threads, and turns rows into records by column n
 
 _Avoid_: backend
 
+### Table layout
+
+The one declaration of every table in a build: its file name, columns and their types, sort key,
+compression and rows per row group. It is also the only code that writes a build table, so
+writers hand it rows and it writes them as declared.
+
+_Avoid_: schema (names only the columns and their types)
+
 ### Target Series list
 
 The GEO Series a full download must hold: the sequencing Series in a dated `geo-series`

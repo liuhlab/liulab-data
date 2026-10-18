@@ -49,12 +49,14 @@ def sample(build: Path, sizes: list[int], seed: int, tmp: Path) -> dict[str, lis
     """Pick the held accessions each query reads, the same for the same seed and build."""
     import duckdb
 
+    from labdata.store.layout import HOLDINGS, sql_string
+
     con = duckdb.connect(config={"temp_directory": str(tmp / "duckdb")})
-    holdings = str(build / "holdings.parquet").replace("'", "''")
+    holdings = sql_string(str(HOLDINGS.path(build)))
 
     def pick(n: int, where: str = "TRUE") -> list[str]:
         rows = con.execute(
-            f"SELECT accession FROM read_parquet('{holdings}') WHERE {where} "
+            f"SELECT accession FROM read_parquet({holdings}) WHERE {where} "
             "ORDER BY hash(accession || ?), accession LIMIT ?",
             [str(seed), n],
         ).fetchall()

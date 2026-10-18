@@ -14,6 +14,8 @@ from pathlib import Path
 
 import duckdb
 
+from labdata.store import layout
+
 _SUPPL_FIELD = re.compile(r"^(?:Series|Sample|Platform)_supplementary_file(?:_\d+)?$")
 
 #: One ``filelist.txt`` entry: size, date, type and the archive holding it.
@@ -41,7 +43,7 @@ def filelist(text: str) -> dict[str, Listed]:
 def write(
     con: duckdb.DuckDBPyConnection, out: Path, geo_records: list[Path], filelists: list[Path]
 ) -> None:
-    """Write ``supplementary_files.parquet``, sorted by owner accession, then name and URL.
+    """Write ``supplementary_files.parquet``.
 
     Parameters
     ----------
@@ -72,23 +74,20 @@ def write(
         else "SELECT NULL::VARCHAR AS name, NULL::STRUCT(series VARCHAR, size BIGINT, "
         "date VARCHAR, type VARCHAR, archive VARCHAR) AS l WHERE false"
     )
-    con.execute(
-        f"""COPY (SELECT * FROM (
-        WITH n AS (SELECT owner, regexp_extract(url, '[^/]*$') AS name, url FROM ({named})),
+    layout.write(
+        con,
+        layout.SUPPLEMENTARY_FILES,
+        out,
+        f"""WITH n AS (SELECT owner, regexp_extract(url, '[^/]*$') AS name, url FROM ({named})),
         l AS ({listed})
         SELECT owner, name, url, l.size::BIGINT AS size, l.date AS date, l.type AS type,
           l.archive AS archive
         FROM n LEFT JOIN l USING (name)
         UNION ALL
         SELECT l.series, name, NULL, l.size::BIGINT, l.date, l.type, l.archive FROM l
-        WHERE name NOT IN (SELECT name FROM n)
-        ) ORDER BY owner, name, coalesce(url, '')) TO '{_escape(str(out))}' (FORMAT parquet)"""
+        WHERE name NOT IN (SELECT name FROM n)""",
     )
 
 
 def _list(paths: list[Path]) -> str:
-    return "[" + ", ".join(f"'{_escape(str(p))}'" for p in paths) + "]"
-
-
-def _escape(text: str) -> str:
-    return text.replace("'", "''")
+    return "[" + ", ".join(layout.sql_string(str(p)) for p in paths) + "]"

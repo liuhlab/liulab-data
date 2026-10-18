@@ -19,6 +19,17 @@ import duckdb
 from labdata._cache import liulab_data_cache_dir
 from labdata.exceptions import NotAStoreError
 from labdata.store._limits import duckdb_memory, step_threads
+from labdata.store.layout import (
+    HOLDINGS,
+    KNOWN,
+    LINKS_BY_FROM,
+    LINKS_BY_TO,
+    RECORDS,
+    SUPPLEMENTARY_FILES,
+    Table,
+    records_path,
+    sql_string,
+)
 from labdata.store.model import RawText, Record, SupplementaryFile
 from labdata.store.root import MARKER, read_marker
 
@@ -28,32 +39,8 @@ if TYPE_CHECKING:
 #: The folder under the store root that holds one folder per build.
 BUILDS = "builds"
 
-#: The folder of one build holding one record table per record type.
-RECORDS = "records"
-LINKS_BY_FROM = "links_by_from.parquet"
-LINKS_BY_TO = "links_by_to.parquet"
-HOLDINGS = "holdings.parquet"
-KNOWN = "known.parquet"
-SUPPLEMENTARY_FILES = "supplementary_files.parquet"
-GAPS = "gaps.parquet"
-NOTES = "notes.parquet"
-
-#: The record-table columns a ``Record`` is decoded from, by name.
-RECORD_COLUMNS = (
-    "accession",
-    "type",
-    "status",
-    "submitted",
-    "updated",
-    "published",
-    "fields",
-    "content_hash",
-    "snapshot_date",
-)
-#: The link-table columns, in the order of a link row.
-LINK_COLUMNS = ("from", "to", "relation", "source")
-#: The supplementary-file columns, by ``SupplementaryFile`` field name.
-SUPPLEMENTARY_COLUMNS = ("owner", "name", "url", "size", "date", "type", "archive")
+#: The record columns a ``Record`` is decoded from: all but the raw text.
+_RECORD_COLUMNS = tuple(c for c in RECORDS.column_names if c != "raw_text")
 
 #: A link row: from, to, relation, source.
 LinkRow = tuple[str, str, str, str]
@@ -67,16 +54,6 @@ def build_path(root: Path, build_id: str) -> Path:
 def build_folders(root: Path) -> list[Path]:
     """Return every finished build folder under the root, sorted; temp folders are left out."""
     return sorted(p for p in (root / BUILDS).glob("*") if p.is_dir() and not p.name.startswith("."))
-
-
-def table_path(build: Path, name: str) -> Path:
-    """Return the path of one table file, such as ``HOLDINGS``, inside a build folder."""
-    return build / name
-
-
-def records_path(build: Path, record_type: str) -> Path:
-    """Return the path of one record type's table inside a build folder."""
-    return build / RECORDS / f"{record_type.lower().replace(' ', '-')}.parquet"
 
 
 def current_build(root: Path) -> str | None:
@@ -123,10 +100,6 @@ class BuildReader:
         """The build's id, its folder name."""
         return self.path.name
 
-    def table_path(self, name: str) -> Path:
-        """Return the path of one table file of this build, such as ``HOLDINGS``."""
-        return table_path(self.path, name)
-
     @property
     def connection(self) -> duckdb.DuckDBPyConnection:
         """The reader's DuckDB connection, opened on first use.
@@ -148,7 +121,7 @@ class BuildReader:
         """Return the held records among ``accessions``, without links; absent ones are left out."""
         self.calls["records"] += 1
         rows = self._dicts(
-            f"SELECT {_columns(RECORD_COLUMNS)} FROM read_parquet({self._records()}) "
+            f"SELECT {_columns(_RECORD_COLUMNS)} FROM read_parquet({self._records()}) "
             f"WHERE accession IN (SELECT unnest({_list(accessions)}))"
         )
         return {row["accession"]: _record(row) for row in rows}
@@ -165,7 +138,7 @@ class BuildReader:
         where_rel = (
             "" if relations is None else f" AND relation IN (SELECT unnest({_list(relations)}))"
         )
-        cols = _columns(LINK_COLUMNS)
+        cols = _columns(LINKS_BY_FROM.column_names)
         rows = self._dicts(
             f"SELECT {cols} FROM read_parquet({self._file(LINKS_BY_FROM)}) "
             f'WHERE "from" IN (SELECT unnest({accs})){where_rel} '
@@ -217,7 +190,7 @@ class BuildReader:
         """Return the supplementary files of ``owners``, sorted by owner, name and URL."""
         self.calls["supplementary_files"] += 1
         rows = self._dicts(
-            f"SELECT {_columns(SUPPLEMENTARY_COLUMNS)} "
+            f"SELECT {_columns(SUPPLEMENTARY_FILES.column_names)} "
             f"FROM read_parquet({self._file(SUPPLEMENTARY_FILES)}) "
             f"WHERE owner IN (SELECT unnest({_list(owners)})) ORDER BY owner, name, url"
         )
@@ -231,26 +204,28 @@ class BuildReader:
         """
         self.calls["table"] += 1
         path = records_path(self.path, record_type)
-        source = _quote(str(path)) if path.is_file() else self._records()
+        source = sql_string(str(path)) if path.is_file() else self._records()
         columns = [
-            _columns(c for c in RECORD_COLUMNS if c != "fields"),
+            _columns(c for c in _RECORD_COLUMNS if c != "fields"),
             *(
-                f"list_transform(list_filter(fields, lambda x: x.name = {_quote(name)}), "
+                f"list_transform(list_filter(fields, lambda x: x.name = {sql_string(name)}), "
                 f"lambda x: x.value) AS {_ident(name)}"
                 for name in fields
             ),
         ]
-        condition = f"type = {_quote(record_type)}" + ("" if where is None else f" AND ({where})")
+        condition = f"type = {sql_string(record_type)}" + (
+            "" if where is None else f" AND ({where})"
+        )
         return self.connection.execute(
             f"SELECT {', '.join(columns)} FROM read_parquet({source}) "
             f"WHERE {condition} ORDER BY accession"
         ).to_arrow_table()
 
     def _records(self) -> str:
-        return _quote(str(self.path / RECORDS / "*.parquet"))
+        return sql_string(str(RECORDS.path(self.path) / "*.parquet"))
 
-    def _file(self, name: str) -> str:
-        return _quote(str(self.table_path(name)))
+    def _file(self, table: Table) -> str:
+        return sql_string(str(table.path(self.path)))
 
     def _dicts(self, sql: str) -> list[dict[str, Any]]:
         """Run ``sql`` and return its rows as dicts keyed by column name."""
@@ -288,8 +263,4 @@ def _list(values: Collection[str]) -> str:
 
     Values are inlined, not bound: binding a parameter makes DuckDB import pandas.
     """
-    return "[" + ", ".join(_quote(v) for v in sorted(values)) + "]::VARCHAR[]"
-
-
-def _quote(text: str) -> str:
-    return "'" + text.replace("'", "''") + "'"
+    return "[" + ", ".join(sql_string(v) for v in sorted(values)) + "]::VARCHAR[]"

@@ -39,6 +39,7 @@ from labdata.store import (
     extract,
     gaps,
     known,
+    layout,
     provenance,
     raw,
     readme,
@@ -47,17 +48,17 @@ from labdata.store import (
     targets,
 )
 from labdata.store._files import temp_beside, toml_line, write_atomic
-from labdata.store.model import RELATIONS
-from labdata.store.reader import (
+from labdata.store.layout import (
     HOLDINGS,
     KNOWN,
     LINKS_BY_FROM,
     LINKS_BY_TO,
     RECORDS,
     SUPPLEMENTARY_FILES,
-    build_path,
-    table_path,
+    sql_string,
 )
+from labdata.store.model import RELATIONS
+from labdata.store.reader import build_path
 from labdata.store.root import MARKER, read_marker
 from labdata.store.sources import SOFT
 
@@ -83,8 +84,6 @@ _LOOKUP_BATCH = 10_000
 _SNAPSHOT_ROW_GROUP = 2048
 #: Decompressed record bytes per byte of DuckDB's cap that one sorted write may take.
 _RANGE_SHARE = 1 / 16
-#: The share of one range's bytes a written row group holds, outside DuckDB's cap.
-_BATCH_SHARE = 1 / 4
 #: Bytes per unit DuckDB can show its memory cap in, binary and decimal.
 _CAP_UNITS = {
     "byte": 1,
@@ -94,8 +93,7 @@ _CAP_UNITS = {
 }
 _TYPED = ("status", "submitted", "updated", "published")
 #: The record type that keeps its newest copy; every other type keeps its lowest-numbered one.
-_NEWEST_FIRST = "geo-sample"
-_HOLDINGS = pa.schema([("accession", pa.string()), ("type", pa.string())])
+_NEWEST_FIRST = layout.record_stem("GEO Sample")
 
 logger = logging.getLogger(__name__)
 
@@ -222,7 +220,7 @@ def _build_into(
     ]
     logger.info("parsed raw/; checking copies and looking up snapshot records")
 
-    table_path(tmp, RECORDS).mkdir(parents=True)
+    RECORDS.path(tmp).mkdir(parents=True)
     with extract.connect(root) as con:
         copy_notes = [
             note
@@ -234,18 +232,18 @@ def _build_into(
         extract.run_parallel(_parse.run, ((t,) for t in wanted), workers)
         logger.info("writing record, link and supplementary-file tables")
         for folder in sorted((work / "records").glob("*")):
-            _write_records(con, root, folder, table_path(tmp, RECORDS) / f"{folder.name}.parquet")
+            _write_records(con, root, folder, RECORDS.path(tmp) / f"{folder.name}.parquet")
         _write_links(con, work, tmp)
         _write_holdings(con, tmp)
         suppl.write(
             con,
-            table_path(tmp, SUPPLEMENTARY_FILES),
-            sorted(table_path(tmp, RECORDS).glob("geo-*.parquet")),
+            SUPPLEMENTARY_FILES.path(tmp),
+            sorted(RECORDS.path(tmp).glob("geo-*.parquet")),
             sorted((work / "filelist").glob("*.parquet")),
         )
-        labels = _unknown_labels(con, table_path(tmp, LINKS_BY_FROM))
+        labels = _unknown_labels(con, LINKS_BY_FROM.path(tmp))
     logger.info("writing known, gaps and notes")
-    known.write(root, table_path(tmp, KNOWN))
+    known.write(root, KNOWN.path(tmp))
     coverage = gaps.write_gaps(root, tmp, target_list, geo_date, fraction)
     label_notes = [
         gaps.Note(str(v["example"]), gaps.UNKNOWN_LABEL, f"{label}: {v['links']} links")
@@ -315,7 +313,7 @@ def _read(path: Path) -> str:
     Files are listed, never globbed, so a build id holding glob characters reads as written.
     """
     paths = sorted(path.glob("*.parquet")) if path.is_dir() else [path]
-    return f"read_parquet([{', '.join(extract.sql_string(str(p)) for p in paths)}])"
+    return f"read_parquet([{', '.join(sql_string(str(p)) for p in paths)}])"
 
 
 def _kept_order(folder: Path) -> tuple[str, str, str]:
@@ -416,16 +414,16 @@ def _wanted_snapshots(
         accessions = out / "wanted.parquet"
         con.execute(
             f"""COPY (SELECT DISTINCT w FROM ({query}) q(w) WHERE starts_with(w, '{prefix}')
-                ORDER BY w) TO {extract.sql_string(str(accessions))} (FORMAT parquet)"""
+                ORDER BY w) TO {sql_string(str(accessions))} (FORMAT parquet)"""
         )
         # A sorted batch named literally lets DuckDB skip row groups by their accession range.
         wanted_file = pq.ParquetFile(accessions)
         for n, batch in enumerate(wanted_file.iter_batches(batch_size=_LOOKUP_BATCH)):
-            listed = ", ".join(extract.sql_string(a) for a in batch.column(0).to_pylist())
+            listed = ", ".join(sql_string(a) for a in batch.column(0).to_pylist())
             path = out / f"{n:06d}.parquet"
             con.execute(
                 f"""COPY (SELECT accession, raw_text FROM read_parquet({extract.parts(folder)})
-                    WHERE accession IN ({listed})) TO {extract.sql_string(str(path))}
+                    WHERE accession IN ({listed})) TO {sql_string(str(path))}
                     (FORMAT parquet, ROW_GROUP_SIZE {_SNAPSHOT_ROW_GROUP})"""
             )
         wanted_file.close()
@@ -445,14 +443,13 @@ def _range_bytes(con: duckdb.DuckDBPyConnection) -> int:
     return max(int(float(match[1]) * _CAP_UNITS[match[2]] * _RANGE_SHARE), 1)
 
 
-def _decompressed_bytes(folder: Path) -> tuple[int, int]:
-    """Return the rows of a folder's parts and their bytes as DuckDB holds them, not as stored."""
-    rows = size = 0
+def _decompressed_bytes(folder: Path) -> int:
+    """Return the bytes of a folder's parts as DuckDB holds them, not as stored."""
+    size = 0
     for path in folder.glob("*.parquet"):
         meta = pq.read_metadata(path)
-        rows += meta.num_rows
         size += sum(meta.row_group(i).total_byte_size for i in range(meta.num_row_groups))
-    return rows, size
+    return size
 
 
 def _write_records(con: duckdb.DuckDBPyConnection, root: Path, folder: Path, out: Path) -> None:
@@ -461,10 +458,7 @@ def _write_records(con: duckdb.DuckDBPyConnection, root: Path, folder: Path, out
     A large type is written in accession ranges, each sorted on its own and streamed out in
     order, so DuckDB never sorts more than one range's texts at once.
     """
-    rows, size = _decompressed_bytes(folder)
-    range_bytes = _range_bytes(con)
-    batch_rows = max(int(range_bytes * _BATCH_SHARE * rows // max(size, 1)), 1)
-    count = -(-size // range_bytes)
+    count = -(-_decompressed_bytes(folder) // _range_bytes(con))
     bounds: list[str | None] = [None, None]
     if count > 1:
         quantiles = ", ".join(str(i / count) for i in range(1, count))
@@ -472,28 +466,20 @@ def _write_records(con: duckdb.DuckDBPyConnection, root: Path, folder: Path, out
             f"SELECT unnest(quantile_disc(accession, [{quantiles}])) FROM {_read(folder)}"
         ).fetchall()
         bounds = [None, *dict.fromkeys(str(c[0]) for c in cuts), None]
-    writer: pq.ParquetWriter | None = None
-    try:
-        for lo, hi in itertools.pairwise(bounds):
-            terms = ["TRUE"]
-            if lo is not None:
-                terms.append(f"accession >= {extract.sql_string(lo)}")
-            if hi is not None:
-                terms.append(f"accession < {extract.sql_string(hi)}")
-            reader = _record_range(con, root, folder, " AND ".join(terms), batch_rows)
-            writer = writer or pq.ParquetWriter(out, reader.schema)
-            for batch in reader:
-                writer.write_batch(batch)
-    finally:
-        if writer is not None:
-            writer.close()
-    logger.info("wrote %s in %d accession ranges", out.stem, len(bounds) - 1)
+    ranges = []
+    for lo, hi in itertools.pairwise(bounds):
+        terms = ["TRUE"]
+        if lo is not None:
+            terms.append(f"accession >= {sql_string(lo)}")
+        if hi is not None:
+            terms.append(f"accession < {sql_string(hi)}")
+        ranges.append(_record_range(root, folder, " AND ".join(terms)))
+    layout.write(con, RECORDS, out, ranges)
+    logger.info("wrote %s in %d accession ranges", out.stem, len(ranges))
 
 
-def _record_range(
-    con: duckdb.DuckDBPyConnection, root: Path, folder: Path, where: str, batch_rows: int
-) -> pa.RecordBatchReader:
-    """Stream the records of one accession range; SRA records take typed columns from the tab."""
+def _record_range(root: Path, folder: Path, where: str) -> str:
+    """Return the query of one accession range; SRA records take typed columns from the tab."""
     if folder.name.startswith("sra-"):
         tab, _ = extract.done_dir(root, snapshots.SRA_ACCESSIONS)
         fields = ", ".join(f"{name}: {name}" for name in _TYPED)
@@ -507,16 +493,13 @@ def _record_range(
         typed_join = ""
         typed = ", ".join(f"r.{name}" for name in _TYPED)
     key, dated, join = _kept_order(folder)
-    return con.execute(
-        f"""WITH r AS (SELECT * FROM {_read(folder)} WHERE {where}),
+    return f"""WITH r AS (SELECT * FROM {_read(folder)} WHERE {where}),
             {dated}
             k AS (SELECT min({{'k': {key}, 's': seq}}).s AS seq
                   FROM r {join} GROUP BY accession)
             SELECT r.accession, r.type, {typed}, r.fields, r.raw_text, r.content_hash,
               r.snapshot_date
-            FROM r JOIN k USING (seq) {typed_join}
-            ORDER BY r.accession"""
-    ).to_arrow_reader(batch_rows)
+            FROM r JOIN k USING (seq) {typed_join}"""
 
 
 def _write_links(con: duckdb.DuckDBPyConnection, work: Path, out: Path) -> None:
@@ -524,35 +507,28 @@ def _write_links(con: duckdb.DuckDBPyConnection, work: Path, out: Path) -> None:
     con.execute(
         f"""COPY (SELECT DISTINCT "from", "to", relation, source
             FROM {_read(work / "links")})
-            TO {extract.sql_string(str(distinct))} (FORMAT parquet)"""
+            TO {sql_string(str(distinct))} (FORMAT parquet)"""
     )
-    for name, order in (
-        (LINKS_BY_FROM, '"from", "to", relation, source'),
-        (LINKS_BY_TO, '"to", "from", relation, source'),
-    ):
-        con.execute(
-            f"""COPY (SELECT * FROM {_read(distinct)} ORDER BY {order})
-                TO {extract.sql_string(str(table_path(out, name)))} (FORMAT parquet)"""
-        )
+    for table in (LINKS_BY_FROM, LINKS_BY_TO):
+        layout.write(con, table, table.path(out), f"SELECT * FROM {_read(distinct)}")
 
 
 def _write_holdings(con: duckdb.DuckDBPyConnection, out: Path) -> None:
-    path = table_path(out, HOLDINGS)
-    if not any(table_path(out, RECORDS).glob("*.parquet")):
-        pq.write_table(_HOLDINGS.empty_table(), path)
-        return
-    con.execute(
-        f"""COPY (SELECT accession, type FROM {_read(table_path(out, RECORDS))}
-            ORDER BY accession) TO {extract.sql_string(str(path))} (FORMAT parquet)"""
+    records = RECORDS.path(out)
+    query = (
+        f"SELECT accession, type FROM {_read(records)}"
+        if any(records.glob("*.parquet"))
+        else "SELECT NULL::VARCHAR AS accession, NULL::VARCHAR AS type WHERE false"
     )
+    layout.write(con, HOLDINGS, HOLDINGS.path(out), query)
 
 
 def _unknown_labels(con: duckdb.DuckDBPyConnection, links: Path) -> dict[str, dict[str, int | str]]:
     """Count the links under each GEO relation label not in the fixed list, and log each."""
-    listed = ", ".join(extract.sql_string(r) for r in RELATIONS)
+    listed = ", ".join(sql_string(r) for r in RELATIONS)
     rows = con.execute(
         f"""SELECT relation, count(*), min("from") FROM {_read(links)}
-            WHERE source = {extract.sql_string(SOFT)} AND relation NOT IN ({listed})
+            WHERE source = {sql_string(SOFT)} AND relation NOT IN ({listed})
             GROUP BY relation ORDER BY relation"""
     ).fetchall()
     out: dict[str, dict[str, int | str]] = {}

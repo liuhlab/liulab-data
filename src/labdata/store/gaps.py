@@ -18,16 +18,9 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from labdata.exceptions import StoreBuildError
-from labdata.store import extract, raw, targets
-from labdata.store.reader import (
-    GAPS,
-    HOLDINGS,
-    NOTES,
-    BuildReader,
-    current_build,
-    records_path,
-    table_path,
-)
+from labdata.store import extract, layout, raw, targets
+from labdata.store.layout import GAPS, HOLDINGS, NOTES, records_path, sql_string
+from labdata.store.reader import BuildReader, current_build
 
 #: The download site answered 404 for the Series' family SOFT.
 SOFT_MISSING = "soft-missing"
@@ -58,10 +51,6 @@ DATE_KEY = "snapshot_date"
 FRACTION_KEY = "fraction"
 #: How many failing Series :func:`coverage` names.
 NAMED = 50
-
-NOTE_SCHEMA = pa.schema(
-    [("accession", pa.string()), ("kind", pa.string()), ("detail", pa.string())]
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,15 +139,17 @@ def write_gaps(
         ``snapshot_date``, ``target`` and ``held`` counts, and ``gaps``: the count by reason,
         every reason listed; ``fraction`` too for a round's sample.
     """
-    out = table_path(build_dir, GAPS)
-    kv = f"{DATE_KEY}: {extract.sql_string(date)}"
+    out = GAPS.path(build_dir)
+    metadata = {DATE_KEY: date}
     if fraction is not None:
-        kv += f", {FRACTION_KEY}: {extract.sql_string(repr(fraction))}"
-    reasons = ", ".join(extract.sql_string(r) for r in REASONS[:-1])
+        metadata[FRACTION_KEY] = repr(fraction)
+    reasons = ", ".join(sql_string(r) for r in REASONS[:-1])
     with extract.connect(root) as con:
-        con.execute(
-            f"""COPY (
-            WITH g AS ({_gap_rows(root)})
+        layout.write(
+            con,
+            GAPS,
+            out,
+            f"""WITH g AS ({_gap_rows(root)})
             SELECT t.accession,
               CASE WHEN g.reason IN ({reasons}) THEN g.reason ELSE '{UNEXPLAINED}' END
                 AS reason,
@@ -166,10 +157,8 @@ def write_gaps(
                 ELSE 'recorded reason: ' || g.reason END AS detail
             FROM (SELECT DISTINCT accession FROM {_read(target_list)}) t
             LEFT JOIN g USING (accession)
-            WHERE t.accession NOT IN ({_held_series(build_dir)})
-            ORDER BY CAST(substr(t.accession, 4) AS BIGINT)
-            ) TO {extract.sql_string(str(out))}
-            (FORMAT parquet, KV_METADATA {{{kv}}})"""
+            WHERE t.accession NOT IN ({_held_series(build_dir)})""",
+            metadata,
         )
         counts = dict(
             con.execute(f"SELECT reason, count(*) FROM {_read(out)} GROUP BY 1").fetchall()
@@ -203,7 +192,7 @@ def write_notes(
     dict of str to int
         The note count by kind.
     """
-    out = table_path(build_dir, NOTES)
+    out = NOTES.path(build_dir)
     series = records_path(build_dir, "GEO Series")
     rows = list(extra)
     extra_table = pa.table(
@@ -212,7 +201,7 @@ def write_notes(
             "kind": [n.kind for n in rows],
             "detail": [n.detail for n in rows],
         },
-        schema=NOTE_SCHEMA,
+        schema=NOTES.schema(),
     )
     disagree = (
         f"""SELECT t.accession, '{TYPE_DISAGREES}' AS kind,
@@ -221,7 +210,7 @@ def write_notes(
             JOIN (SELECT accession FROM {_read(series)}) r USING (accession)
             LEFT JOIN (
               SELECT accession, string_agg(DISTINCT f.value, '; ' ORDER BY f.value) AS types,
-                bool_or(contains(lower(f.value), {extract.sql_string(targets.SEQUENCING)}))
+                bool_or(contains(lower(f.value), {sql_string(targets.SEQUENCING)}))
                   AS sequencing
               FROM (SELECT accession, unnest(fields) AS f FROM {_read(series)})
               WHERE f.name = 'Series_type' GROUP BY accession
@@ -245,10 +234,8 @@ def write_notes(
         )
     with extract.connect(root) as con:
         con.register("extra", extra_table)
-        con.execute(
-            f"COPY (SELECT * FROM ({disagree} UNION ALL {unfetched} UNION ALL "
-            "SELECT * FROM extra) "
-            f"ORDER BY kind, accession, detail) TO {extract.sql_string(str(out))} (FORMAT parquet)"
+        layout.write(
+            con, NOTES, out, f"{disagree} UNION ALL {unfetched} UNION ALL SELECT * FROM extra"
         )
         counts = con.execute(f"SELECT kind, count(*) FROM {_read(out)} GROUP BY 1 ORDER BY 1")
         return {str(kind): int(n) for kind, n in counts.fetchall()}
@@ -258,7 +245,7 @@ def noted(root: Path, kind: str) -> set[str]:
     """Return the accessions the current build notes as ``kind``; none before a first build."""
     if current_build(root) is None:
         return set()
-    notes = BuildReader.current(root).table_path(NOTES)
+    notes = NOTES.path(BuildReader.current(root).path)
     if not notes.is_file():
         return set()
     table = pq.read_table(notes, columns=["accession"], filters=[("kind", "==", kind)])
@@ -276,7 +263,7 @@ def coverage(root: Path, build: BuildReader) -> Coverage:
     StoreBuildError
         If the build has no ``gaps.parquet`` or its snapshot is gone.
     """
-    gaps_file = build.table_path(GAPS)
+    gaps_file = GAPS.path(build.path)
     if not gaps_file.is_file():
         raise StoreBuildError(f"{build.path} has no {GAPS}; rebuild with `labdata store build`")
     meta = pq.read_metadata(gaps_file).metadata or {}
@@ -302,7 +289,7 @@ def coverage(root: Path, build: BuildReader) -> Coverage:
               WHERE reason = '{UNEXPLAINED}'"""
         failures = _count(con, f"SELECT count(*) FROM ({problems})")
         failing = con.execute(f"SELECT * FROM ({problems}) ORDER BY 1, 2 LIMIT {NAMED}").fetchall()
-        notes = build.table_path(NOTES)
+        notes = NOTES.path(build.path)
         failed_experiments = (
             _count(
                 con,
@@ -329,13 +316,11 @@ def _count(con: duckdb.DuckDBPyConnection, sql: str) -> int:
 
 
 def _read(path: Path) -> str:
-    return f"read_parquet({extract.sql_string(str(path))})"
+    return f"read_parquet({sql_string(str(path))})"
 
 
 def _held_series(build_dir: Path) -> str:
-    return (
-        f"SELECT accession FROM {_read(table_path(build_dir, HOLDINGS))} WHERE type = 'GEO Series'"
-    )
+    return f"SELECT accession FROM {_read(HOLDINGS.path(build_dir))} WHERE type = 'GEO Series'"
 
 
 def _gap_rows(root: Path) -> str:

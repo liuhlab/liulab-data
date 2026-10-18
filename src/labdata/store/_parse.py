@@ -18,6 +18,7 @@ import pyarrow.parquet as pq
 
 from labdata.exceptions import StoreBuildError
 from labdata.store import raw, snapshots, sources, suppl
+from labdata.store.layout import record_stem
 
 _FIELDS = pa.list_(pa.struct([("name", pa.string()), ("value", pa.string())]))
 
@@ -63,11 +64,6 @@ SNAPSHOT_KINDS = (snapshots.BIOPROJECT, snapshots.BIOSAMPLE)
 
 _BATCH_ROWS = 16
 _NUMBER = re.compile(r"(\d+)$")
-
-
-def type_folder(record_type: str) -> str:
-    """Return a record type's file stem, such as ``sra-experiment``."""
-    return record_type.lower().replace(" ", "-")
 
 
 def number(accession: str) -> int:
@@ -125,7 +121,7 @@ class _Parts:
 
     def flush(self) -> None:
         for record_type, rows in self.records.items():
-            self._write(f"records/{type_folder(record_type)}", rows, RECORD_SCHEMA)
+            self._write(f"records/{record_stem(record_type)}", rows, RECORD_SCHEMA)
         self._write("links", self.links, LINK_SCHEMA)
         self._write("filelist", self.listed, FILELIST_SCHEMA)
         self.records, self.links, self.listed = {}, [], []
