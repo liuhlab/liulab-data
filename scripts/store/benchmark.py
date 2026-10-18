@@ -3,11 +3,12 @@
 Usage::
 
     pixi run python scripts/store/benchmark.py ROOT [--seed 0] [--sizes 1,1000,100000]
-        [--out RESULT.json]
+        [--out RESULT.json] [--limits LIMITS.json]
 
 It samples held accessions with the seed, runs each query in a fresh Python process and
 prints one row per query: rows returned, wall time and that process's peak resident memory.
-Then it prints each build table's file size, rows and row groups. The store is only read;
+Then it prints each build table's file size, rows and row groups, and each query over its
+agreed limit (``LIMITS``); any query over its limit makes it exit 1. The store is only read;
 temporary files go in a system temp folder, and output only to stdout and ``--out``.
 """
 
@@ -27,6 +28,43 @@ from typing import Any
 #: The record type and fields of the table query.
 TABLE_TYPE = "GEO Sample"
 TABLE_FIELDS = ("Sample_title", "Sample_organism_ch1", "Sample_library_strategy")
+
+#: The agreed limits of each query on a full build, warm: wall seconds and peak MiB. A name
+#: ending in `` *`` covers every query it starts. A query with no limit is only reported.
+LIMITS: dict[str, tuple[float, float]] = {
+    "get 1": (1, 1024),
+    "get 1000": (2, 2048),
+    "get 100000": (20, 5120),
+    f"table {TABLE_TYPE}": (6, 8192),
+    "links 1000 Series": (2, 1024),
+    "readme *": (1, 1024),
+    "raw 1000": (3, 4096),
+}
+
+
+def limit_of(name: str, limits: dict[str, tuple[float, float]]) -> tuple[float, float] | None:
+    """Return the wall and peak limits of one query, or ``None`` if it has none."""
+    if name in limits:
+        return limits[name]
+    for key, limit in limits.items():
+        if key.endswith(" *") and name.startswith(key[:-1]):
+            return limit
+    return None
+
+
+def breaches(queries: list[dict[str, Any]], limits: dict[str, tuple[float, float]]) -> list[str]:
+    """Return one line per measure over its limit, naming the query."""
+    out = []
+    for q in queries:
+        limit = limit_of(q["query"], limits)
+        if limit is None:
+            continue
+        wall, peak = limit
+        if q["wall_s"] > wall:
+            out.append(f"over the limit: {q['query']}: wall {q['wall_s']} s > {wall} s")
+        if q["peak_rss_mib"] > peak:
+            out.append(f"over the limit: {q['query']}: peak {q['peak_rss_mib']} MiB > {peak} MiB")
+    return out
 
 
 def build_dir(root: Path) -> Path:
@@ -179,6 +217,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, default=0, help="seed of the accession samples")
     parser.add_argument("--sizes", default="1,1000,100000", help="batch sizes of `get`")
     parser.add_argument("--out", type=Path, help="also write the results here, as JSON")
+    parser.add_argument(
+        "--limits",
+        type=Path,
+        help="JSON of query name to [wall s, peak MiB], in place of the agreed limits",
+    )
     parser.add_argument("--one", help=argparse.SUPPRESS)
     parser.add_argument("--samples", type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
@@ -204,13 +247,26 @@ def main(argv: list[str] | None = None) -> int:
             queries.append(measure(query, args.root, samples_file, tmp))
             print(json.dumps(queries[-1]), file=sys.stderr, flush=True)
     tables = table_stats(build)
-    result = {"build": build.name, "seed": args.seed, "queries": queries, "tables": tables}
+    limits = (
+        {k: (v[0], v[1]) for k, v in json.loads(args.limits.read_text()).items()}
+        if args.limits
+        else LIMITS
+    )
+    over = breaches(queries, limits)
+    result = {
+        "build": build.name,
+        "seed": args.seed,
+        "queries": queries,
+        "tables": tables,
+        "breaches": over,
+    }
     print(f"build {build.name}, seed {args.seed}\n")
     print(_markdown(queries, ["query", "rows", "wall_s", "cpu_s", "peak_rss_mib"]) + "\n")
     print(_markdown(tables, ["file", "bytes", "rows", "row_groups"]))
     if args.out:
         args.out.write_text(json.dumps(result, indent=2) + "\n")
-    return 0
+    print("\n" + ("\n".join(over) if over else "every query is within its limit"))
+    return 1 if over else 0
 
 
 if __name__ == "__main__":
