@@ -71,16 +71,12 @@ def build_dir(root: Path) -> Path:
     """Return the current build folder of the store at ``root``."""
     from labdata.store import open_store
 
-    store = open_store(root)
-    return store.root / "builds" / str(store.settings["build"])
+    return open_store(root).reader.path
 
 
-def readme_queries() -> list[str]:
-    """Return the DuckDB examples of the store README, as written there."""
-    import importlib.resources
-
-    text = importlib.resources.files("labdata.store").joinpath("store_readme.md").read_text()
-    return re.findall(r'duckdb\.sql\(f"""(.*?)"""\)', text, flags=re.DOTALL)
+def middle_size(sizes: list[int]) -> int:
+    """Return the middle batch size: the size of the links and raw text queries."""
+    return sizes[len(sizes) // 2]
 
 
 def sample(build: Path, sizes: list[int], seed: int, tmp: Path) -> dict[str, list[str]]:
@@ -101,8 +97,7 @@ def sample(build: Path, sizes: list[int], seed: int, tmp: Path) -> dict[str, lis
         return [r[0] for r in rows]
 
     mixed = pick(max(sizes))
-    middle = sizes[len(sizes) // 2] if len(sizes) > 1 else sizes[0]
-    return {"mixed": mixed, "series": pick(middle, "type = 'GEO Series'")}
+    return {"mixed": mixed, "series": pick(middle_size(sizes), "type = 'GEO Series'")}
 
 
 def run_query(name: str, root: Path, samples: dict[str, list[str]], tmp: Path) -> int:
@@ -127,8 +122,9 @@ def run_query(name: str, root: Path, samples: dict[str, list[str]], tmp: Path) -
     if kind == "readme":
         import duckdb
 
-        build = str(store.root / "builds" / str(store.settings["build"]))
-        sql = readme_queries()[int(arg) - 1].format(build=build)
+        from labdata.store.readme import duckdb_examples
+
+        sql = duckdb_examples()[int(arg) - 1].format(build=store.reader.path)
         con = duckdb.connect(config={"temp_directory": str(tmp / "duckdb")})
         return len(con.sql(sql).fetchall())
     raise ValueError(f"unknown query {name!r}")
@@ -136,13 +132,14 @@ def run_query(name: str, root: Path, samples: dict[str, list[str]], tmp: Path) -
 
 def query_names(sizes: list[int], series: int) -> list[str]:
     """Return the queries to run, in order."""
-    middle = sizes[len(sizes) // 2] if len(sizes) > 1 else sizes[0]
+    from labdata.store.readme import duckdb_examples
+
     return [
         *(f"get {n}" for n in sizes),
         f"table {TABLE_TYPE}",
         f"links {series} Series",
-        *(f"readme {i}" for i in range(1, len(readme_queries()) + 1)),
-        f"raw {middle}",
+        *(f"readme {i}" for i in range(1, len(duckdb_examples()) + 1)),
+        f"raw {middle_size(sizes)}",
     ]
 
 

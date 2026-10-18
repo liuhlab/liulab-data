@@ -24,7 +24,7 @@ from labdata.store.build import (
     build_lock,
     write_marker,
 )
-from labdata.store.provenance import MANIFEST
+from labdata.store.layout import manifest_path
 from labdata.store.reader import build_folders, build_path
 from labdata.store.root import MARKER, read_marker
 
@@ -112,7 +112,7 @@ def prune(
 
 def _reads(build: Path) -> set[tuple[str, str]]:
     """Return the ``(source, date)`` of each snapshot a build's manifest says it read."""
-    manifest = build / MANIFEST
+    manifest = manifest_path(build)
     if not manifest.is_file():
         return set()
     inputs = json.loads(manifest.read_text(encoding="utf-8")).get("inputs", {})

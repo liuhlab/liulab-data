@@ -11,7 +11,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 from collections import Counter
-from collections.abc import Collection, Iterable, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -29,6 +29,7 @@ from labdata.store.layout import (
     SUPPLEMENTARY_FILES,
     Table,
     records_path,
+    sql_ident,
     sql_string,
 )
 from labdata.store.model import RawText, Record, SupplementaryFile, kind_of
@@ -61,12 +62,70 @@ def build_folders(root: Path) -> list[Path]:
     return sorted(p for p in (root / BUILDS).glob("*") if p.is_dir() and not p.name.startswith("."))
 
 
+def named_build(root: Path, settings: Mapping[str, Any]) -> Path:
+    """Return the folder of the build that a store's marker settings name.
+
+    Parameters
+    ----------
+    root : pathlib.Path
+        The store root.
+    settings : mapping
+        The parsed ``labdata-store.toml``.
+
+    Returns
+    -------
+    pathlib.Path
+        The build folder, which may not exist.
+
+    Raises
+    ------
+    NotAStoreError
+        If the settings name no build.
+    """
+    build = settings.get("build")
+    if not build:
+        raise NotAStoreError(f"{root / MARKER} names no build; run `labdata store build`")
+    return build_path(root, str(build))
+
+
+def current_path(root: Path) -> Path:
+    """Return the folder of the build the store's marker names now.
+
+    Parameters
+    ----------
+    root : pathlib.Path
+        The store root.
+
+    Returns
+    -------
+    pathlib.Path
+        The build folder, which may not exist.
+
+    Raises
+    ------
+    NotAStoreError
+        If the root has no marker, or the marker names no build.
+    """
+    return named_build(root, read_marker(root))
+
+
 def current_build(root: Path) -> str | None:
-    """Return the build id the marker names; ``None`` with no marker or no build yet."""
-    if not (root / MARKER).is_file():
+    """Return the build id the marker names.
+
+    Parameters
+    ----------
+    root : pathlib.Path
+        The store root.
+
+    Returns
+    -------
+    str or None
+        The build id; ``None`` with no marker or no build yet.
+    """
+    try:
+        return current_path(root).name
+    except NotAStoreError:
         return None
-    build = read_marker(root).get("build")
-    return str(build) if build else None
 
 
 class BuildReader:
@@ -86,20 +145,6 @@ class BuildReader:
         self.path = path
         self.calls: Counter[str] = Counter()
         self._con: duckdb.DuckDBPyConnection | None = None
-
-    @classmethod
-    def current(cls, root: Path) -> BuildReader:
-        """Return a reader over the build the store's marker names.
-
-        Raises
-        ------
-        NotAStoreError
-            If the root has no marker, or the marker names no build.
-        """
-        build = read_marker(root).get("build")
-        if not build:
-            raise NotAStoreError(f"{root / MARKER} names no build; run `labdata store build`")
-        return cls(build_path(root, str(build)))
 
     @property
     def build_id(self) -> str:
@@ -124,10 +169,21 @@ class BuildReader:
         return self._con
 
     def records(self, accessions: Collection[str]) -> dict[str, Record]:
-        """Return the held records among ``accessions``, without links; absent ones are left out."""
+        """Return the held records among ``accessions``, without links.
+
+        Parameters
+        ----------
+        accessions : collection of str
+            Accessions of any record type.
+
+        Returns
+        -------
+        dict of str to Record
+            Each held accession's record; absent accessions are left out.
+        """
         self.calls["records"] += 1
         # The fields come back as one JSON text of names and values: DuckDB hands a list of
-        # structs to Python several times slower than json.loads decodes it.
+        # structs to Python slower than json.loads decodes it.
         select = (
             f"{_columns(c for c in _RECORD_COLUMNS if c != 'fields')}, "
             "to_json([list_transform(fields, lambda x: x.name), "
@@ -144,7 +200,17 @@ class BuildReader:
     ) -> list[LinkRow]:
         """Return every link row with either end in ``accessions``, sorted.
 
-        ``relations`` limits the rows to those forward names.
+        Parameters
+        ----------
+        accessions : collection of str
+            Accessions at either end of a link.
+        relations : collection of str or None
+            Forward relation names to keep; ``None`` keeps every relation.
+
+        Returns
+        -------
+        list of LinkRow
+            The rows as ``(from, to, relation, source)``, sorted, each once.
         """
         self.calls["links"] += 1
         tail = "" if relations is None else f" AND relation IN ({_in_list(relations)})"
@@ -159,13 +225,35 @@ class BuildReader:
         return sorted(rows)
 
     def held(self, accessions: Collection[str]) -> set[str]:
-        """Return which of ``accessions`` the build holds."""
+        """Return which of ``accessions`` the build holds.
+
+        Parameters
+        ----------
+        accessions : collection of str
+            Accessions of any record type.
+
+        Returns
+        -------
+        set of str
+            The held ones.
+        """
         self.calls["held"] += 1
         select = f"SELECT accession FROM read_parquet({self._file(HOLDINGS)})"
         return {row["accession"] for row in self._lookup(select, "accession", accessions)}
 
     def known(self, accessions: Collection[str]) -> dict[str, dt.date]:
-        """Return which of ``accessions`` a snapshot lists, each with its snapshot date."""
+        """Return which of ``accessions`` a snapshot lists, each with its snapshot date.
+
+        Parameters
+        ----------
+        accessions : collection of str
+            Accessions of any record type.
+
+        Returns
+        -------
+        dict of str to datetime.date
+            Each listed accession and the newest date of a snapshot that lists it.
+        """
         self.calls["known"] += 1
         rows = self._lookup(
             "SELECT accession, max(snapshot_date) AS snapshot_date "
@@ -186,7 +274,18 @@ class BuildReader:
         return json.loads(rows[0]["dates"]) if rows else {}
 
     def raw(self, accessions: Collection[str]) -> dict[str, RawText]:
-        """Return each held accession's raw text and content hash."""
+        """Return each held accession's raw text and content hash.
+
+        Parameters
+        ----------
+        accessions : collection of str
+            Accessions of any record type.
+
+        Returns
+        -------
+        dict of str to RawText
+            Each held accession's text as the source served it; absent ones are left out.
+        """
         self.calls["raw"] += 1
         return {
             row["accession"]: RawText(row["raw_text"], row["content_hash"])
@@ -225,7 +324,7 @@ class BuildReader:
             _columns(c for c in _RECORD_COLUMNS if c != "fields"),
             *(
                 f"list_transform(list_filter(fields, lambda x: x.name = {sql_string(name)}), "
-                f"lambda x: x.value) AS {_ident(name)}"
+                f"lambda x: x.value) AS {sql_ident(name)}"
                 for name in fields
             ),
         ]
@@ -266,7 +365,7 @@ class BuildReader:
             row
             for start in range(0, len(ordered), _BATCH)
             for row in self._dicts(
-                f"{select} WHERE {_ident(key)} IN "
+                f"{select} WHERE {sql_ident(key)} IN "
                 f"({_in_list(ordered[start : start + _BATCH])}){tail}"
             )
         ]
@@ -295,11 +394,7 @@ def _record(row: dict[str, Any]) -> Record:
 
 
 def _columns(names: Iterable[str]) -> str:
-    return ", ".join(_ident(n) for n in names)
-
-
-def _ident(name: str) -> str:
-    return '"' + name.replace('"', '""') + '"'
+    return ", ".join(sql_ident(n) for n in names)
 
 
 def _in_list(values: Iterable[str]) -> str:

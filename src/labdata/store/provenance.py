@@ -21,9 +21,9 @@ import pyarrow.parquet as pq
 from labdata.exceptions import StoreBuildError
 from labdata.store import raw, snapshots
 from labdata.store._files import write_atomic
+from labdata.store.layout import MANIFEST
 from labdata.store.reader import build_folders
 
-MANIFEST = "manifest.json"
 README = "README.md"
 
 _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
