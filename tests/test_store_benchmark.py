@@ -69,7 +69,9 @@ def test_it_reports_each_query_and_each_table_and_writes_nothing_in_the_store(
     assert [queries[q]["rows"] for q in ("get 1", "get 5", "raw 5")] == [1, 5, 5]
     assert queries["table GEO Sample"]["rows"] == samples
     assert queries["readme 1"]["rows"] == 1
-    assert all(q["wall_s"] > 0 and q["peak_rss_mib"] > 0 for q in queries.values())
+    assert all(
+        q["wall_s"] > 0 and q["cpu_s"] > 0 and q["peak_rss_mib"] > 0 for q in queries.values()
+    )
     tables = {t["file"]: t for t in result["tables"]}
     assert tables["records/geo-sample.parquet"]["rows"] == samples
     assert tables["links_by_from.parquet"]["row_groups"] >= 1
