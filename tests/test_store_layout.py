@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import datetime as dt
 from pathlib import Path
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+from labdata.exceptions import StoreBuildError
 from labdata.store import build as build_module
 from labdata.store import extract, layout
 from labdata.store.build import build
@@ -38,6 +40,32 @@ def test_every_built_table_matches_its_declaration(tmp_path: Path) -> None:
     build_dir = built_root(tmp_path / "store", "geo_slice") / "builds" / "b1"
     assert sorted(p.name for p in build_dir.glob("records/*.parquet"))
     assert layout.check(build_dir) == []
+
+
+def test_the_layout_is_the_approved_declaration() -> None:
+    settings = {
+        t.name: (t.compression, t.compression_level, t.row_group_rows) for t in layout.TABLES
+    }
+    assert settings.pop("records") == ("zstd", 9, 2048)
+    assert set(settings.values()) == {("zstd", 3, 122_880)}
+
+
+def test_dates_are_written_typed(tmp_path: Path) -> None:
+    build_dir = built_root(tmp_path / "store", "geo_slice") / "builds" / "b1"
+    types = {
+        path.name: {f.name: str(f.type) for f in pq.read_schema(path)}
+        for path in (
+            layout.records_path(build_dir, "GEO Series"),
+            layout.KNOWN.path(build_dir),
+            layout.SUPPLEMENTARY_FILES.path(build_dir),
+        )
+    }
+    record_dates = ("submitted", "updated", "published", "snapshot_date")
+    assert {c: types["geo-series.parquet"][c] for c in record_dates} == dict.fromkeys(
+        record_dates, "date32[day]"
+    )
+    assert types["known.parquet"]["snapshot_date"] == "date32[day]"
+    assert types["supplementary_files.parquet"]["date"] == "timestamp[us]"
 
 
 # Ray leaves a log file handle open at shutdown.
@@ -91,3 +119,48 @@ def _empty(table: layout.Table) -> str:
         for name, kind in table.columns
     )
     return f"SELECT {columns} WHERE false"
+
+
+_DATED = layout.Table(
+    "dated.parquet",
+    (("accession", layout.STRING), ("day", layout.DATE), ("stamp", layout.TIMESTAMP)),
+    ("accession",),
+)
+
+
+def _write_dated(tmp_path: Path, rows: str) -> list[dict[str, object]]:
+    out = tmp_path / "dated.parquet"
+    with extract.connect(tmp_path) as con:
+        layout.write(con, _DATED, out, f"SELECT * FROM (VALUES {rows}) v(accession, day, stamp)")
+    return pq.read_table(out).to_pylist()
+
+
+def test_text_dates_are_typed_and_only_empty_ones_become_null(tmp_path: Path) -> None:
+    rows = _write_dated(
+        tmp_path,
+        "('A', '2019-05-01', '2013-01-17T14:38:58'), ('B', NULL, NULL), ('C', '', '')",
+    )
+    assert [(r["day"], r["stamp"]) for r in rows] == [
+        (dt.date(2019, 5, 1), dt.datetime(2013, 1, 17, 14, 38, 58)),
+        (None, None),
+        (None, None),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("day", "stamp", "column", "value"),
+    [
+        ("2019-05", "2013-01-17T14:38:58", "day", "2019-05"),
+        ("May 2019", "2013-01-17T14:38:58", "day", "May 2019"),
+        ("2019-05-01", "2013-13-17T14:38:58", "stamp", "2013-13-17T14:38:58"),
+    ],
+)
+def test_a_date_that_does_not_parse_fails_the_write_naming_it(
+    tmp_path: Path, day: str, stamp: str, column: str, value: str
+) -> None:
+    with pytest.raises(StoreBuildError) as caught:
+        _write_dated(tmp_path, f"('A', '{day}', '{stamp}')")
+    message = str(caught.value)
+    assert "dated.parquet" in message
+    assert column in message
+    assert value in message

@@ -7,6 +7,7 @@ them: trimmed family SOFT, the packages of the experiments the kept samples name
 
 from __future__ import annotations
 
+import datetime as dt
 import hashlib
 import json
 import shutil
@@ -228,9 +229,9 @@ def test_geo_records_are_built_with_typed_columns_from_soft(store: Store) -> Non
     assert series.type == "GEO Series"
     assert (series.status, series.submitted, series.updated, series.published) == (
         "Public",
-        "2009-12-14",
-        "2019-05-15",
-        "2010-12-05",
+        dt.date(2009, 12, 14),
+        dt.date(2019, 5, 15),
+        dt.date(2010, 12, 5),
     )
     assert series.field("Series_pubmed_id") == ["20929578"]
     assert store.open("GPL9126").type == "GEO Platform"
@@ -402,7 +403,7 @@ def test_a_sample_in_a_subseries_and_the_superseries_takes_the_subseries_text(
     text = store.raw(["GSM8571270"])["GSM8571270"].text
     assert text in _soft("GSE246307")
     assert text in _soft("GSE246310")
-    assert sample.snapshot_date == "2026-10-14"
+    assert sample.snapshot_date == dt.date(2026, 10, 14)
 
 
 # ---------------------------------------------------------------- record 3

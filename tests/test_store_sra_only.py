@@ -6,6 +6,7 @@ Packages come from ``tests/data/sra_package/``. The snapshots under
 
 from __future__ import annotations
 
+import datetime as dt
 import hashlib
 import inspect
 import json
@@ -187,8 +188,8 @@ def test_a_rebuild_from_the_same_inputs_gives_the_same_tables(store: Store) -> N
 
 def test_sra_typed_columns_come_from_the_accessions_snapshot(store: Store) -> None:
     run = store.open("SRR28716553")
-    assert (run.status, run.published) == ("live", "2024-05-28")
-    assert run.snapshot_date == "2026-10-14"
+    assert (run.status, run.published) == ("live", dt.date(2024, 5, 28))
+    assert run.snapshot_date == dt.date(2026, 10, 14)
 
 
 def test_the_study_carries_the_submission_center_name(store: Store) -> None:
@@ -200,7 +201,7 @@ def test_the_study_carries_the_submission_center_name(store: Store) -> None:
 
 def test_bioproject_and_biosample_text_come_from_the_snapshots(store: Store) -> None:
     project = store.open(_PROJECT)
-    assert (project.type, project.submitted) == ("BioProject", "2023-10-13")
+    assert (project.type, project.submitted) == ("BioProject", dt.date(2023, 10, 13))
     sample = store.open("SAMN40935616")
     assert (sample.type, sample.status) == ("BioSample", "live")
     assert ("Package/Project/Project/ProjectID/ArchiveID@accession", _PROJECT) in project.fields

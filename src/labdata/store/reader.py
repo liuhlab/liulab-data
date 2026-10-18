@@ -8,6 +8,7 @@ DuckDB's temp files go in the reader's own cache folder, never the store.
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 from collections import Counter
 from collections.abc import Collection, Iterable, Sequence
@@ -163,7 +164,7 @@ class BuildReader:
         select = f"SELECT accession FROM read_parquet({self._file(HOLDINGS)})"
         return {row["accession"] for row in self._lookup(select, "accession", accessions)}
 
-    def known(self, accessions: Collection[str]) -> dict[str, str]:
+    def known(self, accessions: Collection[str]) -> dict[str, dt.date]:
         """Return which of ``accessions`` a snapshot lists, each with its snapshot date."""
         self.calls["known"] += 1
         rows = self._lookup(
