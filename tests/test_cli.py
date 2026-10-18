@@ -410,6 +410,7 @@ cli.app(["store", "boom"])
 """
 
 
+# Typer installs its exception hook only when app() runs, so CliRunner cannot see it.
 def test_failing_subcommand_prints_plain_traceback() -> None:
     env = {k: v for k, v in os.environ.items() if "TYPER_STANDARD_TRACEBACK" not in k}
     proc = subprocess.run(
