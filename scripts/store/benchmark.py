@@ -106,8 +106,23 @@ def query_names(sizes: list[int], series: int) -> list[str]:
     ]
 
 
+def _own_usage() -> dict[str, float]:
+    """Return this process's own peak memory and bytes read, where Linux reports them."""
+    usage: dict[str, float] = {}
+    proc = Path("/proc/self")
+    if (proc / "status").exists():
+        # VmHWM is this process's own peak; ru_maxrss also counts the parent's at fork.
+        hwm = re.search(r"^VmHWM:\s+(\d+) kB", (proc / "status").read_text(), flags=re.M)
+        if hwm:
+            usage["peak_rss_mib"] = round(int(hwm.group(1)) / 1024, 1)
+        rchar = re.search(r"^rchar: (\d+)", (proc / "io").read_text(), flags=re.M)
+        if rchar:
+            usage["read_mib"] = round(int(rchar.group(1)) / 2**20, 1)
+    return usage
+
+
 def measure(name: str, root: Path, samples_file: Path, tmp: Path) -> dict[str, Any]:
-    """Run one query in a child process; return its rows, wall time and peak memory."""
+    """Run one query in a child process; return its rows, wall and CPU time, and peak memory."""
     child = subprocess.Popen(
         [sys.executable, __file__, str(root), "--one", name, "--samples", str(samples_file)],
         stdout=subprocess.PIPE,
@@ -120,10 +135,15 @@ def measure(name: str, root: Path, samples_file: Path, tmp: Path) -> dict[str, A
     child.returncode = os.waitstatus_to_exitcode(status)
     if child.returncode != 0:
         raise RuntimeError(f"query {name!r} failed with exit code {child.returncode}")
-    reported = json.loads(output)
-    # ru_maxrss is in KiB on Linux and in bytes on macOS.
+    # ru_maxrss is in KiB on Linux and in bytes on macOS; the child's own figure wins.
     peak = usage.ru_maxrss / (1024 * 1024 if sys.platform == "darwin" else 1024)
-    return {"query": name, **reported, "peak_rss_mib": round(peak, 1)}
+    cpu = usage.ru_utime + usage.ru_stime
+    return {
+        "query": name,
+        "peak_rss_mib": round(peak, 1),
+        **json.loads(output),
+        "cpu_s": round(cpu, 2),
+    }
 
 
 def table_stats(build: Path) -> list[dict[str, Any]]:
@@ -166,7 +186,7 @@ def main(argv: list[str] | None = None) -> int:
         start = time.perf_counter()
         rows = run_query(args.one, args.root, samples, Path.cwd())
         wall = time.perf_counter() - start
-        print(json.dumps({"rows": rows, "wall_s": round(wall, 4)}))
+        print(json.dumps({"rows": rows, "wall_s": round(wall, 4), **_own_usage()}))
         return 0
 
     sizes = [int(n) for n in args.sizes.split(",")]
@@ -184,7 +204,7 @@ def main(argv: list[str] | None = None) -> int:
     tables = table_stats(build)
     result = {"build": build.name, "seed": args.seed, "queries": queries, "tables": tables}
     print(f"build {build.name}, seed {args.seed}\n")
-    print(_markdown(queries, ["query", "rows", "wall_s", "peak_rss_mib"]) + "\n")
+    print(_markdown(queries, ["query", "rows", "wall_s", "cpu_s", "peak_rss_mib"]) + "\n")
     print(_markdown(tables, ["file", "bytes", "rows", "row_groups"]))
     if args.out:
         args.out.write_text(json.dumps(result, indent=2) + "\n")
