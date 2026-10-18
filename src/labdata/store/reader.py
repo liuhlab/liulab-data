@@ -30,7 +30,7 @@ from labdata.store.layout import (
     records_path,
     sql_string,
 )
-from labdata.store.model import RawText, Record, SupplementaryFile
+from labdata.store.model import RawText, Record, SupplementaryFile, kind_of
 from labdata.store.root import MARKER, read_marker
 
 if TYPE_CHECKING:
@@ -41,6 +41,10 @@ BUILDS = "builds"
 
 #: The record columns a ``Record`` is decoded from: all but the raw text.
 _RECORD_COLUMNS = tuple(c for c in RECORDS.column_names if c != "raw_text")
+
+#: Keys per lookup query. A query reads each row group its keys fall in, whatever the batch
+#: size; a batch bounds the query's text and the rows it holds at once.
+_BATCH = 10_000
 
 #: A link row: from, to, relation, source.
 LinkRow = tuple[str, str, str, str]
@@ -65,10 +69,11 @@ def current_build(root: Path) -> str | None:
 
 
 class BuildReader:
-    """Read one build folder, one query per call.
+    """Read one build folder.
 
-    Every lookup takes a collection, so a call costs one query whatever the batch size.
-    ``calls`` counts the queries by method.
+    Every lookup takes a collection and reads only the row groups that hold its keys; an
+    accession lookup reads only the record file its prefix names. ``calls`` counts the calls
+    by method.
 
     Parameters
     ----------
@@ -120,11 +125,18 @@ class BuildReader:
     def records(self, accessions: Collection[str]) -> dict[str, Record]:
         """Return the held records among ``accessions``, without links; absent ones are left out."""
         self.calls["records"] += 1
-        rows = self._dicts(
-            f"SELECT {_columns(_RECORD_COLUMNS)} FROM read_parquet({self._records()}) "
-            f"WHERE accession IN (SELECT unnest({_list(accessions)}))"
+        # The fields come back as one JSON text of names and values: DuckDB hands a list of
+        # structs to Python several times slower than json.loads decodes it.
+        select = (
+            f"{_columns(c for c in _RECORD_COLUMNS if c != 'fields')}, "
+            "to_json([list_transform(fields, lambda x: x.name), "
+            "list_transform(fields, lambda x: x.value)]) AS fields"
         )
-        return {row["accession"]: _record(row) for row in rows}
+        return {
+            row["accession"]: _record(row)
+            for file, keys in self._record_files(accessions).items()
+            for row in self._lookup(f"SELECT {select} FROM read_parquet({file})", "accession", keys)
+        }
 
     def links(
         self, accessions: Collection[str], relations: Collection[str] | None = None
@@ -134,36 +146,32 @@ class BuildReader:
         ``relations`` limits the rows to those forward names.
         """
         self.calls["links"] += 1
-        accs = _list(accessions)
-        where_rel = (
-            "" if relations is None else f" AND relation IN (SELECT unnest({_list(relations)}))"
-        )
+        tail = "" if relations is None else f" AND relation IN ({_in_list(relations)})"
         cols = _columns(LINKS_BY_FROM.column_names)
-        rows = self._dicts(
-            f"SELECT {cols} FROM read_parquet({self._file(LINKS_BY_FROM)}) "
-            f'WHERE "from" IN (SELECT unnest({accs})){where_rel} '
-            f"UNION SELECT {cols} FROM read_parquet({self._file(LINKS_BY_TO)}) "
-            f'WHERE "to" IN (SELECT unnest({accs})){where_rel} '
-            f"ORDER BY {cols}"
-        )
-        return [(r["from"], r["to"], r["relation"], r["source"]) for r in rows]
+        rows = {
+            (r["from"], r["to"], r["relation"], r["source"])
+            for table, end in ((LINKS_BY_FROM, "from"), (LINKS_BY_TO, "to"))
+            for r in self._lookup(
+                f"SELECT {cols} FROM read_parquet({self._file(table)})", end, accessions, tail
+            )
+        }
+        return sorted(rows)
 
     def held(self, accessions: Collection[str]) -> set[str]:
         """Return which of ``accessions`` the build holds."""
         self.calls["held"] += 1
-        rows = self._dicts(
-            f"SELECT accession FROM read_parquet({self._file(HOLDINGS)}) "
-            f"WHERE accession IN (SELECT unnest({_list(accessions)}))"
-        )
-        return {row["accession"] for row in rows}
+        select = f"SELECT accession FROM read_parquet({self._file(HOLDINGS)})"
+        return {row["accession"] for row in self._lookup(select, "accession", accessions)}
 
     def known(self, accessions: Collection[str]) -> dict[str, str]:
         """Return which of ``accessions`` a snapshot lists, each with its snapshot date."""
         self.calls["known"] += 1
-        rows = self._dicts(
+        rows = self._lookup(
             "SELECT accession, max(snapshot_date) AS snapshot_date "
-            f"FROM read_parquet({self._file(KNOWN)}) "
-            f"WHERE accession IN (SELECT unnest({_list(accessions)})) GROUP BY accession"
+            f"FROM read_parquet({self._file(KNOWN)})",
+            "accession",
+            accessions,
+            " GROUP BY accession",
         )
         return {row["accession"]: row["snapshot_date"] for row in rows}
 
@@ -179,20 +187,25 @@ class BuildReader:
     def raw(self, accessions: Collection[str]) -> dict[str, RawText]:
         """Return each held accession's raw text and content hash."""
         self.calls["raw"] += 1
-        rows = self._dicts(
-            "SELECT accession, raw_text, content_hash "
-            f"FROM read_parquet({self._records()}) "
-            f"WHERE accession IN (SELECT unnest({_list(accessions)}))"
-        )
-        return {row["accession"]: RawText(row["raw_text"], row["content_hash"]) for row in rows}
+        return {
+            row["accession"]: RawText(row["raw_text"], row["content_hash"])
+            for file, keys in self._record_files(accessions).items()
+            for row in self._lookup(
+                f"SELECT accession, raw_text, content_hash FROM read_parquet({file})",
+                "accession",
+                keys,
+            )
+        }
 
     def supplementary_files(self, owners: Collection[str]) -> list[SupplementaryFile]:
         """Return the supplementary files of ``owners``, sorted by owner, name and URL."""
         self.calls["supplementary_files"] += 1
-        rows = self._dicts(
+        rows = self._lookup(
             f"SELECT {_columns(SUPPLEMENTARY_FILES.column_names)} "
-            f"FROM read_parquet({self._file(SUPPLEMENTARY_FILES)}) "
-            f"WHERE owner IN (SELECT unnest({_list(owners)})) ORDER BY owner, name, url"
+            f"FROM read_parquet({self._file(SUPPLEMENTARY_FILES)})",
+            "owner",
+            owners,
+            " ORDER BY owner, name, url",
         )
         return [SupplementaryFile(**row) for row in rows]
 
@@ -227,6 +240,38 @@ class BuildReader:
     def _file(self, table: Table) -> str:
         return sql_string(str(table.path(self.path)))
 
+    def _record_files(self, accessions: Iterable[str]) -> dict[str, list[str]]:
+        """Group ``accessions`` by the record file their prefix names; absent files are left out."""
+        files: dict[str, str | None] = {}
+        out: dict[str, list[str]] = {}
+        for accession in accessions:
+            kind = kind_of(accession)
+            if kind not in files:
+                path = records_path(self.path, kind)
+                files[kind] = sql_string(str(path)) if path.is_file() else None
+            if (file := files[kind]) is not None:
+                out.setdefault(file, []).append(accession)
+        return out
+
+    def _lookup(
+        self, select: str, key: str, keys: Collection[str], tail: str = ""
+    ) -> list[dict[str, Any]]:
+        """Run ``select`` over sorted batches of ``keys`` and return every batch's rows.
+
+        Each batch is a literal ``IN`` list on the ``key`` column, followed by ``tail``. Unlike
+        a subquery, a literal list lets DuckDB skip each row group whose key range holds none
+        of the batch. Batches go in key order, so rows ordered by ``key`` stay in order.
+        """
+        ordered = sorted(keys)
+        return [
+            row
+            for start in range(0, len(ordered), _BATCH)
+            for row in self._dicts(
+                f"{select} WHERE {_ident(key)} IN "
+                f"({_in_list(ordered[start : start + _BATCH])}){tail}"
+            )
+        ]
+
     def _dicts(self, sql: str) -> list[dict[str, Any]]:
         """Run ``sql`` and return its rows as dicts keyed by column name."""
         cursor = self.connection.execute(sql)
@@ -243,7 +288,7 @@ def _record(row: dict[str, Any]) -> Record:
         submitted=row["submitted"],
         updated=row["updated"],
         published=row["published"],
-        fields=tuple((pair["name"], pair["value"]) for pair in row["fields"]),
+        fields=tuple(zip(*json.loads(row["fields"]), strict=True)),
         content_hash=row["content_hash"],
         snapshot_date=row["snapshot_date"],
         links=(),
@@ -258,9 +303,9 @@ def _ident(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
-def _list(values: Collection[str]) -> str:
-    """Return a SQL VARCHAR list literal.
+def _in_list(values: Iterable[str]) -> str:
+    """Return the values as the items of a SQL ``IN`` list.
 
     Values are inlined, not bound: binding a parameter makes DuckDB import pandas.
     """
-    return "[" + ", ".join(sql_string(v) for v in sorted(values)) + "]::VARCHAR[]"
+    return ", ".join(sql_string(v) for v in values)
