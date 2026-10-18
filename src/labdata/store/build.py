@@ -33,6 +33,7 @@ import pyarrow.parquet as pq
 
 from labdata.exceptions import StoreBuildError
 from labdata.store import (
+    _limits,
     _parse,
     eutils,
     extract,
@@ -47,6 +48,16 @@ from labdata.store import (
 )
 from labdata.store._files import temp_beside, toml_line, write_atomic
 from labdata.store.model import RELATIONS
+from labdata.store.reader import (
+    HOLDINGS,
+    KNOWN,
+    LINKS_BY_FROM,
+    LINKS_BY_TO,
+    RECORDS,
+    SUPPLEMENTARY_FILES,
+    build_path,
+    table_path,
+)
 from labdata.store.root import MARKER, read_marker
 from labdata.store.sources import SOFT
 
@@ -106,11 +117,11 @@ def build(
     build_id : str or None
         The new build's folder name; defaults to a UTC timestamp.
     workers : int or None
-        Parallel parse workers; defaults to :func:`labdata.store.extract.default_workers`.
+        Parallel parse workers; defaults to :func:`labdata.store._limits.default_workers`.
         ``1`` parses in this process.
     chunk_bytes : int
         Bytes of source text a worker parses before it writes its parts. Peak memory is about
-        ``workers`` chunks plus DuckDB's cap (:func:`labdata.store.extract.duckdb_memory`).
+        ``workers`` chunks plus DuckDB's cap (:func:`labdata.store._limits.duckdb_memory`).
     fraction : float or None
         A round's seeded sample of the target Series list; gaps, notes and ``GEO summary``
         links cover only that sample. ``None`` for the whole list.
@@ -128,7 +139,7 @@ def build(
     """
     fraction = targets.check_fraction(fraction)
     with build_lock(root):
-        return _build(root, build_id, workers or extract.default_workers(), chunk_bytes, fraction)
+        return _build(root, build_id, workers or _limits.default_workers(), chunk_bytes, fraction)
 
 
 @contextmanager
@@ -160,7 +171,7 @@ def _build(
     root: Path, build_id: str | None, workers: int, chunk_bytes: int, fraction: float | None
 ) -> Path:
     build_id = build_id or dt.datetime.now(dt.UTC).strftime("%Y%m%dT%H%M%SZ")
-    out = root / "builds" / build_id
+    out = build_path(root, build_id)
     if out.exists():
         raise StoreBuildError(f"build {build_id} already exists: {out}")
     for folder in sorted(p for p in (root / "raw").glob("*") if p.is_dir()):
@@ -211,7 +222,7 @@ def _build_into(
     ]
     logger.info("parsed raw/; checking copies and looking up snapshot records")
 
-    (tmp / "records").mkdir(parents=True)
+    table_path(tmp, RECORDS).mkdir(parents=True)
     with extract.connect(root) as con:
         copy_notes = [
             note
@@ -223,18 +234,18 @@ def _build_into(
         extract.run_parallel(_parse.run, ((t,) for t in wanted), workers)
         logger.info("writing record, link and supplementary-file tables")
         for folder in sorted((work / "records").glob("*")):
-            _write_records(con, root, folder, tmp / "records" / f"{folder.name}.parquet")
+            _write_records(con, root, folder, table_path(tmp, RECORDS) / f"{folder.name}.parquet")
         _write_links(con, work, tmp)
         _write_holdings(con, tmp)
         suppl.write(
             con,
-            tmp / "supplementary_files.parquet",
-            sorted((tmp / "records").glob("geo-*.parquet")),
+            table_path(tmp, SUPPLEMENTARY_FILES),
+            sorted(table_path(tmp, RECORDS).glob("geo-*.parquet")),
             sorted((work / "filelist").glob("*.parquet")),
         )
-        labels = _unknown_labels(con, tmp / "links_by_from.parquet")
+        labels = _unknown_labels(con, table_path(tmp, LINKS_BY_FROM))
     logger.info("writing known, gaps and notes")
-    known.write(root, tmp / "known.parquet")
+    known.write(root, table_path(tmp, KNOWN))
     coverage = gaps.write_gaps(root, tmp, target_list, geo_date, fraction)
     label_notes = [
         gaps.Note(str(v["example"]), gaps.UNKNOWN_LABEL, f"{label}: {v['links']} links")
@@ -516,22 +527,22 @@ def _write_links(con: duckdb.DuckDBPyConnection, work: Path, out: Path) -> None:
             TO {extract.sql_string(str(distinct))} (FORMAT parquet)"""
     )
     for name, order in (
-        ("links_by_from", '"from", "to", relation, source'),
-        ("links_by_to", '"to", "from", relation, source'),
+        (LINKS_BY_FROM, '"from", "to", relation, source'),
+        (LINKS_BY_TO, '"to", "from", relation, source'),
     ):
         con.execute(
             f"""COPY (SELECT * FROM {_read(distinct)} ORDER BY {order})
-                TO {extract.sql_string(str(out / f"{name}.parquet"))} (FORMAT parquet)"""
+                TO {extract.sql_string(str(table_path(out, name)))} (FORMAT parquet)"""
         )
 
 
 def _write_holdings(con: duckdb.DuckDBPyConnection, out: Path) -> None:
-    path = out / "holdings.parquet"
-    if not any((out / "records").glob("*.parquet")):
+    path = table_path(out, HOLDINGS)
+    if not any(table_path(out, RECORDS).glob("*.parquet")):
         pq.write_table(_HOLDINGS.empty_table(), path)
         return
     con.execute(
-        f"""COPY (SELECT accession, type FROM {_read(out / "records")}
+        f"""COPY (SELECT accession, type FROM {_read(table_path(out, RECORDS))}
             ORDER BY accession) TO {extract.sql_string(str(path))} (FORMAT parquet)"""
     )
 

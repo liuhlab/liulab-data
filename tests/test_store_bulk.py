@@ -71,7 +71,7 @@ _SERIES = ["GSE19456", "GSE20301", "GSE28770", "GSE233931", "GSE233685", "GSE153
 
 
 def _calls(root: Path, accessions: list[str]) -> dict[str, int]:
-    """Count the backend calls of every bulk call over one batch, on a fresh store."""
+    """Count the reader calls of every bulk call over one batch, on a fresh store."""
     store = open_store(root)
     store.open_many(accessions)
     store.links(accessions)
@@ -80,10 +80,10 @@ def _calls(root: Path, accessions: list[str]) -> dict[str, int]:
     store.supplementary_files(accessions)
     store.raw(accessions)
     store.table("GEO Series", ["!Series_title"], where=f"accession = '{accessions[0]}'")
-    return dict(store.backend.calls)
+    return dict(store.reader.calls)
 
 
-def test_backend_calls_stay_the_same_as_the_batch_grows(geo_root: Path) -> None:
+def test_reader_calls_stay_the_same_as_the_batch_grows(geo_root: Path) -> None:
     assert _calls(geo_root, _SERIES[:1]) == _calls(geo_root, _SERIES)
 
 
@@ -91,7 +91,7 @@ def test_a_walk_makes_one_link_and_one_holdings_lookup_per_level(geo_root: Path)
     store = open_store(geo_root)
     walk = store.experiments_for_many(_SERIES)
     assert walk["GSE19456"]
-    assert store.backend.calls == {"held_many": 1 + 2, "links_many": 2, "raw_many": 1}
+    assert store.reader.calls == {"held": 1 + 2, "links": 2, "raw": 1}
 
 
 def test_bulk_calls_keep_input_order_and_sort_what_they_return(geo_root: Path) -> None:

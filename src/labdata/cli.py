@@ -284,10 +284,9 @@ def store_coverage(
     from labdata.store.gaps import coverage
 
     store = open_store(root)
-    build = store.settings.get("build")
-    if not build:
+    if not store.settings.get("build"):
         raise typer.BadParameter("the store names no build; run `labdata store build`")
-    report = coverage(store.root, store.root / "builds" / str(build))
+    report = coverage(store.root, store.reader)
     typer.echo(f"Target Series: {report.target} (geo-series snapshot {report.snapshot_date})")
     typer.echo(f"Held: {report.held}")
     typer.echo(f"Gaps: {sum(report.gaps.values())}")

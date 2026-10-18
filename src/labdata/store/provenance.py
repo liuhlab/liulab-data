@@ -21,6 +21,7 @@ import pyarrow.parquet as pq
 from labdata.exceptions import StoreBuildError
 from labdata.store import raw, snapshots
 from labdata.store._files import write_atomic
+from labdata.store.reader import build_folders
 
 MANIFEST = "manifest.json"
 README = "README.md"
@@ -274,10 +275,7 @@ def folders(root: Path) -> list[Path]:
         p for p in (root / "snapshots").glob("*/*") if p.is_dir() and _DATE.match(p.name)
     )
     raws = sorted(p for p in (root / "raw").glob("*") if p.is_dir())
-    builds = sorted(
-        p for p in (root / "builds").glob("*") if p.is_dir() and not p.name.startswith(".")
-    )
-    return [*snaps, *raws, *builds]
+    return [*snaps, *raws, *build_folders(root)]
 
 
 def verify(root: Path, *, write_missing: bool = False) -> list[str]:

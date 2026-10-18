@@ -72,7 +72,7 @@ def test_open_many_sorts_absent_accessions_with_one_known_lookup(store: Store) -
     assert isinstance(result["GSM484820"], NotMirrored)
     assert isinstance(result["SRX99999999"], NotFound)
     assert "sra-accessions snapshot of 2026-10-14" in str(result["SRX99999999"])
-    assert store.backend.calls["known_many"] == 1
+    assert store.reader.calls["known"] == 1
 
 
 def test_a_malformed_accession_raises_accession_error(store: Store) -> None:
