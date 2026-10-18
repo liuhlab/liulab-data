@@ -38,7 +38,7 @@ from labdata.store.model import Record  # noqa: E402
 
 store = open_store(Path(sys.argv[1]) if len(sys.argv) > 1 else None)
 ROOT = store.root
-BUILD = store.reader
+READER = store.reader
 RESULTS: list[tuple[str, bool, str]] = []
 
 
@@ -191,7 +191,7 @@ def _r4() -> str:
     ser = store.follow("GSM484820", "series")["GSM484820"]
     assert "GSE19970" in ser, ser
     # GSE19970 is a target Series: a build mirrors it once its sample takes it in.
-    fraction = (pq.read_metadata(GAPS.path(BUILD.path)).metadata or {}).get(b"fraction")
+    fraction = (pq.read_metadata(GAPS.path(READER.path)).metadata or {}).get(b"fraction")
     if fraction is None or targets.in_sample("GSE19970", float(fraction)):
         msg = f"GSE19970 mirrored as a target: {store.open('GSE19970').accession}"
     else:
@@ -281,7 +281,7 @@ def _r11() -> str:
 
 
 # ------------------------------------------------------------ every record
-held = pq.read_table(HOLDINGS.path(BUILD.path)).column("accession").to_pylist()
+held = pq.read_table(HOLDINGS.path(READER.path)).column("accession").to_pylist()
 # Records and raw texts are checked a chunk at a time, so memory stays flat as the store grows.
 CHUNK = 20_000
 

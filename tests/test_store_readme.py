@@ -15,6 +15,7 @@ import pytest
 from typer.testing import CliRunner
 
 from labdata.cli import app
+from labdata.store import readme
 from labdata.store.build import build
 from tests._slices import built_root
 
@@ -139,3 +140,14 @@ def test_the_readme_credits_no_checkout_when_the_build_names_no_producer(root: P
     text = (root / "README.md").read_text(encoding="utf-8")
     assert "It was made by\nan unrecorded command, at an unrecorded commit." in text
     assert commit not in text
+
+
+def test_the_duckdb_examples_are_the_readme_queries_each_over_the_build() -> None:
+    examples = readme.duckdb_examples()
+    assert len(examples) == 3
+    assert all("read_parquet('{build}/" in sql for sql in examples)
+
+
+def test_a_readme_with_no_duckdb_example_fails_loudly() -> None:
+    with pytest.raises(ValueError, match="no DuckDB example"):
+        readme.duckdb_examples("# A README\n\nNo queries here.\n")

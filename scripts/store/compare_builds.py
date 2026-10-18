@@ -24,16 +24,10 @@ import duckdb
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from labdata.store.layout import sql_ident, sql_string
+
 #: Characters of a cell shown in a difference.
 SHOWN = 120
-
-
-def _quote(text: str) -> str:
-    return "'" + text.replace("'", "''") + "'"
-
-
-def _ident(name: str) -> str:
-    return '"' + name.replace('"', '""') + '"'
 
 
 def _is_date(kind: pa.DataType) -> bool:
@@ -43,10 +37,10 @@ def _is_date(kind: pa.DataType) -> bool:
 def _term(name: str, kind: pa.DataType, as_date: bool) -> str:
     """Return the value compared for one column; a date column compares at day level."""
     if not as_date:
-        return _ident(name)
+        return sql_ident(name)
     if _is_date(kind):
-        return f"CAST({_ident(name)} AS DATE)"
-    return f"CAST(CAST(nullif(CAST({_ident(name)} AS VARCHAR), '') AS TIMESTAMP) AS DATE)"
+        return f"CAST({sql_ident(name)} AS DATE)"
+    return f"CAST(CAST(nullif(CAST({sql_ident(name)} AS VARCHAR), '') AS TIMESTAMP) AS DATE)"
 
 
 def _shown(before: object, after: object) -> str:
@@ -92,8 +86,8 @@ def compare_file(con: duckdb.DuckDBPyConnection, name: str, old: Path, new: Path
     }
     joined = (
         f"(SELECT file_row_number AS rn, {side['a']} "
-        f"FROM read_parquet({_quote(str(old))}, file_row_number = true)) "
-        f"POSITIONAL JOIN (SELECT {side['b']} FROM read_parquet({_quote(str(new))}))"
+        f"FROM read_parquet({sql_string(str(old))}, file_row_number = true)) "
+        f"POSITIONAL JOIN (SELECT {side['b']} FROM read_parquet({sql_string(str(new))}))"
     )
     differs = [f"a{i} IS DISTINCT FROM b{i}" for i in range(len(columns))]
     counts = con.execute(

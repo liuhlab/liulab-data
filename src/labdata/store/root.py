@@ -87,14 +87,9 @@ class Store:
             If the marker names no build.
         """
         if self._reader is None:
-            build = self.settings.get("build")
-            if not build:
-                raise NotAStoreError(
-                    f"{self.root / MARKER} names no build; run `labdata store build`"
-                )
-            from labdata.store.reader import BuildReader, build_path
+            from labdata.store.reader import BuildReader, named_build
 
-            self._reader = BuildReader(build_path(self.root, str(build)))
+            self._reader = BuildReader(named_build(self.root, self.settings))
         return self._reader
 
     def open_many(self, accessions: Iterable[str]) -> dict[str, Record | LabdataError]:

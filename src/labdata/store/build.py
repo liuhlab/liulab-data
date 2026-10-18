@@ -94,6 +94,8 @@ _CAP_UNITS = {
 _TYPED = ("status", "submitted", "updated", "published")
 #: The record type that keeps its newest copy; every other type keeps its lowest-numbered one.
 _NEWEST_FIRST = layout.record_stem("GEO Sample")
+#: The record types whose SOFT fields name supplementary files.
+_GEO_TYPES = ("GEO Platform", "GEO Sample", "GEO Series")
 
 logger = logging.getLogger(__name__)
 
@@ -232,13 +234,13 @@ def _build_into(
         extract.run_parallel(_parse.run, ((t,) for t in wanted), workers)
         logger.info("writing record, link and supplementary-file tables")
         for folder in sorted((work / "records").glob("*")):
-            _write_records(con, root, folder, RECORDS.path(tmp) / f"{folder.name}.parquet")
+            _write_records(con, root, folder, layout.records_path(tmp, folder.name))
         _write_links(con, work, tmp)
         _write_holdings(con, tmp)
         suppl.write(
             con,
             SUPPLEMENTARY_FILES.path(tmp),
-            sorted(RECORDS.path(tmp).glob("geo-*.parquet")),
+            layout.record_files(tmp, _GEO_TYPES),
             sorted((work / "filelist").glob("*.parquet")),
         )
         labels = _unknown_labels(con, LINKS_BY_FROM.path(tmp))

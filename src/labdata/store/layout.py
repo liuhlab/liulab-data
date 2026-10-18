@@ -8,10 +8,11 @@ takes its column names from here and keeps its lookups free of pyarrow.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from types import ModuleType
+from typing import TYPE_CHECKING, NamedTuple
 
 from labdata.exceptions import StoreBuildError
 
@@ -28,20 +29,36 @@ TIMESTAMP = "timestamp"
 #: A record's source fields, in source order: a list of name and value pairs.
 FIELDS = "fields"
 
-_DUCKDB_TYPES = {
-    STRING: "VARCHAR",
-    INT64: "BIGINT",
-    DATE: "DATE",
-    TIMESTAMP: "TIMESTAMP",
-    FIELDS: "STRUCT(name VARCHAR, value VARCHAR)[]",
+
+class _Kind(NamedTuple):
+    duckdb: str
+    arrow: Callable[[ModuleType], pa.DataType]
+    #: Whether a query's text is parsed as the type on write.
+    parsed: bool = False
+
+
+_KINDS = {
+    STRING: _Kind("VARCHAR", lambda pa: pa.string()),
+    INT64: _Kind("BIGINT", lambda pa: pa.int64()),
+    DATE: _Kind("DATE", lambda pa: pa.date32(), parsed=True),
+    TIMESTAMP: _Kind("TIMESTAMP", lambda pa: pa.timestamp("us"), parsed=True),
+    FIELDS: _Kind(
+        "STRUCT(name VARCHAR, value VARCHAR)[]",
+        lambda pa: pa.list_(pa.struct([("name", pa.string()), ("value", pa.string())])),
+    ),
 }
 
+# docs/adr/0003-build-table-layout.md records why the writer settings below were chosen.
 #: Rows a record table's row group holds; a lookup reads whole row groups.
 RECORD_ROW_GROUP = 2048
 #: The zstd level of record tables; every other table takes the default level.
 RECORD_LEVEL = 9
 #: Rows any other table's row group holds.
 ROW_GROUP = 122_880
+
+#: The file in each build folder that lists the build's files and inputs; raw and snapshot
+#: folders name theirs the same.
+MANIFEST = "manifest.json"
 
 _BATCH_ROWS = 8192
 
@@ -82,7 +99,7 @@ class Table:
     def empty(self) -> str:
         """Return a DuckDB query of no rows with the table's columns and types."""
         columns = ", ".join(
-            f"NULL::{_DUCKDB_TYPES[kind]} AS {_ident(name)}" for name, kind in self.columns
+            f"NULL::{_KINDS[kind].duckdb} AS {sql_ident(name)}" for name, kind in self.columns
         )
         return f"SELECT {columns} WHERE false"
 
@@ -90,14 +107,7 @@ class Table:
         """Return the table's Arrow schema; this call imports pyarrow."""
         import pyarrow as pa
 
-        types = {
-            STRING: pa.string(),
-            INT64: pa.int64(),
-            DATE: pa.date32(),
-            TIMESTAMP: pa.timestamp("us"),
-            FIELDS: pa.list_(pa.struct([("name", pa.string()), ("value", pa.string())])),
-        }
-        return pa.schema([(name, types[kind]) for name, kind in self.columns])
+        return pa.schema([(name, _KINDS[kind].arrow(pa)) for name, kind in self.columns])
 
     def path(self, build: Path) -> Path:
         """Return the table's path inside a build folder."""
@@ -174,13 +184,31 @@ def record_stem(record_type: str) -> str:
 
 
 def records_path(build: Path, record_type: str) -> Path:
-    """Return the path of one record type's table inside a build folder."""
+    """Return the path of one record type's table inside a build folder.
+
+    ``record_type`` may also be the type's file stem, such as ``geo-series``.
+    """
     return RECORDS.path(build) / f"{record_stem(record_type)}.parquet"
+
+
+def record_files(build: Path, record_types: Iterable[str]) -> list[Path]:
+    """Return the tables of ``record_types`` inside a build folder, leaving out absent ones."""
+    return [p for t in record_types if (p := records_path(build, t)).is_file()]
+
+
+def manifest_path(build: Path) -> Path:
+    """Return the path of a build folder's manifest."""
+    return build / MANIFEST
 
 
 def sql_string(text: str) -> str:
     """Return ``text`` as a quoted SQL string literal."""
     return "'" + text.replace("'", "''") + "'"
+
+
+def sql_ident(name: str) -> str:
+    """Return ``name`` as a quoted SQL identifier."""
+    return '"' + name.replace('"', '""') + '"'
 
 
 def write(
@@ -249,7 +277,18 @@ def write(
 def check(build: Path) -> list[str]:
     """Return how each table of a build differs from its declaration; empty if none does.
 
-    Each problem names the file and the setting: columns, compression, row groups or order.
+    Parquet records each column's codec but not its level, so the level goes unchecked.
+
+    Parameters
+    ----------
+    build : pathlib.Path
+        The build folder.
+
+    Returns
+    -------
+    list of str
+        One line per problem, naming the file and the setting: a missing file, columns,
+        compression, row groups or order.
     """
     import duckdb
     import pyarrow.parquet as pq
@@ -313,11 +352,8 @@ def _columns(schema: pa.Schema) -> str:
 
 def _select(name: str, kind: str) -> str:
     """Return the select term of one column; text dates are cast to the declared type."""
-    if kind in (DATE, TIMESTAMP):
+    if _KINDS[kind].parsed:
         # Empty text is the one value that becomes NULL; any other text must parse.
-        return f"CAST(nullif({_ident(name)}, '') AS {kind.upper()}) AS {_ident(name)}"
-    return _ident(name)
-
-
-def _ident(name: str) -> str:
-    return '"' + name.replace('"', '""') + '"'
+        cast = f"CAST(nullif({sql_ident(name)}, '') AS {_KINDS[kind].duckdb})"
+        return f"{cast} AS {sql_ident(name)}"
+    return sql_ident(name)

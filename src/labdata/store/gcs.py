@@ -19,7 +19,8 @@ from pathlib import Path
 
 from labdata.exceptions import LabdataError, NotAStoreError
 from labdata.store.build import build_lock
-from labdata.store.provenance import MANIFEST, README
+from labdata.store.layout import MANIFEST, manifest_path
+from labdata.store.provenance import README
 from labdata.store.reader import build_path
 from labdata.store.root import MARKER, open_store
 
@@ -116,7 +117,7 @@ def _selected(root: Path, build: object) -> list[str]:
         raise StoreCopyError(f"copy refused: {root / MARKER} names no build")
     folder = build_path(root, str(build))
     rel = folder.relative_to(root).as_posix()
-    manifest = folder / MANIFEST
+    manifest = manifest_path(folder)
     if not manifest.is_file():
         raise StoreCopyError(f"copy refused: {rel} is missing or has no {MANIFEST}")
     data = json.loads(manifest.read_text(encoding="utf-8"))
