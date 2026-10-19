@@ -6,6 +6,7 @@ geo-series snapshot, so it is known but not held.
 
 from __future__ import annotations
 
+import datetime as dt
 from pathlib import Path
 
 import pyarrow.parquet as pq
@@ -72,7 +73,7 @@ def test_open_many_sorts_absent_accessions_with_one_known_lookup(store: Store) -
     assert isinstance(result["GSM484820"], NotMirrored)
     assert isinstance(result["SRX99999999"], NotFound)
     assert "sra-accessions snapshot of 2026-10-14" in str(result["SRX99999999"])
-    assert store.backend.calls["known_many"] == 1
+    assert store.reader.calls["known"] == 1
 
 
 def test_a_malformed_accession_raises_accession_error(store: Store) -> None:
@@ -87,12 +88,12 @@ def test_known_lists_every_snapshot_with_its_date(store: Store) -> None:
     accessions = [r["accession"] for r in rows]
     assert accessions == sorted(accessions)
     by_acc = {r["accession"]: (r["source"], r["snapshot_date"]) for r in rows}
-    assert by_acc["GSE19970"] == ("geo-series", "2026-10-14")
-    assert by_acc["GSM484820"] == ("geo-series", "2026-10-14")
-    assert by_acc["GPL9126"] == ("geo-series", "2026-10-14")
-    assert by_acc["DRR000001"] == ("sra-accessions", "2026-10-14")
-    assert by_acc["PRJNA3"] == ("bioproject", "2026-10-14")
-    assert by_acc["SAMN00000002"] == ("biosample", "2026-10-14")
+    assert by_acc["GSE19970"] == ("geo-series", dt.date(2026, 10, 14))
+    assert by_acc["GSM484820"] == ("geo-series", dt.date(2026, 10, 14))
+    assert by_acc["GPL9126"] == ("geo-series", dt.date(2026, 10, 14))
+    assert by_acc["DRR000001"] == ("sra-accessions", dt.date(2026, 10, 14))
+    assert by_acc["PRJNA3"] == ("bioproject", dt.date(2026, 10, 14))
+    assert by_acc["SAMN00000002"] == ("biosample", dt.date(2026, 10, 14))
     assert "Accession" not in by_acc
 
 

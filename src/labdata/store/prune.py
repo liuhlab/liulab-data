@@ -24,7 +24,8 @@ from labdata.store.build import (
     build_lock,
     write_marker,
 )
-from labdata.store.provenance import MANIFEST
+from labdata.store.layout import manifest_path
+from labdata.store.reader import build_folders, build_path
 from labdata.store.root import MARKER, read_marker
 
 #: How long a build stays readable after the store switched away from it, by default.
@@ -80,14 +81,12 @@ def prune(
             marker.stat().st_mtime, dt.UTC
         )
         away: dict[str, str] = settings.get(SWITCHED_AWAY_KEY, {})
-        builds = sorted(
-            p for p in (root / "builds").glob("*") if p.is_dir() and not p.name.startswith(".")
-        )
+        builds = build_folders(root)
         reads = {b.name: _reads(b) for b in builds}
         unused_since = {
             b.name: _time(away.get(b.name)) or switched for b in builds if b.name != current
         }
-        old = [root / "builds" / name for name, t in unused_since.items() if now - t > grace]
+        old = [build_path(root, name) for name, t in unused_since.items() if now - t > grace]
         latest = dict(reads.get(str(current), set()))
         snaps = []
         for folder in sorted((root / "snapshots").glob("*/*")):
@@ -113,7 +112,7 @@ def prune(
 
 def _reads(build: Path) -> set[tuple[str, str]]:
     """Return the ``(source, date)`` of each snapshot a build's manifest says it read."""
-    manifest = build / MANIFEST
+    manifest = manifest_path(build)
     if not manifest.is_file():
         return set()
     inputs = json.loads(manifest.read_text(encoding="utf-8")).get("inputs", {})
@@ -125,4 +124,4 @@ def _time(value: object) -> dt.datetime | None:
 
 
 def _gone(root: Path, build_id: str) -> bool:
-    return not (root / "builds" / build_id).is_dir()
+    return not build_path(root, build_id).is_dir()

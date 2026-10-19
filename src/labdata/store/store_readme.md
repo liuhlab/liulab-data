@@ -84,6 +84,9 @@ labdata store verify --root <store>
     who stated the link, such as `SOFT` or `SRA XML`, so select `DISTINCT` to list a link
     once. The far end of a link can be an accession the store does not hold, or a paper,
     written `PMID:<n>`.
+  - Dates are typed. `submitted`, `updated`, `published` and `snapshot_date` are `DATE`, and
+    `supplementary_files.date` is `TIMESTAMP`. Compare them with a date, such as
+    `published >= DATE '2024-01-01'`.
   - Supplementary files are listed, never downloaded.
   - The build's `README.md` gives the coverage of the target Series, the count of notes by
     kind, and any GEO relation label kept as written.
@@ -258,7 +261,7 @@ duckdb.sql(f"""
     SELECT accession, published,
            list_filter(fields, x -> x.name = 'Series_title')[1].value AS title
     FROM read_parquet('{build}/records/geo-series.parquet')
-    WHERE accession = 'GSE20301'
+    WHERE accession = 'GSE20301' AND published >= DATE '2010-01-01'
 """).show()
 
 # The samples of a Series, then their SRA experiments

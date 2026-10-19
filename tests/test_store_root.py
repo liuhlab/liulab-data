@@ -96,7 +96,7 @@ def test_the_pointer_keeps_a_root_toml_must_escape(tmp_path: Path) -> None:
 
 
 def test_the_current_build_is_the_one_the_marker_names(tmp_path: Path) -> None:
-    from labdata.store.root import current_build
+    from labdata.store.reader import current_build
 
     assert current_build(tmp_path / "no-store") is None
     root = make_store(tmp_path / "store")

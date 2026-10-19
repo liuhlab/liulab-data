@@ -12,8 +12,9 @@ import os
 import shutil
 from pathlib import Path
 
-from labdata.store import extract, snapshots
+from labdata.store import extract, layout, snapshots
 from labdata.store._files import temp_beside
+from labdata.store.layout import sql_string
 
 #: The snapshot sources ``known.parquet`` draws from.
 SOURCES = (
@@ -73,13 +74,15 @@ def _sort(
     root: Path, folders: dict[str, tuple[Path, str]], dates: dict[str, str], out: Path
 ) -> None:
     selects = [
-        f"SELECT DISTINCT accession, {extract.sql_string(source)} AS source, "
-        f"{extract.sql_string(date)} AS snapshot_date FROM read_parquet({extract.parts(folder)})"
+        f"SELECT DISTINCT accession, {sql_string(source)} AS source, "
+        f"{sql_string(date)} AS snapshot_date FROM read_parquet({extract.parts(folder)})"
         for source, (folder, date) in folders.items()
     ]
-    meta = extract.sql_string(json.dumps(dates, sort_keys=True))
     with extract.connect(root) as con:
-        con.execute(
-            f"COPY (SELECT * FROM ({' UNION ALL '.join(selects)}) ORDER BY accession, source) "
-            f"TO {extract.sql_string(str(out))} (FORMAT parquet, KV_METADATA {{{DATES_KEY}: {meta}}})"
+        layout.write(
+            con,
+            layout.KNOWN,
+            out,
+            " UNION ALL ".join(selects),
+            {DATES_KEY: json.dumps(dates, sort_keys=True)},
         )

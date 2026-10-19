@@ -6,6 +6,7 @@ Fixtures are the Series' real family SOFT (data tables trimmed) and its real
 
 from __future__ import annotations
 
+import datetime as dt
 import urllib.error
 from email.message import Message
 from pathlib import Path
@@ -116,7 +117,7 @@ def test_record_10_has_no_experiments_and_lists_its_read_files(store: Store) -> 
             name="GSE15556_RAW.tar",
             url="ftp://ftp.ncbi.nlm.nih.gov/geo/series/GSE15nnn/GSE15556/suppl/GSE15556_RAW.tar",
             size=9000960,
-            date="2013-01-17T14:38:58",
+            date=dt.datetime(2013, 1, 17, 14, 38, 58),
             type="TAR",
             archive=None,
         )
@@ -128,7 +129,7 @@ def test_record_10_has_no_experiments_and_lists_its_read_files(store: Store) -> 
             url="ftp://ftp.ncbi.nlm.nih.gov/geo/samples/GSM389nnn/GSM389464/suppl/"
             "GSM389464_fasta.FA.gz",
             size=2356372,
-            date="2009-04-15T17:05:57",
+            date=dt.datetime(2009, 4, 15, 17, 5, 57),
             type="FA",
             archive="GSE15556_RAW.tar",
         )
@@ -150,11 +151,11 @@ def test_the_series_fields_keep_both_organisms(store: Store) -> None:
     assert series.field("Series_platform_taxid") == ["8355", "8364"]
 
 
-def test_one_backend_call_lists_any_batch(store: Store) -> None:
-    before = store.backend.calls["supplementary_many"]
+def test_one_reader_call_lists_any_batch(store: Store) -> None:
+    before = store.reader.calls["supplementary_files"]
     out = store.supplementary_files(["GSM389464", "GSE233931", "GSM389472"])
     assert list(out) == ["GSM389464", "GSE233931", "GSM389472"]
-    assert store.backend.calls["supplementary_many"] == before + 1
+    assert store.reader.calls["supplementary_files"] == before + 1
     with pytest.raises(AccessionError):
         store.supplementary_files(["GSE"])
 

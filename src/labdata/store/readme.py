@@ -10,17 +10,21 @@ import importlib.resources
 import json
 import logging
 import os
+import re
 import stat
 import string
 from pathlib import Path
 
-from labdata.exceptions import NotAStoreError
 from labdata.store._files import write_atomic
-from labdata.store.provenance import MANIFEST, README
-from labdata.store.root import MARKER, read_marker
+from labdata.store.layout import manifest_path
+from labdata.store.provenance import README
+from labdata.store.reader import current_path
+from labdata.store.root import read_marker
 
 #: The top-level folders whose sizes the README gives, after the current build.
 _SIZED = ("raw", "snapshots", "support", "work")
+#: One DuckDB example of the README: its query, inside `duckdb.sql(f"""...""")`.
+_DUCKDB_EXAMPLE = re.compile(r'duckdb\.sql\(f"""(.*?)"""\)', re.DOTALL)
 
 logger = logging.getLogger(__name__)
 
@@ -44,17 +48,13 @@ def write(root: Path) -> Path:
         If the root has no marker, or the marker names no build.
     """
     settings = read_marker(root)
-    build = settings.get("build")
-    if not build:
-        raise NotAStoreError(f"{root / MARKER} names no build; run `labdata store build`")
-    folder = root / "builds" / str(build)
-    manifest_path = folder / MANIFEST
-    manifest = (
-        json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.is_file() else {}
-    )
+    folder = current_path(root)
+    build = folder.name
+    path = manifest_path(folder)
+    manifest = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
     made = manifest.get("produced_by")
     snaps = manifest.get("inputs", {}).get("snapshots", {})
-    sizes = [(f"builds/{build}/", _size(folder))] + [
+    sizes = [(f"{folder.relative_to(root).as_posix()}/", _size(folder))] + [
         (f"{name}/", _size(root / name)) for name in _SIZED if (root / name).is_dir()
     ]
     text = string.Template(_template()).substitute(
@@ -87,6 +87,32 @@ def try_write(root: Path) -> Path | None:
             "could not write %s: %s; run `labdata store readme` to write it", root / README, err
         )
         return None
+
+
+def duckdb_examples(text: str | None = None) -> list[str]:
+    """Return the SQL of each ``duckdb.sql`` example in the README, in order.
+
+    Each query still holds ``{build}``, the build folder it reads.
+
+    Parameters
+    ----------
+    text : str or None
+        The README text to read; ``None`` reads the packaged template.
+
+    Returns
+    -------
+    list of str
+        The queries, as written.
+
+    Raises
+    ------
+    ValueError
+        If the text holds no DuckDB example.
+    """
+    found = _DUCKDB_EXAMPLE.findall(_template() if text is None else text)
+    if not found:
+        raise ValueError('the README holds no DuckDB example, `duckdb.sql(f"""...""")`')
+    return found
 
 
 def _made_by(made: dict[str, str | None] | None) -> str:
