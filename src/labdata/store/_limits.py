@@ -16,6 +16,8 @@ THREADS_ENV = "LABDATA_THREADS"
 MEMORY_SHARE = 0.5
 #: The share of a step's memory Ray's object store may use. The rest is for Python.
 OBJECT_STORE_SHARE = 0.2
+#: The most threads a reader takes by default; DuckDB's peak memory grows with threads.
+READER_MAX_THREADS = 8
 
 
 def default_workers() -> int:
@@ -29,10 +31,19 @@ def step_memory_mb() -> int:
     return int(given) if given.isdigit() and int(given) > 0 else allocation_mb()
 
 
+def _given_threads() -> int | None:
+    given = os.environ.get(THREADS_ENV, "")
+    return int(given) if given.isdigit() and int(given) > 0 else None
+
+
 def step_threads() -> int:
     """Return this step's threads: ``LABDATA_THREADS``, else :func:`default_workers`."""
-    given = os.environ.get(THREADS_ENV, "")
-    return int(given) if given.isdigit() and int(given) > 0 else default_workers()
+    return _given_threads() or default_workers()
+
+
+def reader_threads() -> int:
+    """Return a reader's threads: ``LABDATA_THREADS``, else at most ``READER_MAX_THREADS``."""
+    return _given_threads() or min(default_workers(), READER_MAX_THREADS)
 
 
 def duckdb_memory() -> str:

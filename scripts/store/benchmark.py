@@ -29,8 +29,12 @@ from typing import Any
 TABLE_TYPE = "GEO Sample"
 TABLE_FIELDS = ("Sample_title", "Sample_organism_ch1", "Sample_library_strategy")
 
-#: The agreed limits of each query on a full build, warm: wall seconds and peak MiB. A name
-#: ending in `` *`` covers every query it starts. A query with no limit is only reported.
+#: The threads each query runs with, as ``LABDATA_THREADS``: peak memory grows with threads.
+BENCHMARK_THREADS = 8
+
+#: The agreed limits of each query on a full build, warm: wall seconds and peak MiB, with
+#: ``BENCHMARK_THREADS`` (8) threads. A name ending in `` *`` covers every query it starts. A
+#: query with no limit is only reported.
 LIMITS: dict[str, tuple[float, float]] = {
     "get 1": (1, 1024),
     "get 1000": (2, 2048),
@@ -164,6 +168,7 @@ def measure(name: str, root: Path, samples_file: Path, tmp: Path) -> dict[str, A
         [sys.executable, __file__, str(root), "--one", name, "--samples", str(samples_file)],
         stdout=subprocess.PIPE,
         cwd=tmp,
+        env={**os.environ, "LABDATA_THREADS": str(BENCHMARK_THREADS)},
         text=True,
     )
     assert child.stdout is not None

@@ -17,9 +17,10 @@ from labdata.cli import app
 from labdata.exceptions import LabdataError, StoreBuildError
 from labdata.store import build as build_module
 from labdata.store import extract, init_store, open_store
-from labdata.store._limits import duckdb_memory
+from labdata.store._limits import duckdb_memory, step_threads
 from labdata.store.build import build, build_lock
 from labdata.store.fetch import fetch
+from labdata.store.reader import BuildReader
 from tests._fakes import FakeEntrezClient
 from tests._slices import copy_snapshots
 
@@ -225,6 +226,34 @@ def test_a_pipeline_steps_duckdb_and_ray_stay_inside_its_memory_and_threads(
     duckdb_mb = float(limit.split()[0]) * {"MiB": 1.048576, "GiB": 1073.741824}[limit.split()[1]]
     ray_mb = seen["object_store_memory"] / 1e6
     assert duckdb_mb + ray_mb <= 8000 * 0.75
+
+
+def _reader_threads(tmp_path: Path) -> int:
+    con = BuildReader(tmp_path / "b1").connection
+    return con.execute("SELECT current_setting('threads')").fetchone()[0]  # type: ignore[index]
+
+
+@pytest.mark.parametrize(("cpus", "expected"), [(64, 8), (4, 4)])
+def test_the_reader_uses_at_most_8_threads_unless_told_otherwise(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cpus: int, expected: int
+) -> None:
+    monkeypatch.delenv("LABDATA_THREADS", raising=False)
+    monkeypatch.setenv("SLURM_CPUS_ON_NODE", str(cpus))
+    assert _reader_threads(tmp_path) == expected
+
+
+def test_an_explicit_thread_count_overrides_the_readers_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("LABDATA_THREADS", "16")
+    monkeypatch.setenv("SLURM_CPUS_ON_NODE", "64")
+    assert _reader_threads(tmp_path) == 16
+
+
+def test_a_pipeline_step_still_uses_every_cpu_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("LABDATA_THREADS", raising=False)
+    monkeypatch.setenv("SLURM_CPUS_ON_NODE", "64")
+    assert step_threads() == 64
 
 
 # ---------------------------------------------------------------- provenance
