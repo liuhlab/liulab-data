@@ -55,6 +55,9 @@ RECORD_ROW_GROUP = 2048
 RECORD_LEVEL = 9
 #: Rows any other table's row group holds.
 ROW_GROUP = 122_880
+#: The bytes a data page holds before the next begins, in every table; long text compresses
+#: better in larger pages.
+DATA_PAGE = 8 << 20
 
 #: The file in each build folder that lists the build's files and inputs; raw and snapshot
 #: folders name theirs the same.
@@ -82,6 +85,9 @@ class Table:
         The codec's level.
     row_group_rows : int
         Rows per row group; only the last row group holds fewer.
+    plain : tuple of str
+        The Parquet paths of the nearly unique columns, such as ``fields.list.element.value``,
+        written plain; every other column is dictionary-encoded.
     """
 
     name: str
@@ -90,6 +96,7 @@ class Table:
     compression: str = "zstd"
     compression_level: int = 3
     row_group_rows: int = ROW_GROUP
+    plain: tuple[str, ...] = ()
 
     @property
     def column_names(self) -> tuple[str, ...]:
@@ -134,17 +141,32 @@ RECORDS = Table(
     ("accession",),
     compression_level=RECORD_LEVEL,
     row_group_rows=RECORD_ROW_GROUP,
+    plain=("accession", "fields.list.element.value", "raw_text", "content_hash"),
 )
 _LINK_COLUMNS = _strings("from", "to", "relation", "source")
 LINKS_BY_FROM = Table(
-    "links_by_from.parquet", _LINK_COLUMNS, ('"from"', '"to"', "relation", "source")
+    "links_by_from.parquet",
+    _LINK_COLUMNS,
+    ('"from"', '"to"', "relation", "source"),
+    plain=("from", "to"),
 )
-LINKS_BY_TO = Table("links_by_to.parquet", _LINK_COLUMNS, ('"to"', '"from"', "relation", "source"))
-HOLDINGS = Table("holdings.parquet", _strings("accession", "type"), ("accession",))
+LINKS_BY_TO = Table(
+    "links_by_to.parquet",
+    _LINK_COLUMNS,
+    ('"to"', '"from"', "relation", "source"),
+    plain=("from", "to"),
+)
+HOLDINGS = Table(
+    "holdings.parquet",
+    _strings("accession", "type"),
+    ("accession",),
+    plain=("accession",),
+)
 KNOWN = Table(
     "known.parquet",
     (*_strings("accession", "source"), *_dates("snapshot_date")),
     ("accession", "source"),
+    plain=("accession",),
 )
 SUPPLEMENTARY_FILES = Table(
     "supplementary_files.parquet",
@@ -155,14 +177,20 @@ SUPPLEMENTARY_FILES = Table(
         *_strings("type", "archive"),
     ),
     ("owner", "name", "coalesce(url, '')"),
+    plain=("owner", "name", "url", "size", "date"),
 )
 GAPS = Table(
     "gaps.parquet",
     _strings("accession", "reason", "detail"),
     ("CAST(substr(accession, 4) AS BIGINT)",),
+    plain=("accession",),
 )
+# A note's detail repeats a few texts, so it keeps its dictionary.
 NOTES = Table(
-    "notes.parquet", _strings("accession", "kind", "detail"), ("kind", "accession", "detail")
+    "notes.parquet",
+    _strings("accession", "kind", "detail"),
+    ("kind", "accession", "detail"),
+    plain=("accession",),
 )
 
 #: Every build table.
@@ -252,8 +280,15 @@ def write(
     size = table.row_group_rows
     held: list[pa.RecordBatch] = []
     count = 0
+    # pyarrow accepts a list of column paths for use_dictionary.
+    dictionary = [p for p in _paths(schema) if p not in table.plain]
     with pq.ParquetWriter(
-        out, schema, compression=table.compression, compression_level=table.compression_level
+        out,
+        schema,
+        compression=table.compression,
+        compression_level=table.compression_level,
+        use_dictionary=dictionary,  # pyright: ignore[reportArgumentType]
+        data_page_size=DATA_PAGE,
     ) as writer:
         try:
             for query in [queries] if isinstance(queries, str) else queries:
@@ -277,7 +312,8 @@ def write(
 def check(build: Path) -> list[str]:
     """Return how each table of a build differs from its declaration; empty if none does.
 
-    Parquet records each column's codec but not its level, so the level goes unchecked.
+    Parquet records each column's codec but not its level or page size, so those go
+    unchecked.
 
     Parameters
     ----------
@@ -288,7 +324,7 @@ def check(build: Path) -> list[str]:
     -------
     list of str
         One line per problem, naming the file and the setting: a missing file, columns,
-        compression, row groups or order.
+        compression, dictionaries, row groups or order.
     """
     import duckdb
     import pyarrow.parquet as pq
@@ -326,11 +362,26 @@ def _differences(table: Table, parquet: pq.ParquetFile) -> list[str]:
     )
     if codecs and codecs != [table.compression.upper()]:
         out.append(f"compression is {', '.join(codecs)}, declared {table.compression.upper()}")
+    for c in range(meta.num_columns):
+        path = meta.schema.column(c).path
+        chunks = [x for g in groups if _has_values(x := g.column(c))]
+        if path in table.plain:
+            if any(x.has_dictionary_page for x in chunks):
+                out.append(f"{path} is dictionary-encoded, declared plain")
+        elif not all(x.has_dictionary_page for x in chunks):
+            out.append(f"{path} is not dictionary-encoded, declared a dictionary")
     rows = [g.num_rows for g in groups]
     size = table.row_group_rows
     if any(n != size for n in rows[:-1]) or any(n > size for n in rows[-1:]):
         out.append(f"row groups hold {rows} rows, declared {size}")
     return out
+
+
+def _has_values(chunk: pq.ColumnChunkMetaData) -> bool:
+    """Return whether a column chunk holds a value that is not NULL."""
+    stats = chunk.statistics if chunk.is_stats_set else None
+    nulls = stats.null_count if stats is not None and stats.has_null_count else 0
+    return chunk.num_values > nulls
 
 
 def _sorted(con: duckdb.DuckDBPyConnection, table: Table, file: Path) -> bool:
@@ -344,6 +395,20 @@ def _sorted(con: duckdb.DuckDBPyConnection, table: Table, file: Path) -> bool:
             WHERE file_row_number <> rank"""
     ).fetchone()
     return row is not None and row[0] == 0
+
+
+def _paths(schema: pa.Schema) -> list[str]:
+    """Return the Parquet path of every leaf column, such as ``fields.list.element.name``."""
+    import pyarrow as pa
+
+    def leaves(name: str, kind: pa.DataType) -> list[str]:
+        if isinstance(kind, pa.ListType):
+            return leaves(f"{name}.list.element", kind.value_type)
+        if isinstance(kind, pa.StructType):
+            return [p for f in kind.fields for p in leaves(f"{name}.{f.name}", f.type)]
+        return [name]
+
+    return [p for f in schema for p in leaves(f.name, f.type)]
 
 
 def _columns(schema: pa.Schema) -> str:

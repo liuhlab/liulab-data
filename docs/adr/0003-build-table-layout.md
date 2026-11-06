@@ -8,7 +8,9 @@ search:
 Every build table is written to one declaration, whatever memory the build has. Record tables
 use zstd level 9 and 2,048 rows per row group. Every other table uses zstd level 3 and
 122,880 rows per row group. Dates are typed `DATE`, and `TIMESTAMP` for a supplementary file's
-date. A record's raw text stays in its record file. No column uses `ENUM`.
+date. A record's raw text stays in its record file. No column uses `ENUM`. Nearly unique columns, such
+as accessions, hashes and raw text, are written plain, without a dictionary. Data pages hold up
+to 8 MiB.
 
 The measurements behind each choice are in the
 [layout proposal from trial writes](https://github.com/liuhlab/liulab-data/issues/82#issuecomment-6245000659),
@@ -29,12 +31,17 @@ against the
   types, so it is a breaking change for readers that compared text.
 - **Raw text in the record file.** Lookups already skip the raw text column. A separate file
   repeated the accession and hash, grew the build and was no faster.
+- **No dictionary for nearly unique columns.** The trials wrote them plain. On a nearly
+  unique column a dictionary adds a badly compressing index per row and made builds much larger.
+- **Large data pages.** zstd compresses long text better in a large page. Lookups read whole
+  row groups anyway.
 - **No `ENUM`.** Parquet already dictionary-encodes the few-valued columns, so `ENUM` saved
   nothing.
 
 ## Consequences
 
-- Parquet records each column's codec but not its level, so a layout check confirms the codec
-  and the row groups, not the level.
+- Parquet records each column's codec and dictionary but not its level or page size, so a
+  layout check confirms the codec, the dictionaries and the row groups, not the level or the
+  page size.
 - A lookup of very many scattered accessions still reads nearly every record row group. No row
   group size fixes that.

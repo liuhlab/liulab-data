@@ -51,6 +51,50 @@ def test_the_layout_is_the_approved_declaration() -> None:
     assert set(settings.values()) == {("zstd", 3, 122_880)}
 
 
+def test_nearly_unique_columns_are_plain_and_the_rest_keep_a_dictionary(tmp_path: Path) -> None:
+    build_dir = built_root(tmp_path / "store", "geo_slice") / "builds" / "b1"
+    seen = set()
+    for table in layout.TABLES:
+        path = table.path(build_dir)
+        for file in sorted(path.glob("*.parquet")) if table is layout.RECORDS else [path]:
+            meta = pq.read_metadata(file)
+            for g in range(meta.num_row_groups):
+                for c in range(meta.num_columns):
+                    chunk = meta.row_group(g).column(c)
+                    plain = chunk.path_in_schema in table.plain
+                    assert chunk.has_dictionary_page != plain, (file.name, chunk.path_in_schema)
+                    seen.add((table.name, chunk.path_in_schema, plain))
+    # The slice has no gaps and no notes, so their files hold no row group.
+    written = {name for name, _, _ in seen}
+    assert written >= {t.name for t in layout.TABLES} - {"gaps.parquet", "notes.parquet"}
+    assert {(t.name, p, True) for t in layout.TABLES if t.name in written for p in t.plain} <= seen
+    assert ("known.parquet", "source", False) in seen
+
+
+def test_a_column_in_another_encoding_names_the_column(tmp_path: Path) -> None:
+    build_dir = _build_but_records(tmp_path)
+    _write_records(tmp_path, build_dir, layout.RECORDS)
+    with extract.connect(tmp_path) as con:
+        rows = "SELECT 'GSM1' AS accession, 'geo' AS source, '2026-10-14' AS snapshot_date"
+        layout.write(con, replace(layout.KNOWN, plain=()), layout.KNOWN.path(build_dir), rows)
+    assert layout.check(build_dir) == [
+        "known.parquet: accession is dictionary-encoded, declared plain"
+    ]
+
+
+def test_a_column_of_only_nulls_needs_no_dictionary(tmp_path: Path) -> None:
+    build_dir = _build_but_records(tmp_path)
+    _write_records(tmp_path, build_dir, layout.RECORDS)
+    rows = pa.table(
+        {"accession": ["GSM1"], "source": [None], "snapshot_date": [dt.date(2026, 10, 14)]},
+        layout.KNOWN.schema(),
+    )
+    out = layout.KNOWN.path(build_dir)
+    pq.write_table(rows, out, compression="zstd", use_dictionary=["snapshot_date"])  # pyright: ignore[reportArgumentType]
+    assert not pq.read_metadata(out).row_group(0).column(1).has_dictionary_page
+    assert layout.check(build_dir) == []
+
+
 def test_dates_are_written_typed(tmp_path: Path) -> None:
     build_dir = built_root(tmp_path / "store", "geo_slice") / "builds" / "b1"
     types = {
@@ -140,6 +184,7 @@ def test_a_table_that_differs_names_the_table_and_the_setting(tmp_path: Path) ->
         pa.table({"accession": ["B", "A"], "type": ["t", "t"]}),
         layout.records_path(build_dir, "GEO Series"),
         compression="snappy",
+        use_dictionary=["type"],  # pyright: ignore[reportArgumentType]
     )
     columns, codec, order = layout.check(build_dir)
     assert columns.startswith(
