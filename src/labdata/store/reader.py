@@ -19,7 +19,7 @@ import duckdb
 
 from labdata._cache import liulab_data_cache_dir
 from labdata.exceptions import NotAStoreError
-from labdata.store._limits import duckdb_memory, step_threads
+from labdata.store._limits import duckdb_memory, reader_threads
 from labdata.store.layout import (
     HOLDINGS,
     KNOWN,
@@ -155,7 +155,8 @@ class BuildReader:
     def connection(self) -> duckdb.DuckDBPyConnection:
         """The reader's DuckDB connection, opened on first use.
 
-        Its memory cap and threads follow ``LABDATA_MEMORY_MB`` and ``LABDATA_THREADS``.
+        Its memory cap and threads follow ``LABDATA_MEMORY_MB`` and ``LABDATA_THREADS``; with
+        ``LABDATA_THREADS`` unset it takes at most ``READER_MAX_THREADS``, not every CPU.
         """
         if self._con is None:
             self._con = duckdb.connect(
@@ -163,7 +164,7 @@ class BuildReader:
                 config={
                     "temp_directory": str(liulab_data_cache_dir() / "duckdb"),
                     "memory_limit": duckdb_memory(),
-                    "threads": step_threads(),
+                    "threads": reader_threads(),
                 },
             )
         return self._con

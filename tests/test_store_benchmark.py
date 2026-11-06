@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pyarrow.parquet as pq
 import pytest
@@ -101,3 +103,29 @@ def test_a_query_over_its_limit_fails_the_run_naming_the_query(tmp_path: Path) -
     assert len(breaches) == 4, done.stdout
     assert "get 1: wall" in breaches[0]
     assert all("peak" in line for line in breaches[1:])
+
+
+class _StartedError(Exception):
+    pass
+
+
+def test_every_query_runs_with_the_pinned_thread_count(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    spec = importlib.util.spec_from_file_location("benchmark", SCRIPT)
+    assert spec is not None
+    assert spec.loader is not None
+    benchmark = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(benchmark)
+    monkeypatch.setenv("LABDATA_THREADS", "64")
+    seen: dict[str, Any] = {}
+
+    def fake_popen(*args: Any, **kwargs: Any) -> None:
+        seen.update(kwargs)
+        raise _StartedError
+
+    monkeypatch.setattr(benchmark.subprocess, "Popen", fake_popen)
+    with pytest.raises(_StartedError):
+        benchmark.measure("get 1", tmp_path, tmp_path / "samples.json", tmp_path)
+    assert seen["env"]["LABDATA_THREADS"] == "8"
+    assert seen["env"]["XDG_CACHE_HOME"] == str(tmp_path / "cache")
