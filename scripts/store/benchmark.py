@@ -33,7 +33,7 @@ TABLE_FIELDS = ("Sample_title", "Sample_organism_ch1", "Sample_library_strategy"
 BENCHMARK_THREADS = 8
 
 #: The agreed limits of each query on a full build, warm: wall seconds and peak MiB, with
-#: ``BENCHMARK_THREADS`` (8) threads. A name ending in `` *`` covers every query it starts. A
+#: ``BENCHMARK_THREADS`` threads. A name ending in `` *`` covers every query it starts. A
 #: query with no limit is only reported.
 LIMITS: dict[str, tuple[float, float]] = {
     "get 1": (1, 1024),

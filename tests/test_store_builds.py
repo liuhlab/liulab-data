@@ -228,7 +228,7 @@ def test_a_pipeline_steps_duckdb_and_ray_stay_inside_its_memory_and_threads(
     assert duckdb_mb + ray_mb <= 8000 * 0.75
 
 
-def _reader_threads(tmp_path: Path) -> int:
+def _connection_threads(tmp_path: Path) -> int:
     con = BuildReader(tmp_path / "b1").connection
     return con.execute("SELECT current_setting('threads')").fetchone()[0]  # type: ignore[index]
 
@@ -239,7 +239,7 @@ def test_the_reader_uses_at_most_8_threads_unless_told_otherwise(
 ) -> None:
     monkeypatch.delenv("LABDATA_THREADS", raising=False)
     monkeypatch.setenv("SLURM_CPUS_ON_NODE", str(cpus))
-    assert _reader_threads(tmp_path) == expected
+    assert _connection_threads(tmp_path) == expected
 
 
 def test_an_explicit_thread_count_overrides_the_readers_cap(
@@ -247,7 +247,7 @@ def test_an_explicit_thread_count_overrides_the_readers_cap(
 ) -> None:
     monkeypatch.setenv("LABDATA_THREADS", "16")
     monkeypatch.setenv("SLURM_CPUS_ON_NODE", "64")
-    assert _reader_threads(tmp_path) == 16
+    assert _connection_threads(tmp_path) == 16
 
 
 def test_a_pipeline_step_still_uses_every_cpu_by_default(monkeypatch: pytest.MonkeyPatch) -> None:

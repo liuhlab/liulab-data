@@ -127,6 +127,5 @@ def test_every_query_runs_with_the_pinned_thread_count(
     monkeypatch.setattr(benchmark.subprocess, "Popen", fake_popen)
     with pytest.raises(_StartedError):
         benchmark.measure("get 1", tmp_path, tmp_path / "samples.json", tmp_path)
-    assert benchmark.BENCHMARK_THREADS == 8
     assert seen["env"]["LABDATA_THREADS"] == "8"
     assert seen["env"]["XDG_CACHE_HOME"] == str(tmp_path / "cache")

@@ -156,7 +156,7 @@ class BuildReader:
         """The reader's DuckDB connection, opened on first use.
 
         Its memory cap and threads follow ``LABDATA_MEMORY_MB`` and ``LABDATA_THREADS``; with
-        ``LABDATA_THREADS`` unset it takes at most 8 threads, not every CPU.
+        ``LABDATA_THREADS`` unset it takes at most ``READER_MAX_THREADS``, not every CPU.
         """
         if self._con is None:
             self._con = duckdb.connect(
