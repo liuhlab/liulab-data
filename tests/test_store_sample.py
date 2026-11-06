@@ -8,6 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import click
 import pyarrow.parquet as pq
 import pytest
 from typer.testing import CliRunner
@@ -244,5 +245,5 @@ def test_the_cli_needs_an_explicit_scratch_root_for_a_sample(source: Path) -> No
     result = CliRunner().invoke(
         app, ["store", "build", "--sample-of", str(source), "--fraction", "0.5"]
     )
-    assert result.exit_code != 0
-    assert "--root" in result.output
+    assert result.exit_code == 2
+    assert "--root" in click.unstyle(result.output)
