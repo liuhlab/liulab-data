@@ -2,7 +2,8 @@
 
 The accessions come from each snapshot's extract (``labdata store extract``), deduped per
 source. The table depends only on the snapshot dates, so it is sorted once per set of dates
-into ``<root>/work/known/`` and each build links that file.
+into ``<root>/work/known/`` and each build links that file. A sample build writes its own
+share straight into the build.
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ import os
 import shutil
 from pathlib import Path
 
-from labdata.store import extract, layout, snapshots
+from labdata.store import extract, layout, snapshots, targets
 from labdata.store._files import temp_beside
 from labdata.store.layout import sql_string
 
@@ -28,11 +29,19 @@ SOURCES = (
 DATES_KEY = "snapshot_dates"
 
 
-def write(root: Path, out: Path) -> dict[str, str]:
+def write(
+    root: Path,
+    out: Path,
+    *,
+    inputs: Path | None = None,
+    sample: float | None = None,
+    held: Path | None = None,
+) -> dict[str, str]:
     """Write ``out`` from the extract of each source's newest snapshot.
 
     ``out`` is a hard link to (or, across file systems, a copy of) the cached table for these
-    snapshot dates, which is written first if missing.
+    snapshot dates, which is written first if missing. With ``sample``, ``out`` is written
+    directly and keeps only the accessions in that seeded sample or in ``held``.
 
     Parameters
     ----------
@@ -40,6 +49,12 @@ def write(root: Path, out: Path) -> dict[str, str]:
         The store root.
     out : pathlib.Path
         The ``known.parquet`` path.
+    inputs : pathlib.Path or None
+        The store root whose extracts are read; defaults to ``root``.
+    sample : float or None
+        The fraction of a sample build (see :func:`labdata.store.targets.in_sample`).
+    held : pathlib.Path or None
+        A sample build's ``holdings.parquet``; its accessions are kept too.
 
     Returns
     -------
@@ -51,8 +66,11 @@ def write(root: Path, out: Path) -> dict[str, str]:
     StoreBuildError
         If a source's snapshot is missing or not extracted.
     """
-    folders = {source: extract.done_dir(root, source) for source in SOURCES}
+    folders = {source: extract.done_dir(inputs or root, source) for source in SOURCES}
     dates = {source: date for source, (_, date) in folders.items()}
+    if sample is not None:
+        _sort(root, folders, dates, out, sample, held)
+        return dates
     key = "_".join(f"{source}-{date}" for source, date in dates.items())
     cached = root / "work" / "known" / f"known-{key}.parquet"
     if not cached.is_file():
@@ -71,7 +89,12 @@ def write(root: Path, out: Path) -> dict[str, str]:
 
 
 def _sort(
-    root: Path, folders: dict[str, tuple[Path, str]], dates: dict[str, str], out: Path
+    root: Path,
+    folders: dict[str, tuple[Path, str]],
+    dates: dict[str, str],
+    out: Path,
+    sample: float | None = None,
+    held: Path | None = None,
 ) -> None:
     selects = [
         f"SELECT DISTINCT accession, {sql_string(source)} AS source, "
@@ -79,6 +102,13 @@ def _sort(
         for source, (folder, date) in folders.items()
     ]
     with extract.connect(root) as con:
+        if sample is not None:
+            targets.add_in_sample(con, sample)
+            kept = "in_sample(accession)"
+            if held is not None:
+                listed = f"read_parquet({sql_string(str(held))})"
+                kept += f" OR accession IN (SELECT accession FROM {listed})"
+            selects = [f"SELECT * FROM ({s}) WHERE {kept}" for s in selects]
         layout.write(
             con,
             layout.KNOWN,

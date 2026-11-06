@@ -176,26 +176,42 @@ def store_build(
     fraction: float | None = typer.Option(
         None, help="Gaps and coverage over this seeded sample of the target list; default: all."
     ),
+    sample_of: Path | None = typer.Option(
+        None,
+        help="Build a sample of the store at this root into --root, a scratch root: "
+        "the seeded --fraction of its raw rows and snapshot records.",
+    ),
 ) -> None:
     """Build the store's tables from raw/ and snapshots/ with no network, then switch to them.
 
     Memory is bounded by about one chunk per worker plus DuckDB's cap
     (LABDATA_DUCKDB_MEMORY, default a share of the job's memory).
+
+    With --sample-of, the source store is only read: the sample is built and switched to in
+    --root, which is made if missing.
     """
     import logging
 
     from labdata.store.build import build as build_store
 
+    if sample_of is None:
+        target, source = open_store(root).root, None
+    elif root is None or fraction is None:
+        raise typer.BadParameter(
+            "a sample needs --root, its scratch root, and --fraction", param_hint="--sample-of"
+        )
+    else:
+        target, source = root, open_store(sample_of).root
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
-    store = open_store(root)
     out = build_store(
-        store.root,
+        target,
         build_id,
         workers=workers,
         chunk_bytes=chunk_mb << 20,
         fraction=_fraction(fraction),
+        sample_of=source,
     )
-    typer.echo(f"Built {out} and switched the store to it")
+    typer.echo(f"Built {out} and switched {'the store' if source is None else target} to it")
 
 
 @store_app.command("readme")

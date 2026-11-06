@@ -97,6 +97,31 @@ can finish; the [API reference](../reference.md#labdata.store.prune) gives its l
 only as a one-off to tidy a store nobody is reading, not as a refresh step. Prune never
 deletes the current build or anything it reads.
 
+## Make a sample build
+
+A sample build is a small copy of a full store's tables, for trying a change before you
+build the whole store. It holds a fixed random share of each record type, made by the same
+code that makes a full build. Give it the full store, an empty folder for the sample and the
+share:
+
+```bash
+labdata store build --sample-of /path/to/store --root /path/to/scratch --fraction 0.01
+```
+
+The full store is only read: its raw files, snapshots and current build stay as they are.
+The sample is built in the scratch folder, which becomes a store of its own, so
+`open_store("/path/to/scratch")` opens it. The same share always picks the same records, and
+a smaller share's records are all inside a larger one's.
+
+To time queries on the sample, set `LABDATA_THREADS` so the results compare with other runs:
+
+```bash
+LABDATA_THREADS=8 pixi run python scripts/store/benchmark.py /path/to/scratch
+```
+
+The benchmark also prints the share of links whose far end the sample holds. Most links
+point outside a sample, so its link-query timings are indicative only.
+
 ## Go deeper
 
 The steps are also commands of their own: `labdata store pack`, `build`, `coverage`, `prune`

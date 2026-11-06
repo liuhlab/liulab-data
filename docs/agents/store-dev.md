@@ -17,5 +17,7 @@ build that answers the question, and run the full build once, at the end.
 Write every trial through `layout.write`, the only code that writes build tables. Another
 writer gives other sizes for the same settings.
 
-No command makes a sample build yet (#92). Until one does, try the setting on one record type
-of the full build and drop the losing settings before writing the rest.
+Make a sample build with `labdata store build --sample-of <store> --root <scratch> --fraction
+<f>`, as the store how-to page shows. It reads the store's `raw/` and `snapshots/` and writes
+only the scratch root. Set `LABDATA_THREADS` when you run `benchmark.py` on it, or the peaks
+won't compare. Link-query timings on a sample are indicative only: most links dangle.

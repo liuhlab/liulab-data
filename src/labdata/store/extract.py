@@ -206,15 +206,20 @@ def connect(root: Path) -> Iterator[duckdb.DuckDBPyConnection]:
         shutil.rmtree(temp, ignore_errors=True)
 
 
-def lookup(root: Path, source: str, wanted: Iterable[str]) -> tuple[str, list[tuple[object, ...]]]:
+def lookup(
+    root: Path, source: str, wanted: Iterable[str], *, inputs: Path | None = None
+) -> tuple[str, list[tuple[object, ...]]]:
     """Return a snapshot's date and its extract rows for the wanted accessions.
+
+    The extract is read from ``inputs``, which defaults to ``root``; DuckDB spills under
+    ``root``.
 
     Raises
     ------
     StoreBuildError
         If the source is not extracted.
     """
-    folder, date = done_dir(root, source)
+    folder, date = done_dir(inputs or root, source)
     want = sorted(set(wanted))
     if not want:
         return date, []

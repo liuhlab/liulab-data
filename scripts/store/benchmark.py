@@ -10,6 +10,9 @@ prints one row per query: rows returned, wall time and that process's peak resid
 Then it prints each build table's file size, rows and row groups, and each query over its
 agreed limit (``LIMITS``); any query over its limit makes it exit 1. The store is only read;
 temporary files go in a system temp folder, and output only to stdout and ``--out``.
+
+On a sample build it also prints the share of link rows whose ``to`` side the sample holds.
+A sample leaves most links dangling, so its link-query timings are indicative only.
 """
 
 from __future__ import annotations
@@ -188,6 +191,30 @@ def measure(name: str, root: Path, samples_file: Path, tmp: Path) -> dict[str, A
     }
 
 
+def sample_of(build: Path, tmp: Path) -> dict[str, Any] | None:
+    """Return a sample build's fraction and share of link rows whose ``to`` side it holds."""
+    import duckdb
+
+    from labdata.store.layout import HOLDINGS, LINKS_BY_FROM, manifest_path, sql_string
+
+    manifest = json.loads(manifest_path(build).read_text(encoding="utf-8"))
+    if "sample" not in manifest:
+        return None
+    con = duckdb.connect(config={"temp_directory": str(tmp / "duckdb")})
+    links = sql_string(str(LINKS_BY_FROM.path(build)))
+    holdings = sql_string(str(HOLDINGS.path(build)))
+    row = con.execute(
+        f"""SELECT count(*), count(*) FILTER (
+              WHERE "to" IN (SELECT accession FROM read_parquet({holdings})))
+            FROM read_parquet({links})"""
+    ).fetchone()
+    total, held = row if row is not None else (0, 0)
+    return {
+        "fraction": manifest["sample"]["fraction"] or 1.0,
+        "links_to_held": round(held / total, 4) if total else 0.0,
+    }
+
+
 def table_stats(build: Path) -> list[dict[str, Any]]:
     """Return each Parquet file's size, rows and row groups."""
     import pyarrow.parquet as pq
@@ -243,6 +270,7 @@ def main(argv: list[str] | None = None) -> int:
         samples = sample(build, sizes, args.seed, tmp)
         samples_file = tmp / "samples.json"
         samples_file.write_text(json.dumps(samples))
+        sampled = sample_of(build, tmp)
         names = query_names(sizes, len(samples["series"]))
         queries = []
         for query in names:
@@ -261,10 +289,16 @@ def main(argv: list[str] | None = None) -> int:
         "queries": queries,
         "tables": tables,
         "breaches": over,
+        **({"sample": sampled} if sampled is not None else {}),
     }
     print(f"build {build.name}, seed {args.seed}\n")
     print(_markdown(queries, ["query", "rows", "wall_s", "cpu_s", "peak_rss_mib"]) + "\n")
     print(_markdown(tables, ["file", "bytes", "rows", "row_groups"]))
+    if sampled is not None:
+        print(
+            f"\nsample of {sampled['fraction']}: {sampled['links_to_held']:.1%} of link rows have "
+            "their `to` side held; link-query timings on a sample are indicative only"
+        )
     if args.out:
         args.out.write_text(json.dumps(result, indent=2) + "\n")
     print("\n" + ("\n".join(over) if over else "every query is within its limit"))

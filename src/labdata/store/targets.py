@@ -17,6 +17,7 @@ import hashlib
 import json
 from collections.abc import Iterator
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -24,6 +25,9 @@ import pyarrow.parquet as pq
 from labdata.store import snapshots
 from labdata.store._files import temp_beside
 from labdata.store.sources import GEO_SUMMARY, LinkRow
+
+if TYPE_CHECKING:
+    import duckdb
 
 #: The ``gdstype`` text that puts a Series on the target list, matched case-insensitively.
 SEQUENCING = "high throughput sequencing"
@@ -47,6 +51,20 @@ def in_sample(accession: str, fraction: float) -> bool:
     """
     digest = hashlib.blake2b(f"{SEED}:{accession}".encode(), digest_size=8).digest()
     return int.from_bytes(digest) < fraction * 2**64
+
+
+def add_in_sample(con: duckdb.DuckDBPyConnection, fraction: float) -> None:
+    """Add the SQL function ``in_sample(accession)``: :func:`in_sample` at ``fraction``."""
+
+    def keep(accessions: pa.Array) -> pa.Array:
+        return pa.array(
+            [a is not None and in_sample(a, fraction) for a in accessions.to_pylist()], pa.bool_()
+        )
+
+    from duckdb.func import PythonUDFType
+    from duckdb.sqltypes import BOOLEAN, VARCHAR
+
+    con.create_function("in_sample", keep, [VARCHAR], BOOLEAN, type=PythonUDFType.ARROW)
 
 
 def check_fraction(fraction: float | None) -> float | None:
@@ -82,7 +100,13 @@ def list_path(root: Path, date: str, fraction: float | None = None) -> Path:
     return root / "work" / "targets" / f"geo-series-{date}{tag}.parquet"
 
 
-def target_list(root: Path, date: str | None = None, fraction: float | None = None) -> Path:
+def target_list(
+    root: Path,
+    date: str | None = None,
+    fraction: float | None = None,
+    *,
+    inputs: Path | None = None,
+) -> Path:
     """Return the target Series list of one ``geo-series`` snapshot, writing it if missing.
 
     Parameters
@@ -93,6 +117,8 @@ def target_list(root: Path, date: str | None = None, fraction: float | None = No
         The snapshot date; defaults to the newest snapshot.
     fraction : float or None
         A round's seeded sample of the list (see :func:`in_sample`); ``None`` or ``1`` for all.
+    inputs : pathlib.Path or None
+        The store root whose snapshot is read; defaults to ``root``, which holds the list.
 
     Returns
     -------
@@ -108,7 +134,7 @@ def target_list(root: Path, date: str | None = None, fraction: float | None = No
         If the fraction is not in (0, 1].
     """
     fraction = check_fraction(fraction)
-    snap = snapshots.snapshot(root, snapshots.GEO_SERIES, date)
+    snap = snapshots.snapshot(inputs or root, snapshots.GEO_SERIES, date)
     out = list_path(root, snap.date, fraction)
     if out.is_file():
         return out

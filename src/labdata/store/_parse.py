@@ -17,7 +17,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from labdata.exceptions import StoreBuildError
-from labdata.store import raw, snapshots, sources, suppl
+from labdata.store import raw, snapshots, sources, suppl, targets
 from labdata.store.layout import record_stem
 
 _FIELDS = pa.list_(pa.struct([("name", pa.string()), ("value", pa.string())]))
@@ -77,7 +77,8 @@ class Task:
     """Some row groups of some files of one kind to parse.
 
     ``inputs`` pairs each file with the row groups to read. ``date`` is a snapshot's date, used
-    in place of each raw row's fetch date.
+    in place of each raw row's fetch date. With ``sample``, a row whose accession is outside
+    that seeded sample (:func:`labdata.store.targets.in_sample`) is skipped unparsed.
     """
 
     kind: str
@@ -86,6 +87,7 @@ class Task:
     index: int
     chunk_bytes: int
     date: str | None = None
+    sample: float | None = None
 
 
 @dataclass(slots=True)
@@ -186,6 +188,10 @@ def run(task: Task) -> Left:
                     for accession, text, date in zip(
                         data["accession"], data["raw_text"], dates, strict=True
                     ):
+                        if task.sample is not None and not targets.in_sample(
+                            accession, task.sample
+                        ):
+                            continue
                         held += len(text)
                         if task.kind == raw.SRA_XML and not text:
                             left.empty.append(accession)

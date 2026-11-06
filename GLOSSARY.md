@@ -66,6 +66,15 @@ _Avoid_: write, save (for `raw/` itself)
 A Series on the target Series list that the store does not hold, recorded with a reason. Coverage
 passes when every target Series is either held or a gap with a known reason.
 
+### Sample build
+
+A build of a seeded share of a full store, made into a scratch root by the full build's own
+code. A raw row is in the sample when its accession is, and every record parsed from it comes
+with it; BioProject and BioSample records are also sampled by their own accession. A smaller
+share's sample lies inside a larger one's.
+
+_Avoid_: round (a share of the target Series list that the full download fetches)
+
 ### Round
 
 One run of the full download over a seeded sample of the target Series list, such as 1%. A
