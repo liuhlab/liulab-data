@@ -55,6 +55,9 @@ RECORD_ROW_GROUP = 2048
 RECORD_LEVEL = 9
 #: Rows any other table's row group holds.
 ROW_GROUP = 122_880
+#: The bytes a data page holds before the next begins; a record's long text compresses better
+#: in larger pages.
+DATA_PAGE = 8 << 20
 
 #: The file in each build folder that lists the build's files and inputs; raw and snapshot
 #: folders name theirs the same.
@@ -88,6 +91,8 @@ class Table:
     encodings : tuple of tuple of str
         Each Parquet column path written without a dictionary, and its encoding, such as
         ``PLAIN``. Every other column is dictionary-encoded.
+    data_page_bytes : int
+        The bytes a data page holds before the next begins.
     """
 
     name: str
@@ -97,6 +102,7 @@ class Table:
     compression_level: int = 3
     row_group_rows: int = ROW_GROUP
     encodings: tuple[tuple[str, str], ...] = ()
+    data_page_bytes: int = DATA_PAGE
 
     @property
     def column_names(self) -> tuple[str, ...]:
@@ -182,6 +188,7 @@ SUPPLEMENTARY_FILES = Table(
         *_strings("type", "archive"),
     ),
     ("owner", "name", "coalesce(url, '')"),
+    encodings=_plain("owner", "name", "url", "size", "date"),
 )
 GAPS = Table(
     "gaps.parquet",
@@ -287,6 +294,7 @@ def write(
         compression_level=table.compression_level,
         use_dictionary=[p for p in _paths(schema) if p not in encodings],
         column_encoding=encodings or None,
+        data_page_size=table.data_page_bytes,
     ) as writer:
         try:
             for query in [queries] if isinstance(queries, str) else queries:
@@ -310,7 +318,8 @@ def write(
 def check(build: Path) -> list[str]:
     """Return how each table of a build differs from its declaration; empty if none does.
 
-    Parquet records each column's codec but not its level, so the level goes unchecked.
+    Parquet records each column's codec but not its level or page size, so those go
+    unchecked.
 
     Parameters
     ----------
