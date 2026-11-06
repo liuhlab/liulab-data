@@ -127,11 +127,18 @@ def gap_row(series: str, reason: str, fetch_date: str, detail: str = "") -> raw.
 
 
 def write_gaps(
-    root: Path, build_dir: Path, target_list: Path, date: str, fraction: float | None = None
+    root: Path,
+    build_dir: Path,
+    target_list: Path,
+    date: str,
+    fraction: float | None = None,
+    *,
+    source: targets.BuildSource | None = None,
 ) -> dict[str, object]:
     """Write ``gaps.parquet`` from the target list, ``holdings.parquet`` and ``raw/geo-gaps/``.
 
     ``fraction`` names the round's sample the target list is, so coverage re-reads the same.
+    ``raw/`` is read from ``source``, which defaults to ``root``.
 
     Returns
     -------
@@ -149,7 +156,7 @@ def write_gaps(
             con,
             GAPS,
             out,
-            f"""WITH g AS ({_gap_rows(root)})
+            f"""WITH g AS ({_gap_rows(root if source is None else source.root)})
             SELECT t.accession,
               CASE WHEN g.reason IN ({reasons}) THEN g.reason ELSE '{UNEXPLAINED}' END
                 AS reason,
@@ -181,11 +188,14 @@ def write_notes(
     target_list: Path,
     extra: Iterable[Note] = (),
     experiments: Path | None = None,
+    *,
+    source: targets.BuildSource | None = None,
 ) -> dict[str, int]:
     """Write ``notes.parquet``: type disagreements, failed package fetches, then ``extra``.
 
     A failed package fetch is an experiment on the E-utilities lane's list ``experiments``
-    that ``raw/sra-xml/`` does not hold.
+    that ``raw/sra-xml/`` of ``source`` (default ``root``) does not hold. When ``source``
+    samples, only the experiments in its seeded sample are noted.
 
     Returns
     -------
@@ -220,7 +230,8 @@ def write_notes(
         else "SELECT * FROM extra WHERE false"
     )
     unfetched = "SELECT * FROM extra WHERE false"
-    saved = root / "raw" / raw.SRA_XML
+    sample = None if source is None else source.sample
+    saved = (root if source is None else source.root) / "raw" / raw.SRA_XML
     if experiments is not None and experiments.is_file():
         held = (
             f"SELECT accession FROM {_read(saved / '*.parquet')}"
@@ -231,9 +242,12 @@ def write_notes(
             f"SELECT accession, '{PACKAGE_FETCH_FAILED}' AS kind, "
             f"'no package saved; a rerun asks again' AS detail FROM {_read(experiments)} "
             f"WHERE accession NOT IN ({held})"
+            + ("" if sample is None else " AND in_sample(accession)")
         )
     with extract.connect(root) as con:
         con.register("extra", extra_table)
+        if sample is not None:
+            targets.add_in_sample(con, sample)
         layout.write(
             con, NOTES, out, f"{disagree} UNION ALL {unfetched} UNION ALL SELECT * FROM extra"
         )
