@@ -97,6 +97,24 @@ can finish; the [API reference](../reference.md#labdata.store.prune) gives its l
 only as a one-off to tidy a store nobody is reading, not as a refresh step. Prune never
 deletes the current build or anything it reads.
 
+## Try a change on a small build first
+
+Most changes to the store's code or table layout don't need the full build. Use the smallest
+build that can answer the question:
+
+- **The test build** shows whether the code runs and writes each table as declared: columns,
+  types, sort order, codec and row groups. Fix every error here first.
+- **A seeded sample of each record type** shows how a setting moves file size or write time,
+  such as the codec and its level, the encoding of a column with few values, or the row-group
+  size. Write the sample with the build's own writer. Another writer can give other sizes for
+  the same settings.
+- **The full build** shows what depends on the real number of rows: the query limits in
+  `scripts/store/benchmark.py`, how many row groups a lookup reads, and the build's time and
+  memory. Run it once at the end, and check it with `scripts/store/compare_builds.py`.
+
+If a setting must be tried on the full build, try it on one record type first. Drop the
+settings that lose before you write the rest.
+
 ## Go deeper
 
 The steps are also commands of their own: `labdata store pack`, `build`, `coverage`, `prune`
