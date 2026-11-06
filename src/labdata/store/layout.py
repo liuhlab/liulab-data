@@ -55,16 +55,13 @@ RECORD_ROW_GROUP = 2048
 RECORD_LEVEL = 9
 #: Rows any other table's row group holds.
 ROW_GROUP = 122_880
-#: The bytes a data page holds before the next begins; a record's long text compresses better
-#: in larger pages.
+#: The bytes a data page holds before the next begins, in every table; long text compresses
+#: better in larger pages.
 DATA_PAGE = 8 << 20
 
 #: The file in each build folder that lists the build's files and inputs; raw and snapshot
 #: folders name theirs the same.
 MANIFEST = "manifest.json"
-
-#: The encoding of a many-valued column; a dictionary of nearly unique values compresses worse.
-PLAIN = "PLAIN"
 
 _BATCH_ROWS = 8192
 
@@ -88,11 +85,9 @@ class Table:
         The codec's level.
     row_group_rows : int
         Rows per row group; only the last row group holds fewer.
-    encodings : tuple of tuple of str
-        Each Parquet column path written without a dictionary, and its encoding, such as
-        ``PLAIN``. Every other column is dictionary-encoded.
-    data_page_bytes : int
-        The bytes a data page holds before the next begins.
+    plain : tuple of str
+        The Parquet paths of the nearly unique columns, such as ``fields.list.element.value``,
+        written plain; every other column is dictionary-encoded.
     """
 
     name: str
@@ -101,8 +96,7 @@ class Table:
     compression: str = "zstd"
     compression_level: int = 3
     row_group_rows: int = ROW_GROUP
-    encodings: tuple[tuple[str, str], ...] = ()
-    data_page_bytes: int = DATA_PAGE
+    plain: tuple[str, ...] = ()
 
     @property
     def column_names(self) -> tuple[str, ...]:
@@ -135,10 +129,6 @@ def _dates(*names: str) -> tuple[tuple[str, str], ...]:
     return tuple((name, DATE) for name in names)
 
 
-def _plain(*paths: str) -> tuple[tuple[str, str], ...]:
-    return tuple((path, PLAIN) for path in paths)
-
-
 RECORDS = Table(
     "records",
     (
@@ -151,33 +141,32 @@ RECORDS = Table(
     ("accession",),
     compression_level=RECORD_LEVEL,
     row_group_rows=RECORD_ROW_GROUP,
-    encodings=_plain("accession", "fields.list.element.value", "raw_text", "content_hash"),
+    plain=("accession", "fields.list.element.value", "raw_text", "content_hash"),
 )
 _LINK_COLUMNS = _strings("from", "to", "relation", "source")
-_LINK_ENCODINGS = _plain("from", "to")
 LINKS_BY_FROM = Table(
     "links_by_from.parquet",
     _LINK_COLUMNS,
     ('"from"', '"to"', "relation", "source"),
-    encodings=_LINK_ENCODINGS,
+    plain=("from", "to"),
 )
 LINKS_BY_TO = Table(
     "links_by_to.parquet",
     _LINK_COLUMNS,
     ('"to"', '"from"', "relation", "source"),
-    encodings=_LINK_ENCODINGS,
+    plain=("from", "to"),
 )
 HOLDINGS = Table(
     "holdings.parquet",
     _strings("accession", "type"),
     ("accession",),
-    encodings=_plain("accession"),
+    plain=("accession",),
 )
 KNOWN = Table(
     "known.parquet",
     (*_strings("accession", "source"), *_dates("snapshot_date")),
     ("accession", "source"),
-    encodings=_plain("accession"),
+    plain=("accession",),
 )
 SUPPLEMENTARY_FILES = Table(
     "supplementary_files.parquet",
@@ -188,15 +177,20 @@ SUPPLEMENTARY_FILES = Table(
         *_strings("type", "archive"),
     ),
     ("owner", "name", "coalesce(url, '')"),
-    encodings=_plain("owner", "name", "url", "size", "date"),
+    plain=("owner", "name", "url", "size", "date"),
 )
 GAPS = Table(
     "gaps.parquet",
     _strings("accession", "reason", "detail"),
     ("CAST(substr(accession, 4) AS BIGINT)",),
+    plain=("accession",),
 )
+# A note's detail repeats a few texts, so it keeps its dictionary.
 NOTES = Table(
-    "notes.parquet", _strings("accession", "kind", "detail"), ("kind", "accession", "detail")
+    "notes.parquet",
+    _strings("accession", "kind", "detail"),
+    ("kind", "accession", "detail"),
+    plain=("accession",),
 )
 
 #: Every build table.
@@ -286,16 +280,15 @@ def write(
     size = table.row_group_rows
     held: list[pa.RecordBatch] = []
     count = 0
-    encodings = dict(table.encodings)
+    # pyarrow accepts a list of column paths for use_dictionary.
+    dictionary = [p for p in _paths(schema) if p not in table.plain]
     with pq.ParquetWriter(
         out,
         schema,
         compression=table.compression,
         compression_level=table.compression_level,
-        # pyarrow takes a list of column paths here too; its type stubs say bool only.
-        use_dictionary=[p for p in _paths(schema) if p not in encodings],  # pyright: ignore[reportArgumentType]
-        column_encoding=encodings or None,
-        data_page_size=table.data_page_bytes,
+        use_dictionary=dictionary,  # pyright: ignore[reportArgumentType]
+        data_page_size=DATA_PAGE,
     ) as writer:
         try:
             for query in [queries] if isinstance(queries, str) else queries:
@@ -331,7 +324,7 @@ def check(build: Path) -> list[str]:
     -------
     list of str
         One line per problem, naming the file and the setting: a missing file, columns,
-        compression, encodings, row groups or order.
+        compression, dictionaries, row groups or order.
     """
     import duckdb
     import pyarrow.parquet as pq
@@ -369,21 +362,26 @@ def _differences(table: Table, parquet: pq.ParquetFile) -> list[str]:
     )
     if codecs and codecs != [table.compression.upper()]:
         out.append(f"compression is {', '.join(codecs)}, declared {table.compression.upper()}")
-    plain = dict(table.encodings)
     for c in range(meta.num_columns):
-        chunks = [g.column(c) for g in groups]
         path = meta.schema.column(c).path
-        if path in plain and any(x.has_dictionary_page for x in chunks):
-            out.append(f"{path} is dictionary-encoded, declared {plain[path]}")
-        elif path in plain and any(plain[path] not in x.encodings for x in chunks):
-            out.append(f"{path} is not encoded {plain[path]}")
-        elif path not in plain and not all(x.has_dictionary_page for x in chunks):
+        chunks = [x for g in groups if _has_values(x := g.column(c))]
+        if path in table.plain:
+            if any(x.has_dictionary_page for x in chunks):
+                out.append(f"{path} is dictionary-encoded, declared plain")
+        elif not all(x.has_dictionary_page for x in chunks):
             out.append(f"{path} is not dictionary-encoded, declared a dictionary")
     rows = [g.num_rows for g in groups]
     size = table.row_group_rows
     if any(n != size for n in rows[:-1]) or any(n > size for n in rows[-1:]):
         out.append(f"row groups hold {rows} rows, declared {size}")
     return out
+
+
+def _has_values(chunk: pq.ColumnChunkMetaData) -> bool:
+    """Return whether a column chunk holds a value that is not NULL."""
+    stats = chunk.statistics if chunk.is_stats_set else None
+    nulls = stats.null_count if stats is not None and stats.has_null_count else 0
+    return chunk.num_values > nulls
 
 
 def _sorted(con: duckdb.DuckDBPyConnection, table: Table, file: Path) -> bool:

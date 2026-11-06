@@ -51,34 +51,48 @@ def test_the_layout_is_the_approved_declaration() -> None:
     assert set(settings.values()) == {("zstd", 3, 122_880)}
 
 
-def _chunks(path: Path) -> dict[str, pq.ColumnChunkMetaData]:
-    """The first row group's column chunks of a file, by column path."""
-    group = pq.read_metadata(path).row_group(0)
-    return {group.column(c).path_in_schema: group.column(c) for c in range(group.num_columns)}
-
-
-def test_columns_are_written_in_their_declared_encodings(tmp_path: Path) -> None:
+def test_nearly_unique_columns_are_plain_and_the_rest_keep_a_dictionary(tmp_path: Path) -> None:
     build_dir = built_root(tmp_path / "store", "geo_slice") / "builds" / "b1"
-    known = _chunks(layout.KNOWN.path(build_dir))
-    assert not known["accession"].has_dictionary_page
-    assert "PLAIN" in known["accession"].encodings
-    assert known["source"].has_dictionary_page
-    records = _chunks(layout.records_path(build_dir, "GEO Series"))
-    assert not records["fields.list.element.value"].has_dictionary_page
-    assert records["fields.list.element.name"].has_dictionary_page
+    seen = set()
+    for table in layout.TABLES:
+        path = table.path(build_dir)
+        for file in sorted(path.glob("*.parquet")) if table is layout.RECORDS else [path]:
+            meta = pq.read_metadata(file)
+            for g in range(meta.num_row_groups):
+                for c in range(meta.num_columns):
+                    chunk = meta.row_group(g).column(c)
+                    plain = chunk.path_in_schema in table.plain
+                    assert chunk.has_dictionary_page != plain, (file.name, chunk.path_in_schema)
+                    seen.add((table.name, chunk.path_in_schema, plain))
+    # The slice has no gaps and no notes, so their files hold no row group.
+    written = {name for name, _, _ in seen}
+    assert written >= {t.name for t in layout.TABLES} - {"gaps.parquet", "notes.parquet"}
+    assert {(t.name, p, True) for t in layout.TABLES if t.name in written for p in t.plain} <= seen
+    assert ("known.parquet", "source", False) in seen
 
 
-def test_a_column_in_another_encoding_names_the_column_and_the_encoding(
-    tmp_path: Path,
-) -> None:
+def test_a_column_in_another_encoding_names_the_column(tmp_path: Path) -> None:
     build_dir = _build_but_records(tmp_path)
     _write_records(tmp_path, build_dir, layout.RECORDS)
     with extract.connect(tmp_path) as con:
         rows = "SELECT 'GSM1' AS accession, 'geo' AS source, '2026-10-14' AS snapshot_date"
-        layout.write(con, replace(layout.KNOWN, encodings=()), layout.KNOWN.path(build_dir), rows)
+        layout.write(con, replace(layout.KNOWN, plain=()), layout.KNOWN.path(build_dir), rows)
     assert layout.check(build_dir) == [
-        "known.parquet: accession is dictionary-encoded, declared PLAIN"
+        "known.parquet: accession is dictionary-encoded, declared plain"
     ]
+
+
+def test_a_column_of_only_nulls_needs_no_dictionary(tmp_path: Path) -> None:
+    build_dir = _build_but_records(tmp_path)
+    _write_records(tmp_path, build_dir, layout.RECORDS)
+    rows = pa.table(
+        {"accession": ["GSM1"], "source": [None], "snapshot_date": [dt.date(2026, 10, 14)]},
+        layout.KNOWN.schema(),
+    )
+    out = layout.KNOWN.path(build_dir)
+    pq.write_table(rows, out, compression="zstd", use_dictionary=["snapshot_date"])  # pyright: ignore[reportArgumentType]
+    assert not pq.read_metadata(out).row_group(0).column(1).has_dictionary_page
+    assert layout.check(build_dir) == []
 
 
 def test_dates_are_written_typed(tmp_path: Path) -> None:
