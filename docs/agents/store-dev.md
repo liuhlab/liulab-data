@@ -18,5 +18,4 @@ Write every trial through `layout.write`, the only code that writes build tables
 writer gives other sizes for the same settings.
 
 Make a sample build as [the store how-to page](../how-to/store-run.md#make-a-sample-build)
-shows. It reads the store's `raw/` and `snapshots/` and writes only the scratch root. Set
-`LABDATA_THREADS` when you run `benchmark.py` on it, or the peaks won't compare.
+shows. It reads the store's `raw/` and `snapshots/` and writes only the scratch root.

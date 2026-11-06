@@ -117,10 +117,10 @@ larger one's. Notes are the exception: they can differ between shares.
 Series and SRA experiments hold about the share you asked for. Samples, platforms,
 BioProjects and BioSamples hold more, because they also hold what the sampled records link to.
 
-To time queries on the sample, set `LABDATA_THREADS` so the results compare with other runs:
+To time queries on the sample:
 
 ```bash
-LABDATA_THREADS=8 pixi run python scripts/store/benchmark.py /path/to/scratch
+pixi run python scripts/store/benchmark.py /path/to/scratch
 ```
 
 The benchmark also prints the share of links whose far end the sample holds. Most links
