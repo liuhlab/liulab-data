@@ -174,12 +174,15 @@ def store_build(
     ),
     chunk_mb: int = typer.Option(64, min=1, help="MB of source text a worker parses at a time."),
     fraction: float | None = typer.Option(
-        None, help="Gaps and coverage over this seeded sample of the target list; default: all."
+        None,
+        help="A seeded share; default: all. Gaps and coverage cover this share of the target "
+        "list; with --sample-of, the sample also keeps this share of raw rows and snapshot "
+        "records.",
     ),
     sample_of: Path | None = typer.Option(
         None,
-        help="Build a sample of the store at this root into --root, a scratch root: "
-        "the seeded --fraction of its raw rows and snapshot records.",
+        help="Build a sample of the store at this root into --root, a scratch root that "
+        "takes samples of this store only.",
     ),
 ) -> None:
     """Build the store's tables from raw/ and snapshots/ with no network, then switch to them.

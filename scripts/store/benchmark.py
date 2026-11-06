@@ -12,7 +12,6 @@ agreed limit (``LIMITS``); any query over its limit makes it exit 1. The store i
 temporary files go in a system temp folder, and output only to stdout and ``--out``.
 
 On a sample build it also prints the share of link rows whose ``to`` side the sample holds.
-A sample leaves most links dangling, so its link-query timings are indicative only.
 """
 
 from __future__ import annotations

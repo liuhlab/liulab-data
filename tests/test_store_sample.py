@@ -174,6 +174,23 @@ def test_a_sample_refuses_its_own_source_as_scratch_root(source: Path) -> None:
         build(source, "s1", fraction=0.5, sample_of=source)
 
 
+def test_a_scratch_root_takes_samples_of_one_store_only(source: Path, tmp_path: Path) -> None:
+    scratch = tmp_path / "scratch"
+    build(scratch, "s1", fraction=0.3, sample_of=source)
+    build(scratch, "s2", fraction=0.6, sample_of=source)
+    assert open_store(scratch).settings["sample_of"] == str(source.absolute())
+    other = built_root(tmp_path / "other", "sra_slice")
+
+    with pytest.raises(StoreBuildError, match=r"holds samples of .*pick another scratch root"):
+        build(scratch, "s3", fraction=0.3, sample_of=other)
+    built = tmp_path / "built"
+    built.mkdir()
+    (built / "labdata-store.toml").write_text('format_version = 1\nbuild = "b1"\n')
+    with pytest.raises(StoreBuildError, match="not a sample"):
+        build(built, "s1", fraction=0.3, sample_of=source)
+    assert open_store(scratch).settings["build"] == "s2"
+
+
 def test_the_cli_builds_a_sample_and_the_benchmark_runs_on_it(source: Path, tmp_path: Path) -> None:
     scratch = tmp_path / "scratch"
     result = CliRunner().invoke(

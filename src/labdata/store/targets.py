@@ -15,7 +15,9 @@ from __future__ import annotations
 import gzip
 import hashlib
 import json
+import threading
 from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -41,8 +43,36 @@ _BATCH = 10_000
 SEED = "labdata-round"
 
 
+@dataclass(frozen=True, slots=True)
+class BuildSource:
+    """Where a build reads ``raw/`` and ``snapshots/`` from, and the share of them it keeps.
+
+    Attributes
+    ----------
+    root : pathlib.Path
+        The store root read.
+    sample : float or None
+        The seeded share of raw rows and snapshot records kept (see :func:`in_sample`);
+        ``None`` keeps all.
+    """
+
+    root: Path
+    sample: float | None
+
+
+@dataclass(slots=True)
+class Tally:
+    """How many accessions an ``in_sample`` SQL function kept and dropped."""
+
+    kept: int = 0
+    dropped: int = 0
+
+
 def in_sample(accession: str, fraction: float) -> bool:
-    """Return whether a Series is in the seeded sample of ``fraction`` of the target list.
+    """Return whether an accession is in the seeded sample of ``fraction``.
+
+    The same accession and fraction always give the same answer, and an accession in the
+    sample of a smaller fraction is in the sample of every larger one.
 
     Examples
     --------
@@ -53,18 +83,39 @@ def in_sample(accession: str, fraction: float) -> bool:
     return int.from_bytes(digest) < fraction * 2**64
 
 
-def add_in_sample(con: duckdb.DuckDBPyConnection, fraction: float) -> None:
-    """Add the SQL function ``in_sample(accession)``: :func:`in_sample` at ``fraction``."""
+def add_in_sample(con: duckdb.DuckDBPyConnection, fraction: float) -> Tally:
+    """Add the SQL function ``in_sample(accession)`` to a connection.
+
+    It answers as :func:`in_sample` at ``fraction``, a whole column batch per call, and
+    returns false for NULL.
+
+    Parameters
+    ----------
+    con : duckdb.DuckDBPyConnection
+        The connection to add it to.
+    fraction : float
+        The sample's fraction.
+
+    Returns
+    -------
+    Tally
+        The accessions the function has kept and dropped, counted as queries call it.
+    """
+    tally = Tally()
+    lock = threading.Lock()
 
     def keep(accessions: pa.Array) -> pa.Array:
-        return pa.array(
-            [a is not None and in_sample(a, fraction) for a in accessions.to_pylist()], pa.bool_()
-        )
+        kept = [a is not None and in_sample(a, fraction) for a in accessions.to_pylist()]
+        with lock:
+            tally.kept += sum(kept)
+            tally.dropped += len(kept) - sum(kept)
+        return pa.array(kept, pa.bool_())
 
     from duckdb.func import PythonUDFType
     from duckdb.sqltypes import BOOLEAN, VARCHAR
 
     con.create_function("in_sample", keep, [VARCHAR], BOOLEAN, type=PythonUDFType.ARROW)
+    return tally
 
 
 def check_fraction(fraction: float | None) -> float | None:
@@ -105,7 +156,7 @@ def target_list(
     date: str | None = None,
     fraction: float | None = None,
     *,
-    inputs: Path | None = None,
+    source: BuildSource | None = None,
 ) -> Path:
     """Return the target Series list of one ``geo-series`` snapshot, writing it if missing.
 
@@ -117,8 +168,8 @@ def target_list(
         The snapshot date; defaults to the newest snapshot.
     fraction : float or None
         A round's seeded sample of the list (see :func:`in_sample`); ``None`` or ``1`` for all.
-    inputs : pathlib.Path or None
-        The store root whose snapshot is read; defaults to ``root``, which holds the list.
+    source : BuildSource or None
+        Where the snapshot is read; defaults to ``root``, which holds the list.
 
     Returns
     -------
@@ -134,7 +185,7 @@ def target_list(
         If the fraction is not in (0, 1].
     """
     fraction = check_fraction(fraction)
-    snap = snapshots.snapshot(inputs or root, snapshots.GEO_SERIES, date)
+    snap = snapshots.snapshot(root if source is None else source.root, snapshots.GEO_SERIES, date)
     out = list_path(root, snap.date, fraction)
     if out.is_file():
         return out

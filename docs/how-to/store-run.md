@@ -110,8 +110,12 @@ labdata store build --sample-of /path/to/store --root /path/to/scratch --fractio
 
 The full store is only read: its raw files, snapshots and current build stay as they are.
 The sample is built in the scratch folder, which becomes a store of its own, so
-`open_store("/path/to/scratch")` opens it. The same share always picks the same records, and
-a smaller share's records are all inside a larger one's.
+`open_store("/path/to/scratch")` opens it. A scratch folder takes samples of one store only.
+The same share always picks the same records, and a smaller share's records are all inside a
+larger one's. Notes are the exception: they can differ between shares.
+
+Series and SRA experiments hold about the share you asked for. Samples, platforms,
+BioProjects and BioSamples hold more, because they also hold what the sampled records link to.
 
 To time queries on the sample, set `LABDATA_THREADS` so the results compare with other runs:
 

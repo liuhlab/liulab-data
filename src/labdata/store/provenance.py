@@ -23,6 +23,7 @@ from labdata.store import raw, snapshots
 from labdata.store._files import write_atomic
 from labdata.store.layout import MANIFEST
 from labdata.store.reader import build_folders
+from labdata.store.targets import BuildSource
 
 README = "README.md"
 
@@ -166,16 +167,15 @@ def document_build(
     unknown_labels: dict[str, dict[str, int | str]] | None = None,
     target_series: dict[str, Any] | None = None,
     notes: dict[str, int] | None = None,
-    inputs: Path | None = None,
-    sample: float | None = None,
+    sample_of: BuildSource | None = None,
 ) -> dict[str, Any]:
     """Write a build folder's manifest and README, naming the inputs it was built from.
 
     ``unknown_labels`` maps each GEO relation label the build kept verbatim to its link count
     and an example accession; the manifest lists it only when it is not empty.
     ``target_series`` is the coverage summary and ``notes`` the note count by kind.
-    ``inputs`` is the store root read, by default ``root``. A sample build passes it with
-    ``sample``, its fraction (``None`` for all), and the manifest names both under ``sample``.
+    A sample build passes ``sample_of``, the store it read and its share, and the manifest
+    names both under ``sample``; its inputs are that store's.
 
     Returns
     -------
@@ -190,8 +190,9 @@ def document_build(
         "what": "The store's tables, built from raw/ and snapshots/ with no network.",
         "source": (
             "raw/ and snapshots/ of this store; see inputs"
-            if inputs is None
-            else f"a seeded sample of raw/ and snapshots/ of {inputs.absolute()}; see inputs"
+            if sample_of is None
+            else f"a seeded sample of raw/ and snapshots/ of {sample_of.root.absolute()}; "
+            "see inputs"
         ),
         "date": built or dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "build": build_id,
@@ -205,10 +206,10 @@ def document_build(
             "as a Series whose SOFT type disagrees with the snapshot."
         ),
         "files": files,
-        "inputs": _inputs(inputs or root),
+        "inputs": _inputs(root if sample_of is None else sample_of.root),
         **(
-            {"sample": {"of": str(inputs.absolute()), "fraction": sample}}
-            if inputs is not None
+            {"sample": {"of": str(sample_of.root.absolute()), "fraction": sample_of.sample}}
+            if sample_of is not None
             else {}
         ),
         **({"unknown_relation_labels": unknown_labels} if unknown_labels else {}),

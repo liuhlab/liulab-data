@@ -17,7 +17,6 @@ build that answers the question, and run the full build once, at the end.
 Write every trial through `layout.write`, the only code that writes build tables. Another
 writer gives other sizes for the same settings.
 
-Make a sample build with `labdata store build --sample-of <store> --root <scratch> --fraction
-<f>`, as the store how-to page shows. It reads the store's `raw/` and `snapshots/` and writes
-only the scratch root. Set `LABDATA_THREADS` when you run `benchmark.py` on it, or the peaks
-won't compare. Link-query timings on a sample are indicative only: most links dangle.
+Make a sample build as [the store how-to page](../how-to/store-run.md#make-a-sample-build)
+shows. It reads the store's `raw/` and `snapshots/` and writes only the scratch root. Set
+`LABDATA_THREADS` when you run `benchmark.py` on it, or the peaks won't compare.

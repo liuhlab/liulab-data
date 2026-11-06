@@ -73,6 +73,9 @@ BUILD_KEY = "build"
 #: The marker key holding when the current build was switched to, in UTC.
 SWITCHED_KEY = "switched"
 
+#: The marker key of a scratch root naming the one store its sample builds read.
+SAMPLE_OF_KEY = "sample_of"
+
 #: The marker table mapping each earlier build to when it was switched away from, in UTC.
 SWITCHED_AWAY_KEY = "switched_away"
 
@@ -129,12 +132,14 @@ def build(
         Bytes of source text a worker parses before it writes its parts. Peak memory is about
         ``workers`` chunks plus DuckDB's cap (:func:`labdata.store._limits.duckdb_memory`).
     fraction : float or None
-        A round's seeded sample of the target Series list; gaps, notes and ``GEO summary``
-        links cover only that sample. ``None`` for the whole list.
+        A seeded share (see :func:`labdata.store.targets.in_sample`); ``None`` for all.
+        Without ``sample_of``, it is a round's share of the target Series list: gaps, notes
+        and ``GEO summary`` links cover only that share. With ``sample_of``, it is also the
+        share of raw rows and snapshot records the sample build keeps.
     sample_of : pathlib.Path or None
         Make a sample build of the store at this root: read its ``raw/`` and ``snapshots/``,
-        never writing there, and build into ``root``, a scratch root made if missing. The
-        sample is the seeded ``fraction`` of each raw row and snapshot record.
+        never writing there, and build into ``root``, a scratch root made if missing. A
+        scratch root takes samples of one store only.
 
     Returns
     -------
@@ -145,22 +150,25 @@ def build(
     ------
     StoreBuildError
         If a snapshot is missing or not extracted, a build of that id exists, another
-        build of this store is running, or a sample's scratch root is its source or holds
-        ``raw/`` or ``snapshots/``.
+        build of this store is running, or a sample's scratch root is its source, holds
+        ``raw/`` or ``snapshots/``, or holds samples of another store.
     NotAStoreError
         If ``sample_of`` is not a store root.
     """
     fraction = targets.check_fraction(fraction)
-    if sample_of is not None:
-        _scratch_root(root, sample_of)
-    with build_lock(root):
+    source = None if sample_of is None else targets.BuildSource(sample_of, fraction)
+    with build_lock(root) if source is None else _scratch_root(root, source.root):
         return _build(
-            root, build_id, workers or _limits.default_workers(), chunk_bytes, fraction, sample_of
+            root, build_id, workers or _limits.default_workers(), chunk_bytes, fraction, source
         )
 
 
-def _scratch_root(root: Path, source: Path) -> None:
-    """Check ``root`` can hold a sample of ``source``, and write its marker if missing."""
+@contextmanager
+def _scratch_root(root: Path, source: Path) -> Iterator[None]:
+    """Hold ``root``'s build lock once it is a scratch root bound to ``source``.
+
+    A new scratch root gets a marker naming ``source``.
+    """
     read_marker(source)
     if root.resolve() == source.resolve():
         raise StoreBuildError(f"a sample needs a scratch root apart from its source, not {root}")
@@ -171,6 +179,22 @@ def _scratch_root(root: Path, source: Path) -> None:
         )
     if not (root / MARKER).is_file():
         init_store(root)
+    with build_lock(root):
+        settings = read_marker(root)
+        bound = settings.get(SAMPLE_OF_KEY)
+        if bound is None and settings.get(BUILD_KEY):
+            raise StoreBuildError(
+                f"{root} holds a build that is not a sample; pick an empty scratch root"
+            )
+        if bound is not None and Path(bound) != source.absolute():
+            raise StoreBuildError(
+                f"{root} holds samples of {bound}, not {source.absolute()}; pick another "
+                f"scratch root, or delete {root} to reuse it"
+            )
+        if bound is None:
+            settings[SAMPLE_OF_KEY] = str(source.absolute())
+            write_marker(root, settings)
+        yield
 
 
 @contextmanager
@@ -204,13 +228,13 @@ def _build(
     workers: int,
     chunk_bytes: int,
     fraction: float | None,
-    inputs: Path | None,
+    sample_of: targets.BuildSource | None,
 ) -> Path:
     build_id = build_id or dt.datetime.now(dt.UTC).strftime("%Y%m%dT%H%M%SZ")
     out = build_path(root, build_id)
     if out.exists():
         raise StoreBuildError(f"build {build_id} already exists: {out}")
-    if inputs is None:
+    if sample_of is None:
         for folder in sorted(p for p in (root / "raw").glob("*") if p.is_dir()):
             provenance.document_raw(root, folder.name)
     for stale in out.parent.glob(f".{glob.escape(build_id)}.*.tmp"):
@@ -222,7 +246,7 @@ def _build(
     try:
         # Each parse phase holds its own Ray session, so its workers are gone before DuckDB
         # writes the tables.
-        _build_into(root, build_id, work, tmp, workers, chunk_bytes, fraction, inputs)
+        _build_into(root, build_id, work, tmp, workers, chunk_bytes, fraction, sample_of)
         tmp.rename(out)
     finally:
         shutil.rmtree(work, ignore_errors=True)
@@ -240,21 +264,27 @@ def _build_into(
     workers: int,
     chunk_bytes: int,
     fraction: float | None,
-    inputs: Path | None,
+    sample_of: targets.BuildSource | None,
 ) -> None:
-    # A sample build reads ``src`` and filters by ``sample``; a full build reads ``root``.
-    src = inputs or root
-    sample = fraction if inputs is not None else None
-    _, geo_date = extract.done_dir(src, snapshots.GEO_SERIES)
-    target_list = targets.target_list(root, geo_date, fraction, inputs=inputs)
+    source = sample_of or targets.BuildSource(root, None)
+    _, geo_date = extract.done_dir(source.root, snapshots.GEO_SERIES)
+    target_list = targets.target_list(root, geo_date, fraction, source=source)
     _summary_links(target_list, work / "links" / "summary.parquet")
     tasks: list[_parse.Task] = []
     for kind in _parse.RAW_KINDS:
-        files = sorted((src / "raw" / kind).glob("*.parquet"))
+        files = sorted((source.root / "raw" / kind).glob("*.parquet"))
         for run in _runs(files, _TASK_CHUNKS * chunk_bytes, workers):
-            tasks.append(_parse.Task(kind, run, work, len(tasks), chunk_bytes, sample=sample))
+            tasks.append(
+                _parse.Task(kind, run, work, len(tasks), chunk_bytes, sample=source.sample)
+            )
     logger.info("parsing %d raw tasks on %d workers", len(tasks), workers)
     parsed = extract.run_parallel(_parse.run, ((t,) for t in tasks), workers)
+    if source.sample is not None:
+        logger.info(
+            "the sample kept %d raw rows and dropped %d",
+            sum(got.kept for got in parsed),
+            sum(got.dropped for got in parsed),
+        )
     empty = [srx for got in parsed for srx in got.empty]
     unparsable = [
         gaps.Note(srx, gaps.UNPARSABLE_PACKAGE, f"not well-formed XML as saved: {reason}")
@@ -270,12 +300,12 @@ def _build_into(
             for folder in sorted((work / "records").glob("*"))
             for note in _differing_copies(con, folder)
         ]
-        wanted = _wanted_snapshots(con, src, work, len(tasks), chunk_bytes, workers, sample)
+        wanted = _wanted_snapshots(con, source, work, len(tasks), chunk_bytes, workers)
         logger.info("parsing %d snapshot tasks", len(wanted))
         extract.run_parallel(_parse.run, ((t,) for t in wanted), workers)
         logger.info("writing record, link and supplementary-file tables")
         for folder in sorted((work / "records").glob("*")):
-            _write_records(con, src, folder, layout.records_path(tmp, folder.name))
+            _write_records(con, source.root, folder, layout.records_path(tmp, folder.name))
         _write_links(con, work, tmp)
         _write_holdings(con, tmp)
         suppl.write(
@@ -286,27 +316,20 @@ def _build_into(
         )
         labels = _unknown_labels(con, LINKS_BY_FROM.path(tmp))
     logger.info("writing known, gaps and notes")
-    known.write(
-        root,
-        KNOWN.path(tmp),
-        inputs=inputs,
-        sample=sample,
-        held=None if sample is None else HOLDINGS.path(tmp),
-    )
-    coverage = gaps.write_gaps(root, tmp, target_list, geo_date, fraction, inputs=inputs)
+    known.write(root, KNOWN.path(tmp), source=source, held=HOLDINGS.path(tmp))
+    coverage = gaps.write_gaps(root, tmp, target_list, geo_date, fraction, source=source)
     label_notes = [
         gaps.Note(str(v["example"]), gaps.UNKNOWN_LABEL, f"{label}: {v['links']} links")
         for label, v in labels.items()
     ]
-    _, sra_date = extract.done_dir(src, snapshots.SRA_ACCESSIONS)
+    _, sra_date = extract.done_dir(source.root, snapshots.SRA_ACCESSIONS)
     note_counts = gaps.write_notes(
         root,
         tmp,
         target_list,
-        [*copy_notes, *label_notes, *unparsable, *_no_package_notes(root, empty, inputs)],
-        experiments=eutils.list_path(src, sra_date),
-        inputs=inputs,
-        sample=sample,
+        [*copy_notes, *label_notes, *unparsable, *_no_package_notes(root, source, empty)],
+        experiments=eutils.list_path(source.root, sra_date),
+        source=source,
     )
     provenance.document_build(
         root,
@@ -315,8 +338,7 @@ def _build_into(
         unknown_labels=labels,
         target_series=coverage,
         notes=note_counts,
-        inputs=inputs,
-        sample=fraction,
+        sample_of=sample_of,
     )
 
 
@@ -439,24 +461,24 @@ def _differing_copies(con: duckdb.DuckDBPyConnection, folder: Path) -> list[gaps
 
 def _wanted_snapshots(
     con: duckdb.DuckDBPyConnection,
-    root: Path,
+    source: targets.BuildSource,
     work: Path,
     first: int,
     chunk_bytes: int,
     workers: int,
-    sample: float | None = None,
 ) -> list[_parse.Task]:
     """Write the snapshot texts the links name, and return the tasks that parse them.
 
     BioProjects are the targets of ``BioProject`` links and the ``[si]``-searched accessions;
-    BioSamples the targets of ``BioSample`` links. With ``sample``, only the sampled
+    BioSamples the targets of ``BioSample`` links. When ``source`` samples, only the sampled
     ``[si]``-searched accessions count, and each snapshot's sampled accessions are added.
     """
     links = _read(work / "links")
-    searched = root / "raw" / raw.PUBMED_SI
+    searched = source.root / "raw" / raw.PUBMED_SI
     sampled = ""
-    if sample is not None:
-        targets.add_in_sample(con, sample)
+    tally = None
+    if source.sample is not None:
+        tally = targets.add_in_sample(con, source.sample)
         sampled = " WHERE in_sample(accession)"
     projects = f"SELECT \"to\" FROM {links} WHERE relation = 'BioProject'"
     if any(searched.glob("*.parquet")):
@@ -466,11 +488,11 @@ def _wanted_snapshots(
         snapshots.BIOSAMPLE: (f"SELECT \"to\" FROM {links} WHERE relation = 'BioSample'", ""),
     }
     tasks: list[_parse.Task] = []
-    for source, (query, prefix) in wanted.items():
-        folder, date = extract.done_dir(root, source)
+    for kind, (query, prefix) in wanted.items():
+        folder, date = extract.done_dir(source.root, kind)
         if sampled:
             query += f" UNION SELECT accession FROM read_parquet({extract.parts(folder)}){sampled}"
-        out = work / "snapshots" / source
+        out = work / "snapshots" / kind
         out.mkdir(parents=True)
         accessions = out / "wanted.parquet"
         con.execute(
@@ -490,7 +512,13 @@ def _wanted_snapshots(
         wanted_file.close()
         files = sorted(out.glob("[0-9]*.parquet"))
         for inputs in _runs(files, _TASK_CHUNKS * chunk_bytes, workers):
-            tasks.append(_parse.Task(source, inputs, work, first + len(tasks), chunk_bytes, date))
+            tasks.append(_parse.Task(kind, inputs, work, first + len(tasks), chunk_bytes, date))
+    if tally is not None:
+        logger.info(
+            "the sample kept %d [si] and snapshot accessions by their own accession, dropped %d",
+            tally.kept,
+            tally.dropped,
+        )
     return tasks
 
 
@@ -602,12 +630,20 @@ def _unknown_labels(con: duckdb.DuckDBPyConnection, links: Path) -> dict[str, di
 
 
 def _no_package_notes(
-    root: Path, experiments: list[str], inputs: Path | None = None
+    root: Path, source: targets.BuildSource, experiments: list[str]
 ) -> list[gaps.Note]:
-    """Note each SRA experiment saved with no package, with its ``SRA_Accessions.tab`` status."""
+    """Note each SRA experiment saved with no package, with its ``SRA_Accessions.tab`` status.
+
+    The tab is read from ``source``; DuckDB spills under ``root``.
+    """
     if not experiments:
         return []
-    _, rows = extract.lookup(root, snapshots.SRA_ACCESSIONS, experiments, inputs=inputs)
+    folder, _ = extract.done_dir(source.root, snapshots.SRA_ACCESSIONS)
+    listed = ", ".join(sql_string(a) for a in sorted(set(experiments)))
+    with extract.connect(root) as con:
+        rows = con.execute(
+            f"SELECT * FROM read_parquet({extract.parts(folder)}) WHERE accession IN ({listed})"
+        ).fetchall()
     status = {str(row[0]): row[1] for row in rows}
     return [
         gaps.Note(

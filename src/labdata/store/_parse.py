@@ -78,7 +78,7 @@ class Task:
 
     ``inputs`` pairs each file with the row groups to read. ``date`` is a snapshot's date, used
     in place of each raw row's fetch date. With ``sample``, a row whose accession is outside
-    that seeded sample (:func:`labdata.store.targets.in_sample`) is skipped unparsed.
+    that seeded share (:func:`labdata.store.targets.in_sample`) is skipped unparsed.
     """
 
     kind: str
@@ -145,7 +145,7 @@ class _Parts:
 
 @dataclass(slots=True)
 class Left:
-    """The SRA experiments a task made no records for.
+    """The SRA experiments a task made no records for, and the rows its sample kept.
 
     Attributes
     ----------
@@ -153,10 +153,16 @@ class Left:
         Experiments whose saved package is empty: NCBI served none.
     unparsable : list of tuple of str
         Experiments whose saved package is not well-formed XML, each with the parse error.
+    kept : int
+        Rows the task's sample kept; every row read when it has no sample.
+    dropped : int
+        Rows outside the task's sample, skipped unparsed.
     """
 
     empty: list[str] = field(default_factory=list)
     unparsable: list[tuple[str, str]] = field(default_factory=list)
+    kept: int = 0
+    dropped: int = 0
 
 
 def run(task: Task) -> Left:
@@ -191,7 +197,9 @@ def run(task: Task) -> Left:
                         if task.sample is not None and not targets.in_sample(
                             accession, task.sample
                         ):
+                            left.dropped += 1
                             continue
+                        left.kept += 1
                         held += len(text)
                         if task.kind == raw.SRA_XML and not text:
                             left.empty.append(accession)
