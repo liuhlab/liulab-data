@@ -45,6 +45,7 @@ scripts/store/       the store full-run job script and its checks
 ```
 
 Running the store on a cluster: follow `docs/how-to/store-run.md`.
+Changing the store's code or table layout: try it small first, per `docs/agents/store-dev.md`.
 
 ## Quality gates (all green before commit)
 
