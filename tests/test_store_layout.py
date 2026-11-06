@@ -51,6 +51,36 @@ def test_the_layout_is_the_approved_declaration() -> None:
     assert set(settings.values()) == {("zstd", 3, 122_880)}
 
 
+def _chunks(path: Path) -> dict[str, pq.ColumnChunkMetaData]:
+    """The first row group's column chunks of a file, by column path."""
+    group = pq.read_metadata(path).row_group(0)
+    return {group.column(c).path_in_schema: group.column(c) for c in range(group.num_columns)}
+
+
+def test_columns_are_written_in_their_declared_encodings(tmp_path: Path) -> None:
+    build_dir = built_root(tmp_path / "store", "geo_slice") / "builds" / "b1"
+    known = _chunks(layout.KNOWN.path(build_dir))
+    assert not known["accession"].has_dictionary_page
+    assert "PLAIN" in known["accession"].encodings
+    assert known["source"].has_dictionary_page
+    records = _chunks(layout.records_path(build_dir, "GEO Series"))
+    assert not records["fields.list.element.value"].has_dictionary_page
+    assert records["fields.list.element.name"].has_dictionary_page
+
+
+def test_a_column_in_another_encoding_names_the_column_and_the_encoding(
+    tmp_path: Path,
+) -> None:
+    build_dir = _build_but_records(tmp_path)
+    _write_records(tmp_path, build_dir, layout.RECORDS)
+    with extract.connect(tmp_path) as con:
+        rows = "SELECT 'GSM1' AS accession, 'geo' AS source, '2026-10-14' AS snapshot_date"
+        layout.write(con, replace(layout.KNOWN, encodings=()), layout.KNOWN.path(build_dir), rows)
+    assert layout.check(build_dir) == [
+        "known.parquet: accession is dictionary-encoded, declared PLAIN"
+    ]
+
+
 def test_dates_are_written_typed(tmp_path: Path) -> None:
     build_dir = built_root(tmp_path / "store", "geo_slice") / "builds" / "b1"
     types = {
@@ -140,6 +170,7 @@ def test_a_table_that_differs_names_the_table_and_the_setting(tmp_path: Path) ->
         pa.table({"accession": ["B", "A"], "type": ["t", "t"]}),
         layout.records_path(build_dir, "GEO Series"),
         compression="snappy",
+        use_dictionary=["type"],
     )
     columns, codec, order = layout.check(build_dir)
     assert columns.startswith(

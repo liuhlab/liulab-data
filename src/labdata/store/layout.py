@@ -60,6 +60,9 @@ ROW_GROUP = 122_880
 #: folders name theirs the same.
 MANIFEST = "manifest.json"
 
+#: The encoding of a many-valued column; a dictionary of nearly unique values compresses worse.
+PLAIN = "PLAIN"
+
 _BATCH_ROWS = 8192
 
 
@@ -82,6 +85,9 @@ class Table:
         The codec's level.
     row_group_rows : int
         Rows per row group; only the last row group holds fewer.
+    encodings : tuple of tuple of str
+        Each Parquet column path written without a dictionary, and its encoding, such as
+        ``PLAIN``. Every other column is dictionary-encoded.
     """
 
     name: str
@@ -90,6 +96,7 @@ class Table:
     compression: str = "zstd"
     compression_level: int = 3
     row_group_rows: int = ROW_GROUP
+    encodings: tuple[tuple[str, str], ...] = ()
 
     @property
     def column_names(self) -> tuple[str, ...]:
@@ -122,6 +129,10 @@ def _dates(*names: str) -> tuple[tuple[str, str], ...]:
     return tuple((name, DATE) for name in names)
 
 
+def _plain(*paths: str) -> tuple[tuple[str, str], ...]:
+    return tuple((path, PLAIN) for path in paths)
+
+
 RECORDS = Table(
     "records",
     (
@@ -134,17 +145,33 @@ RECORDS = Table(
     ("accession",),
     compression_level=RECORD_LEVEL,
     row_group_rows=RECORD_ROW_GROUP,
+    encodings=_plain("accession", "fields.list.element.value", "raw_text", "content_hash"),
 )
 _LINK_COLUMNS = _strings("from", "to", "relation", "source")
+_LINK_ENCODINGS = _plain("from", "to")
 LINKS_BY_FROM = Table(
-    "links_by_from.parquet", _LINK_COLUMNS, ('"from"', '"to"', "relation", "source")
+    "links_by_from.parquet",
+    _LINK_COLUMNS,
+    ('"from"', '"to"', "relation", "source"),
+    encodings=_LINK_ENCODINGS,
 )
-LINKS_BY_TO = Table("links_by_to.parquet", _LINK_COLUMNS, ('"to"', '"from"', "relation", "source"))
-HOLDINGS = Table("holdings.parquet", _strings("accession", "type"), ("accession",))
+LINKS_BY_TO = Table(
+    "links_by_to.parquet",
+    _LINK_COLUMNS,
+    ('"to"', '"from"', "relation", "source"),
+    encodings=_LINK_ENCODINGS,
+)
+HOLDINGS = Table(
+    "holdings.parquet",
+    _strings("accession", "type"),
+    ("accession",),
+    encodings=_plain("accession"),
+)
 KNOWN = Table(
     "known.parquet",
     (*_strings("accession", "source"), *_dates("snapshot_date")),
     ("accession", "source"),
+    encodings=_plain("accession"),
 )
 SUPPLEMENTARY_FILES = Table(
     "supplementary_files.parquet",
@@ -252,8 +279,14 @@ def write(
     size = table.row_group_rows
     held: list[pa.RecordBatch] = []
     count = 0
+    encodings = dict(table.encodings)
     with pq.ParquetWriter(
-        out, schema, compression=table.compression, compression_level=table.compression_level
+        out,
+        schema,
+        compression=table.compression,
+        compression_level=table.compression_level,
+        use_dictionary=[p for p in _paths(schema) if p not in encodings],
+        column_encoding=encodings or None,
     ) as writer:
         try:
             for query in [queries] if isinstance(queries, str) else queries:
@@ -288,7 +321,7 @@ def check(build: Path) -> list[str]:
     -------
     list of str
         One line per problem, naming the file and the setting: a missing file, columns,
-        compression, row groups or order.
+        compression, encodings, row groups or order.
     """
     import duckdb
     import pyarrow.parquet as pq
@@ -326,6 +359,16 @@ def _differences(table: Table, parquet: pq.ParquetFile) -> list[str]:
     )
     if codecs and codecs != [table.compression.upper()]:
         out.append(f"compression is {', '.join(codecs)}, declared {table.compression.upper()}")
+    plain = dict(table.encodings)
+    for c in range(meta.num_columns):
+        chunks = [g.column(c) for g in groups]
+        path = meta.schema.column(c).path
+        if path in plain and any(x.has_dictionary_page for x in chunks):
+            out.append(f"{path} is dictionary-encoded, declared {plain[path]}")
+        elif path in plain and any(plain[path] not in x.encodings for x in chunks):
+            out.append(f"{path} is not encoded {plain[path]}")
+        elif path not in plain and not all(x.has_dictionary_page for x in chunks):
+            out.append(f"{path} is not dictionary-encoded, declared a dictionary")
     rows = [g.num_rows for g in groups]
     size = table.row_group_rows
     if any(n != size for n in rows[:-1]) or any(n > size for n in rows[-1:]):
@@ -344,6 +387,20 @@ def _sorted(con: duckdb.DuckDBPyConnection, table: Table, file: Path) -> bool:
             WHERE file_row_number <> rank"""
     ).fetchone()
     return row is not None and row[0] == 0
+
+
+def _paths(schema: pa.Schema) -> list[str]:
+    """Return the Parquet path of every leaf column, such as ``fields.list.element.name``."""
+    import pyarrow as pa
+
+    def leaves(name: str, kind: pa.DataType) -> list[str]:
+        if isinstance(kind, pa.ListType):
+            return leaves(f"{name}.list.element", kind.value_type)
+        if isinstance(kind, pa.StructType):
+            return [p for f in kind.fields for p in leaves(f"{name}.{f.name}", f.type)]
+        return [name]
+
+    return [p for f in schema for p in leaves(f.name, f.type)]
 
 
 def _columns(schema: pa.Schema) -> str:
