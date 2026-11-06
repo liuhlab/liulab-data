@@ -292,7 +292,8 @@ def write(
         schema,
         compression=table.compression,
         compression_level=table.compression_level,
-        use_dictionary=[p for p in _paths(schema) if p not in encodings],
+        # pyarrow takes a list of column paths here too; its type stubs say bool only.
+        use_dictionary=[p for p in _paths(schema) if p not in encodings],  # pyright: ignore[reportArgumentType]
         column_encoding=encodings or None,
         data_page_size=table.data_page_bytes,
     ) as writer:

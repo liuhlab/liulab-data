@@ -170,7 +170,7 @@ def test_a_table_that_differs_names_the_table_and_the_setting(tmp_path: Path) ->
         pa.table({"accession": ["B", "A"], "type": ["t", "t"]}),
         layout.records_path(build_dir, "GEO Series"),
         compression="snappy",
-        use_dictionary=["type"],
+        use_dictionary=["type"],  # pyright: ignore[reportArgumentType]
     )
     columns, codec, order = layout.check(build_dir)
     assert columns.startswith(
