@@ -40,6 +40,11 @@ class Snapshot:
     date: str
 
 
+def file_name(source: str) -> str:
+    """Return the name of a source's file inside each dated snapshot folder."""
+    return _FILES[source]
+
+
 def snapshot(root: Path, source: str, date: str | None = None) -> Snapshot:
     """Return the newest snapshot of one source, or the one of ``date``.
 
