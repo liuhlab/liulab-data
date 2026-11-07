@@ -11,6 +11,7 @@ import hashlib
 import inspect
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -234,8 +235,55 @@ def test_experiments_for_gives_six_experiments_without_network(store: Store) -> 
     run = experiments[0].runs[0]
     assert run.read_structure
     assert run.total_spots
-    with pytest.raises(LabdataError, match="no network call"):
-        _ = run.files
+
+
+@pytest.mark.usefixtures("no_network")
+def test_a_store_built_run_lists_its_files_from_the_stored_xml(store: Store) -> None:
+    [experiment] = store.experiments_for("SRX24283130")
+    [run] = experiment.runs
+    fastq = "2235__N2_wild_type_neuron_nuclei_library-read-{}.fastq.gz"
+    lite = "https://sra-downloadb.be-md.ncbi.nlm.nih.gov/sos11/sra-pub-zq-1140/SRR028/28716/"
+    assert [(f.name, f.type, f.supertype, f.size, f.md5) for f in run.files] == [
+        (fastq.format(1), "fastq", "Original", 8044268140, "3e23acbb4e17ff0301687a1599d427e1"),
+        (fastq.format(4), "fastq", "Original", 20000839078, "73f153a11f15fb60dfd2ec0b51f2eb5b"),
+        (
+            "SRR28716558",
+            "SRA Normalized",
+            "Primary ETL",
+            17788908605,
+            "a441a48cdb477ed56c7a11f027fa6e04",
+        ),
+        (
+            "SRR28716558.lite",
+            "SRA Lite",
+            "Primary ETL",
+            14070253093,
+            "1988bdca98c058a5f6fe37fbc02dd5d4",
+        ),
+    ]
+    first = run.files[0]
+    assert first.accession == "SRR28716558"
+    assert first.modification_date == "2024-04-17 11:37:51"
+    assert first.url == "s3://sra-pub-src-12/SRR28716558/" + fastq.format(1) + ".1"
+    assert [(loc.service, loc.link) for loc in run.files[3].locations] == [
+        ("NCBI", lite + "SRR28716558/SRR28716558.lite.1"),
+        ("AWS", "s3://sra-pub-zq-7/SRR28716558/SRR28716558.lite.1"),
+        ("GCP", "gs://sra-pub-zq-100/SRR28716558/SRR28716558.lite.1"),
+    ]
+    assert [f.name for f in run.original_files] == [fastq.format(1), fastq.format(4)]
+
+
+@pytest.mark.usefixtures("no_network")
+def test_a_store_built_run_whose_xml_lists_no_files_has_none(root: Path) -> None:
+    packages = {srx: _package(srx) for srx in _SRX}
+    packages["SRX24283131"] = re.sub(r"<SRAFiles>.*?</SRAFiles>", "", packages["SRX24283131"])
+    client = FakeEntrezClient(esearch={f"{_PROJECT}[si]": ["39637862"]}, packages=packages)
+    fetch(root, [_PROJECT], client=client, today="2026-10-14")
+    build(root, "b1")
+    [experiment] = open_store(root).experiments_for("SRX24283131")
+    [run] = experiment.runs
+    assert run.files == []
+    assert run.original_files == []
 
 
 @pytest.mark.usefixtures("no_network")
