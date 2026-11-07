@@ -69,6 +69,7 @@ nav:
   - How-to:
       - Run the full download: how-to/store-run.md
       - Copy the store to GCS: how-to/store-gcs.md
+      - Run the paper store: how-to/papers-run.md
   - API reference: reference.md
 
 # `--strict` misses an absolute link (`/gone/`) and a link with no `.md` extension; check

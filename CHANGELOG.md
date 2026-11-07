@@ -51,6 +51,10 @@ tags of the form `vYYYY.M.PATCH` (e.g. `v2026.6.0`).
   and the papers a Series or BioProject links.
 - `labdata papers pmc-sync` fetches each linked paper's XML and PDF from PMC's public bucket,
   with its supplementary files up to 10 MB, and lists every supplementary file in `files`.
+- `labdata papers serve` is the paper job: it runs the daily pass each day after 00:30 UTC and
+  the PMC sync on the 3rd, only what `paper-status.json` shows is due, and submits its own
+  next Slurm job at start. `labdata papers copy` sends new and changed files to GCS after each
+  pass; an expired login sets `copy_pending`. The how-to "Run the paper store" covers setup.
 - `labdata.stream_run_reads` (and its building block `iter_run_reads`) — stream the first
   N spots of an SRA run into memory **without writing any FASTQ, `.sra`, or cache to disk**.
   Shells out to `fastq-dump --stdout --maxSpotId N --split-spot --readids` inside a
