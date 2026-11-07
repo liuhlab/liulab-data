@@ -19,7 +19,7 @@ import pyarrow.parquet as pq
 import pytest
 
 import labdata.ncbi.entrez as entrez_mod
-from labdata.ncbi._http import RateLimiter
+from labdata._http import RateLimiter
 from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
 from labdata.store import build, eutils, gaps, pack, raw

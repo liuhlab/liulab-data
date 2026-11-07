@@ -56,6 +56,20 @@ _KINDS: tuple[tuple[re.Pattern[str], str], ...] = tuple(
 )
 
 
+_DOI_PREFIX = re.compile(r"^(?:doi:|https?://(?:dx\.)?doi\.org/)", re.IGNORECASE)
+
+
+def norm_doi(text: str) -> str:
+    """Return a DOI as every link and paper key writes it: lower case, no resolver prefix.
+
+    Examples
+    --------
+    >>> norm_doi("https://doi.org/10.1101/2024.01.15.575678"), norm_doi("DOI:10.1/AB")
+    ('10.1101/2024.01.15.575678', '10.1/ab')
+    """
+    return _DOI_PREFIX.sub("", text.strip()).lower()
+
+
 def kind_of(accession: str) -> str:
     """Return the record type an accession names.
 
