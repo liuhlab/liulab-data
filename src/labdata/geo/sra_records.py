@@ -44,7 +44,7 @@ def experiments_from_package_xml(
     """Build experiments, with their runs, from SRA ``EXPERIMENT_PACKAGE`` XML.
 
     Every property of the returned experiments and their runs is read from ``xml``,
-    except ``Run.files`` and ``Run.original_files``, which ask the SRA Data Locator.
+    except ``Run.files`` and ``Run.original_files``, which ask ``sdl_client``.
 
     Parameters
     ----------
@@ -403,12 +403,14 @@ class Run(_SraRecord):
 
         Includes both the normalized SRA archive file(s) and any original/submitted
         files (e.g. a 10X Genomics ``possorted_genome_bam``). This is the data behind
-        the Run Browser's "Data access" panel.
+        the Run Browser's "Data access" panel. A live ``Run`` gives SDL's locations; a
+        store-built one lists its stored XML's ``<SRAFiles>``, with only the URLs the
+        XML carries.
 
         Returns
         -------
         list of RemoteFile
-            All files SDL exposes for this run, each with its download locations.
+            All files listed for this run, each with its download locations.
 
         Raises
         ------

@@ -252,6 +252,22 @@ def test_a_400_keeps_its_message_and_id_list_is_empty_is_not_retried(
     assert len(_calls(client)) == 1
 
 
+def test_the_client_counts_its_requests_by_host_and_status_and_the_bytes_read(
+    sleeps: list[float],
+) -> None:
+    client = _client(Reply(b"", 429, {"Retry-After": "1"}), Reply(_esearch("1", "2")))
+    client.esearch(db="gds", term="x")
+    assert client.traffic.requests == {
+        "eutils.ncbi.nlm.nih.gov 429": 1,
+        "eutils.ncbi.nlm.nih.gov 200": 1,
+    }
+    assert client.traffic.bytes == len(_esearch("1", "2"))
+    assert str(client.traffic) == (
+        f"2 requests, {len(_esearch('1', '2'))} bytes read: "
+        "eutils.ncbi.nlm.nih.gov 200: 1, eutils.ncbi.nlm.nih.gov 429: 1"
+    )
+
+
 def test_a_429_waits_for_retry_after_then_halves_the_rate(sleeps: list[float]) -> None:
     client = _client(Reply(b"", 429, {"Retry-After": "7"}), Reply(_esearch("1")), rate=4.0)
     assert client.esearch(db="gds", term="x") == ["1"]

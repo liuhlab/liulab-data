@@ -62,7 +62,13 @@ def _serial(root: Path, source: str) -> list[dict[str, object]]:
     )
     every = list(snapshots.accessions(snap, source))
     texts = snapshots.elements(snap.path, tag, every, re.compile(key))
-    return [{"accession": a, "raw_text": texts[a]} for a in every]
+    if source == snapshots.BIOPROJECT:
+        return [{"accession": a, "raw_text": texts[a]} for a in every]
+    status = {a: re.search(r'<Status status="([^"]*)"', texts[a]) for a in every}
+    return [
+        {"accession": a, "raw_text": texts[a], "status": s[1] if (s := status[a]) else None}
+        for a in every
+    ]
 
 
 @pytest.mark.parametrize("slice_name", _SLICES)

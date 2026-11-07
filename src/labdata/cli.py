@@ -6,6 +6,8 @@ translates arguments, dispatches, and chooses an output format.
 
 from __future__ import annotations
 
+import atexit
+import datetime as dt
 from collections.abc import Callable
 from pathlib import Path
 
@@ -23,6 +25,7 @@ from labdata.ncbi.config import (
 )
 from labdata.ncbi.entrez import EntrezClient
 from labdata.store import init_store, open_store, save_pointer
+from labdata.store.changes import OVERLAP_DAYS
 from labdata.tenx import bamtofastq
 
 app = typer.Typer(
@@ -116,8 +119,14 @@ def store_configure(
 
 
 def _store_client() -> EntrezClient:
-    """Return the Entrez client store fetches use; never prompts, so batch jobs never hang."""
-    return EntrezClient(allow_prompt=False)
+    """Return the Entrez client store fetches use; never prompts, so batch jobs never hang.
+
+    The step logs the client's requests and bytes read when it exits.
+    """
+    client = EntrezClient(allow_prompt=False)
+    # Written straight to stderr, as not every step sets up logging.
+    atexit.register(lambda: typer.echo(f"NCBI: {client.traffic}", err=True))
+    return client
 
 
 @store_app.command("fetch")
@@ -133,7 +142,8 @@ def store_fetch(
 
     A GEO Series brings its SubSeries and the SRA packages of every experiment its samples
     link to. A BioProject or SRA study is expanded to its experiments through the newest
-    SRA_Accessions.tab snapshot. Items already saved are skipped, so a rerun resumes.
+    SRA_Accessions.tab snapshot. Items already saved are skipped, so a rerun resumes. The
+    accessions are kept in fetched-by-hand.txt, so a refresh keeps what they brought in.
     """
     from labdata.store.fetch import fetch as fetch_raw
 
@@ -148,18 +158,25 @@ def store_fetch(
 
 @store_app.command("pack")
 def store_pack(
+    counts: Path | None = typer.Option(
+        None, help="Append each bucket's added, replaced and removed records to this file."
+    ),
     root: Path | None = typer.Option(
         None, help="Store root; default: LABDATA_STORE, then pointer."
     ),
 ) -> None:
     """Merge the fetched parts under work/parts/ into raw/, one bucket file at a time.
 
-    Rerun it after a cut-off run: parts stay until their bucket is rewritten.
+    Rerun it after a cut-off run: parts stay until their bucket is rewritten. Removal parts
+    delete rows; the records removed are logged per source.
     """
+    import logging
+
     from labdata.store.pack import pack
 
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     store = open_store(root)
-    written = pack(store.root)
+    written = pack(store.root, counts=counts)
     typer.echo(f"Packed {len(written)} bucket files into {store.root / 'raw'}")
 
 
@@ -278,15 +295,19 @@ def store_copy(
     """Copy the marker, current snapshots, raw/ and current build to a bucket with rclone.
 
     Refused unless the current build is complete. When rclone's Google login has expired,
-    it skips with a message and exits 0; rerun after `rclone config reconnect`.
+    it skips with a message and exits 0; rerun after `rclone config reconnect`. The status
+    record marks the copy pending until one succeeds.
     """
+    from labdata.store import refresh
     from labdata.store.gcs import copy
 
+    where = root if root is not None else open_store().root
     try:
-        result = copy(root if root is not None else open_store().root, to)
+        result = copy(where, to)
     except LabdataError as err:
         typer.echo(str(err), err=True)
         raise typer.Exit(1) from err
+    refresh.note_copy(where, pending=result.skipped)
     typer.echo(result.message if result.skipped else f"Copied the store to {result.destination}")
 
 
@@ -363,6 +384,72 @@ def store_run(
     typer.echo("The run finished: every step done.")
 
 
+@store_app.command("refresh")
+def store_refresh(
+    since: str | None = typer.Option(
+        None,
+        help=f"Search GEO's changes from this date, YYYY-MM-DD, less {OVERLAP_DAYS} days; "
+        "default: the last successful refresh, then the geo-series snapshot of the current build.",
+    ),
+    cores: int | None = typer.Option(
+        None, min=1, help="Cores the steps may use; default: SLURM_CPUS_ON_NODE, then all."
+    ),
+    ncbi: int = typer.Option(2, min=1, help="Network steps that may run at once."),
+    max_share: float = typer.Option(
+        0.05, min=0.0, max=1.0, help="Refuse to remove more than this share of any raw source."
+    ),
+    root: Path | None = typer.Option(
+        None, help="Store root; default: LABDATA_STORE, then pointer."
+    ),
+) -> None:
+    """Bring the store to the sources' current state in one resumable run.
+
+    Renews the snapshots, fetches what GEO and SRA changed, removes what is confirmed gone,
+    builds, switches, prunes and copies. Rerun the same command to resume an unfinished
+    refresh. The outcome is in refresh-status.json in the store root.
+    """
+    import logging
+
+    from labdata.store import refresh
+
+    if since is not None:
+        _date(since, "--since")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    try:
+        code = refresh.run(
+            open_store(root).root, since=since, cores=cores, ncbi=ncbi, max_share=max_share
+        )
+    except LabdataError as err:
+        typer.echo(str(err), err=True)
+        raise typer.Exit(1) from err
+    if code:
+        typer.echo(f"The refresh stopped with steps unfinished (snakemake exit {code}).", err=True)
+        raise typer.Exit(code)
+    typer.echo("The refresh finished: every step done.")
+
+
+@store_app.command("_refreshed", hidden=True)
+def store_refreshed(
+    root: Path | None = typer.Option(
+        None, help="Store root; default: LABDATA_STORE, then pointer."
+    ),
+) -> None:
+    """Record the running refresh's date and counts in the status record, after the switch."""
+    from labdata.store import refresh
+
+    status = refresh.switched(open_store(root).root)
+    typer.echo(f"Refreshed as of {status['last_success']}")
+    for source, counts in status["counts"].items():
+        typer.echo(f"{source}: " + ", ".join(f"{n} {key}" for key, n in counts.items()))
+
+
+def _date(value: str, hint: str) -> dt.date:
+    try:
+        return dt.date.fromisoformat(value)
+    except ValueError as err:
+        raise typer.BadParameter(str(err), param_hint=hint) from err
+
+
 @store_app.command("_targets", hidden=True)
 def store_targets(
     fraction: float | None = typer.Option(
@@ -385,6 +472,35 @@ def store_targets(
     typer.echo(f"{pq.read_metadata(path).num_rows} target Series in {path}")
 
 
+@store_app.command("_changes", hidden=True)
+def store_changes(
+    since: str = typer.Option(
+        ...,
+        help=f"The last successful refresh's date, YYYY-MM-DD; the search starts {OVERLAP_DAYS} "
+        "days before.",
+    ),
+    out: Path = typer.Option(..., help="The re-fetch list to write, one Series per line."),
+    snapshot_date: str | None = typer.Option(
+        None, help="geo-series snapshot date of the target list; default: the newest."
+    ),
+    root: Path | None = typer.Option(
+        None, help="Store root; default: LABDATA_STORE, then pointer."
+    ),
+) -> None:
+    """Write the re-fetch list: target Series GEO changed or added, and those they name."""
+    from labdata.store import changes
+
+    last = _date(since, "--since")
+    store = open_store(root)
+    found = changes.change_list(
+        store.root, last, out, client=_store_client(), snapshot_date=snapshot_date
+    )
+    typer.echo(
+        f"{found.total} Series to fetch again in {found.path}: {found.updated} updated, "
+        f"{found.new} new, {found.related} named by a relation line"
+    )
+
+
 @store_app.command("_geo", hidden=True)
 def store_geo_lane(
     accessions: list[str] = typer.Argument(
@@ -395,6 +511,9 @@ def store_geo_lane(
     ),
     snapshot_date: str | None = typer.Option(
         None, help="geo-series snapshot date; default: the newest."
+    ),
+    refetch: Path | None = typer.Option(
+        None, help="The re-fetch list: Series to fetch again though raw/ holds them."
     ),
     failed_marker: Path | None = typer.Option(
         None, help="Write this file when items are left failed, remove it when none are."
@@ -419,10 +538,12 @@ def store_geo_lane(
         path = targets.target_list(store.root, snapshot_date)
         batches = pq.ParquetFile(path).iter_batches(columns=["accession"])
         series_list = [gse for batch in batches for gse in batch.column(0).to_pylist()]
-    report = geo_lane.run(store.root, series_list, client=_store_client())
+    again = [] if refetch is None else _accession_file(refetch)
+    report = geo_lane.run(store.root, series_list, client=_store_client(), refetch=again)
     typer.echo(
         f"GEO lane: {report.held} Series held, {report.filelists} filelists, gaps: "
-        f"{report.soft_missing} soft-missing, {report.fetch_failed} fetch-failed"
+        f"{report.soft_missing} soft-missing, {report.fetch_failed} fetch-failed; "
+        f"{report.refetched} of {len(again)} on the re-fetch list fetched again"
     )
     left = report.fetch_failed + report.held - report.filelists
     _mark_failed(failed_marker, left)
@@ -459,6 +580,12 @@ def store_eutils(
         None, help="Only these GEO Series: a text file, one per line, or a Parquet `accession`."
     ),
     date: str | None = typer.Option(None, help="SRA_Accessions.tab snapshot date."),
+    refetch: Path | None = typer.Option(
+        None, help="The re-fetch list: Series whose experiments to fetch again."
+    ),
+    soft_only: bool = typer.Option(
+        False, help="Take the experiments from the saved SOFT only, not SRA_Accessions.tab."
+    ),
     failed_marker: Path | None = typer.Option(
         None, help="Write this file when items are left failed, remove it when none are."
     ),
@@ -470,20 +597,89 @@ def store_eutils(
     import datetime as dt
     import logging
 
-    from labdata.store import eutils
+    from labdata.store import changes, eutils, removals
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     store = open_store(root)
     wanted = None if series is None else _accession_file(series)
-    listed = eutils.experiment_list(store.root, date=date, series=wanted)
+    listed = eutils.experiment_list(store.root, date=date, series=wanted, from_tab=not soft_only)
     today = dt.datetime.now(dt.UTC).date().isoformat()
-    report = eutils.fetch_packages(store.root, listed, client=_store_client(), date=today)
+    again = set()
+    if refetch is not None:
+        again = changes.refetch_experiments(store.root, _accession_file(refetch))
+    report = eutils.fetch_packages(
+        store.root, listed, client=_store_client(), date=today, refetch=again
+    )
     typer.echo(
         f"SRA packages: {report.fetched} saved, {report.missing} new with none, "
         f"{report.failed} to retry; {report.reasked} bad saved packages asked again, "
         f"{report.recovered} came back good"
     )
+    if again:
+        shown = sorted(report.unserved)[:20]
+        unserved = ", ".join(shown) + (", ..." if len(report.unserved) > 20 else "") or "none"
+        typer.echo(
+            f"{len(again)} experiments on the re-fetch list; "
+            f"{len(report.unserved)} fetched again but served none: {unserved}"
+        )
+    removals.note_unserved(store.root, report.unserved)
     _mark_failed(failed_marker, report.failed)
+
+
+@store_app.command("_confirm", hidden=True)
+def store_confirm(
+    candidates: Path | None = typer.Option(
+        None, help="More candidates: a text file, one per line, or a Parquet `accession`."
+    ),
+    root: Path | None = typer.Option(
+        None, help="Store root; default: LABDATA_STORE, then pointer."
+    ),
+) -> None:
+    """Confirm each removal candidate with its own fetch; write removal parts for the gone."""
+    import datetime as dt
+    import logging
+
+    from labdata.store import removals
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    store = open_store(root)
+    extra = [] if candidates is None else _accession_file(candidates)
+    found = removals.candidates(store.root, extra)
+    today = dt.datetime.now(dt.UTC).date().isoformat()
+    report = removals.confirm(store.root, found, client=_store_client(), date=today)
+    typer.echo(
+        f"Removal candidates: {report.asked} asked, {report.gone} confirmed gone, "
+        f"{report.runs_gone} runs gone, {report.kept} still served, "
+        f"{report.failed} failed and kept"
+    )
+    for source, count in sorted(report.removals.items()):
+        typer.echo(f"{source}: {count} to remove")
+
+
+@store_app.command("_reach", hidden=True)
+def store_reach(
+    max_share: float = typer.Option(
+        0.05, min=0.0, max=1.0, help="Refuse to remove more than this share of any source."
+    ),
+    root: Path | None = typer.Option(
+        None, help="Store root; default: LABDATA_STORE, then pointer."
+    ),
+) -> None:
+    """Write removal parts for every raw row that no target Series reaches."""
+    import logging
+
+    from labdata.store import removals
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    store = open_store(root)
+    try:
+        counts = removals.reach(store.root, max_share=max_share)
+    except LabdataError as err:
+        typer.echo(str(err), err=True)
+        raise typer.Exit(1) from err
+    typer.echo(f"Unreached raw rows: {sum(counts.values())} to remove")
+    for source, count in sorted(counts.items()):
+        typer.echo(f"{source}: {count} to remove")
 
 
 def _mark_failed(marker: Path | None, failed: int) -> None:

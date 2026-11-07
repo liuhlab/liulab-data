@@ -3,14 +3,18 @@
 A bucket is rewritten whole by a k-way merge of its sorted inputs, read a few rows at a
 time and written a chunk at a time, so memory holds a chunk, never a bucket or a source.
 For one accession, a part's row replaces the bucket's, and a newer part's an older one's.
+A removal part deletes the rows saved before it; a bucket left with no rows is deleted.
 A bucket file named for another width is first split into parts, so a width change
 repacks the same rows.
 """
 
 from __future__ import annotations
 
+import hashlib
 import heapq
 import itertools
+import json
+import logging
 import os
 from collections import defaultdict
 from collections.abc import Iterable, Iterator
@@ -26,9 +30,15 @@ READ_ROWS = 16
 #: Most sorted runs merged in one pass; more are merged in passes through spill files.
 FAN_IN = 8
 
+logger = logging.getLogger(__name__)
+
 
 def pack(
-    root: Path, sources: Iterable[str] | None = None, *, chunk_bytes: int = raw.SORT_CHUNK_BYTES
+    root: Path,
+    sources: Iterable[str] | None = None,
+    *,
+    chunk_bytes: int = raw.SORT_CHUNK_BYTES,
+    counts: Path | None = None,
 ) -> list[Path]:
     """Merge every source's parts into its raw buckets and document the folders changed.
 
@@ -40,11 +50,14 @@ def pack(
         The raw folders to pack; defaults to every source with parts or a bucket file.
     chunk_bytes : int
         Raw text held before a row group is written.
+    counts : pathlib.Path or None
+        A file to append one JSON line to per bucket rewritten: its source, bucket, and the
+        records added, replaced (held with another text) and removed.
 
     Returns
     -------
     list of pathlib.Path
-        The bucket files rewritten.
+        The bucket files rewritten or deleted. Each source's count of removed records is logged.
     """
     if sources is None:
         found = {p.name for p in (root / "work" / "parts").glob("*") if p.is_dir()}
@@ -52,8 +65,10 @@ def pack(
         sources = sorted(found)
     written: list[Path] = []
     for source in sources:
-        done = _pack_source(root, source, chunk_bytes)
+        done, removed = _pack_source(root, source, chunk_bytes, counts)
         written += done
+        if removed:
+            logger.info("%s: removed %d record%s", source, removed, "" if removed == 1 else "s")
         if done:
             provenance.document_raw(root, source)
     return written
@@ -76,7 +91,9 @@ def write_rows(root: Path, source: str, rows: list[RawRow]) -> list[Path]:
     return pack(root, [source])
 
 
-def _pack_source(root: Path, source: str, chunk_bytes: int) -> list[Path]:
+def _pack_source(
+    root: Path, source: str, chunk_bytes: int, counts: Path | None
+) -> tuple[list[Path], int]:
     folder = root / "raw" / source
     for stale in [*folder.glob(".*.tmp"), *raw.parts_dir(root, source).glob(".*")]:
         stale.unlink(missing_ok=True)
@@ -86,29 +103,82 @@ def _pack_source(root: Path, source: str, chunk_bytes: int) -> list[Path]:
     for part in raw.part_files(root, source):
         by_bucket[raw.part_bucket(part)].append(part)
     written = []
+    removed = 0
     for bucket, parts in sorted(by_bucket.items()):
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / f"{bucket}.parquet"
-        runs = list(_runs(parts))
-        if path.is_file():
-            runs.insert(0, _rows(path))
         spills: list[Path] = []
-        runs = _fewer(runs, raw.parts_dir(root, source), spills, chunk_bytes)
-        raw.write_sorted_runs(path, _merged(runs), raw.SCHEMA, chunk_bytes=chunk_bytes)
+        held = path.is_file()
+        # The old bucket is never spilled, so the merge can tell its rows from the parts'.
+        most = FAN_IN - 1 if held else FAN_IN
+        runs = _fewer(list(_runs(parts)), raw.parts_dir(root, source), spills, chunk_bytes, most)
+        tally: dict[str, int] = dict.fromkeys(COUNTS, 0)
+        rows = _merged([_rows(path), *runs] if held else runs, tally, held=held)
+        if counts is not None:
+            record = {"source": source, "bucket": bucket, "parts": _parts_tag(parts)}
+            rows = _counted(rows, counts, record, tally)
+        raw.write_sorted_runs(path, rows, raw.SCHEMA, chunk_bytes=chunk_bytes)
+        if pq.read_metadata(path).num_rows == 0:
+            path.unlink()
         for done in [*parts, *spills]:
             done.unlink()
         written.append(path)
-    return written
+        removed += tally["removed"]
+    return written, removed
+
+
+#: The counts a pack records per bucket rewritten.
+COUNTS = ("added", "replaced", "removed")
+
+
+def read_counts(path: Path) -> dict[str, dict[str, int]]:
+    """Return the records added, replaced and removed per source, from a pack's counts file.
+
+    A bucket packed again from the same parts, after a kill, counts once: its first record.
+    """
+    out: dict[str, dict[str, int]] = defaultdict(lambda: dict.fromkeys(COUNTS, 0))
+    seen: set[tuple[str, str, str]] = set()
+    lines = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:  # a line cut off by a kill
+            continue
+        key = (row["source"], row["bucket"], row.get("parts", ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        for name in COUNTS:
+            out[row["source"]][name] += row[name]
+    return dict(sorted(out.items()))
+
+
+def _parts_tag(parts: list[Path]) -> str:
+    return hashlib.sha256("\n".join(p.name for p in parts).encode()).hexdigest()[:12]
+
+
+def _counted(
+    rows: Iterator[RawRow], counts: Path, record: dict[str, str], tally: dict[str, int]
+) -> Iterator[RawRow]:
+    """Pass ``rows`` on, then append the bucket's counts, before its new file is renamed in."""
+    yield from rows
+    with counts.open("a+b") as fh:
+        torn = fh.tell() > 0 and fh.seek(-1, os.SEEK_END) >= 0 and fh.read(1) != b"\n"
+        fh.write(b"\n" * torn + json.dumps({**record, **tally}).encode() + b"\n")
 
 
 def _fewer(
-    runs: list[Iterator[RawRow]], folder: Path, spills: list[Path], chunk_bytes: int
+    runs: list[Iterator[RawRow]],
+    folder: Path,
+    spills: list[Path],
+    chunk_bytes: int,
+    most: int = FAN_IN,
 ) -> list[Iterator[RawRow]]:
-    """Merge neighbouring runs into spill files until at most :data:`FAN_IN` are left.
+    """Merge neighbouring runs into spill files until at most ``most`` are left.
 
     Merging neighbours keeps the runs' order, so the newer row still wins.
     """
-    while len(runs) > FAN_IN:
+    while len(runs) > max(most, 1):
         fewer = []
         for start in range(0, len(runs), FAN_IN):
             group = runs[start : start + FAN_IN]
@@ -116,7 +186,8 @@ def _fewer(
                 fewer += group
                 continue
             spill = folder / f".spill-{len(spills)}.parquet"
-            raw.write_sorted_runs(spill, _merged(group), raw.SCHEMA, chunk_bytes=chunk_bytes)
+            rows = _merged(group, None, held=False)
+            raw.write_sorted_runs(spill, rows, raw.SCHEMA, chunk_bytes=chunk_bytes)
             spills.append(spill)
             fewer.append(_rows(spill))
         runs = fewer
@@ -164,8 +235,14 @@ def _rows(path: Path, groups: list[int] | None = None) -> Iterator[RawRow]:
 
 
 def _runs(paths: list[Path]) -> Iterator[Iterator[RawRow]]:
-    """Yield each sorted run of the files, oldest first: row groups in order, by their stats."""
+    """Yield each sorted run of the files, oldest first: row groups in order, by their stats.
+
+    A removal part is one run of removal rows.
+    """
     for path in paths:
+        if gone := raw.removed(path):
+            yield (RawRow(accession, "", raw.REMOVED) for accession in gone)
+            continue
         metadata = pq.read_metadata(path)
         run: list[int] = []
         last: str | None = None
@@ -181,13 +258,33 @@ def _runs(paths: list[Path]) -> Iterator[Iterator[RawRow]]:
             yield _rows(path, run)
 
 
-def _merged(runs: list[Iterator[RawRow]]) -> Iterator[RawRow]:
-    """Merge sorted runs into one sorted stream, keeping the last run's row per accession."""
+def _merged(
+    runs: list[Iterator[RawRow]], tally: dict[str, int] | None, *, held: bool
+) -> Iterator[RawRow]:
+    """Merge sorted runs into one sorted stream, keeping the last run's row per accession.
+
+    With ``tally``, the stream is final: a last row that is a removal is dropped. When
+    ``held``, the first run is the old bucket, and ``tally`` counts the accessions added,
+    replaced with another text and removed against it. Without ``tally``, removals are kept,
+    so a spill file passes them on.
+    """
     streams = [_ranked(rank, run) for rank, run in enumerate(runs)]
     merged = heapq.merge(*streams, key=lambda item: (item[0], item[1]))
     for _, group in itertools.groupby(merged, key=lambda item: item[0]):
-        *_, (_, _, row) = group
-        yield row
+        ranked = [(rank, row) for _, rank, row in group]
+        rank, last = ranked[-1]
+        gone = last.fetch_date == raw.REMOVED
+        if tally is None or not gone:
+            yield last
+        if tally is None or (held and rank == 0):
+            continue
+        old = ranked[0][1] if held and ranked[0][0] == 0 else None
+        if gone:
+            tally["removed"] += old is not None
+        elif old is None:
+            tally["added"] += 1
+        elif old.raw_text != last.raw_text:
+            tally["replaced"] += 1
 
 
 def _ranked(rank: int, run: Iterator[RawRow]) -> Iterator[tuple[str, int, RawRow]]:

@@ -5,13 +5,16 @@ A raw row is ``accession``, ``raw_text``, ``hash`` and ``fetch_date``. A source'
 
 A fetch lane splits its work into :class:`Piece` s, one per bucket, and writes each finished
 piece as one part file that appears by a rename. A rerun skips every accession a part or a
-raw bucket already holds, so a saved piece makes no request. Only :mod:`labdata.store.pack`
-writes ``raw/``. Writer side only, so pyarrow is imported here freely.
+raw bucket already holds, so a saved piece makes no request. A re-fetch accession is fetched
+again though a raw bucket holds it; only a part saves it. A removal part lists accessions to
+delete instead of rows. Only :mod:`labdata.store.pack` writes ``raw/``. Writer side only, so
+pyarrow is imported here freely.
 """
 
 from __future__ import annotations
 
 import hashlib
+import itertools
 import os
 import re
 import threading
@@ -55,6 +58,10 @@ SORT_CHUNK_ROWS = 10_000
 GROUPS_PER_CHUNK = 8
 #: The parquet key listing the accessions a part's piece asked for, one per line.
 ASKED_KEY = b"labdata.asked"
+#: The parquet key listing the accessions a removal part deletes, one per line.
+REMOVED_KEY = b"labdata.removed"
+#: The ``fetch_date`` that marks a row as a removal while pack merges.
+REMOVED = "removed"
 
 SCHEMA = pa.schema(
     [
@@ -102,7 +109,7 @@ class RawRow:
 
 @dataclass(frozen=True, slots=True)
 class Piece:
-    """One unit of fetch work: the unsaved accessions of one source's bucket."""
+    """One unit of fetch work: one source's bucket's unsaved and re-fetch accessions."""
 
     source: str
     bucket: str
@@ -128,41 +135,159 @@ def part_bucket(path: Path) -> str:
     return path.name.split(".", 1)[0]
 
 
-def pieces(root: Path, source: str, accessions: Iterable[str]) -> list[Piece]:
+def pieces(
+    root: Path, source: str, accessions: Iterable[str], refetch: Iterable[str] = ()
+) -> list[Piece]:
     """Split accessions into pieces, one per bucket, leaving out every saved accession.
 
     An accession is saved when a raw bucket row or a part holds it, or a part's piece asked
-    for it and got no row. A bucket with nothing left to fetch yields no piece.
+    for it and got no row. A ``refetch`` accession, wanted too, is fetched even though a raw
+    bucket holds it: only a part saves it. A bucket with nothing left to fetch yields no piece.
     """
     by_bucket: dict[str, set[str]] = defaultdict(set)
-    for accession in accessions:
+    again = set(refetch)
+    for accession in itertools.chain(accessions, again):
         by_bucket[bucket_of(source, accession)].add(accession)
-    done = _done(root, source, set(by_bucket))
-    return [
-        Piece(source, bucket, tuple(sorted(wanted - done[bucket])))
-        for bucket, wanted in sorted(by_bucket.items())
-        if wanted - done[bucket]
-    ]
+    packed, parted = _done(root, source, set(by_bucket))
+    out = []
+    for bucket, wanted in sorted(by_bucket.items()):
+        left = wanted - parted[bucket] - (packed[bucket] - again)
+        if left:
+            out.append(Piece(source, bucket, tuple(sorted(left))))
+    return out
 
 
-def _done(root: Path, source: str, buckets: set[str]) -> dict[str, set[str]]:
-    done: dict[str, set[str]] = defaultdict(set)
+def held(
+    root: Path, source: str, accessions: Iterable[str] | None = None, *, parts_only: bool = False
+) -> set[str]:
+    """Return which of ``accessions`` have a row in ``source``, in raw or a part.
+
+    With ``accessions`` None, every accession with a row. With ``parts_only``, only rows in
+    parts count: rows fetched since the last pack.
+    """
+    if accessions is None:
+        paths = part_files(root, source) if parts_only else source_files(root, source)
+        return {
+            a
+            for path in paths
+            for a in pq.read_table(path, columns=["accession"]).column(0).to_pylist()
+        }
+    wanted = set(accessions)
+    found: set[str] = set()
+    for path in _bucket_paths(root, source, wanted, parts_only):
+        found |= wanted.intersection(
+            pq.read_table(path, columns=["accession"]).column(0).to_pylist()
+        )
+    return found
+
+
+def source_files(root: Path, source: str) -> list[Path]:
+    """Return every file holding a source's rows: its raw buckets, then its parts, oldest first."""
+    return sorted((root / "raw" / source).glob("*.parquet")) + part_files(root, source)
+
+
+def scan(
+    root: Path,
+    source: str,
+    accessions: Iterable[str],
+    pattern: re.Pattern[str],
+    *,
+    parts_only: bool = False,
+) -> set[str]:
+    """Return what ``pattern``'s first group matches in the saved text of ``accessions``.
+
+    Every saved copy is read, raw and part alike, a few rows at a time; with ``parts_only``,
+    only the parts.
+    """
+    wanted = set(accessions)
+    paths = _bucket_paths(root, source, wanted, parts_only)
+    found: set[str] = set()
+    for path in paths:
+        batches = pq.ParquetFile(path).iter_batches(
+            batch_size=64, columns=["accession", "raw_text"]
+        )
+        for batch in batches:
+            for accession, text in zip(*batch.to_pydict().values(), strict=True):
+                if accession in wanted:
+                    found.update(pattern.findall(text))
+    return found
+
+
+def _bucket_paths(root: Path, source: str, accessions: set[str], parts_only: bool) -> list[Path]:
+    """Return the raw buckets, then the parts, that may hold ``accessions``, oldest first."""
+    buckets = {bucket_of(source, a) for a in accessions}
+    paths = [] if parts_only else [root / "raw" / source / f"{b}.parquet" for b in sorted(buckets)]
+    paths = [p for p in paths if p.is_file()]
+    return paths + [p for p in part_files(root, source) if part_bucket(p) in buckets]
+
+
+def _done(
+    root: Path, source: str, buckets: set[str]
+) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
+    """Return each bucket's accessions saved in raw, and those saved or asked in a part.
+
+    A removal part unsaves the accessions it lists, until a later part saves them again.
+    """
+    packed: dict[str, set[str]] = defaultdict(set)
+    parted: dict[str, set[str]] = defaultdict(set)
     for bucket in buckets:
         path = root / "raw" / source / f"{bucket}.parquet"
         if path.is_file():
-            done[bucket] |= set(pq.read_table(path, columns=["accession"]).column(0).to_pylist())
+            packed[bucket] |= set(pq.read_table(path, columns=["accession"]).column(0).to_pylist())
     for path in part_files(root, source):
         bucket = part_bucket(path)
-        if bucket in buckets:
-            done[bucket] |= set(pq.read_table(path, columns=["accession"]).column(0).to_pylist())
-            done[bucket] |= asked(path)
-    return done
+        if bucket not in buckets:
+            continue
+        if gone := removed(path):
+            packed[bucket] -= set(gone)
+            parted[bucket] -= set(gone)
+            continue
+        parted[bucket] |= set(pq.read_table(path, columns=["accession"]).column(0).to_pylist())
+        parted[bucket] |= asked(path)
+    return packed, parted
 
 
 def asked(path: Path) -> set[str]:
     """Return the accessions a part's piece asked for."""
+    return _listed(path, ASKED_KEY)
+
+
+def removed(path: Path) -> list[str]:
+    """Return the accessions a removal part deletes, sorted; empty for a row part."""
+    return sorted(_listed(path, REMOVED_KEY))
+
+
+def _listed(path: Path, key: bytes) -> set[str]:
     metadata = pq.read_schema(path).metadata or {}
-    return set(filter(None, metadata.get(ASKED_KEY, b"").decode().split("\n")))
+    return set(filter(None, metadata.get(key, b"").decode().split("\n")))
+
+
+def write_removals(root: Path, source: str, accessions: Iterable[str]) -> list[Path]:
+    """Write removal parts deleting these accessions' rows from one source, one per bucket.
+
+    Pack applies a removal in part order: it deletes the rows saved before it, and a row
+    saved after it wins. A removal part already written is left as it is, keeping its place.
+
+    Returns
+    -------
+    list of pathlib.Path
+        The removal parts, written or already there.
+    """
+    by_bucket: dict[str, set[str]] = defaultdict(set)
+    for accession in accessions:
+        by_bucket[bucket_of(source, accession)].add(accession)
+    folder = parts_dir(root, source)
+    written = []
+    for bucket, members in sorted(by_bucket.items()):
+        listed = "\n".join(sorted(members))
+        tag = hashlib.sha256(listed.encode()).hexdigest()[:12]
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f"{bucket}.removed-{tag}.parquet"
+        written.append(path)
+        if path.is_file():
+            continue
+        write_sorted_runs(path, [], SCHEMA.with_metadata({REMOVED_KEY: listed.encode()}))
+    return written
 
 
 def fetch_pieces(
@@ -307,17 +432,20 @@ def _table(rows: list[RawRow], schema: pa.Schema) -> pa.Table:
     )
 
 
-def saved(root: Path, source: str, accessions: Iterable[str]) -> dict[str, str]:
+def saved(
+    root: Path, source: str, accessions: Iterable[str], *, parts_only: bool = False
+) -> dict[str, str]:
     """Return the saved raw text of those ``accessions`` that have a row, in raw or a part.
 
-    A part's row wins over a raw bucket's, and a newer part's over an older one's.
+    A part's row wins over a raw bucket's, and a newer part's over an older one's; a removal
+    part drops the rows saved before it. With ``parts_only``, only rows in parts count.
     """
     wanted = set(accessions)
-    buckets = {bucket_of(source, a) for a in wanted}
-    paths = [root / "raw" / source / f"{bucket}.parquet" for bucket in sorted(buckets)]
-    paths += [p for p in part_files(root, source) if part_bucket(p) in buckets]
+    paths = _bucket_paths(root, source, wanted, parts_only)
     out: dict[str, str] = {}
     for path in paths:
+        for accession in removed(path) if path.is_file() else []:
+            out.pop(accession, None)
         out |= {row.accession: row.raw_text for row in _read(path) if row.accession in wanted}
     return out
 

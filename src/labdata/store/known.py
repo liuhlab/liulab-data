@@ -1,8 +1,10 @@
-"""Build ``known.parquet``: every accession the snapshots list, with its snapshot's date.
+"""Build ``known.parquet``: every public accession the snapshots list, with its snapshot's date.
 
 The accessions come from each snapshot's extract (``labdata store extract``), deduped per
-source. The table depends only on the snapshot dates, so it is sorted once per set of dates
-into ``<root>/work/known/`` and each build links that file. A sample build writes its own
+source. Only ``live`` rows of ``SRA_Accessions.tab`` and BioSample count, so a withdrawn or
+suppressed record is unknown, not merely unheld. The table depends only on the snapshot
+dates, so it is sorted once per set of dates into ``<root>/work/known/`` and each build links
+that file. A sample build writes its own
 share straight into the build.
 """
 
@@ -14,6 +16,9 @@ import os
 import shutil
 from pathlib import Path
 
+import pyarrow.parquet as pq
+
+from labdata.exceptions import StoreBuildError
 from labdata.store import extract, layout, snapshots, targets
 from labdata.store._files import temp_beside
 from labdata.store.layout import sql_string
@@ -30,6 +35,9 @@ SOURCES = (
 
 #: The Parquet key-value metadata key holding each source's snapshot date, as JSON.
 DATES_KEY = "snapshot_dates"
+
+#: The sources whose rows carry a status; only ``live`` rows count.
+_STATUSED = (snapshots.SRA_ACCESSIONS, snapshots.BIOSAMPLE)
 
 
 def write(
@@ -64,16 +72,18 @@ def write(
     Raises
     ------
     StoreBuildError
-        If a source's snapshot is missing or not extracted.
+        If a source's snapshot is missing, not extracted, or extracted without a status column.
     """
     read = root if source is None else source.root
     folders = {name: extract.done_dir(read, name) for name in SOURCES}
+    for name in _STATUSED:
+        _require_status(name, *folders[name])
     dates = {name: date for name, (_, date) in folders.items()}
     if source is not None and source.sample is not None:
         _sort(root, folders, dates, out, source.sample, held)
         return dates
     key = "_".join(f"{source}-{date}" for source, date in dates.items())
-    cached = root / "work" / "known" / f"known-{key}.parquet"
+    cached = root / "work" / "known" / f"known-public-{key}.parquet"
     if not cached.is_file():
         cached.parent.mkdir(parents=True, exist_ok=True)
         tmp = temp_beside(cached)
@@ -100,6 +110,7 @@ def _sort(
     selects = [
         f"SELECT DISTINCT accession, {sql_string(source)} AS source, "
         f"{sql_string(date)} AS snapshot_date FROM read_parquet({extract.parts(folder)})"
+        + (" WHERE status = 'live'" if source in _STATUSED else "")
         for source, (folder, date) in folders.items()
     ]
     tally = None
@@ -124,3 +135,12 @@ def _sort(
                 tally.kept,
                 tally.dropped,
             )
+
+
+def _require_status(source: str, folder: Path, date: str) -> None:
+    part = next(folder.glob("part-*.parquet"), None)
+    if part is not None and "status" not in pq.read_schema(part).names:
+        raise StoreBuildError(
+            f"the {source} extract of {date} has no status column; delete {folder} "
+            f"and run `labdata store extract --source {source}` again"
+        )

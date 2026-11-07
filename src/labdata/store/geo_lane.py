@@ -25,12 +25,11 @@ from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from pathlib import Path
 
-import pyarrow.parquet as pq
-
 from labdata.exceptions import EntrezError, PageNotFound
 from labdata.ncbi.entrez import EntrezClient, retry_after
 from labdata.store import gaps, raw
 from labdata.store import progress as progress_lines
+from labdata.store.changes import RELATION
 from labdata.store.fetch import filelist_url, soft_url
 
 #: Connections kept open to GEO's download site.
@@ -60,12 +59,16 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class LaneReport:
-    """What one run of the lane holds: Series with SOFT, gaps by reason, filelists."""
+    """What one run of the lane holds: Series with SOFT, gaps by reason, filelists.
+
+    ``refetched`` counts the re-fetch Series whose SOFT is saved again since the last pack.
+    """
 
     held: int
     soft_missing: int
     fetch_failed: int
     filelists: int
+    refetched: int = 0
 
 
 def run(
@@ -75,8 +78,13 @@ def run(
     client: EntrezClient,
     date: str | None = None,
     connections: int = CONNECTIONS,
+    refetch: Iterable[str] = (),
 ) -> LaneReport:
     """Fetch the family SOFT of each Series and its SubSeries, then each held one's filelist.
+
+    A ``refetch`` Series is fetched again though ``raw/`` holds it, its filelist too once its
+    SOFT is saved again. So is every Series a relation line in its new SOFT names (see
+    :data:`labdata.store.changes.RELATION`).
 
     Parameters
     ----------
@@ -90,6 +98,8 @@ def run(
         The fetch date to record; defaults to today's UTC date.
     connections : int
         Connections kept open; halved on HTTP 429, 503 or repeated timeouts.
+    refetch : iterable of str
+        Series to fetch again, the re-fetch list; a part holding one saves it.
 
     Returns
     -------
@@ -97,7 +107,8 @@ def run(
         Counts over every Series met, saved before this run or now.
     """
     date = date or dt.datetime.now(dt.UTC).date().isoformat()
-    todo = sorted({s.strip().upper() for s in series})
+    again = {s.strip().upper() for s in refetch}
+    todo = sorted({s.strip().upper() for s in series} | again)
     seen: set[str] = set()
     retried = False
     with _Pool(client, connections) as pool:
@@ -106,21 +117,30 @@ def run(
             rounds += 1
             seen |= set(todo)
             what = "retry of failed" if retried else f"round {rounds}"
-            _fetch_soft(root, pool, todo, date, f"Series SOFT, {what}")
-            todo = sorted(_named_subseries(root, set(todo)) - seen)
+            _fetch_soft(root, pool, todo, date, f"Series SOFT, {what}", again)
+            named = raw.scan(
+                root, raw.GEO_SOFT, again.intersection(todo), RELATION, parts_only=True
+            )
+            late = named - again
+            again |= late
+            todo = sorted(_named_subseries(root, set(todo)) - seen | late)
             if not todo and not retried:
                 retried = True
-                todo = sorted(_failed(root, seen - _soft_held(root, seen)))
+                unsaved = seen - _soft_held(root, seen)
+                unsaved |= again - raw.held(root, raw.GEO_SOFT, again, parts_only=True)
+                todo = sorted(_failed(root, unsaved))
         held = sorted(_soft_held(root, seen))
-        _fetch_filelists(root, pool, held, date)
-        if len(_accessions(root, raw.GEO_FILELIST, set(held))) < len(held):
-            _fetch_filelists(root, pool, held, date)
+        renewed = raw.held(root, raw.GEO_SOFT, again, parts_only=True)
+        for _ in range(2):
+            if raw.pieces(root, raw.GEO_FILELIST, held, renewed):
+                _fetch_filelists(root, pool, held, date, renewed)
     reasons = Counter(text.split("\n", 1)[0] for text in _gap_texts(root, seen - set(held)))
     return LaneReport(
         held=len(held),
         soft_missing=reasons[gaps.SOFT_MISSING],
         fetch_failed=reasons[gaps.FETCH_FAILED],
-        filelists=len(_accessions(root, raw.GEO_FILELIST, set(held))),
+        filelists=len(raw.held(root, raw.GEO_FILELIST, held)),
+        refetched=len(renewed),
     )
 
 
@@ -176,13 +196,17 @@ def _text(lines: Iterable[bytes]) -> str:
     return b"".join(lines).decode("utf-8", errors="replace")
 
 
-def _fetch_soft(root: Path, pool: _Pool, accessions: list[str], date: str, phase: str) -> None:
-    missing = {
-        gse
-        for gse, text in raw.saved(root, raw.GEO_GAPS, accessions).items()
-        if text.split("\n", 1)[0] == gaps.SOFT_MISSING
-    }
-    pieces = raw.pieces(root, raw.GEO_SOFT, [a for a in accessions if a not in missing])
+def _fetch_soft(
+    root: Path, pool: _Pool, accessions: list[str], date: str, phase: str, again: set[str]
+) -> None:
+    """Fetch the SOFT of every unsaved Series; a re-fetch one is skipped only for a new gap."""
+    again = again.intersection(accessions)
+    gap_rows = raw.saved(root, raw.GEO_GAPS, set(accessions) - again)
+    gap_rows |= raw.saved(root, raw.GEO_GAPS, again, parts_only=True)
+    missing = {gse for gse, text in gap_rows.items() if text.split("\n", 1)[0] == gaps.SOFT_MISSING}
+    pieces = raw.pieces(
+        root, raw.GEO_SOFT, [a for a in accessions if a not in missing], again - missing
+    )
 
     def keep(gse: str, got: str | _Gap) -> tuple[raw.RawRow | None, raw.RawRow | None]:
         if isinstance(got, str):
@@ -192,7 +216,7 @@ def _fetch_soft(root: Path, pool: _Pool, accessions: list[str], date: str, phase
     _fetch_parts(root, pool, pieces, soft_url, strip_soft, keep, phase)
 
 
-def _fetch_filelists(root: Path, pool: _Pool, held: list[str], date: str) -> None:
+def _fetch_filelists(root: Path, pool: _Pool, held: list[str], date: str, again: set[str]) -> None:
     def keep(gse: str, got: str | _Gap) -> tuple[raw.RawRow | None, raw.RawRow | None]:
         if isinstance(got, str):
             return raw.RawRow(gse, got, date), None
@@ -201,7 +225,7 @@ def _fetch_filelists(root: Path, pool: _Pool, held: list[str], date: str) -> Non
         logger.warning("filelist of %s not saved: %s", gse, got.detail)
         return None, None
 
-    pieces = raw.pieces(root, raw.GEO_FILELIST, held)
+    pieces = raw.pieces(root, raw.GEO_FILELIST, held, again)
     _fetch_parts(root, pool, pieces, filelist_url, _text, keep, "Series filelists")
 
 
@@ -254,37 +278,13 @@ def _fetch_parts(
                 flush(bucket)
 
 
-def _bucket_files(root: Path, source: str, accessions: set[str]) -> list[Path]:
-    buckets = {raw.bucket_of(source, a) for a in accessions}
-    paths = [root / "raw" / source / f"{b}.parquet" for b in sorted(buckets)]
-    paths = [p for p in paths if p.is_file()]
-    return paths + [p for p in raw.part_files(root, source) if raw.part_bucket(p) in buckets]
-
-
-def _accessions(root: Path, source: str, accessions: set[str]) -> set[str]:
-    """Return which of ``accessions`` have a row in ``source``, raw or part."""
-    found: set[str] = set()
-    for path in _bucket_files(root, source, accessions):
-        column = pq.read_table(path, columns=["accession"]).column(0).to_pylist()
-        found |= accessions.intersection(column)
-    return found
-
-
 def _soft_held(root: Path, accessions: set[str]) -> set[str]:
-    return _accessions(root, raw.GEO_SOFT, accessions)
+    return raw.held(root, raw.GEO_SOFT, accessions)
 
 
 def _named_subseries(root: Path, accessions: set[str]) -> set[str]:
-    """Return the SubSeries the saved SOFT of ``accessions`` name, read batch by batch."""
-    named: set[str] = set()
-    for path in _bucket_files(root, raw.GEO_SOFT, accessions):
-        for batch in pq.ParquetFile(path).iter_batches(
-            batch_size=64, columns=["accession", "raw_text"]
-        ):
-            for gse, text in zip(*batch.to_pydict().values(), strict=True):
-                if gse in accessions:
-                    named.update(_SUBSERIES.findall(text))
-    return named
+    """Return the SubSeries the saved SOFT of ``accessions`` name."""
+    return raw.scan(root, raw.GEO_SOFT, accessions, _SUBSERIES)
 
 
 def _failed(root: Path, accessions: set[str]) -> set[str]:

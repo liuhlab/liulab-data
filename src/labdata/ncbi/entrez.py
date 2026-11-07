@@ -20,9 +20,11 @@ import http.client
 import io
 import random
 import socket
+import threading
 import time
 import urllib.error
 import urllib.parse
+from collections import Counter
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from email.message import Message
@@ -123,6 +125,14 @@ def _is_transient(err: BaseException) -> bool:
     return any(marker in str(err).lower() for marker in _TRANSIENT_MESSAGES)
 
 
+def ids_empty(err: BaseException) -> bool:
+    """Return whether a failed request, or its cause, is NCBI's "ID list is empty" answer.
+
+    That answer means no requested id resolves to a record.
+    """
+    return _ids_empty(err) or (err.__cause__ is not None and _ids_empty(err.__cause__))
+
+
 def _ids_empty(err: BaseException) -> bool:
     """Tell NCBI's "ID list is empty" answer (no requested id resolves) from other failures."""
     body = getattr(err, "body", b"")
@@ -217,6 +227,50 @@ def _chunked(items: list[str], size: int) -> list[list[str]]:
     return [items[i : i + size] for i in range(0, len(items), size)]
 
 
+class Traffic:
+    """What one client sent and read: requests per ``<host> <status>``, and body bytes read.
+
+    A request that got no reply counts under its exception's name instead of a status.
+    """
+
+    def __init__(self) -> None:
+        self.requests: Counter[str] = Counter()
+        self.bytes = 0
+        self._lock = threading.Lock()
+
+    def count(self, host: str, outcome: object) -> None:
+        """Count one request to ``host`` that ended in ``outcome``."""
+        with self._lock:
+            self.requests[f"{host} {outcome}"] += 1
+
+    def add_bytes(self, n: int) -> None:
+        """Count ``n`` body bytes read."""
+        with self._lock:
+            self.bytes += n
+
+    def __str__(self) -> str:
+        """Return one log line: the totals, then the count per host and status."""
+        each = ", ".join(f"{k}: {v}" for k, v in sorted(self.requests.items()))
+        return f"{self.requests.total()} requests, {self.bytes} bytes read: {each}"
+
+
+class _Counted:
+    """A response whose body reads are added to a :class:`Traffic`."""
+
+    def __init__(self, response: Response, traffic: Traffic) -> None:
+        self._response = response
+        self._traffic = traffic
+        self.status = response.status
+
+    def getheader(self, name: str) -> str | None:
+        return self._response.getheader(name)
+
+    def read(self, amt: int | None = None) -> bytes:
+        data = self._response.read(amt)
+        self._traffic.add_bytes(len(data))
+        return data
+
+
 class EntrezClient:
     """Authenticated entry point to NCBI E-utilities and the GEO download site.
 
@@ -253,6 +307,8 @@ class EntrezClient:
         # Per-instance response cache keyed by call signature. Redundant lookups
         # across records that share this client are served without a request.
         self._cache: dict[tuple[Any, ...], Any] = {}
+        #: Requests sent and bytes read, for a step's log.
+        self.traffic = Traffic()
 
     def clear_cache(self) -> None:
         """Drop all cached responses (forcing fresh requests on the next call)."""
@@ -281,6 +337,36 @@ class EntrezClient:
             record = self._eutil("esearch", {"db": db, "term": term, "retmax": retmax})
             cached = self._cache[key] = [str(uid) for uid in record.get("IdList", [])]
         return list(cached)
+
+    def esearch_all(self, db: str, term: str, *, page: int = 10_000) -> list[str]:
+        """Run an ESearch and return every matching UID, one call per ``page`` UIDs.
+
+        Parameters
+        ----------
+        db : str
+            Entrez database to search (e.g. ``"gds"``).
+        term : str
+            The search term.
+        page : int
+            UIDs asked for per call.
+
+        Returns
+        -------
+        list of str
+            Every matching UID, in NCBI's order, each once. Not cached.
+        """
+        uids: dict[str, None] = {}
+        start, count = 0, 1
+        while start < count:
+            params = {"db": db, "term": term, "retstart": start, "retmax": page}
+            record = self._eutil("esearch", params)
+            count = int(record.get("Count", 0))
+            got = [str(uid) for uid in record.get("IdList", [])]
+            uids |= dict.fromkeys(got)
+            if not got:
+                break
+            start += len(got)
+        return list(uids)
 
     def esummary(self, db: str, uid: str) -> dict[str, Any]:
         """Fetch the document summary for a single UID.
@@ -515,6 +601,30 @@ class EntrezClient:
         out.missing = todo
         return out
 
+    def eutil_text(self, util: str, params: Mapping[str, str]) -> str:
+        """POST one E-utilities call and return its reply as text, unparsed and uncached.
+
+        A record-level error in a 200 reply stays readable in the text.
+
+        Parameters
+        ----------
+        util : str
+            The utility, e.g. ``"esummary"`` or ``"efetch"``.
+        params : mapping
+            The call's parameters; the client adds its identity.
+
+        Returns
+        -------
+        str
+            The reply body.
+
+        Raises
+        ------
+        EntrezError
+            If the call fails; :func:`ids_empty` tells NCBI's "ID list is empty" answer.
+        """
+        return self._eutil(util, params, _read_text)
+
     def fetch_text(self, url: str) -> str:
         """GET an NCBI web page that E-utilities does not serve and return its text.
 
@@ -670,6 +780,8 @@ class EntrezClient:
             headers["Content-Type"] = "application/x-www-form-urlencoded"
         refused = 0
         attempt = 0
+        host = urllib.parse.urlsplit(url).netloc
+        response: _Counted | None = None
         while True:
             try:
                 pace = limiter.turn() if limiter else contextlib.nullcontext()
@@ -677,14 +789,19 @@ class EntrezClient:
                     pace,
                     self._transport.open(
                         method, url, body=body, headers=headers, timeout=timeout
-                    ) as response,
+                    ) as reply,
                 ):
+                    response = _Counted(reply, self.traffic)
+                    self.traffic.count(host, response.status)
                     if response.status != 200:
                         raise _StatusError(
                             url, response.status, _headers(response), response.read()
                         )
                     return read(response)
             except Exception as err:
+                if response is None:
+                    self.traffic.count(host, type(err).__name__)
+                response = None
                 attempt += 1
                 wait = _backoff(attempt - 1)
                 status = getattr(err, "code", None)
