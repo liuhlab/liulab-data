@@ -25,7 +25,7 @@ from typing import Any
 import labdata
 from labdata._pipeline import RESILIENCE_FLAGS
 from labdata.exceptions import LabdataError
-from labdata.store import _limits, extract, gcs, pack, pipeline, provenance, removals
+from labdata.store import _limits, extract, gcs, pack, pipeline, provenance
 from labdata.store._files import write_atomic
 from labdata.store.layout import manifest_path
 from labdata.store.reader import build_path
@@ -37,6 +37,9 @@ STATUS = "refresh-status.json"
 RUNNING, SUCCEEDED, FAILED = "running", "succeeded", "failed"
 #: The file in a refresh's folder each pack appends its per-bucket counts to.
 PACK_COUNTS = "pack-counts.jsonl"
+#: The version of ``refresh.smk``'s markers; raise it when a marker changes meaning, so an
+#: unfinished refresh an older DAG opened is left, not resumed.
+DAG = 2
 
 logger = logging.getLogger(__name__)
 
@@ -52,9 +55,7 @@ def memory_plan(total_mb: int) -> dict[str, int]:
     GEO lane and one other step leave; the build runs alone with all of it.
     """
     geo, lane = total_mb // 16, total_mb // 8
-    plan = dict.fromkeys(
-        ("snapshots", "targets", "changes", "eutils", "confirm", "reach", "pack"), lane
-    )
+    plan = dict.fromkeys(("snapshots", "targets", "changes", "eutils", "confirm", "pack"), lane)
     plan |= dict.fromkeys(("status", "prune", "copy"), lane)
     return plan | {"geo": geo, "extract": total_mb - geo - lane, "build": total_mb}
 
@@ -101,7 +102,6 @@ def run(
     since: str | None = None,
     cores: int | None = None,
     ncbi: int = pipeline.NCBI_STEPS,
-    max_share: float = removals.MAX_SHARE,
     verbose: bool = True,
 ) -> int:
     """Run a refresh, or resume the unfinished one the status record names.
@@ -118,9 +118,6 @@ def run(
         Cores the steps may use; defaults to :func:`labdata.store._limits.default_workers`.
     ncbi : int
         Network steps that may run at once.
-    max_share : float
-        The most of any raw source the reachability step may remove; a resumed refresh
-        takes this run's value.
     verbose : bool
         Show Snakemake's and each step's output.
 
@@ -137,7 +134,15 @@ def run(
     store = open_store(root)
     root = store.root
     status = read_status(root)
-    if status.get("outcome") in (RUNNING, FAILED) and status.get("folder"):
+    unfinished = status.get("outcome") in (RUNNING, FAILED) and status.get("folder")
+    if unfinished and status.get("dag", 1) != DAG:
+        logger.warning(
+            "an older refresh DAG opened the unfinished refresh, so it is left unfinished: %s",
+            status["folder"],
+        )
+        since = since or status["since"]
+        unfinished = False
+    if unfinished:
         logger.info("resuming the refresh started %s", status["started"])
         if since is not None and since != status["since"]:
             logger.warning(
@@ -156,6 +161,7 @@ def run(
             "last_success": status.get("last_success"),
             "counts": {},
             "copy_pending": bool(status.get("copy_pending")),
+            "dag": DAG,
         }
     work = root / status["folder"]
     script = downloader()
@@ -175,7 +181,6 @@ def run(
         "root": str(root),
         "date": status["started"][:10],
         "since": status["since"],
-        "max_share": max_share,
         "extracts": list(extract.SOURCES),
         "copy": bool(store.settings.get(gcs.COPY_TO_KEY)),
         "mem_mb": memory_plan(memory),
