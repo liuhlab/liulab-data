@@ -123,6 +123,19 @@ manual work to replace, so nothing remade from public sources writes into it.
 
 _Avoid_: paper cache
 
+### Paper
+
+A publication linked to a Series or BioProject, preprints included, identified by its PMID, or by
+its DOI when it has no PMID. A paper that later gets a PMID is the same paper under its PMID.
+
+### Paper status
+
+Where a paper stands in the paper store: fetched (the store holds its XML or PDF), waiting (a tier
+will serve it later), manual (only a save in Paperpile can serve it) or skipped (not a real
+paper). A paper that is not fetched is missing.
+
+_Avoid_: paper state
+
 ### Tier
 
 One source the paper job tries for a paper, in a fixed order: the PMC bucket, OpenAlex's paid
