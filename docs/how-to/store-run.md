@@ -124,8 +124,8 @@ If it stops, run the same command again. It goes on in the same folder,
 `work/refresh/<start time>/`, from the first unfinished step, and asks for nothing it saved.
 That folder holds the refresh's markers and logs.
 
-The refresh stops before it removes more than 5% of any source's records, as a cut-off
-snapshot looks the same as a mass withdrawal. Check the newest `geo-series` snapshot. If the
+The refresh stops before it removes more than 5% of any source's records, and more than 20,
+as a cut-off snapshot looks the same as a mass withdrawal. Check the newest `geo-series` snapshot. If the
 removals are right, run the same command with `--max-share 0.2`, or the share you expect.
 
 `refresh-status.json` in the store root shows the outcome:

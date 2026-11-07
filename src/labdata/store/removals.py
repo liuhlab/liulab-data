@@ -42,6 +42,8 @@ INFLIGHT = 4
 BATCH = 1_000
 #: The most of any source's held records reachability removes before it refuses.
 MAX_SHARE = 0.05
+#: Removals from one source that never trigger the share check, so a tiny source can shrink.
+FEW = 20
 
 #: The record-level "not served" answers in a 200 reply, per E-utility; uid and accession fill in.
 _NOT_PUBLIC = r"<ERROR[^>]*>SRA Experiment {acc} is not public</ERROR>"
@@ -211,7 +213,8 @@ def reach(root: Path, *, max_share: float = MAX_SHARE) -> dict[str, int]:
     Raises
     ------
     ReachRefused
-        If a source would lose more than ``max_share`` of its records; nothing is written.
+        If a source would lose more than ``max_share`` of its records and more than
+        :data:`FEW`; nothing is written.
     """
     target = targets.target_list(root)
     series = set(pq.read_table(target, columns=["accession"]).column(0).to_pylist())
@@ -234,7 +237,7 @@ def reach(root: Path, *, max_share: float = MAX_SHARE) -> dict[str, int]:
     sizes[raw.SRA_XML] = held_experiments
     for source, gone in unreached.items():
         new = len(gone - pending)
-        if new and new > max_share * sizes[source]:
+        if new > FEW and new > max_share * sizes[source]:
             raise ReachRefused(
                 f"reachability would remove {new} of {sizes[source]} {source} records "
                 f"({new / sizes[source]:.1%}), more than {max_share:.0%}: a truncated or "

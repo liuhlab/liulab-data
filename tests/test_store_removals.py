@@ -389,6 +389,19 @@ def test_reach_refuses_to_empty_raw_when_the_snapshot_is_truncated(tmp_path: Pat
     assert "39 to remove" in allowed
 
 
+def test_reach_removes_a_few_rows_of_a_small_source_past_the_share(tmp_path: Path) -> None:
+    root = _store(tmp_path / "store", ["GSE1", "GSE2", "GSE3"])
+    for gse in ("GSE1", "GSE2", "GSE3"):
+        _hold_series(root, gse)
+    pack.write_rows(root, raw.GEO_GAPS, [gap_row(g, SOFT_MISSING, _OLD) for g in ("GSE8", "GSE9")])
+
+    out = _step(root, "_reach")
+    _step(root, "pack")
+
+    assert "geo-gaps: 2 to remove" in out
+    assert set(_held(root, raw.GEO_GAPS)) == {"GSE1", "GSE2", "GSE3"}
+
+
 def test_reach_keeps_a_series_confirmation_kept(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
