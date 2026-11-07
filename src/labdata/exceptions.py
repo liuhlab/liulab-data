@@ -51,7 +51,7 @@ class NotMirrored(LabdataError):  # noqa: N818 - the spec names it
 
 
 class NotFound(LabdataError):  # noqa: N818 - the spec names it
-    """A valid accession that no snapshot lists. The message gives the snapshot date."""
+    """A valid accession no snapshot lists as public. The message gives the snapshot date."""
 
 
 class StoreBuildError(LabdataError):

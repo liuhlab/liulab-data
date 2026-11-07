@@ -68,7 +68,7 @@ labdata store verify --root <store>
   | `links_by_from.parquet` | link, sorted by `from` | `from`, `to`, `relation`, `source` |
   | `links_by_to.parquet` | the same links, sorted by `to` | `from`, `to`, `relation`, `source` |
   | `holdings.parquet` | accession the store holds | `accession`, `type` |
-  | `known.parquet` | accession a snapshot lists | `accession`, `source`, `snapshot_date` |
+  | `known.parquet` | public accession a snapshot lists | `accession`, `source`, `snapshot_date` |
   | `supplementary_files.parquet` | supplementary file a GEO record lists | `owner`, `name`, `url`, `size`, `date`, `type`, `archive` |
   | `gaps.parquet` | target Series the store does not hold | `accession`, `reason`, `detail` |
   | `notes.parquet` | thing the build met and kept | `accession`, `kind`, `detail` |
@@ -241,7 +241,8 @@ print(table.num_rows)
 ```
 
 `open` raises `NotMirrored` for an accession that a snapshot lists but this store does not
-hold, and `NotFound` for one that no snapshot lists.
+hold, and `NotFound` for one that no snapshot lists as public. A withdrawn or suppressed
+record is not public, so it raises `NotFound`.
 
 ### With DuckDB
 
