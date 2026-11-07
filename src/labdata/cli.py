@@ -243,6 +243,70 @@ def papers_daily(
     typer.echo(f"manual queue: {report.queued} papers in {store.root / NBIB}")
 
 
+@papers_app.command("copy")
+def papers_copy(
+    root: Path | None = typer.Option(
+        None, help="Paper store root; default: LABDATA_PAPERS, then pointer."
+    ),
+    to: str | None = typer.Option(
+        None, help="rclone destination <remote>:<bucket>/<path>; default: copy_to in the marker."
+    ),
+) -> None:
+    """Copy the paper store's new and changed files to a bucket with rclone.
+
+    Deletes nothing in the bucket. When rclone's Google login has expired, it sets
+    copy_pending in paper-status.json and exits 0; rerun after `rclone config reconnect`.
+    Holds the paper store's lock.
+    """
+    from labdata.papers import open_paper_store
+    from labdata.papers.copy import copy
+
+    try:
+        result = copy(open_paper_store(root), to)
+    except LabdataError as err:
+        typer.echo(str(err), err=True)
+        raise typer.Exit(1) from err
+    typer.echo(
+        result.message if result.skipped else f"Copied the paper store to {result.destination}"
+    )
+
+
+@papers_app.command("serve")
+def papers_serve(
+    root: Path | None = typer.Option(
+        None, help="Paper store root; default: LABDATA_PAPERS, then pointer."
+    ),
+    successor: Path | None = typer.Option(
+        None, help="Batch script of the next job, submitted at start to run after this one."
+    ),
+    until: str | None = typer.Option(
+        None, help="Stop at this UTC time, YYYY-MM-DDTHH:MM; default: run until stopped."
+    ),
+) -> None:
+    """Run the paper job: the daily pass after 00:30 UTC, the PMC sync on the 3rd.
+
+    Runs only what paper-status.json shows is due, one pass at a time, each followed by the
+    GCS copy. Inside a Slurm job, with --successor, it first submits the next job with
+    --dependency=afterany on this one.
+    """
+    import os
+
+    from labdata.papers import open_paper_store
+    from labdata.papers.job import serve
+
+    stop = dt.datetime.fromisoformat(until).replace(tzinfo=dt.UTC) if until else None
+    serve(
+        open_paper_store(root),
+        client=_store_client(),
+        openalex=_openalex_client(),
+        clock=lambda: dt.datetime.now(dt.UTC),
+        until=stop,
+        job_id=os.environ.get("SLURM_JOB_ID"),
+        successor=str(successor.expanduser().absolute()) if successor else None,
+        log=lambda line: typer.echo(line, err=True),
+    )
+
+
 @papers_app.command("configure")
 def papers_configure() -> None:
     """Save the OpenAlex accounts the daily pass spends: one key and email per account.
