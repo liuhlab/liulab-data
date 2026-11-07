@@ -24,6 +24,7 @@ RELATIONS: dict[str, str] = {
     "SRA sample": "SRA experiment",
     "run": "run of",
     "PubMed": "PubMed of",
+    "DOI": "DOI of",
     "Reanalyzed by": "Reanalysis of",
     "Named Annotation": "Named Annotation of",
 }
@@ -31,7 +32,7 @@ RELATIONS: dict[str, str] = {
 #: Reverse relation name to its forward name.
 INVERSE: dict[str, str] = {reverse: forward for forward, reverse in RELATIONS.items()}
 
-#: A paper's link target: ``PMID:<n>``. A paper is not a record.
+#: A paper's link target: ``PMID:<n>`` or ``DOI:<doi>``. A paper is not a record.
 PAPER = "paper"
 #: A GEO named annotation's link target, such as ``NA000049219.1``. It is not a record.
 ANNOTATION = "named annotation"
@@ -49,9 +50,24 @@ _KINDS: tuple[tuple[re.Pattern[str], str], ...] = tuple(
         (r"PRJ[A-Z]{2}\d+", "BioProject"),
         (r"SAM(?:N|EA|D)\d+", "BioSample"),
         (r"PMID:\d+", PAPER),
+        (r"DOI:10\.\d{4,9}/\S+", PAPER),
         (r"NA\d+(?:\.\d+)?", ANNOTATION),
     )
 )
+
+
+_DOI_PREFIX = re.compile(r"^(?:doi:|https?://(?:dx\.)?doi\.org/)", re.IGNORECASE)
+
+
+def norm_doi(text: str) -> str:
+    """Return a DOI as every link and paper key writes it: lower case, no resolver prefix.
+
+    Examples
+    --------
+    >>> norm_doi("https://doi.org/10.1101/2024.01.15.575678"), norm_doi("DOI:10.1/AB")
+    ('10.1101/2024.01.15.575678', '10.1/ab')
+    """
+    return _DOI_PREFIX.sub("", text.strip()).lower()
 
 
 def kind_of(accession: str) -> str:
@@ -60,12 +76,12 @@ def kind_of(accession: str) -> str:
     Parameters
     ----------
     accession : str
-        A public accession such as ``"SRX24283130"``, or ``"PMID:<n>"``.
+        A public accession such as ``"SRX24283130"``, ``"PMID:<n>"`` or ``"DOI:<doi>"``.
 
     Returns
     -------
     str
-        One of the nine record types, ``"paper"`` for ``PMID:<n>``, or
+        One of the nine record types, ``"paper"`` for a PMID or DOI, or
         ``"named annotation"`` for a GEO named annotation.
 
     Raises
@@ -106,7 +122,8 @@ class Link:
         The accession at the far end, which the store may not hold.
     source : str
         Who stated it: ``SOFT``, ``SRA XML``, ``BioProject XML``, ``Entrez link``,
-        ``GEO summary`` or ``PubMed``.
+        ``GEO summary`` or ``PubMed``; a Series' DOI link names its line, such as
+        ``SOFT Series_web_link``.
     forward : bool
         Whether this end is the link's ``from``.
     """

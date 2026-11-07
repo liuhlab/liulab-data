@@ -15,6 +15,7 @@ import typer
 
 from labdata import BioProject, Run, Series, TenxConverter, experiments_for
 from labdata import __version__ as _package_version
+from labdata._http import Transport
 from labdata.exceptions import LabdataError
 from labdata.geo import sratools
 from labdata.ncbi.config import (
@@ -24,6 +25,8 @@ from labdata.ncbi.config import (
     save_credentials,
 )
 from labdata.ncbi.entrez import EntrezClient
+from labdata.papers.openalex import OpenAlex
+from labdata.papers.root import PaperStore
 from labdata.store import init_store, open_store, save_pointer
 from labdata.store.changes import OVERLAP_DAYS
 from labdata.tenx import bamtofastq
@@ -45,6 +48,11 @@ store_app = typer.Typer(
     help="Configure, fetch into and build the shared record store.", no_args_is_help=True
 )
 app.add_typer(store_app, name="store")
+papers_app = typer.Typer(
+    help="Keep the paper store: the files and status of every linked paper.",
+    no_args_is_help=True,
+)
+app.add_typer(papers_app, name="papers")
 
 
 @app.command()
@@ -116,6 +124,232 @@ def store_configure(
     """
     path = save_pointer(root)
     typer.echo(f"Saved store root {root} to {path}")
+
+
+@papers_app.command("init")
+def papers_init(
+    root: Path = typer.Argument(..., help="The paper store root; created if missing."),
+    store: Path | None = typer.Option(
+        None, help="The GEO/SRA store it reads; default: LABDATA_STORE, then pointer."
+    ),
+    copy_to: str = typer.Option("", help="rclone destination <remote>:<bucket>/<path>."),
+    drive_remote: str = typer.Option("", help="rclone remote of the Paperpile Drive."),
+    drive_folder: str = typer.Option("", help="Drive ID of the Paperpile folder."),
+) -> None:
+    """Make a paper store: write labdata-papers.toml and README.md, and point to it.
+
+    Refuses if the root already has a labdata-papers.toml.
+    """
+    from labdata.papers import init_paper_store
+
+    try:
+        marker = init_paper_store(
+            root, store, copy_to=copy_to, drive_remote=drive_remote, drive_folder=drive_folder
+        )
+    except LabdataError as err:
+        typer.echo(str(err), err=True)
+        raise typer.Exit(1) from err
+    typer.echo(f"Wrote {marker}")
+
+
+def _openalex_client() -> OpenAlex:
+    """Return the OpenAlex client paper steps use, with the configured accounts."""
+    from labdata.papers.openalex import OpenAlex, load_accounts
+
+    return OpenAlex(load_accounts())
+
+
+def _paper_transport() -> Transport:
+    """Return the HTTP transport paper steps download through."""
+    from labdata._http import HttpTransport
+
+    return HttpTransport()
+
+
+def _paper_setup(root: Path | None) -> tuple[PaperStore, EntrezClient, OpenAlex]:
+    """Open the paper store and its clients; a setup failure exits 1 with its message."""
+    from labdata.papers import open_paper_store
+
+    try:
+        return open_paper_store(root), _store_client(), _openalex_client()
+    except LabdataError as err:
+        typer.echo(str(err), err=True)
+        raise typer.Exit(1) from err
+
+
+@papers_app.command("pmc-sync")
+def papers_pmc_sync(
+    root: Path | None = typer.Option(
+        None, help="Paper store root; default: LABDATA_PAPERS, then pointer."
+    ),
+    sample: float | None = typer.Option(
+        None, help="Take only this seeded share of the linked papers, e.g. 0.03; default: all."
+    ),
+    today: str | None = typer.Option(None, hidden=True, help="The pass date, YYYY-MM-DD."),
+) -> None:
+    """Take in the papers the current build links: IDs, PubMed details, OpenAlex, status.
+
+    Each paper is looked up at most once a month. Holds the paper store's lock.
+    """
+    import time
+
+    from labdata.papers.sync import pmc_sync
+
+    day = dt.date.fromisoformat(today) if today else dt.datetime.now(dt.UTC).date()
+    started = time.monotonic()
+    store, client, openalex = _paper_setup(root)
+    try:
+        report = pmc_sync(
+            store,
+            client=client,
+            openalex=openalex,
+            today=day,
+            transport=_paper_transport(),
+            sample=_fraction(sample),
+            log=lambda line: typer.echo(line, err=True),
+        )
+    except LabdataError as err:
+        typer.echo(str(err), err=True)
+        raise typer.Exit(1) from err
+    typer.echo(
+        f"{report.added} added, {report.looked_up} looked up, {report.failed} failed, "
+        f"{report.rekeyed} re-keyed in {time.monotonic() - started:.0f} s"
+    )
+    for status, reasons in sorted(report.counts.items()):
+        each = ", ".join(f"{r or '-'}: {n}" for r, n in sorted(reasons.items()))
+        typer.echo(f"{status}: {each}")
+    typer.echo(f"NCBI: {client.traffic}")
+    typer.echo(f"OpenAlex: {openalex.traffic}")
+
+
+@papers_app.command("daily")
+def papers_daily(
+    root: Path | None = typer.Option(
+        None, help="Paper store root; default: LABDATA_PAPERS, then pointer."
+    ),
+    today: str | None = typer.Option(None, hidden=True, help="The pass date, YYYY-MM-DD."),
+) -> None:
+    """Spend today's OpenAlex quota, try free host links, and rewrite the manual queue.
+
+    A rerun the same day spends only the quota left. Holds the paper store's lock.
+    """
+    from labdata.papers.daily import NBIB, daily_pass
+
+    day = dt.date.fromisoformat(today) if today else dt.datetime.now(dt.UTC).date()
+    store, client, openalex = _paper_setup(root)
+    try:
+        report = daily_pass(
+            store,
+            client=client,
+            openalex=openalex,
+            today=day,
+            transport=_paper_transport(),
+            log=lambda line: typer.echo(line, err=True),
+        )
+    except LabdataError as err:
+        typer.echo(str(err), err=True)
+        raise typer.Exit(1) from err
+    fetched = ", ".join(f"{t}: {n}" for t, n in sorted(report.fetched.items())) or "none"
+    typer.echo(f"fetched today: {fetched}")
+    for email, n in sorted(report.quota.items()):
+        typer.echo(f"OpenAlex quota spent today by {email}: {n}")
+    for status, reasons in sorted(report.counts.items()):
+        each = ", ".join(f"{r or '-'}: {n}" for r, n in sorted(reasons.items()))
+        typer.echo(f"{status}: {each}")
+    typer.echo(f"manual queue: {report.queued} papers in {store.root / NBIB}")
+
+
+@papers_app.command("copy")
+def papers_copy(
+    root: Path | None = typer.Option(
+        None, help="Paper store root; default: LABDATA_PAPERS, then pointer."
+    ),
+    to: str | None = typer.Option(
+        None, help="rclone destination <remote>:<bucket>/<path>; default: copy_to in the marker."
+    ),
+) -> None:
+    """Make a bucket match the paper store with rclone: new files first, then deletes.
+
+    Leaves out paper-status.json and hidden files. When rclone's Google login has expired,
+    it sets copy_pending in paper-status.json and exits 0; rerun after
+    `rclone config reconnect`.
+    Holds the paper store's lock.
+    """
+    from labdata.papers import open_paper_store
+    from labdata.papers.copy import copy
+
+    try:
+        result = copy(open_paper_store(root), to)
+    except LabdataError as err:
+        typer.echo(str(err), err=True)
+        raise typer.Exit(1) from err
+    typer.echo(
+        result.message if result.skipped else f"Copied the paper store to {result.destination}"
+    )
+
+
+@papers_app.command("serve")
+def papers_serve(
+    root: Path | None = typer.Option(
+        None, help="Paper store root; default: LABDATA_PAPERS, then pointer."
+    ),
+    successor: Path | None = typer.Option(
+        None, help="Batch script of the next job, submitted at start to run after this one."
+    ),
+    until: str | None = typer.Option(
+        None, help="Stop at this UTC time, YYYY-MM-DDTHH:MM; default: run until stopped."
+    ),
+) -> None:
+    """Run the paper job: the daily pass after 00:30 UTC, the PMC sync on the 3rd.
+
+    Runs only what paper-status.json shows is due, one pass at a time, each followed by the
+    GCS copy. Inside a Slurm job, with --successor, it first submits the next job with
+    --dependency=afterany on this one.
+    """
+    import os
+
+    from labdata.papers.job import serve
+
+    stop = dt.datetime.fromisoformat(until).replace(tzinfo=dt.UTC) if until else None
+    store, client, openalex = _paper_setup(root)
+    serve(
+        store,
+        client=client,
+        openalex=openalex,
+        transport=_paper_transport(),
+        clock=lambda: dt.datetime.now(dt.UTC),
+        until=stop,
+        job_id=os.environ.get("SLURM_JOB_ID"),
+        successor=str(successor.expanduser().absolute()) if successor else None,
+        log=lambda line: typer.echo(line, err=True),
+    )
+
+
+@papers_app.command("configure")
+def papers_configure() -> None:
+    """Save the OpenAlex accounts the daily pass spends: one key and email per account.
+
+    Prompts for each account in turn; a blank email ends the list. Replaces the saved
+    accounts. ``OPENALEX_API_KEYS`` (``key:email`` pairs, comma-separated) overrides the file.
+    """
+    from labdata.papers.openalex import Account, save_accounts
+
+    accounts = []
+    while True:
+        n = len(accounts) + 1
+        email = typer.prompt(
+            f"Account {n} email (blank to finish)", default="", show_default=False
+        ).strip()
+        if not email:
+            break
+        key = typer.prompt(f"Account {n} API key", hide_input=True).strip()
+        accounts.append(Account(key, email))
+    if not accounts:
+        typer.echo("No accounts given; nothing saved.", err=True)
+        raise typer.Exit(1)
+    path = save_accounts(accounts)
+    emails = ", ".join(a.email for a in accounts)
+    typer.echo(f"Saved {len(accounts)} OpenAlex accounts ({emails}) to {path}")
 
 
 def _store_client() -> EntrezClient:

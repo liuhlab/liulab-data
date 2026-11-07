@@ -12,12 +12,11 @@ skips files already uploaded, so a cut-off copy resumes when rerun.
 from __future__ import annotations
 
 import json
-import re
 import subprocess
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from labdata import _rclone
 from labdata.exceptions import LabdataError, NotAStoreError
 from labdata.store.build import build_lock
 from labdata.store.layout import MANIFEST, manifest_path
@@ -27,9 +26,6 @@ from labdata.store.root import MARKER, open_store
 
 #: The marker key naming the rclone destination, ``<remote>:<bucket>/<path>``.
 COPY_TO_KEY = "copy_to"
-
-_EXPIRED = re.compile(r"invalid_grant|maybe it has expired|expired or revoked")
-_PROGRESS = ["--stats=1m", "--stats-one-line", "--stats-log-level=NOTICE"]
 
 
 class StoreCopyError(LabdataError):
@@ -78,42 +74,19 @@ def copy(root: Path, destination: str | None = None) -> CopyResult:
             f"no destination: pass --to <remote>:<bucket>/<path> or set "
             f"{COPY_TO_KEY} in {root / MARKER}"
         )
-    remote = dest.split(":", 1)[0]
-    expired = CopyResult(
-        str(dest),
-        skipped=True,
-        message=(
-            f"rclone's Google login has expired, so the bucket is behind the store. "
-            f"Run `rclone config reconnect {remote}:`, then `labdata store copy`."
-        ),
-    )
     with build_lock(root):
         selected = _selected(root, store.settings.get("build"))
-        # One cheap call shows an expired login before any upload; other faults show below.
-        probe = _run_rclone(["rclone", "lsjson", dest, "--max-depth", "1"])
-        if probe.returncode and _EXPIRED.search(probe.stderr):
-            return expired
-        src = str(root)
-        for args in (
-            ["rclone", "copy", src, dest, *selected, "--filter=- **", *_PROGRESS],
-            [
-                "rclone",
-                "sync",
-                src,
-                dest,
-                "--delete-excluded",
-                *selected,
-                f"--filter=+ /{MARKER}",
-                "--filter=- **",
-                *_PROGRESS,
-            ],
-        ):
-            done = _run_rclone(args)
-            if done.returncode == 0:
-                continue
-            if _EXPIRED.search(done.stderr):
-                return expired
-            raise StoreCopyError(f"rclone {args[1]} failed ({done.returncode}): {done.stderr}")
+        done = _rclone.mirror(
+            str(root),
+            str(dest),
+            [*selected, "--filter=- **"],
+            [*selected, f"--filter=+ /{MARKER}", "--filter=- **"],
+            run=_run_rclone,
+            error=StoreCopyError,
+        )
+    if not done:
+        message = _rclone.expired_message(str(dest), "store", "labdata store copy")
+        return CopyResult(str(dest), skipped=True, message=message)
     return CopyResult(str(dest))
 
 
@@ -161,14 +134,8 @@ def _selected(root: Path, build: object) -> list[str]:
 
 
 def _run_rclone(args: list[str]) -> subprocess.CompletedProcess[str]:
-    """Run rclone, echoing its log lines to stderr as they come and keeping them."""
+    """Run rclone through the shared runner; a missing rclone is a ``StoreCopyError``."""
     try:
-        proc = subprocess.Popen(args, stderr=subprocess.PIPE, text=True)
+        return _rclone.run(args)
     except OSError as err:
         raise StoreCopyError(f"cannot run rclone: {err}; run inside the pixi environment") from err
-    lines = []
-    assert proc.stderr is not None
-    for line in proc.stderr:
-        sys.stderr.write(line)
-        lines.append(line)
-    return subprocess.CompletedProcess(args, proc.wait(), "", "".join(lines))

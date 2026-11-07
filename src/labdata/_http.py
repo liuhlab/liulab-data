@@ -1,8 +1,13 @@
-"""The HTTP layer under :class:`~labdata.ncbi.entrez.EntrezClient`: kept-open connections and pacing."""
+"""The HTTP seam: kept-open connections and pacing, shared by every network client.
+
+:class:`~labdata.ncbi.entrez.EntrezClient` sends through it, and so does any other client of
+a web service, so one fake transport serves every test.
+"""
 
 from __future__ import annotations
 
 import http.client
+import random
 import threading
 import time
 import urllib.parse
@@ -12,6 +17,51 @@ from typing import Protocol
 
 # Bound at import, so tests that stub the client's backoff sleep keep the real pacing.
 _sleep = time.sleep
+
+#: The User-Agent every request outside the Entrez client sends.
+USER_AGENT = "liulab-data"
+
+#: HTTP statuses worth another try.
+RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
+
+
+class TryAgain(Exception):  # noqa: N818 - it names what the caller should do
+    """One try failed in a way another try may fix; the text says how it failed."""
+
+
+class GaveUp(Exception):  # noqa: N818 - it names what happened
+    """Every try failed, or one failed in a way no retry fixes; the text says how."""
+
+
+def retry[T](
+    call: Callable[[], T],
+    *,
+    tries: int,
+    cap: float,
+    sleep: Callable[[float], None],
+    errors: tuple[type[BaseException], ...] = (OSError, http.client.HTTPException),
+) -> T:
+    """Return ``call()``, trying again with jittered exponential backoff when it fails.
+
+    ``call`` raises :class:`TryAgain` for a failure worth another try and :class:`GaveUp`
+    for one that is not; an exception in ``errors`` counts as worth another try.
+
+    Raises
+    ------
+    GaveUp
+        When the last try fails, with that try's failure.
+    """
+    last = ""
+    for attempt in range(tries):
+        try:
+            return call()
+        except TryAgain as err:
+            last = str(err)
+        except errors as err:
+            last = type(err).__name__
+        if attempt + 1 < tries:
+            sleep(min(cap, 2.0**attempt) * random.uniform(0.5, 1.0))
+    raise GaveUp(last)
 
 
 class Response(Protocol):

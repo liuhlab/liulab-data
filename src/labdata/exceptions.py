@@ -19,7 +19,7 @@ class AccessionError(LabdataError, ValueError):
 
 
 class CredentialsError(LabdataError):
-    """NCBI credentials are required but could not be resolved."""
+    """NCBI or OpenAlex credentials are required but could not be resolved."""
 
 
 class EntrezError(LabdataError, RuntimeError):
@@ -43,7 +43,7 @@ class StoreNotConfiguredError(LabdataError):
 
 
 class NotAStoreError(LabdataError):
-    """A folder is not a labdata store: it has no readable ``labdata-store.toml``."""
+    """A folder is not a store: no ``labdata-store.toml`` or ``labdata-papers.toml`` marker."""
 
 
 class NotMirrored(LabdataError):  # noqa: N818 - the spec names it

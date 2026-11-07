@@ -10,8 +10,10 @@ from __future__ import annotations
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
+from urllib.parse import unquote
 
 from labdata.exceptions import StoreBuildError
+from labdata.store.model import norm_doi
 
 SRA_XML = "SRA XML"
 BIOPROJECT_XML = "BioProject XML"
@@ -150,11 +152,38 @@ def bioproject(text: str) -> tuple[Parsed, list[LinkRow]]:
                 )
             )
     for publication in package.iter("Publication"):
-        if publication.get("id") and publication.findtext("DbType") == "ePubmed":
-            links.append(
-                LinkRow(accession, f"PMID:{publication.get('id')}", "PubMed", BIOPROJECT_XML)
+        db, pub_id = publication.findtext("DbType"), publication.get("id")
+        if pub_id and db == "ePubmed":
+            links.append(LinkRow(accession, f"PMID:{pub_id}", "PubMed", BIOPROJECT_XML))
+        elif pub_id and db == "eDOI":
+            links.extend(
+                LinkRow(accession, f"DOI:{doi}", "DOI", BIOPROJECT_XML) for doi in dois(pub_id)
             )
     return Parsed(accession, "BioProject", text, flatten(package), typed), links
+
+
+_DOI = re.compile(r"10\.\d{4,9}/[^\s\"<>?#&]+")
+#: A preprint server's URL suffix after the DOI: version, full text, abstract or PDF.
+_PREPRINT_SUFFIX = re.compile(r"(?:v\d+)?(?:\.full(?:-text|\.pdf)?|\.abstract|\.pdf)?$")
+_PREPRINT_PREFIXES = ("10.1101/", "10.64898/")
+
+
+def dois(text: str) -> list[str]:
+    """Return the DOIs in a text, normalised, in order, each once.
+
+    Normalised means lower case, without a resolver prefix, trailing punctuation or a
+    preprint server's URL suffix (``v1``, ``.full``), so one DOI is one link target.
+    """
+    out: list[str] = []
+    for match in _DOI.finditer(unquote(text)):
+        doi = norm_doi(match[0])
+        while doi[-1] in ".,;:]'" or (doi[-1] == ")" and doi.count("(") < doi.count(")")):
+            doi = doi[:-1]
+        if doi.startswith(_PREPRINT_PREFIXES):
+            doi = _PREPRINT_SUFFIX.sub("", doi)
+        if doi not in out:
+            out.append(doi)
+    return out
 
 
 def biosample(text: str) -> Parsed:
@@ -301,6 +330,10 @@ def _soft_links(accession: str, fields: list[tuple[str, str]]) -> list[LinkRow]:
             links.append(LinkRow(accession, value, "platform", SOFT))
         elif name in ("Series_pubmed_id", "Sample_pubmed_id", "Platform_pubmed_id"):
             links.append(LinkRow(accession, f"PMID:{value}", "PubMed", SOFT))
+        elif name in ("Series_web_link", "Series_citation"):
+            links.extend(
+                LinkRow(accession, f"DOI:{doi}", "DOI", f"{SOFT} {name}") for doi in dois(value)
+            )
     return links
 
 

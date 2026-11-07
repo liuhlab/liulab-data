@@ -15,8 +15,8 @@ from typing import Any
 import pytest
 
 import labdata.ncbi.entrez as entrez_mod
+from labdata._http import RateLimiter
 from labdata.exceptions import LabdataError
-from labdata.ncbi._http import RateLimiter
 from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
 from labdata.store import provenance, series_snapshot

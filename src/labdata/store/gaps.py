@@ -266,6 +266,24 @@ def noted(root: Path, kind: str) -> set[str]:
     return set(table.column(0).to_pylist())
 
 
+def build_targets(root: Path, build: Path) -> set[str]:
+    """Return the target Series of the list a build's gaps were made from, writing nothing.
+
+    Raises
+    ------
+    StoreBuildError
+        If the build has no ``gaps.parquet``, or its target list and snapshot are gone.
+    """
+    gaps_file = GAPS.path(build)
+    if not gaps_file.is_file():
+        raise StoreBuildError(f"{build} has no {GAPS}; rebuild with `labdata store build`")
+    meta = pq.read_metadata(gaps_file).metadata or {}
+    fraction = meta.get(FRACTION_KEY.encode())
+    return targets.read_targets(
+        root, meta[DATE_KEY.encode()].decode(), None if fraction is None else float(fraction)
+    )
+
+
 def coverage(root: Path, build: BuildReader) -> Coverage:
     """Check one build against the target list of the snapshot its gaps were made from.
 
