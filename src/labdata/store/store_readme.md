@@ -26,7 +26,6 @@ ${snapshot_table}
   README.md                     this file
   labdata-store.toml            the marker: format version and the current build
   refresh-status.json           the status record: the last refresh and its outcome
-  fetched-by-hand.txt           accessions given to `labdata store fetch`, kept by refreshes
   builds/<build-id>/            the tables, built from raw/ and snapshots/ (query these)
   raw/<source>/                 the text NCBI served for each record, by source
   snapshots/<source>/<date>/    whole NCBI bulk files, as downloaded
@@ -197,8 +196,8 @@ NCBI:
    ```
 
    It downloads new snapshots, fetches the GEO Series changed or added since the last
-   successful refresh and their SRA experiments, removes records that a fetch confirms are
-   gone, builds the tables, switches the store to the new build, deletes builds and snapshots
+   successful refresh and their SRA experiments, removes the GEO Series that a fetch confirms
+   are withdrawn, builds the tables, switches the store to the new build, deletes builds and snapshots
    out of use for longer than a grace period, and copies the store to GCS. If it stops, run
    the same command again: it goes on from the first unfinished step.
 
@@ -207,8 +206,8 @@ NCBI:
    `copy_pending`. When `copy_pending` is `true`, the GCS copy is behind the store. Log in to
    rclone again, then run `labdata store copy --root <store>`.
 
-The copy holds `labdata-store.toml`, this file, `fetched-by-hand.txt`, the snapshots the
-current build reads, `raw/` and the current build.
+The copy holds `labdata-store.toml`, this file, the snapshots the current build reads,
+`raw/` and the current build.
 
 An old build stays for a grace period after the switch, so a reader that opened it can
 finish. The liulab-data API reference for `labdata.store.prune` gives its length.
@@ -247,8 +246,9 @@ print(table.num_rows)
 ```
 
 `open` raises `NotMirrored` for an accession that a snapshot lists but this store does not
-hold, and `NotFound` for one that no snapshot lists as public. A withdrawn or suppressed
-record is not public, so it raises `NotFound`.
+hold, and `NotFound` for one that no snapshot lists as public. A refresh removes a withdrawn
+GEO Series, so it raises `NotFound`. An SRA record NCBI no longer serves stays in the store and
+opens as before.
 
 ### With DuckDB
 

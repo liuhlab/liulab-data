@@ -1,5 +1,5 @@
-# One refresh: snapshots -> change list -> GEO lane || E-utilities lane -> confirm removals
-# -> reachability -> pack -> build (after the snapshot extracts) -> status -> prune -> copy.
+# One refresh: snapshots -> change list -> GEO lane || E-utilities lane -> confirm withdrawn
+# Series -> pack -> build (after the snapshot extracts) -> status -> prune -> copy.
 #
 # Driven by labdata.store.refresh.run, which runs snakemake in the refresh's folder,
 # work/refresh/<started>/, with `--resources ncbi=<N> mem_mb=<job memory>` and `--cores <M>`.
@@ -126,22 +126,9 @@ rule confirm:
         f"{STORE} _confirm {ROOT} {LOG}"
 
 
-rule reach:
-    input:
-        "confirm.done",
-    output:
-        touch("reach.done"),
-    log:
-        "logs/reach.log",
-    resources:
-        mem_mb=MEM["reach"],
-    shell:
-        f"{STORE} _reach --max-share {config['max_share']} {ROOT} {LOG}"
-
-
 rule pack:
     input:
-        "reach.done",
+        "confirm.done",
     output:
         touch("pack.done"),
     log:

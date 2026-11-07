@@ -1,8 +1,8 @@
 """Copy the store's current state to a bucket with ``rclone``.
 
-The copy holds the marker, the root ``README.md``, the list of records fetched by hand, the
-snapshots the current build read, ``raw/`` and the current build; ``work/``, ``support/``,
-the status record and older builds are left out, and the bucket's copies of them are deleted.
+The copy holds the marker, the root ``README.md``, the snapshots the current build read,
+``raw/`` and the current build; ``work/``, ``support/``, the status record and older builds
+are left out, and the bucket's copies of them are deleted.
 One listing call first checks that rclone's login has not expired.
 A first ``rclone copy`` uploads everything but the marker, then an ``rclone sync`` uploads
 the marker and deletes the rest, so the bucket's marker never names a build it lacks. rclone
@@ -20,7 +20,6 @@ from pathlib import Path
 
 from labdata.exceptions import LabdataError, NotAStoreError
 from labdata.store.build import build_lock
-from labdata.store.fetch import BY_HAND
 from labdata.store.layout import MANIFEST, manifest_path
 from labdata.store.provenance import README
 from labdata.store.reader import build_path
@@ -158,7 +157,6 @@ def _selected(root: Path, build: object) -> list[str]:
         "--filter=+ /raw/**",
         f"--filter=+ /{rel}/**",
         f"--filter=+ /{README}",
-        f"--filter=+ /{BY_HAND}",
     ]
 
 
