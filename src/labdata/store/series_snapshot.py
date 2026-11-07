@@ -111,8 +111,12 @@ def download(
     ------
     SnapshotError
         If the listing is short, shifts while paged, or drops too many Series, or a file
-        does not match its manifest. No snapshot file is written. A Series ``esummary``
-        leaves out twice keeps its previous row, and the next patch asks for it again.
+        does not match its manifest. No snapshot file is written.
+
+    Notes
+    -----
+    A Series ``esummary`` leaves out twice keeps its previous row, and the next patch asks
+    for it again.
     EntrezError
         If an NCBI call fails after its retries.
     """
@@ -136,12 +140,13 @@ def download(
     if previous is None:
         todo = uids
     else:
-        # The previous snapshot's date, not the last refresh's: its summaries miss only later
-        # changes.
+        # From the previous snapshot, not the last refresh: its summaries miss only later changes.
         since = dt.date.fromisoformat(previous.name) - dt.timedelta(days=changes.OVERLAP_DAYS)
-        again = (_updated(client, since) | _unanswered(previous)) & listed
         todo = _saved(work / "todo.txt") or _write_uids(
-            work / "todo.txt", sorted((listed - base_uids) | again)
+            work / "todo.txt",
+            sorted(
+                (listed - base_uids) | (_updated(client, since) | _unanswered(previous)) & listed
+            ),
         )
     logger.info(
         "geo-series: %d listed, %d to fetch, %d dropped%s",
