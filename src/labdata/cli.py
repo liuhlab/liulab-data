@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import atexit
 import datetime as dt
-import logging
 from collections.abc import Callable
 from pathlib import Path
 
@@ -125,7 +124,8 @@ def _store_client() -> EntrezClient:
     The step logs the client's requests and bytes read when it exits.
     """
     client = EntrezClient(allow_prompt=False)
-    atexit.register(lambda: logging.getLogger("labdata.ncbi").info("NCBI: %s", client.traffic))
+    # Written straight to stderr, as not every step sets up logging.
+    atexit.register(lambda: typer.echo(f"NCBI: {client.traffic}", err=True))
     return client
 
 
