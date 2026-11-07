@@ -52,6 +52,8 @@ class Article:
     authors: tuple[tuple[str, str, tuple[str, ...]], ...] = (("Liu", "Hanqing", ("Lab A",)),)
     abstract: tuple[tuple[str | None, str], ...] = ((None, "An abstract."),)
     types: tuple[str, ...] = ("Journal Article",)
+    #: The electronic publication date, year, month, day, when it has one.
+    epub: tuple[int, int, int] | None = None
 
     def xml(self) -> str:
         authors = "".join(
@@ -74,13 +76,19 @@ class Article:
             ids += f'<ArticleId IdType="doi">{self.doi}</ArticleId>'
         if self.pmcid:
             ids += f'<ArticleId IdType="pmc">{self.pmcid}</ArticleId>'
+        epub = (
+            '<ArticleDate DateType="Electronic"><Year>{}</Year><Month>{:02d}</Month>'
+            "<Day>{:02d}</Day></ArticleDate>".format(*self.epub)
+            if self.epub
+            else ""
+        )
         return (
             f'<PubmedArticle><MedlineCitation><PMID Version="1">{self.pmid}</PMID>'
             f"<Article><Journal><Title>J Test</Title><JournalIssue><PubDate>"
             f"<Year>{self.year}</Year><Month>{self.month:02d}</Month><Day>{self.day:02d}</Day>"
             f"</PubDate></JournalIssue></Journal><ArticleTitle>{self.title}</ArticleTitle>"
             f"<Abstract>{abstract}</Abstract><AuthorList>{authors}</AuthorList>"
-            f"<PublicationTypeList>{types}</PublicationTypeList></Article></MedlineCitation>"
+            f"<PublicationTypeList>{types}</PublicationTypeList>{epub}</Article></MedlineCitation>"
             f"<PubmedData><ArticleIdList>{ids}</ArticleIdList></PubmedData></PubmedArticle>"
         )
 

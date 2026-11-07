@@ -143,14 +143,14 @@ def _details(pmid: str, text: str) -> Details:
         a.get("IdType"): (a.text or "").strip()
         for a in article.iterfind("PubmedData/ArticleIdList/ArticleId")
     }
-    dates = [_pub_date(body.find("Journal/JournalIssue/PubDate"))]
-    dates += [_pub_date(d) for d in body.iterfind("ArticleDate")]
-    known = [d for d in dates if d is not None]
+    # The online date is exact; an issue date may be a year or a month alone, or a volume's.
+    online = [d for d in map(_pub_date, body.iterfind("ArticleDate")) if d is not None]
+    issue = _pub_date(body.find("Journal/JournalIssue/PubDate"))
     return Details(
         pmid=pmid,
         title=_text(body.find("ArticleTitle")),
         journal=_text(body.find("Journal/Title")),
-        published=min(known) if known else None,
+        published=min(online) if online else issue,
         authors=tuple(authors),
         abstract="\n".join(parts) or None,
         publication_type=tuple(

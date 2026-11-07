@@ -59,7 +59,8 @@ def web() -> FakeWeb:
     return FakeWeb(
         articles={
             OLD_PMC: Article(OLD_PMC, "Old paper", 2025, 1, 10, doi="10.1/old", pmcid="PMC1"),
-            RECENT: Article(RECENT, "New paper", 2026, 6, 1, doi="10.1/new"),
+            # The issue is dated a year before the paper appeared online.
+            RECENT: Article(RECENT, "New paper", 2025, epub=(2026, 6, 1), doi="10.1/new"),
             NO_ROUTE: Article(NO_ROUTE, "Closed paper", 2020, 3, 2),
             HOST: Article(
                 HOST,
@@ -165,6 +166,7 @@ def test_linked_papers_enter_with_ids_details_and_every_status(
     assert old["published"] == dt.date(2025, 1, 10)
     assert old["openalex_pdf"] is True
     assert old["added"] == old["looked_up"] == dt.date(2026, 11, 7)
+    assert papers[RECENT]["published"] == dt.date(2026, 6, 1)
     assert papers[RECENT]["openalex"] == "W2"  # found by the single lookup
     assert papers[HOST]["host_pdf_urls"] == ["https://host.org/4.pdf"]
     assert papers[PREPRINT]["work_type"] == "preprint"
