@@ -182,6 +182,7 @@ def pmc_sync(
         Sends the PMC bucket's requests; kept-open connections by default.
     sample : float or None
         Take only this seeded share of the linked papers, for a trial; ``None`` takes all.
+        Only a sync over all papers sets the date of the last successful PMC sync.
     log : callable
         Takes one progress line.
 
@@ -194,19 +195,32 @@ def pmc_sync(
     root = store.root
     with paper_lock(root):
         start = _now()
-        _record(root, {"kind": "pmc-sync", "start": start, "end": None, "outcome": "running"})
+
+        def last_pass(end: str | None, outcome: str) -> dict[str, Any]:
+            return {
+                "kind": "pmc-sync",
+                "start": start,
+                "end": end,
+                "outcome": outcome,
+                "sample": sample,
+            }
+
+        _record(root, last_pass(None, "running"))
         try:
             report = _sync(store, client, openalex, today, transport, sample, log)
         except BaseException:
-            _record(root, {"kind": "pmc-sync", "start": start, "end": _now(), "outcome": "failed"})
+            _record(root, last_pass(_now(), "failed"))
             raise
         status = read_status(root)
         write_status(
             root,
             replace(
                 status,
-                last_pass={"kind": "pmc-sync", "start": start, "end": _now(), "outcome": "success"},
-                last_pmc_sync_success=today.isoformat(),
+                last_pass=last_pass(_now(), "success"),
+                # A sampled sync is a backfill round, never the month's sync.
+                last_pmc_sync_success=(
+                    today.isoformat() if sample is None else status.last_pmc_sync_success
+                ),
                 counts=report.counts,
             ),
         )

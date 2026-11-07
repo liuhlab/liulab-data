@@ -46,6 +46,12 @@ sbatch --job-name=labdata-papers-backfill --partition=cpu_batch \
 If it stops, submit it again. It goes on from where it stopped. The paper job can start at the
 same time: it waits until the first sync is done.
 
+To fill the store in rounds, add `--sample 0.01`, then `--sample 0.1`, then run it with no
+`--sample`. Each round skips the papers the last round looked up this month. A sampled sync
+does not count as the month's PMC sync: `paper-status.json` records it as the last pass, with
+its `sample` share, but only a sync over all papers sets `last_pmc_sync_success`. So the paper
+job still runs the month's PMC sync after a sampled round.
+
 The first copy to GCS sends all of it. Run it once by hand, as its own job, after the first
 sync ends, so the paper job's daily pass does not wait behind it:
 
@@ -117,6 +123,8 @@ The file at the paper store root says what the job did last and where the papers
 ```
 
 - `last_daily_success` older than today, after 00:30 UTC, means a missed day.
+- `last_pmc_sync_success` is the date of the last PMC sync over all papers. A sampled sync
+  leaves it alone.
 - `quota` shows the copies each OpenAlex account bought today.
 - `counts` gives the papers per status, then per reason.
 - `copy_pending: true` means the GCS login had expired and the bucket is behind. Log in, then
