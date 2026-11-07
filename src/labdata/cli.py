@@ -389,6 +389,38 @@ def store_targets(
     typer.echo(f"{pq.read_metadata(path).num_rows} target Series in {path}")
 
 
+@store_app.command("_changes", hidden=True)
+def store_changes(
+    since: str = typer.Option(
+        ..., help="The last successful refresh's date, YYYY-MM-DD; the search starts 3 days before."
+    ),
+    out: Path = typer.Option(..., help="The re-fetch list to write, one Series per line."),
+    snapshot_date: str | None = typer.Option(
+        None, help="geo-series snapshot date of the target list; default: the newest."
+    ),
+    root: Path | None = typer.Option(
+        None, help="Store root; default: LABDATA_STORE, then pointer."
+    ),
+) -> None:
+    """Write the re-fetch list: target Series GEO changed or added, and those they name."""
+    import datetime as dt
+
+    from labdata.store import changes
+
+    try:
+        last = dt.date.fromisoformat(since)
+    except ValueError as err:
+        raise typer.BadParameter(str(err), param_hint="--since") from err
+    store = open_store(root)
+    found = changes.change_list(
+        store.root, last, out, client=_store_client(), snapshot_date=snapshot_date
+    )
+    typer.echo(
+        f"{found.total} Series to fetch again in {found.path}: {found.updated} updated, "
+        f"{found.new} new, {found.related} named by a relation line"
+    )
+
+
 @store_app.command("_geo", hidden=True)
 def store_geo_lane(
     accessions: list[str] = typer.Argument(
@@ -399,6 +431,9 @@ def store_geo_lane(
     ),
     snapshot_date: str | None = typer.Option(
         None, help="geo-series snapshot date; default: the newest."
+    ),
+    refetch: Path | None = typer.Option(
+        None, help="The re-fetch list: Series to fetch again though raw/ holds them."
     ),
     failed_marker: Path | None = typer.Option(
         None, help="Write this file when items are left failed, remove it when none are."
@@ -423,10 +458,12 @@ def store_geo_lane(
         path = targets.target_list(store.root, snapshot_date)
         batches = pq.ParquetFile(path).iter_batches(columns=["accession"])
         series_list = [gse for batch in batches for gse in batch.column(0).to_pylist()]
-    report = geo_lane.run(store.root, series_list, client=_store_client())
+    again = [] if refetch is None else _accession_file(refetch)
+    report = geo_lane.run(store.root, series_list, client=_store_client(), refetch=again)
     typer.echo(
         f"GEO lane: {report.held} Series held, {report.filelists} filelists, gaps: "
-        f"{report.soft_missing} soft-missing, {report.fetch_failed} fetch-failed"
+        f"{report.soft_missing} soft-missing, {report.fetch_failed} fetch-failed; "
+        f"{report.refetched} of {len(again)} on the re-fetch list fetched again"
     )
     left = report.fetch_failed + report.held - report.filelists
     _mark_failed(failed_marker, left)
@@ -463,6 +500,9 @@ def store_eutils(
         None, help="Only these GEO Series: a text file, one per line, or a Parquet `accession`."
     ),
     date: str | None = typer.Option(None, help="SRA_Accessions.tab snapshot date."),
+    refetch: Path | None = typer.Option(
+        None, help="The re-fetch list: Series whose experiments to fetch again."
+    ),
     failed_marker: Path | None = typer.Option(
         None, help="Write this file when items are left failed, remove it when none are."
     ),
@@ -474,19 +514,32 @@ def store_eutils(
     import datetime as dt
     import logging
 
-    from labdata.store import eutils
+    from labdata.store import changes, eutils, removals
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     store = open_store(root)
     wanted = None if series is None else _accession_file(series)
     listed = eutils.experiment_list(store.root, date=date, series=wanted)
     today = dt.datetime.now(dt.UTC).date().isoformat()
-    report = eutils.fetch_packages(store.root, listed, client=_store_client(), date=today)
+    again = set()
+    if refetch is not None:
+        again = changes.refetch_experiments(store.root, _accession_file(refetch))
+    report = eutils.fetch_packages(
+        store.root, listed, client=_store_client(), date=today, refetch=again
+    )
     typer.echo(
         f"SRA packages: {report.fetched} saved, {report.missing} new with none, "
         f"{report.failed} to retry; {report.reasked} bad saved packages asked again, "
         f"{report.recovered} came back good"
     )
+    if again:
+        shown = sorted(report.unserved)[:20]
+        unserved = ", ".join(shown) + (", ..." if len(report.unserved) > 20 else "") or "none"
+        typer.echo(
+            f"{len(again)} experiments on the re-fetch list; "
+            f"{len(report.unserved)} fetched again but served none: {unserved}"
+        )
+    removals.note_unserved(store.root, report.unserved)
     _mark_failed(failed_marker, report.failed)
 
 
@@ -511,6 +564,7 @@ def store_confirm(
     found = removals.candidates(store.root, extra)
     today = dt.datetime.now(dt.UTC).date().isoformat()
     report = removals.confirm(store.root, found, client=_store_client(), date=today)
+    removals.clear_unserved(store.root)
     typer.echo(
         f"Removal candidates: {report.asked} asked, {report.gone} confirmed gone, "
         f"{report.runs_gone} runs gone, {report.kept} still served, "

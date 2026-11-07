@@ -47,8 +47,15 @@ A range of accession numbers within one prefix whose raw rows share one file,
 
 ### Piece
 
-One unit of fetch work: the accessions of one bucket that nothing has saved yet. A finished
-piece is saved as a part.
+One unit of fetch work: the accessions of one bucket that nothing has saved yet, plus its
+accessions on the re-fetch list that no part holds yet. A finished piece is saved as a part.
+
+### Re-fetch list
+
+The GEO Series a refresh fetches again even though `raw/` holds them: target Series GEO updated
+since the last successful refresh, new target Series, and every Series a relation line in theirs
+names. Their SRA experiments are fetched again with them. A part's newer row replaces the old one
+at pack.
 
 ### Part
 

@@ -290,6 +290,36 @@ class EntrezClient:
             cached = self._cache[key] = [str(uid) for uid in record.get("IdList", [])]
         return list(cached)
 
+    def esearch_all(self, db: str, term: str, *, page: int = 10_000) -> list[str]:
+        """Run an ESearch and return every matching UID, one call per ``page`` UIDs.
+
+        Parameters
+        ----------
+        db : str
+            Entrez database to search (e.g. ``"gds"``).
+        term : str
+            The search term.
+        page : int
+            UIDs asked for per call.
+
+        Returns
+        -------
+        list of str
+            Every matching UID, in NCBI's order, each once. Not cached.
+        """
+        uids: dict[str, None] = {}
+        start, count = 0, 1
+        while start < count:
+            params = {"db": db, "term": term, "retstart": start, "retmax": page}
+            record = self._eutil("esearch", params)
+            count = int(record.get("Count", 0))
+            got = [str(uid) for uid in record.get("IdList", [])]
+            uids |= dict.fromkeys(got)
+            if not got:
+                break
+            start += len(got)
+        return list(uids)
+
     def esummary(self, db: str, uid: str) -> dict[str, Any]:
         """Fetch the document summary for a single UID.
 

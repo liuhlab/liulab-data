@@ -84,7 +84,8 @@ def candidates(root: Path, extra: Iterable[str] = ()) -> list[str]:
     A candidate is a held Series the newest ``geo-series`` snapshot does not list, a held
     experiment or a run of one with a non-public status in the newest ``SRA_Accessions.tab``,
     a Series this refresh saved as ``soft-missing``, an experiment it saved with an empty
-    package, or one of ``extra``. A run is given as ``SRR…@SRX…``, with its experiment.
+    package, a re-fetched experiment it was served none for (:func:`note_unserved`), or one
+    of ``extra``. A run is given as ``SRR…@SRX…``, with its experiment.
     """
     found = set(extra)
     listed = _gds_series(root)
@@ -96,7 +97,27 @@ def candidates(root: Path, extra: Iterable[str] = ()) -> list[str]:
                 found.add(gse)
     for path in raw.part_files(root, raw.SRA_XML):
         found |= {srx for srx, digest in _part_rows(path, "hash") if digest == _EMPTY}
+    if (noted := _unserved_path(root)).is_file():
+        found |= set(noted.read_text().split())
     return sorted(found)
+
+
+def note_unserved(root: Path, accessions: Iterable[str]) -> None:
+    """Keep re-fetched experiments NCBI served none for as candidates for the next confirm."""
+    if new := set(accessions):
+        path = _unserved_path(root)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.writelines(f"{a}\n" for a in sorted(new))
+
+
+def clear_unserved(root: Path) -> None:
+    """Forget the noted unserved experiments once a confirmation run has asked for them."""
+    _unserved_path(root).unlink(missing_ok=True)
+
+
+def _unserved_path(root: Path) -> Path:
+    return root / "work" / "removals" / "unserved.txt"
 
 
 def confirm(

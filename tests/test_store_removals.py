@@ -23,6 +23,7 @@ from labdata.ncbi.entrez import EntrezClient
 from labdata.store import pack, raw
 from labdata.store.gaps import SOFT_MISSING, gap_row
 from tests.test_store_geo_lane import Reply
+from tests.test_store_refresh_fetch import _changed_ncbi, _fetch_again, _held_store
 
 _DATE = "2026-11-01"
 _OLD = "2026-10-14"
@@ -342,6 +343,22 @@ def test_pack_cut_off_and_rerun_or_a_removal_applied_twice_changes_nothing(
         assert "GSE3" not in _held(cut, source)
     assert set(_held(cut, raw.GEO_SOFT)) == {"GSE1", "GSE20", "GSE21", "GSE22", "GSE23"}
     assert not list(parts.rglob("*.parquet"))
+
+
+def test_a_refetched_experiment_served_none_is_confirmed_next(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _held_store(tmp_path)
+    assert "served none: SRX2" in _fetch_again(_changed_ncbi(), monkeypatch, tmp_path, root)
+    ncbi = Ncbi({("efetch", "SRX2"): [_EMPTY_IDS]})
+    _use(monkeypatch, ncbi)
+
+    _step(root, "_confirm")
+    _step(root, "pack")
+
+    assert ("efetch", "SRX2") in ncbi.calls
+    assert "SRX2" not in _held(root, raw.SRA_XML)
+    assert "SRX1" in _held(root, raw.SRA_XML)
 
 
 def _part(root: Path, source: str, *rows: raw.RawRow) -> Path:
