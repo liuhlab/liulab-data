@@ -881,6 +881,40 @@ def store_confirm(
         typer.echo(f"{source}: {count} to remove")
 
 
+@store_app.command("remove-sra")
+def store_remove_sra(
+    root: Path | None = typer.Option(
+        None, help="Store root; default: LABDATA_STORE, then pointer."
+    ),
+) -> None:
+    """Remove withdrawn SRA experiments and runs: the yearly maintenance step.
+
+    Candidates are the held experiments and runs the newest SRA_Accessions.tab marks
+    non-public, and the held experiments no Series in the newest geo-series snapshot
+    reaches. Each is removed only when a fetch of it alone confirms it gone. It writes
+    removal parts: run `labdata store pack`, then `labdata store build`, to apply them.
+    Rerun it to resume a cut-off run or to ask the failed again.
+    """
+    import logging
+
+    from labdata.store import sra_removal
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    store = open_store(root)
+    report = sra_removal.remove(store.root, client=_store_client())
+    typer.echo(
+        f"SRA removal: {report.candidates} candidates ({report.non_public} non-public, "
+        f"{report.with_runs} with a non-public run, {report.unreached} reached by no live "
+        f"Series); {report.asked} asked"
+    )
+    typer.echo(
+        f"{report.gone} confirmed gone, {report.runs_gone} runs gone, {report.kept} still "
+        f"served, {report.failed} failed and kept"
+    )
+    for source, count in sorted(report.removals.items()):
+        typer.echo(f"{source}: {count} to remove")
+
+
 def _mark_failed(marker: Path | None, failed: int) -> None:
     """Write ``marker`` with the count of items left failed, or remove it when none are."""
     if marker is None:

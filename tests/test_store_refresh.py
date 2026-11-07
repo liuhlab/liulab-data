@@ -503,3 +503,30 @@ def test_an_accession_only_a_pending_removal_lists_is_fetched_again(
 
     assert soft_url(KEPT) in ncbi.fetched
     assert set(_held(root, raw.GEO_SOFT)) == {KEPT}
+
+
+def test_a_refresh_removes_no_sra_record_ncbi_no_longer_serves(
+    built: tuple[Path, _Geo], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, ncbi = built
+    held = _held(root, raw.SRA_XML)
+    suppressed = "SRX8670456"  # KEPT's one experiment
+    _change(ncbi)
+    del ncbi.packages[suppressed]
+    renew = _renew
+
+    def renew_suppressing(root: Path, date: str) -> None:
+        renew(root, date)
+        tab = root / "snapshots" / "sra-accessions" / date / "SRA_Accessions.tab"
+        row = f"{suppressed}\tSRA1\tsuppressed" + "\t-" * 3 + "\tEXPERIMENT" + "\t-" * 13
+        tab.write_text(tab.read_text(encoding="utf-8") + row + "\n", encoding="utf-8")
+
+    monkeypatch.setattr(sys.modules[__name__], "_renew", renew_suppressing)
+    _executor(monkeypatch)
+
+    _refresh(root)
+
+    assert WITHDRAWN not in _held(root, raw.GEO_SOFT)
+    # neither the suppressed experiment nor the withdrawn Series' experiments leave
+    after = _held(root, raw.SRA_XML)
+    assert {a: after.get(a) for a in held} == held
