@@ -29,19 +29,34 @@ For the copy to Google Cloud Storage (GCS), set up the `gcs` rclone remote and l
 
 ## Fill the store the first time
 
-The first PMC sync takes in every linked paper, so it runs longer than a monthly one. Submit
-it once by hand, from the repository folder on the cluster, with a longer time limit:
+The first PMC sync takes in every linked paper, so it runs much longer than a monthly one: plan
+for most of a day. It downloads close to a terabyte, mostly PDFs and supplementary files, so
+check the free space first. Submit it once by hand, from the repository folder on the
+cluster, with more CPUs and a longer time limit:
 
 ```bash
 export LABDATA_PAPERS=/path/to/paper-store
+df -h "$LABDATA_PAPERS"
 sbatch --job-name=labdata-papers-backfill --partition=cpu_batch \
-  --cpus-per-task=2 --mem=8G --time=3-00:00:00 \
+  --cpus-per-task=4 --mem=8G --time=2-00:00:00 \
   --output=labdata-papers-backfill.%j.log \
   --wrap "pixi run labdata papers pmc-sync"
 ```
 
 If it stops, submit it again. It goes on from where it stopped. The paper job can start at the
 same time: it waits until the first sync is done.
+
+The first copy to GCS sends all of it, which takes hours. Run it once by hand, as its own job,
+after the first sync ends, so the paper job's daily pass does not wait behind it:
+
+```bash
+sbatch --job-name=labdata-papers-copy --partition=cpu_batch \
+  --cpus-per-task=2 --mem=8G --time=1-00:00:00 \
+  --output=labdata-papers-copy.%j.log \
+  --wrap "pixi run labdata papers copy"
+```
+
+Log in to rclone first: the login lasts one day. Later copies send only new and changed files.
 
 ## Start the paper job
 
