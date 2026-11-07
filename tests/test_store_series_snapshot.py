@@ -109,6 +109,7 @@ def test_a_patch_fetches_new_and_updated_series_and_equals_a_full_dump(tmp_path:
     done = series_snapshot.download(patched, _client(gds))
 
     assert sorted(gds.summarized) == _uids(3, 6, 7)
+    # the change window starts at the previous snapshot's date, less the overlap
     assert "gse[ETYP] AND 2026/09/28:3000[UDAT]" in gds.terms
     assert (done.patched_from, done.fetched, done.dropped, done.records) == ("2026-10-01", 3, 1, 6)
     full = tmp_path / "full" / "snapshots" / "geo-series" / "2026-11-01"

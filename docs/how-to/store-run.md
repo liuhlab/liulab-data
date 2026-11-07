@@ -101,8 +101,8 @@ deletes the current build or anything it reads.
 
 Once the full download is done, one command a month keeps the store current. It downloads new
 snapshots, fetches the GEO Series that changed or appeared since the last successful refresh,
-removes the GEO Series that a fetch confirms are withdrawn, builds, switches, prunes and copies. Run it from
-the repository folder:
+removes the GEO Series that a fetch confirms are withdrawn, builds, switches, prunes and
+copies. Run it from the repository folder:
 
 ```bash
 labdata store refresh
@@ -157,7 +157,8 @@ counting; "not measured" means the step did not run in that refresh.
 
 | Step | CPU | Memory | Scratch disk | Network (NCBI, GEO, GCS) | Wall time |
 | --- | --- | --- | --- | --- | --- |
-| snapshots | 1 core | 1 GB | 43 GB new | 45 GB from NCBI FTP, 600 E-utilities calls | 42 min |
+| snapshots | 1 core | 1 GB | 43 GB new | 45 GB from NCBI FTP | 5 min |
+| geo-series | 1 core | not measured | 0.2 GB new | 33 E-utilities calls | 1 min, measured alone |
 | targets | 1 core | 1 GB | – | – | 1 min |
 | changes | 1 core | 1 GB | – | 1 E-utilities search | 2 min |
 | geo | 1 core | 4 GB | 2 GB | 6,500 GEO FTP requests, 1.6 GB | 9 min |
