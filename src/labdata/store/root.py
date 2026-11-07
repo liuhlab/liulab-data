@@ -25,7 +25,7 @@ from labdata.exceptions import (
 from labdata.geo.sra_records import Experiment, experiments_from_package_xml
 from labdata.store import snapshots
 from labdata.store._files import temp_beside, toml_line, write_atomic
-from labdata.store._offline import OfflineEntrezClient, OfflineSdlClient
+from labdata.store._offline import OfflineEntrezClient, StoredSdlClient
 from labdata.store.model import (
     ANNOTATION,
     PAPER,
@@ -144,7 +144,7 @@ class Store:
         NotMirrored
             If a snapshot lists it but the store does not hold it.
         NotFound
-            If no snapshot lists it. The message gives the snapshot date.
+            If no snapshot lists it as public. The message gives the snapshot date.
         """
         [result] = self.open_many([accession]).values()
         if isinstance(result, LabdataError):
@@ -227,7 +227,7 @@ class Store:
             If a snapshot lists an accession the store does not hold. The message lists
             every such accession.
         NotFound
-            If no snapshot lists an accession. The message gives the snapshot date.
+            If no snapshot lists an accession as public. The message gives the snapshot date.
         """
         wanted = set(_accessions(accessions))
         texts = self.reader.raw(wanted) if wanted else {}
@@ -258,7 +258,7 @@ class Store:
             If a snapshot lists an accession the store does not hold. The message lists
             every such accession.
         NotFound
-            If no snapshot lists an accession. The message gives the snapshot date.
+            If no snapshot lists an accession as public. The message gives the snapshot date.
         """
         order = _accessions(accessions)
         self._require_held(set(order))
@@ -302,7 +302,7 @@ class Store:
         AccessionError
             If an accession is malformed.
         NotFound
-            If no snapshot lists a root, even with ``partial``.
+            If no snapshot lists a root as public, even with ``partial``.
         NotMirrored
             If a root or a record on the way down is not held, unless ``partial``. The
             message lists every missing accession.
@@ -339,13 +339,13 @@ class Store:
         if missing and not partial:
             raise NotMirrored(f"not held in this store: {', '.join(sorted(missing))}")
         wanted = {acc for accs in found.values() for acc in accs}
-        packages = self.reader.raw(wanted) if wanted else {}
+        packages = {a: raw.text for a, raw in (self.reader.raw(wanted) if wanted else {}).items()}
         built = {
             experiment.accession: experiment
             for experiment in experiments_from_package_xml(
-                "".join(text.text for text in packages.values()),
+                "".join(packages.values()),
                 client=OfflineEntrezClient(),
-                sdl_client=OfflineSdlClient(),
+                sdl_client=StoredSdlClient(packages),
             )
         }
         result = {r: [built[a] for a in sorted(found[r]) if a in built] for r in roots}
@@ -366,7 +366,9 @@ class Store:
 
         The store twin of :func:`labdata.experiments_for`: the same ``Experiment`` type,
         built from the stored package XML by the same parser. Their properties, and their
-        runs', never call NCBI; ``Run.files`` and ``Run.original_files`` raise instead.
+        runs', never call NCBI. ``Run.files`` and ``Run.original_files`` list the
+        ``<SRAFiles>`` entries of the stored XML, with only the URLs it carries; a live
+        ``Run`` gives the SRA Data Locator's locations.
         With ``partial=True`` it returns a ``Partial`` of that list and the missing
         accessions.
 
@@ -375,7 +377,7 @@ class Store:
         AccessionError
             If the accession is malformed.
         NotFound
-            If no snapshot lists the accession.
+            If no snapshot lists the accession as public.
         NotMirrored
             If the accession, or a record under it, is not held (unless ``partial``).
         """

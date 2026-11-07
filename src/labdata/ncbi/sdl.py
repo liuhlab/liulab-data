@@ -71,6 +71,8 @@ class RemoteFile:
         The run accession this file belongs to.
     locations : tuple of FileLocation
         Every place the file can be fetched from, in SDL's order.
+    supertype : str or None
+        The SRA package XML's ``supertype``, such as ``"Original"``; SDL gives none.
     """
 
     name: str
@@ -80,11 +82,12 @@ class RemoteFile:
     modification_date: str | None
     accession: str
     locations: tuple[FileLocation, ...]
+    supertype: str | None = None
 
     @property
     def is_sra_archive(self) -> bool:
         """Whether this is a normalized SRA-archive file (vs. an original/submitted one)."""
-        return self.type.lower() in SRA_ARCHIVE_TYPES
+        return self.type.lower() in SRA_ARCHIVE_TYPES or self.supertype == "Primary ETL"
 
     @property
     def url(self) -> str:
