@@ -84,7 +84,9 @@ labdata store verify --root <store>
     `SRA` (Sample to SRA experiment), once for each source that states it. `source` says
     who stated the link, such as `SOFT` or `SRA XML`, so select `DISTINCT` to list a link
     once. The far end of a link can be an accession the store does not hold, or a paper,
-    written `PMID:<n>`.
+    written `PMID:<n>` or `DOI:<doi>`. A DOI is in lower case, with no `https://doi.org/`.
+    It comes from a BioProject's publications or from a Series' `Series_web_link` or
+    `Series_citation` line. Its `source` names that line, such as `SOFT Series_web_link`.
   - Dates are typed. `submitted`, `updated`, `published` and `snapshot_date` are `DATE`, and
     `supplementary_files.date` is `TIMESTAMP`. Compare them with a date, such as
     `published >= DATE '2024-01-01'`.

@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from labdata.exceptions import NotFound, NotMirrored
+from labdata.exceptions import AccessionError, NotFound, NotMirrored
 from labdata.store import open_store, raw
 from labdata.store.build import build
 from labdata.store.fetch import fetch
@@ -51,6 +51,13 @@ def test_record_5_has_its_paper_from_the_bioproject_xml_only(sra_root: Path) -> 
         _WHEAT: [Link("PubMed", "PMID:30115783", "BioProject XML", forward=True)]
     }
     assert [e.accession for e in store.experiments_for(_WHEAT)] == ["SRX3751851", "SRX3751852"]
+
+
+def test_a_doi_is_a_paper_looked_up_in_lower_case(sra_root: Path) -> None:
+    store = open_store(sra_root)
+    assert store.links("doi:10.7717/PeerJ.7649", "DOI of") == {"DOI:10.7717/peerj.7649": []}
+    with pytest.raises(AccessionError, match="paper"):
+        store.open("DOI:10.7717/peerj.7649")
 
 
 def test_record_6_has_no_paper_and_the_empty_search_is_kept(sra_root: Path) -> None:

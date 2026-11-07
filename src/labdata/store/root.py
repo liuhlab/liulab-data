@@ -113,7 +113,9 @@ class Store:
             try:
                 kind = kind_of(accession)
                 if kind == PAPER:
-                    raise AccessionError(f"{accession} is a paper, not a record; follow 'PubMed'")
+                    raise AccessionError(
+                        f"{accession} is a paper, not a record; follow 'PubMed' or 'DOI'"
+                    )
                 if kind == ANNOTATION:
                     raise AccessionError(
                         f"{accession} is a GEO named annotation, not a record; "
@@ -161,7 +163,7 @@ class Store:
         Parameters
         ----------
         accessions : str or iterable of str
-            Accessions of any record type, or ``PMID:<n>``.
+            Accessions of any record type, ``PMID:<n>`` or ``DOI:<doi>``.
         relation : str or None
             Keep only links of this name as read from the given end, forward or reverse.
 
@@ -503,6 +505,8 @@ def _accessions(accessions: str | Iterable[str]) -> list[str]:
 
 def _norm(accession: str) -> str:
     accession = accession.strip()
+    if accession[:4].upper() == "DOI:":
+        return f"DOI:{accession[4:].lower()}"
     return accession if accession.startswith("PMID:") else accession.upper()
 
 
