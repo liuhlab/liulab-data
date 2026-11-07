@@ -320,6 +320,24 @@ def test_a_host_link_serves_a_paper_openalex_has_no_copy_of(
     assert status_file(root)["fetches"]["by_tier"] == {"host": 1}
 
 
+def test_a_paper_with_a_pmcid_spends_quota_only_after_the_pmc_bucket_failed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rows = [paper("41000001"), paper("41000002")]
+    for row in rows:
+        row["pmcid"] = "PMC" + row["paper"]
+    root = paper_store(tmp_path, rows)
+    tables.write(
+        root,
+        tables.ATTEMPTS,
+        [{"paper": "41000002", "tier": "pmc", "date": dt.date(2026, 11, 3), "outcome": "failed"}],
+    )
+    fake = DailyWeb()
+    use(monkeypatch, fake, KEYS[:1])
+    daily(root)
+    assert fake.downloads == ["W41000002"]
+
+
 def test_a_killed_pass_rerun_downloads_nothing_twice_and_spends_no_quota_twice(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

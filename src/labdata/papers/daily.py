@@ -193,6 +193,11 @@ def _host_tried(tries: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     return [a for a in tries if a["tier"] == "host"]
 
 
+def _pmc_passed(row: dict[str, Any], tries: Iterable[dict[str, Any]]) -> bool:
+    """Whether PMC is out of the way: the paper has no PMCID, or the PMC bucket was tried."""
+    return not row.get("pmcid") or any(a["tier"] == "pmc" for a in tries)
+
+
 def _recompute(state: PaperTables, today: dt.date) -> None:
     """Set every paper's status; one every tier has failed is ``manual``, the last failure why."""
     held = state.held()
@@ -272,6 +277,7 @@ class _Fetcher:
                 for k, r in self.state.papers.items()
                 if (r.get("status"), r.get("reason")) == ("waiting", "openalex-backlog")
                 and k not in held
+                and _pmc_passed(r, tries.get(k, []))
                 and not _openalex_done(r, tries.get(k, []))
                 and not any(
                     a["tier"] == "openalex" and a.get("date") == today and a["outcome"] in SPENT
@@ -329,6 +335,7 @@ class _Fetcher:
                 and r.get("host_pdf_urls")
                 and k not in held
                 and not _host_tried(tries.get(k, []))
+                and _pmc_passed(r, tries.get(k, []))
                 and _openalex_done(r, tries.get(k, []))
             ),
         )
