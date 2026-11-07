@@ -221,6 +221,20 @@ def test_a_bad_md5_is_retried_then_recorded_as_a_failed_attempt_with_no_partial_
     assert b.fetched("PMC100.2/PMC100.2.xml") == 1
 
 
+def test_a_file_rewritten_after_its_record_passes_by_its_own_etag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    b = bucket()
+    # The bucket rewrites some files in place without renewing the record's MD5.
+    b.objects["PMC100.2/table.csv"] = b"a,b\n1,3\n"
+    root = store(tmp_path, web(b), monkeypatch)
+    sync(root)
+    row = files(root)[(OA, "supplement", "table.csv")]
+    assert row["md5"] == md5(b"a,b\n1,3\n")
+    assert (root / row["path"]).read_bytes() == b"a,b\n1,3\n"
+    assert b.fetched("PMC100.2/table.csv") == 1
+
+
 def test_a_changed_etag_renews_the_file_and_a_removed_copy_keeps_its_file_with_a_gone_date(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

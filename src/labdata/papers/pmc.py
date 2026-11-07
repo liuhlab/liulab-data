@@ -332,7 +332,11 @@ def _file(
 ) -> dict[str, Any]:
     """Return one file's row, downloading it unless the copy held is current."""
     size, etag = listing[source]
-    md5 = md5s.get(source) or (etag if "-" not in etag else None)
+    # A single-part ETag is the MD5 of the object as stored; the record's MD5 can be stale
+    # for a file rewritten after it, so either one vouches for the bytes.
+    plain = etag if etag and "-" not in etag else None
+    accepted = {m for m in (plain, md5s.get(source)) if m}
+    md5 = plain or md5s.get(source)
     row: dict[str, Any] = {
         "paper": out.paper,
         "kind": kind,
@@ -353,11 +357,15 @@ def _file(
     target = root / path
     if old and old["path"] and old["etag"] == etag and (root / old["path"]).is_file():
         return {**row, "path": old["path"], "fetched": old["fetched"]}
-    if not (target.is_file() and md5 and _md5_of(target) == md5):
+    held = _md5_of(target) if target.is_file() and accepted else None
+    if held in accepted:
+        md5 = held
+    else:
         target.parent.mkdir(parents=True, exist_ok=True)
-        out.bytes += bucket.download(f"{folder}/{source}", target, md5)
+        got, md5 = bucket.download(f"{folder}/{source}", target, accepted)
+        out.bytes += got
         out.files += 1
-    return {**row, "path": path.as_posix(), "fetched": today}
+    return {**row, "md5": md5, "path": path.as_posix(), "fetched": today}
 
 
 def _md5s(record: dict[str, Any]) -> dict[str, str]:
@@ -496,13 +504,13 @@ class _Bucket:
         objects, _ = self.list(f"{folder}/")
         return {key[len(folder) + 1 :]: (size, etag) for key, size, etag in objects}
 
-    def download(self, key: str, target: Path, md5: str | None) -> int:
-        """Stream one object to ``target`` through a temporary name; return its size.
+    def download(self, key: str, target: Path, md5s: Collection[str]) -> tuple[int, str]:
+        """Stream one object to ``target`` through a temporary name; return its size and MD5.
 
         Raises
         ------
         PmcError
-            If every try failed or gave bytes that do not match ``md5``.
+            If every try failed or gave bytes whose MD5 is none of ``md5s``.
         """
         url = f"{BUCKET}/{urllib.parse.quote(key)}"
         last = ""
@@ -528,11 +536,11 @@ class _Bucket:
                     last = f"HTTP {status}"
                     if status not in _RETRY:
                         break
-                elif md5 is not None and digest.hexdigest() != md5:
+                elif md5s and digest.hexdigest() not in md5s:
                     last = "MD5 mismatch"
                 else:
                     tmp.replace(target)
-                    return size
+                    return size, digest.hexdigest()
             except (OSError, http.client.HTTPException) as err:
                 last = type(err).__name__
             finally:
@@ -560,7 +568,7 @@ class _Bucket:
         with tempfile.TemporaryDirectory(prefix=".pmc-inventory-", dir=root) as tmp:
             for n, part in enumerate(manifest["files"]):
                 path = Path(tmp) / f"{n}.csv.gz"
-                self.download(part["key"], path, part.get("MD5checksum"))
+                self.download(part["key"], path, [m for m in [part.get("MD5checksum")] if m])
                 with gzip.open(path, "rt", encoding="utf-8", newline="") as fh:
                     for line in csv.reader(fh):
                         m = _RECORD.fullmatch(line[1]) if len(line) > 3 else None
