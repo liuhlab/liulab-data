@@ -30,8 +30,8 @@ For the copy to Google Cloud Storage (GCS), set up the `gcs` rclone remote and l
 ## Fill the store the first time
 
 The first PMC sync takes in every linked paper, so it runs much longer than a monthly one: plan
-for most of a day. It downloads close to a terabyte, mostly PDFs and supplementary files, so
-check the free space first. Submit it once by hand, from the repository folder on the
+for most of a day. It stores about half a terabyte, mostly supplementary files and figures,
+so check the free space first. Submit it once by hand, from the repository folder on the
 cluster, with more CPUs and a longer time limit:
 
 ```bash
