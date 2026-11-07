@@ -3,8 +3,9 @@
 
     python -I scripts/bulk/download_ncbi_bulk.py DEST_ROOT [--date YYYY-MM-DD] [SOURCE ...]
 
-Sources: ``sra-metadata-parquet``, ``sra-accessions``, ``bioproject``, ``biosample``,
-``geo-series``. With none named, all five run. Each lands in ``DEST_ROOT/<source>/<date>/``
+Sources: ``sra-accessions``, ``bioproject``, ``biosample``, ``geo-series`` and
+``sra-metadata-parquet``. With none named, all but ``sra-metadata-parquet`` run: the store does
+not read the Parquet, so it is fetched only when named. Each lands in ``DEST_ROOT/<source>/<date>/``
 next to a ``manifest.json`` holding the URL, the remote Last-Modified/ETag, size and sha256.
 
 Rerunning with the same ``--date`` resumes a partial fetch and verifies a finished one; it
@@ -46,7 +47,8 @@ S3_PREFIX = "sra/metadata/"
 EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
 GSE_TERM = "gse[ETYP]"
 ESUMMARY_BATCH = 500
-SOURCES = ["sra-metadata-parquet", *FILES, "geo-series"]
+DEFAULT_SOURCES = [*FILES, "geo-series"]
+SOURCES = [*DEFAULT_SOURCES, "sra-metadata-parquet"]
 
 
 class FetchError(RuntimeError):
@@ -357,7 +359,7 @@ def main(argv: list[str] | None = None) -> int:
     if unknown := set(args.sources) - set(SOURCES):
         p.error(f"unknown sources: {sorted(unknown)}")
     failed = []
-    for source in args.sources or SOURCES:
+    for source in args.sources or DEFAULT_SOURCES:
         out = args.root / source / args.date
         out.mkdir(parents=True, exist_ok=True)
         try:
