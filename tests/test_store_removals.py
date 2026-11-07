@@ -220,6 +220,38 @@ def test_a_tab_unpublished_experiment_still_served_stays_and_a_gone_one_leaves(
     assert _held(root, raw.SRA_XML) == {"SRX1": _package("SRX1", "SRR1")}
 
 
+def test_an_experiment_ncbi_answers_is_not_public_leaves(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # NCBI's answer for a suppressed experiment: HTTP 200, a record-level error, no package.
+    not_public = (
+        b'<?xml version="1.0" encoding="UTF-8"  ?>\n<EXPERIMENT_PACKAGE_SET>\n'
+        b'<ERROR procedure="SRA_Main..GET_ExperimentPackage_xml" line="68" severity="13" '
+        b'number="50000" public="yes">SRA Experiment %s is not public</ERROR>'
+        b"</EXPERIMENT_PACKAGE_SET>\n"
+    )
+    tab = [("SRX1", "suppressed", "EXPERIMENT", "-"), ("SRX2", "suppressed", "EXPERIMENT", "-")]
+    root = _store(tmp_path / "store", ["GSE1"], tab)
+    _hold_series(root, "GSE1", _soft("GSE1", _srx_line("SRX1"), _srx_line("SRX2")))
+    rows = [raw.RawRow(s, _package(s, f"SRR{s[3:]}"), _OLD) for s in ("SRX1", "SRX2")]
+    pack.write_rows(root, raw.SRA_XML, rows)
+    _use(
+        monkeypatch,
+        Ncbi(
+            {
+                ("efetch", "SRX1"): [Reply(not_public % b"SRX1")],
+                # An error naming another accession confirms nothing.
+                ("efetch", "SRX2"): [Reply(not_public % b"SRX9")],
+            }
+        ),
+    )
+
+    _step(root, "_confirm")
+    _step(root, "pack")
+
+    assert set(_held(root, raw.SRA_XML)) == {"SRX2"}
+
+
 def test_a_run_missing_from_its_package_leaves(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

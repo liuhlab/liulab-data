@@ -43,10 +43,10 @@ BATCH = 1_000
 #: The most of any source's held records reachability removes before it refuses.
 MAX_SHARE = 0.05
 
-#: The record-level "not found" answers in a 200 reply, per E-utility; the uid fills in.
+#: The record-level "not served" answers in a 200 reply, per E-utility; uid and accession fill in.
 _GONE = {
     "esummary": r"<ERROR>UID={uid}: cannot get document summary</ERROR>",
-    "efetch": r"<ERROR>ID list is empty![^<]*</ERROR>",
+    "efetch": r"<ERROR[^>]*>(?:ID list is empty![^<]*|SRA Experiment {acc} is not public)</ERROR>",
 }
 _LINKED = re.compile(r"\b(PRJ[A-Z]{1,2}\d+|[SED]RP\d+)\b")
 #: An Entrez links line to an SRA record: its fourth field is the accession.
@@ -265,7 +265,7 @@ def _state(client: EntrezClient, accession: str) -> tuple[_State, str]:
         return _State.SERVED, ""
     if util == "efetch" and (package := split_packages(text).get(accession)):
         return _State.SERVED, package
-    if re.search(_GONE[util].format(uid=uid), text):
+    if re.search(_GONE[util].format(uid=uid, acc=re.escape(accession)), text):
         return _State.GONE, ""
     logger.warning(
         "could not confirm %s: an answer that is neither a record nor not-found", accession
