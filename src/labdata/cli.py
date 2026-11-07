@@ -186,6 +186,7 @@ def papers_pmc_sync(
             client=client,
             openalex=openalex,
             today=day,
+            transport=openalex.transport,
             sample=_fraction(sample),
             log=lambda line: typer.echo(line, err=True),
         )
