@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 import labdata.ncbi.entrez as entrez_mod
-from labdata.ncbi._http import RateLimiter
+from labdata._http import RateLimiter
 from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
 from labdata.store import geo_lane, pack, provenance, raw

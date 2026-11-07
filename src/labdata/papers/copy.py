@@ -1,8 +1,9 @@
-"""Copy the paper store's new and changed files to GCS with ``rclone copy``.
+"""Make the paper store's GCS copy match it, as the GEO/SRA store's copy does.
 
-A copy never deletes in the bucket, as the paper store never deletes a paper's files. Hidden
-files stay behind: the lock, the daily pass's journal and every temp file. An expired login
-skips the copy and sets ``copy_pending`` in ``paper-status.json``; a later copy clears it.
+New and changed files are uploaded, the marker last, then objects the store no longer holds
+are deleted. Hidden files stay behind: the lock, the daily pass's journal and every temp
+file; so does ``paper-status.json``, which the copy itself updates. An expired login skips the copy and sets ``copy_pending`` in ``paper-status.json``; a
+later copy clears it.
 """
 
 from __future__ import annotations
@@ -14,10 +15,14 @@ from pathlib import Path
 from labdata import _rclone
 from labdata.exceptions import LabdataError
 from labdata.papers.root import MARKER, PaperStore, paper_lock
-from labdata.papers.status import read_status, write_status
+from labdata.papers.status import STATUS, read_status, write_status
 
 #: The marker key naming the rclone destination, ``<remote>:<bucket>/<path>``.
 COPY_TO_KEY = "copy_to"
+
+#: Left out of the copy, and deleted from the bucket: hidden files and folders, and the
+#: status record, which the copy itself changes.
+_LEFT_OUT = ["--filter=- .*", "--filter=- .*/**", f"--filter=- /{STATUS}"]
 
 
 class PaperCopyError(LabdataError):
@@ -39,7 +44,7 @@ def destination(store: PaperStore) -> str:
 
 
 def copy(store: PaperStore, to: str | None = None) -> CopyResult:
-    """Copy the paper store's new and changed files to ``to`` with rclone.
+    """Make ``to`` match the paper store with rclone: new files first, then deletes.
 
     Holds the paper store's lock, so a copy never runs beside a pass.
 
@@ -58,8 +63,8 @@ def copy(store: PaperStore, to: str | None = None) -> CopyResult:
     Raises
     ------
     PaperCopyError
-        If no destination is set, or rclone fails for another reason; ``copy_pending`` is
-        then set, as the bucket is behind.
+        If no destination is set, or rclone fails for another reason; when rclone ran,
+        ``copy_pending`` is then set, as the bucket is behind.
     """
     root = store.root
     dest = to or destination(store)
@@ -70,29 +75,26 @@ def copy(store: PaperStore, to: str | None = None) -> CopyResult:
         )
     with paper_lock(root):
         try:
-            done = _run_rclone(
-                ["rclone", "copy", str(root), dest, "--exclude=.*", *_rclone.PROGRESS]
+            done = _rclone.mirror(
+                str(root),
+                dest,
+                [*_LEFT_OUT, f"--filter=- /{MARKER}"],
+                _LEFT_OUT,
+                run=_run_rclone,
+                error=PaperCopyError,
             )
+        except PaperCopyError:
+            _pending(root, True)
+            raise
         except OSError as err:
             _pending(root, True)
             raise PaperCopyError(
                 f"cannot run rclone: {err}; run inside the pixi environment"
             ) from err
-        if done.returncode and _rclone.login_expired(done.stderr):
-            _pending(root, True)
-            remote = dest.split(":", 1)[0]
-            return CopyResult(
-                dest,
-                skipped=True,
-                message=(
-                    "rclone's Google login has expired, so the bucket is behind the paper store. "
-                    f"Run `rclone config reconnect {remote}:`, then `labdata papers copy`."
-                ),
-            )
-        if done.returncode:
-            _pending(root, True)
-            raise PaperCopyError(f"rclone copy failed ({done.returncode}): {done.stderr}")
-        _pending(root, False)
+        _pending(root, not done)
+    if not done:
+        message = _rclone.expired_message(dest, "paper store", "labdata papers copy")
+        return CopyResult(dest, skipped=True, message=message)
     return CopyResult(dest)
 
 

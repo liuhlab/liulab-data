@@ -208,6 +208,26 @@ def target_list(
     return out
 
 
+def read_targets(root: Path, date: str, fraction: float | None = None) -> set[str]:
+    """Return the target Series of one snapshot date and fraction, writing nothing.
+
+    Reads the list :func:`target_list` wrote, else streams the snapshot.
+
+    Raises
+    ------
+    StoreBuildError
+        If neither the list nor the snapshot is in the store.
+    """
+    fraction = check_fraction(fraction)
+    path = list_path(root, date, fraction)
+    if path.is_file():
+        return set(pq.read_table(path, columns=["accession"]).column(0).to_pylist())
+    snap = snapshots.snapshot(root, snapshots.GEO_SERIES, date)
+    return {
+        acc for acc, _, _ in _targets(snap.path) if fraction is None or in_sample(acc, fraction)
+    }
+
+
 def summary_links(path: Path) -> Iterator[LinkRow]:
     """Yield each target Series' snapshot BioProject as a ``GEO summary`` link, batch by batch.
 

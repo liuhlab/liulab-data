@@ -23,9 +23,9 @@ import pytest
 from typer.testing import CliRunner
 
 import labdata.ncbi.entrez as entrez_mod
+from labdata._http import RateLimiter
 from labdata.cli import app
 from labdata.exceptions import NotFound
-from labdata.ncbi._http import RateLimiter
 from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
 from labdata.store import geo_lane, init_store, open_store, pipeline, raw, refresh

@@ -11,7 +11,6 @@ import importlib.resources
 import os
 import re
 import sys
-import tomllib
 import urllib.parse
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -19,10 +18,18 @@ from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from labdata._cache import ensure_cache_dir, liulab_data_cache_dir
-from labdata.exceptions import LabdataError, NotAStoreError, StoreNotConfiguredError
-from labdata.store._files import temp_beside, toml_line, write_atomic
-from labdata.store.root import Store, open_store
+from labdata._cache import liulab_data_cache_dir
+from labdata.exceptions import StoreNotConfiguredError
+from labdata.store._files import toml_line, write_atomic
+from labdata.store.model import norm_doi
+from labdata.store.root import (
+    Store,
+    create_marker,
+    open_store,
+    read_toml_marker,
+    resolve_root,
+    write_pointer,
+)
 
 if TYPE_CHECKING:
     from labdata.papers.reader import PaperReader
@@ -46,7 +53,6 @@ FORMAT_VERSION = 1
 PAPERS_DIR = "papers"
 
 _PMID = re.compile(r"(?:PMID:)?(\d+)")
-_DOI_PREFIX = re.compile(r"^(?:DOI:|https?://(?:dx\.)?doi\.org/)", re.IGNORECASE)
 
 
 class PaperStore:
@@ -95,19 +101,13 @@ def open_paper_store(root: str | os.PathLike[str] | None = None) -> PaperStore:
     NotAStoreError
         If the root has no ``labdata-papers.toml``.
     """
-    if root is None:
-        root = os.environ.get(PAPERS_ENV, "").strip() or _from_pointer()
-    if root is None:
+    path = resolve_root(root, PAPERS_ENV, pointer_path(), "papers")
+    if path is None:
         raise StoreNotConfiguredError(
             f"paper store not configured: pass open_paper_store(root=...), set {PAPERS_ENV}, "
             "or run `labdata papers init <root>`"
         )
-    path = Path(root)
-    marker = path / MARKER
-    if not marker.is_file():
-        raise NotAStoreError(f"{path} is not a paper store: it has no {MARKER}")
-    with marker.open("rb") as fh:
-        return PaperStore(path, tomllib.load(fh))
+    return PaperStore(path, read_toml_marker(path, MARKER, "a paper store"))
 
 
 def init_paper_store(
@@ -154,15 +154,7 @@ def init_paper_store(
         toml_line("drive_remote", drive_remote),
         toml_line("drive_folder", drive_folder),
     ]
-    tmp = temp_beside(marker, "init")
-    tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    try:
-        # A hard link fails if the marker exists, so two inits cannot both win.
-        os.link(tmp, marker)
-    except FileExistsError:
-        raise LabdataError(f"{marker} already exists; this paper store is initialised") from None
-    finally:
-        tmp.unlink(missing_ok=True)
+    create_marker(marker, "\n".join(lines) + "\n", "paper store")
     readme = importlib.resources.files("labdata.papers").joinpath("papers_readme.md")
     write_atomic(path / "README.md", readme.read_text(encoding="utf-8"))
     save_pointer(path)
@@ -182,20 +174,7 @@ def save_pointer(root: str | os.PathLike[str]) -> Path:
     pathlib.Path
         The pointer file written.
     """
-    ensure_cache_dir()
-    path = pointer_path()
-    absolute = Path(root).expanduser().absolute()
-    write_atomic(path, f"[papers]\n{toml_line('root', str(absolute))}\n")
-    return path
-
-
-def _from_pointer() -> str | None:
-    path = pointer_path()
-    if not path.is_file():
-        return None
-    with path.open("rb") as fh:
-        data = tomllib.load(fh)
-    return str(data.get("papers", {}).get("root", "")).strip() or None
+    return write_pointer(pointer_path(), "papers", root)
 
 
 @contextmanager
@@ -236,7 +215,7 @@ def paper_key(text: str) -> str:
     text = text.strip()
     if m := _PMID.fullmatch(text):
         return m.group(1)
-    doi = _DOI_PREFIX.sub("", text).lower()
+    doi = norm_doi(text)
     if not doi.startswith("10.") or "/" not in doi:
         raise ValueError(f"not a PMID or a DOI: {text!r}")
     return doi

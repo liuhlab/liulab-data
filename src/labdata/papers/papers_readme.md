@@ -69,6 +69,21 @@ Four Parquet tables at the root, each sorted by `paper`. Query them with DuckDB,
   | `manual` | only a save in Paperpile can serve it; `reason` gives the last failure |
   | `skipped` | not a real paper, such as a placeholder PMID, or retracted |
 
+- `reason` says why a paper is not fetched:
+
+  | Status | Reason | Meaning |
+  | --- | --- | --- |
+  | `waiting` | `pmc-embargo` | published under a year ago; PMC may still release it |
+  | `waiting` | `openalex-backlog` | OpenAlex sells a copy; it waits for a day's quota |
+  | `waiting` | `host-link` | a free link on the publisher's site is still to be tried |
+  | `manual` | `no-route` | no source serves it |
+  | `manual` | `openalex-failed` | OpenAlex's copy could not be fetched |
+  | `manual` | `host-blocked` | the publisher's site refused the download |
+  | `manual` | `host-failed` | the free link gave no PDF |
+  | `skipped` | `placeholder` | a small PMID only BioProject XML gives, not a real paper |
+  | `skipped` | `retracted` | the paper is retracted |
+  | `skipped` | `not-article` | OpenAlex calls the DOI a dataset or the like, not a paper |
+
 - `retracted` is true once PMC, PubMed or OpenAlex calls the paper retracted. A retracted
   paper is `skipped` with reason `retracted`: nothing more is downloaded for it, and the
   files already held stay.

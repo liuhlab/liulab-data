@@ -9,14 +9,14 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+from labdata._http import RateLimiter
 from labdata.cli import app
 from labdata.ncbi import entrez as entrez_mod
-from labdata.ncbi._http import RateLimiter
 from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
 from labdata.papers import init_paper_store, paper_dir, tables
 from labdata.papers import openalex as openalex_mod
-from labdata.papers.openalex import OpenAlex, OpenAlexError, load_accounts
+from labdata.papers.openalex import Account, OpenAlex, OpenAlexError, load_accounts
 from tests._paper_fakes import Article, FakeWeb, Reply, fixture_build, work
 from tests._slices import built_root
 
@@ -110,6 +110,7 @@ def use(monkeypatch: pytest.MonkeyPatch, fake: FakeWeb) -> None:
         "labdata.cli._openalex_client",
         lambda: OpenAlex(transport=fake, limiter=RateLimiter(1000.0, 8)),
     )
+    monkeypatch.setattr("labdata.cli._paper_transport", lambda: fake)
 
 
 def sync(root: Path, *extra: str) -> str:
@@ -281,6 +282,39 @@ def test_a_doi_only_paper_that_gains_a_pmid_moves_to_the_pmid_layout(
     assert by_key(root, tables.PAPER_INFO)[REKEY_PMID]["title"] == "Rekeyed paper"
 
 
+def test_only_target_series_and_held_bioprojects_bring_papers_in(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    links = [
+        ("GSE1", f"PMID:{OLD_PMC}", "SOFT"),
+        ("GSE9", f"PMID:{NO_ROUTE}", "SOFT"),
+        ("PRJNA2", f"PMID:{HOST}", "BioProject XML"),
+    ]
+    store = fixture_build(tmp_path / "store", links, not_targets=["GSE9"])
+    root = tmp_path / "papers"
+    init_paper_store(root, store)
+    work_dir = store / "work"
+    before = sorted(p.relative_to(store) for p in work_dir.rglob("*"))
+    use(monkeypatch, web())
+    sync(root)
+
+    assert set(by_key(root, tables.PAPERS)) == {OLD_PMC, HOST}
+    assert sorted(p.relative_to(store) for p in work_dir.rglob("*")) == before
+
+
+def test_an_openalex_retraction_skips_the_paper(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = paper_store(tmp_path, [("GSE6", f"DOI:{PREPRINT}", "SOFT Series_citation")])
+    fake = web()
+    fake.works = [work("W6", doi=PREPRINT, kind="preprint", pdf=True, retracted=True)]
+    use(monkeypatch, fake)
+    sync(root)
+
+    row = by_key(root, tables.PAPERS)[PREPRINT]
+    assert (row["status"], row["reason"], row["retracted"]) == ("skipped", "retracted", True)
+
+
 def test_the_thin_slice_takes_in_its_papers(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -289,8 +323,9 @@ def test_the_thin_slice_takes_in_its_papers(
     init_paper_store(root, store)
     use(monkeypatch, FakeWeb())
     out = sync(root)
+    # The slice's snapshot gives no Series a gdstype, so no Series is a target: GSE15556's
+    # paper stays out, and the papers come from the held BioProjects.
     assert set(by_key(root, tables.PAPERS)) == {
-        "19713941",
         "20194744",
         "20929578",
         "33281976",
@@ -326,3 +361,22 @@ def test_openalex_accounts_come_from_the_env_before_the_file_and_never_show_a_ke
         OpenAlex(accounts, transport=down, limiter=RateLimiter(1000.0, 8)).works_by_pmid(["1"])
     assert "k1" not in str(err.value)
     assert down.count("openalex-down") == 5
+
+
+def test_an_openalex_key_goes_in_a_header_never_in_a_url(tmp_path: Path) -> None:
+    seen: list[tuple[str, dict[str, str]]] = []
+
+    class Spy(FakeWeb):
+        def open(self, method, url, *, body, headers, timeout):  # type: ignore[override]
+            seen.append((url, dict(headers)))
+            return super().open(method, url, body=body, headers=headers, timeout=timeout)
+
+    client = OpenAlex(
+        [Account("sekrit", "a@x.org")],
+        transport=Spy(works=[work("W1", pmid="1")]),
+        limiter=RateLimiter(1000.0, 8),
+    )
+    assert set(client.works_by_pmid(["1", "2"])) == {"1"}
+    assert seen
+    assert all("sekrit" not in url for url, _ in seen)
+    assert all(h.get("Authorization") == "Bearer sekrit" for _, h in seen)

@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from urllib.parse import unquote
 
 from labdata.exceptions import StoreBuildError
+from labdata.store.model import norm_doi
 
 SRA_XML = "SRA XML"
 BIOPROJECT_XML = "BioProject XML"
@@ -175,7 +176,7 @@ def dois(text: str) -> list[str]:
     """
     out: list[str] = []
     for match in _DOI.finditer(unquote(text)):
-        doi = match[0].lower()
+        doi = norm_doi(match[0])
         while doi[-1] in ".,;:]'" or (doi[-1] == ")" and doi.count("(") < doi.count(")")):
             doi = doi[:-1]
         if doi.startswith(_PREPRINT_PREFIXES):

@@ -37,6 +37,7 @@ from labdata.store.model import (
     SupplementaryFile,
     forward_name,
     kind_of,
+    norm_doi,
 )
 
 if TYPE_CHECKING:
@@ -506,7 +507,7 @@ def _accessions(accessions: str | Iterable[str]) -> list[str]:
 def _norm(accession: str) -> str:
     accession = accession.strip()
     if accession[:4].upper() == "DOI:":
-        return f"DOI:{accession[4:].lower()}"
+        return f"DOI:{norm_doi(accession)}"
     return accession if accession.startswith("PMID:") else accession.upper()
 
 
@@ -542,15 +543,39 @@ def open_store(root: str | os.PathLike[str] | None = None) -> Store:
     NotAStoreError
         If the root has no ``labdata-store.toml``.
     """
-    if root is None:
-        root = os.environ.get(STORE_ENV, "").strip() or _from_pointer()
-    if root is None:
+    path = resolve_root(root, STORE_ENV, pointer_path(), "store")
+    if path is None:
         raise StoreNotConfiguredError(
             f"store not configured: pass open_store(root=...), set {STORE_ENV}, "
             "or run `labdata store configure <root>`"
         )
-    path = Path(root)
     return Store(root=path, settings=read_marker(path))
+
+
+def resolve_root(
+    root: str | os.PathLike[str] | None, env: str, pointer: Path, section: str
+) -> Path | None:
+    """Return a root: ``root``, else the ``env`` variable, else the pointer file's.
+
+    Parameters
+    ----------
+    root : str or os.PathLike or None
+        The root as given; ``None`` falls back.
+    env : str
+        The environment variable naming the root.
+    pointer : pathlib.Path
+        The per-user pointer file, which holds ``root`` under ``[section]``.
+    section : str
+        The pointer file's table.
+
+    Returns
+    -------
+    pathlib.Path or None
+        ``None`` when no root is set anywhere.
+    """
+    if root is None:
+        root = os.environ.get(env, "").strip() or _from_pointer(pointer, section)
+    return None if root is None else Path(root)
 
 
 def read_marker(root: Path) -> dict[str, Any]:
@@ -561,10 +586,21 @@ def read_marker(root: Path) -> dict[str, Any]:
     NotAStoreError
         If the root has no marker.
     """
-    marker = root / MARKER
-    if not marker.is_file():
-        raise NotAStoreError(f"{root} is not a labdata store: it has no {MARKER}")
-    with marker.open("rb") as fh:
+    return read_toml_marker(root, MARKER, "a labdata store")
+
+
+def read_toml_marker(root: Path, marker: str, what: str) -> dict[str, Any]:
+    """Return a root's parsed marker file, ``marker``.
+
+    Raises
+    ------
+    NotAStoreError
+        If the root has no marker; the message says the root is not ``what``.
+    """
+    path = root / marker
+    if not path.is_file():
+        raise NotAStoreError(f"{root} is not {what}: it has no {marker}")
+    with path.open("rb") as fh:
         return tomllib.load(fh)
 
 
@@ -591,16 +627,27 @@ def init_store(root: str | os.PathLike[str]) -> Path:
     path = Path(root)
     path.mkdir(parents=True, exist_ok=True)
     marker = path / MARKER
+    create_marker(marker, f"format_version = {FORMAT_VERSION}\n", "store")
+    return marker
+
+
+def create_marker(marker: Path, text: str, what: str) -> None:
+    """Write a marker file whole, or fail if it exists, so two inits cannot both win.
+
+    Raises
+    ------
+    LabdataError
+        If the marker already exists; the message names ``what`` is initialised.
+    """
     tmp = temp_beside(marker, "init")
-    tmp.write_text(f"format_version = {FORMAT_VERSION}\n", encoding="utf-8")
+    tmp.write_text(text, encoding="utf-8")
     try:
-        # A hard link fails if the marker exists, so two inits cannot both win.
+        # A hard link fails if the marker exists.
         os.link(tmp, marker)
     except FileExistsError:
-        raise LabdataError(f"{marker} already exists; this store is initialised") from None
+        raise LabdataError(f"{marker} already exists; this {what} is initialised") from None
     finally:
         tmp.unlink(missing_ok=True)
-    return marker
 
 
 def pointer_path() -> Path:
@@ -627,17 +674,20 @@ def save_pointer(root: str | os.PathLike[str]) -> Path:
     pathlib.Path
         The path the pointer was written to.
     """
+    return write_pointer(pointer_path(), "store", root)
+
+
+def write_pointer(path: Path, section: str, root: str | os.PathLike[str]) -> Path:
+    """Write a per-user pointer file holding only ``root``, absolute, under ``[section]``."""
     ensure_cache_dir()
-    path = pointer_path()
     absolute = Path(root).expanduser().absolute()
-    write_atomic(path, f"[store]\n{toml_line('root', str(absolute))}\n")
+    write_atomic(path, f"[{section}]\n{toml_line('root', str(absolute))}\n")
     return path
 
 
-def _from_pointer() -> str | None:
-    path = pointer_path()
+def _from_pointer(path: Path, section: str) -> str | None:
     if not path.is_file():
         return None
     with path.open("rb") as fh:
         data = tomllib.load(fh)
-    return str(data.get("store", {}).get("root", "")).strip() or None
+    return str(data.get(section, {}).get("root", "")).strip() or None

@@ -8,9 +8,9 @@ lookup finds. A key never appears in a log or an error.
 from __future__ import annotations
 
 import datetime as dt
+import http.client
 import json
 import os
-import random
 import time
 import tomllib
 import urllib.parse
@@ -20,10 +20,20 @@ from pathlib import Path
 from typing import Any
 
 from labdata._cache import ensure_cache_dir, liulab_data_cache_dir
-from labdata._http import HttpTransport, RateLimiter, Transport
-from labdata.exceptions import LabdataError
+from labdata._http import (
+    RETRY_STATUSES,
+    USER_AGENT,
+    GaveUp,
+    HttpTransport,
+    RateLimiter,
+    Transport,
+    TryAgain,
+    retry,
+)
+from labdata.exceptions import CredentialsError, LabdataError
 from labdata.ncbi.entrez import Traffic
 from labdata.store._files import temp_beside, toml_line
+from labdata.store.model import norm_doi
 
 #: Environment variable of ``key:email`` pairs, comma-separated; overrides the file.
 KEYS_ENV = "OPENALEX_API_KEYS"
@@ -55,7 +65,6 @@ _SELECT = (
 )
 _TIMEOUT = 30.0
 _TRIES = 5
-_RETRY = frozenset({429, 500, 502, 503, 504})
 _CONTENT_HOST = "content.openalex.org"
 
 # Bound at import, so tests may stub it.
@@ -84,24 +93,35 @@ def load_accounts() -> list[Account]:
 
     Raises
     ------
-    LabdataError
-        If an entry has no key or no email.
+    CredentialsError
+        If an entry has no key or no email, or the file does not parse.
     """
     env = os.environ.get(KEYS_ENV, "").strip()
     if env:
+        source = f"{KEYS_ENV} (key:email pairs, comma-separated)"
         pairs = [item.strip().partition(":") for item in env.split(",") if item.strip()]
         entries = [{"key": k, "email": e} for k, _, e in pairs]
     else:
         path = accounts_path()
         if not path.is_file():
             return []
-        with path.open("rb") as fh:
-            entries = tomllib.load(fh).get("accounts", [])
+        source = str(path)
+        try:
+            with path.open("rb") as fh:
+                entries = tomllib.load(fh).get("accounts", [])
+        except tomllib.TOMLDecodeError as err:
+            raise CredentialsError(
+                f"cannot read OpenAlex accounts in {source}: {err}; "
+                "rerun `labdata papers configure`"
+            ) from None
     accounts = []
     for n, entry in enumerate(entries, 1):
         key, email = str(entry.get("key", "")).strip(), str(entry.get("email", "")).strip()
         if not key or not email:
-            raise LabdataError(f"OpenAlex account {n} needs both a key and an email")
+            raise CredentialsError(
+                f"OpenAlex account {n} in {source} needs both a key and an email; fix it, "
+                "or rerun `labdata papers configure`"
+            )
         accounts.append(Account(key, email))
     return accounts
 
@@ -210,44 +230,46 @@ class OpenAlex:
         return found
 
     def _get(self, path: str, params: dict[str, str]) -> dict[str, Any] | None:
-        """GET one API path; ``None`` for a 404. Retries a 429, a 5xx or a dropped reply."""
+        """GET one API path; ``None`` for a 404. Retries a 429, a 5xx or a dropped reply.
+
+        The key goes in the ``Authorization`` header, so no URL ever holds it.
+        """
+        headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
         if self.accounts:
-            params = {**params, "api_key": self.accounts[0].key, "mailto": self.accounts[0].email}
+            headers["Authorization"] = f"Bearer {self.accounts[0].key}"
+            params = {**params, "mailto": self.accounts[0].email}
         url = f"{API}{path}?{urllib.parse.urlencode(params)}"
         host = urllib.parse.urlsplit(API).netloc
-        last = ""
-        for attempt in range(_TRIES):
+
+        def once() -> dict[str, Any] | None:
             try:
                 with (
                     self._limiter.turn(),
                     self.transport.open(
-                        "GET",
-                        url,
-                        body=None,
-                        headers={"User-Agent": "liulab-data", "Accept": "application/json"},
-                        timeout=_TIMEOUT,
+                        "GET", url, body=None, headers=headers, timeout=_TIMEOUT
                     ) as response,
                 ):
                     self.traffic.count(host, response.status)
                     body = response.read()
                     self.traffic.add_bytes(len(body))
                     status = response.status
-            except (OSError, ValueError) as err:
+            except (OSError, ValueError, http.client.HTTPException) as err:
                 self.traffic.count(host, type(err).__name__)
-                last = type(err).__name__
-            else:
-                if status == 200:
-                    return json.loads(body)
-                if status == 404:
-                    return None
-                last = f"HTTP {status}"
-                if status not in _RETRY:
-                    break
-                if status == 429:
-                    self._limiter.halve()
-            _sleep(min(60.0, 2.0**attempt) * random.uniform(0.5, 1.0))
-        # The path names the lookup; the query, which holds the key, is left out.
-        raise OpenAlexError(f"OpenAlex request {path} failed: {last}")
+                raise TryAgain(type(err).__name__) from err
+            if status == 200:
+                return json.loads(body)
+            if status == 404:
+                return None
+            if status not in RETRY_STATUSES:
+                raise GaveUp(f"HTTP {status}")
+            if status == 429:
+                self._limiter.halve()
+            raise TryAgain(f"HTTP {status}")
+
+        try:
+            return retry(once, tries=_TRIES, cap=60.0, sleep=_sleep)
+        except GaveUp as err:
+            raise OpenAlexError(f"OpenAlex request {path} failed: {err}") from None
 
 
 def _work(raw: dict[str, Any]) -> Work:
@@ -272,7 +294,7 @@ def _work(raw: dict[str, Any]) -> Work:
             authors.append({"name": name, "affiliations": list(affiliations)})
     return Work(
         openalex=str(raw["id"]).rsplit("/", 1)[-1],
-        doi=_strip_doi(doi) if doi else None,
+        doi=norm_doi(doi) if doi else None,
         pmid=str(pmid).rsplit("/", 1)[-1] if pmid else None,
         type=raw.get("type"),
         has_pdf=bool(content.get("pdf")),
@@ -284,10 +306,6 @@ def _work(raw: dict[str, Any]) -> Work:
         abstract=_abstract(raw.get("abstract_inverted_index")),
         retracted=bool(raw.get("is_retracted")),
     )
-
-
-def _strip_doi(doi: str) -> str:
-    return doi.lower().removeprefix("https://doi.org/").removeprefix("http://doi.org/")
 
 
 def _date(text: str | None) -> dt.date | None:

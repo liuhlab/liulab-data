@@ -13,9 +13,10 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
+from labdata._http import RateLimiter
 from labdata.cli import app
+from labdata.exceptions import CredentialsError
 from labdata.ncbi import entrez as entrez_mod
-from labdata.ncbi._http import RateLimiter
 from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
 from labdata.papers import daily as daily_mod
@@ -127,7 +128,8 @@ def use(monkeypatch: pytest.MonkeyPatch, fake: FakeWeb, accounts: list[Account])
         "labdata.cli._openalex_client",
         lambda: OpenAlex(accounts, transport=fake, limiter=RateLimiter(1000.0, 8)),
     )
-    monkeypatch.setattr(daily_mod, "HOST_LIMITER", RateLimiter(1000.0, 1))
+    monkeypatch.setattr("labdata.cli._paper_transport", lambda: fake)
+    monkeypatch.setattr(daily_mod, "HOST_PACE", (1000.0, 1))
 
 
 def daily(root: Path, today: str = TODAY) -> str:
@@ -163,8 +165,14 @@ def paper(
     }
 
 
-def paper_store(tmp_path: Path, rows: list[dict[str, Any]]) -> Path:
-    store = fixture_build(tmp_path / "store", [("GSE1", "PMID:41000001", "SOFT")])
+def paper_store(tmp_path: Path, rows: list[dict[str, Any]], unlinked: tuple[str, ...] = ()) -> Path:
+    """A paper store holding ``rows``; the build links every row's paper but ``unlinked``."""
+    links = [
+        (f"GSE{n}", f"PMID:{r['paper']}" if r["paper"].isdigit() else f"DOI:{r['paper']}", "SOFT")
+        for n, r in enumerate(rows, 1)
+        if r["paper"] not in unlinked
+    ]
+    store = fixture_build(tmp_path / "store", links or [("GSE1", "PMID:41000001", "SOFT")])
     root = tmp_path / "papers"
     init_paper_store(root, store)
     tables.write(root, tables.PAPERS, rows)
@@ -324,6 +332,24 @@ def test_a_retracted_paper_spends_no_quota_and_tries_no_host_link(
     }
 
 
+def test_a_paper_no_build_links_gets_no_quota_and_no_host_try(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    host = "https://journal.org/u.pdf"
+    root = paper_store(
+        tmp_path,
+        [paper("41000020"), paper("41000021", pdf=False, hosts=(host,))],
+        unlinked=("41000020", "41000021"),
+    )
+    fake = DailyWeb(hosts={host: Headed(PDF, 200)})
+    use(monkeypatch, fake, KEYS)
+    daily(root)
+
+    assert fake.spent == {}
+    assert fake.count("host") == 0
+    assert set(by_key(root, tables.PAPERS)) == {"41000020", "41000021"}
+
+
 def test_a_host_link_serves_a_paper_openalex_has_no_copy_of(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -431,3 +457,52 @@ def test_configure_saves_each_account_and_never_shows_a_key(tmp_path: Path) -> N
     ]
     path = tmp_path / "cache" / "liulab-data" / "openalex.toml"
     assert path.stat().st_mode & 0o777 == 0o600
+
+
+def test_a_malformed_openalex_account_stops_the_step_with_a_message_and_no_traceback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = paper_store(tmp_path, [paper("41000001")])
+    monkeypatch.setenv("OPENALEX_API_KEYS", "secret-key-only")
+    monkeypatch.setenv("NCBI_EMAIL", "t@t.org")
+    with pytest.raises(CredentialsError, match="labdata papers configure"):
+        load_accounts()
+    for step in ("daily", "pmc-sync"):
+        result = CliRunner().invoke(app, ["papers", step, "--root", str(root)])
+        assert result.exit_code == 1
+        assert "OPENALEX_API_KEYS" in result.output
+        assert "secret-key-only" not in result.output
+        assert not isinstance(result.exception, CredentialsError)
+
+
+def test_missing_ncbi_credentials_stop_the_step_with_a_message(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = paper_store(tmp_path, [paper("41000001")])
+    monkeypatch.delenv("NCBI_EMAIL", raising=False)
+    monkeypatch.delenv("NCBI_API_KEY", raising=False)
+    result = CliRunner().invoke(app, ["papers", "daily", "--root", str(root)])
+    assert result.exit_code == 1
+    assert "labdata ncbi configure" in result.output
+    assert not isinstance(result.exception, CredentialsError)
+
+
+def test_no_openalex_keys_skips_the_openalex_tier(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = paper_store(tmp_path, [paper("41000001")])
+    fake = DailyWeb()
+    use(monkeypatch, fake, KEYS)
+    monkeypatch.setattr("labdata.cli._openalex_client", _real_openalex_client(fake))
+    out = daily(root)
+    assert "OpenAlex tier is skipped" in out
+    assert fake.spent == {}
+
+
+def _real_openalex_client(fake: FakeWeb) -> Any:
+    """The CLI's own account loading, over the fake web: no env, no file."""
+
+    def make() -> OpenAlex:
+        return OpenAlex(load_accounts(), transport=fake, limiter=RateLimiter(1000.0, 8))
+
+    return make

@@ -46,8 +46,8 @@ sbatch --job-name=labdata-papers-backfill --partition=cpu_batch \
 If it stops, submit it again. It goes on from where it stopped. The paper job can start at the
 same time: it waits until the first sync is done.
 
-The first copy to GCS sends all of it, which takes hours. Run it once by hand, as its own job,
-after the first sync ends, so the paper job's daily pass does not wait behind it:
+The first copy to GCS sends all of it. Run it once by hand, as its own job, after the first
+sync ends, so the paper job's daily pass does not wait behind it:
 
 ```bash
 sbatch --job-name=labdata-papers-copy --partition=cpu_batch \
@@ -56,7 +56,8 @@ sbatch --job-name=labdata-papers-copy --partition=cpu_batch \
   --wrap "pixi run labdata papers copy"
 ```
 
-Log in to rclone first: the login lasts one day. Later copies send only new and changed files.
+Log in to rclone first: the login lasts one day. Later copies send only new and changed files,
+and delete from the bucket what the paper store no longer holds.
 
 ## Start the paper job
 
@@ -70,8 +71,7 @@ It runs the daily pass each day after 00:30 UTC, and the PMC sync on the 3rd of 
 Each pass ends with a copy of new and changed files to GCS.
 
 At start, the job submits the next job, which waits for this one to end and then takes over.
-So the chain goes on by itself. A job submitted from inside a running job works on arc: it was
-checked from a compute node with `sbatch --test-only`, which Slurm accepted.
+So the chain goes on by itself: Slurm on arc accepts a job submitted from inside a running job.
 
 To stop the chain, cancel the waiting job first, then the running one:
 
@@ -122,5 +122,5 @@ The file at the paper store root says what the job did last and where the papers
 - `copy_pending: true` means the GCS login had expired and the bucket is behind. Log in, then
   run `labdata papers copy`. A copy that works sets it back to `false`.
 
-The copy never deletes in the bucket, and it leaves out the lock file and the files a pass
-writes while it runs.
+The copy makes the bucket match the paper store. It leaves out `paper-status.json`, the lock
+file and the files a pass writes while it runs.

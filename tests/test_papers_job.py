@@ -10,9 +10,9 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+from labdata._http import RateLimiter
 from labdata.cli import app
 from labdata.ncbi import entrez as entrez_mod
-from labdata.ncbi._http import RateLimiter
 from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
 from labdata.papers import init_paper_store, open_paper_store
@@ -111,6 +111,7 @@ def serve(root: Path, clock: Clock, until: dt.datetime) -> list[str]:
             NcbiCredentials("t@t.org", "abc"), transport=web, limiter=RateLimiter(1000.0, 8)
         ),
         openalex=OpenAlex(transport=web, limiter=RateLimiter(1000.0, 8)),
+        transport=web,
         clock=clock,
         sleep=clock.sleep,
         until=until,
@@ -200,16 +201,30 @@ def copy(root: Path) -> str:
     return result.output
 
 
-def test_copy_sends_new_and_changed_files_but_no_lock_journal_or_temp_file(
+def test_copy_makes_the_bucket_match_the_store_but_no_lock_journal_or_temp_file(
     tmp_path: Path, rclone: Rclone
 ) -> None:
     root = paper_store(tmp_path)
     copy(root)
 
-    [args] = rclone.calls
-    assert args[:4] == ["rclone", "copy", str(root), DEST]
-    assert "--exclude=.*" in args
+    hidden = ["--filter=- .*", "--filter=- .*/**", "--filter=- /paper-status.json"]
+    progress = ["--stats=1m", "--stats-one-line", "--stats-log-level=NOTICE"]
+    assert rclone.calls == [
+        ["rclone", "lsjson", DEST, "--max-depth", "1"],
+        # New files land first, the marker last; the sync then deletes what the store dropped.
+        ["rclone", "copy", str(root), DEST, *hidden, "--filter=- /labdata-papers.toml", *progress],
+        ["rclone", "sync", str(root), DEST, "--delete-excluded", *hidden, *progress],
+    ]
     assert status(root)["copy_pending"] is False
+
+
+def test_a_failed_copy_sets_copy_pending(tmp_path: Path, rclone: Rclone) -> None:
+    root = paper_store(tmp_path)
+    rclone.returncode, rclone.stderr = 3, "ERROR : bucket not found\n"
+    result = CliRunner().invoke(app, ["papers", "copy", "--root", str(root)])
+    assert result.exit_code == 1
+    assert "bucket not found" in result.output
+    assert status(root)["copy_pending"] is True
 
 
 def test_an_expired_login_sets_copy_pending_and_a_later_copy_clears_it(

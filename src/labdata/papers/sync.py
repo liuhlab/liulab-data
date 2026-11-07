@@ -1,7 +1,7 @@
 """The PMC sync: linked papers enter the store with IDs, details and status; PMC files follow.
 
-Papers in scope are the PMIDs and DOIs that held GEO Series and BioProjects link in the
-GEO/SRA store's current build; a DOI counts only for a record that links no PMID. A paper
+Papers in scope are the PMIDs and DOIs that target GEO Series and held BioProjects link in
+the GEO/SRA store's current build; a DOI counts only for a record that links no PMID. A paper
 is looked up at most once a month: its PMCID (if it has none), its PubMed details and, while
 it is not fetched, its OpenAlex work. A paper no build links any more keeps its rows.
 """
@@ -12,7 +12,7 @@ import datetime as dt
 import time
 import urllib.parse
 from collections import Counter
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Collection, Iterable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -28,6 +28,7 @@ from labdata.papers.pubmed import Details, details, pmc_ids
 from labdata.papers.root import PaperStore, paper_dir, paper_key, paper_lock
 from labdata.papers.status import read_status, write_status
 from labdata.papers.tables import PaperTables
+from labdata.store.gaps import build_targets
 from labdata.store.layout import HOLDINGS, LINKS_BY_TO, sql_string
 from labdata.store.reader import current_path
 from labdata.store.sources import BIOPROJECT_XML
@@ -59,13 +60,17 @@ class SyncReport:
     counts: dict[str, dict[str, int]] = field(default_factory=dict)
 
 
-def linked_papers(build: Path) -> dict[str, set[str]]:
+def linked_papers(build: Path, target_series: Collection[str]) -> dict[str, set[str]]:
     """Return every paper in scope of one build, mapped to the sources of its links.
+
+    Papers in scope are those a target Series or a held BioProject links.
 
     Parameters
     ----------
     build : pathlib.Path
         The build folder.
+    target_series : collection of str
+        The target Series list the build was made from.
 
     Returns
     -------
@@ -73,14 +78,15 @@ def linked_papers(build: Path) -> dict[str, set[str]]:
         Paper keys (PMID, else lower-case DOI) and the ``source`` of each link to them.
     """
     con = duckdb.connect()
-    rows = con.execute(
-        f'SELECT l."from", l."to", l.source '
+    found = con.execute(
+        f'SELECT l."from", l."to", l.source, h.type '
         f"FROM read_parquet({sql_string(str(LINKS_BY_TO.path(build)))}) l "
         f"JOIN read_parquet({sql_string(str(HOLDINGS.path(build)))}) h "
         'ON h.accession = l."from" '
         f"WHERE h.type IN ({', '.join(sql_string(t) for t in _RECORD_TYPES)}) "
         "AND (l.\"to\" LIKE 'PMID:%' OR l.\"to\" LIKE 'DOI:%')"
     ).fetchall()
+    rows = [(s, d, src) for s, d, src, t in found if t != "GEO Series" or s in target_series]
     with_pmid = {src for src, dst, _ in rows if dst.startswith("PMID:")}
     out: dict[str, set[str]] = {}
     for src, dst, source in rows:
@@ -91,6 +97,21 @@ def linked_papers(build: Path) -> dict[str, set[str]]:
         except ValueError:
             continue
         out.setdefault(key, set()).add(source)
+    return out
+
+
+def store_links(store: PaperStore, state: PaperTables) -> dict[str, set[str]]:
+    """Return :func:`linked_papers` of the paper store's current GEO/SRA build.
+
+    A DOI link to a paper the store keys by its PMID counts for that paper.
+    """
+    geo = store.store.root
+    build = current_path(geo)
+    linked = linked_papers(build, build_targets(geo, build))
+    by_doi = {r["doi"]: k for k, r in state.papers.items() if r.get("doi") and k.isdigit()}
+    out: dict[str, set[str]] = {}
+    for key, sources in linked.items():
+        out.setdefault(by_doi.get(key, key), set()).update(sources)
     return out
 
 
@@ -203,13 +224,10 @@ def _sync(
 ) -> SyncReport:
     root = store.root
     report = SyncReport()
-    linked = linked_papers(current_path(store.store.root))
+    state = PaperTables.load(root)
+    linked = store_links(store, state)
     if sample is not None:
         linked = {k: v for k, v in linked.items() if in_sample(k, sample)}
-    state = PaperTables.load(root)
-    by_doi = {r["doi"]: k for k, r in state.papers.items() if r.get("doi") and k.isdigit()}
-    # A DOI link to a paper the store keys by its PMID is that paper.
-    linked = {by_doi.get(k, k): v for k, v in linked.items()}
     for key in linked:
         if key not in state.papers:
             state.papers[key] = _new_row(key, today)

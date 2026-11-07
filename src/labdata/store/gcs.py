@@ -27,8 +27,6 @@ from labdata.store.root import MARKER, open_store
 #: The marker key naming the rclone destination, ``<remote>:<bucket>/<path>``.
 COPY_TO_KEY = "copy_to"
 
-_PROGRESS = _rclone.PROGRESS
-
 
 class StoreCopyError(LabdataError):
     """The store cannot be copied: it does not open, has no destination, or rclone failed."""
@@ -76,42 +74,19 @@ def copy(root: Path, destination: str | None = None) -> CopyResult:
             f"no destination: pass --to <remote>:<bucket>/<path> or set "
             f"{COPY_TO_KEY} in {root / MARKER}"
         )
-    remote = dest.split(":", 1)[0]
-    expired = CopyResult(
-        str(dest),
-        skipped=True,
-        message=(
-            f"rclone's Google login has expired, so the bucket is behind the store. "
-            f"Run `rclone config reconnect {remote}:`, then `labdata store copy`."
-        ),
-    )
     with build_lock(root):
         selected = _selected(root, store.settings.get("build"))
-        # One cheap call shows an expired login before any upload; other faults show below.
-        probe = _run_rclone(["rclone", "lsjson", dest, "--max-depth", "1"])
-        if probe.returncode and _rclone.login_expired(probe.stderr):
-            return expired
-        src = str(root)
-        for args in (
-            ["rclone", "copy", src, dest, *selected, "--filter=- **", *_PROGRESS],
-            [
-                "rclone",
-                "sync",
-                src,
-                dest,
-                "--delete-excluded",
-                *selected,
-                f"--filter=+ /{MARKER}",
-                "--filter=- **",
-                *_PROGRESS,
-            ],
-        ):
-            done = _run_rclone(args)
-            if done.returncode == 0:
-                continue
-            if _rclone.login_expired(done.stderr):
-                return expired
-            raise StoreCopyError(f"rclone {args[1]} failed ({done.returncode}): {done.stderr}")
+        done = _rclone.mirror(
+            str(root),
+            str(dest),
+            [*selected, "--filter=- **"],
+            [*selected, f"--filter=+ /{MARKER}", "--filter=- **"],
+            run=_run_rclone,
+            error=StoreCopyError,
+        )
+    if not done:
+        message = _rclone.expired_message(str(dest), "store", "labdata store copy")
+        return CopyResult(str(dest), skipped=True, message=message)
     return CopyResult(str(dest))
 
 

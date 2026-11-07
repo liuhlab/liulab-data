@@ -20,8 +20,8 @@ from pathlib import Path
 import pytest
 
 import labdata.ncbi.entrez as entrez_mod
+from labdata._http import HttpTransport, RateLimiter
 from labdata.exceptions import EntrezError, PageNotFound
-from labdata.ncbi._http import HttpTransport, RateLimiter
 from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient, _is_transient
 

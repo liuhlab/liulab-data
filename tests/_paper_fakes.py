@@ -11,7 +11,7 @@ import hashlib
 import io
 import json
 import urllib.parse
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -19,8 +19,10 @@ from typing import Any
 from xml.sax.saxutils import escape
 
 import duckdb
+import pyarrow as pa
+import pyarrow.parquet as pq
 
-from labdata.store import layout
+from labdata.store import gaps, layout, targets
 
 
 class Reply:
@@ -109,6 +111,7 @@ def work(
     pdf_urls: tuple[str, ...] = (),
     published: str = "2024-01-01",
     title: str = "A work",
+    retracted: bool = False,
 ) -> dict[str, Any]:
     """Return an OpenAlex work object with the fields the paper job selects."""
     ids: dict[str, str] = {"openalex": f"https://openalex.org/{wid}"}
@@ -135,6 +138,7 @@ def work(
             }
         ],
         "abstract_inverted_index": {"Cells": [0], "divide.": [1]},
+        "is_retracted": retracted,
     }
 
 
@@ -355,10 +359,13 @@ def _value(w: dict[str, Any], name: str) -> str | None:
     raise AssertionError(f"unexpected OpenAlex filter: {name}")
 
 
-def fixture_build(root: Path, links: list[tuple[str, str, str]]) -> Path:
-    """Make a GEO/SRA store at ``root`` whose build ``b1`` holds only links and holdings.
+def fixture_build(
+    root: Path, links: list[tuple[str, str, str]], *, not_targets: Iterable[str] = ()
+) -> Path:
+    """Make a GEO/SRA store at ``root`` whose build ``b1`` holds links, holdings and gaps.
 
-    Each link is ``(from, to, source)``; every ``from`` is held.
+    Each link is ``(from, to, source)``; every ``from`` is held. Every held Series is on the
+    target list of the build's snapshot date, except ``not_targets``.
     """
     build = root / "builds" / "b1"
     build.mkdir(parents=True)
@@ -378,4 +385,26 @@ def fixture_build(root: Path, links: list[tuple[str, str, str]]) -> Path:
         layout.HOLDINGS.path(build),
         f"SELECT * FROM (VALUES {held}) v(accession, type)",
     )
+    layout.write(
+        con,
+        layout.GAPS,
+        layout.GAPS.path(build),
+        "SELECT * FROM (VALUES ('GSE0', 'x', 'x')) v(accession, reason, detail) WHERE false",
+        {gaps.DATE_KEY: SNAPSHOT_DATE},
+    )
+    skip = set(not_targets)
+    series = sorted({f for f, _, _ in links if f.startswith("GSE") and f not in skip})
+    out = targets.list_path(root, SNAPSHOT_DATE)
+    out.parent.mkdir(parents=True)
+    pq.write_table(
+        pa.table(
+            {"accession": series, "gdstype": ["x"] * len(series), "bioproject": [""] * len(series)},
+            schema=targets.SCHEMA,
+        ),
+        out,
+    )
     return root
+
+
+#: The ``geo-series`` snapshot date a fixture build's gaps name.
+SNAPSHOT_DATE = "2026-11-01"
