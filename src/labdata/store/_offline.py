@@ -51,6 +51,9 @@ class OfflineEntrezClient(EntrezClient):
     ) -> str:
         _refuse("efetch")
 
+    def eutil_text(self, util: str, params: Mapping[str, str]) -> str:
+        _refuse(util)
+
     def fetch_text(self, url: str) -> str:
         _refuse("fetch_text")
 

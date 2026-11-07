@@ -5,8 +5,8 @@ A raw row is ``accession``, ``raw_text``, ``hash`` and ``fetch_date``. A source'
 
 A fetch lane splits its work into :class:`Piece` s, one per bucket, and writes each finished
 piece as one part file that appears by a rename. A rerun skips every accession a part or a
-raw bucket already holds, so a saved piece makes no request. Only :mod:`labdata.store.pack`
-writes ``raw/``. Writer side only, so pyarrow is imported here freely.
+raw bucket already holds, so a saved piece makes no request. A removal part lists accessions
+to delete instead of rows. Only :mod:`labdata.store.pack` writes ``raw/``. Writer side only, so pyarrow is imported here freely.
 """
 
 from __future__ import annotations
@@ -55,6 +55,10 @@ SORT_CHUNK_ROWS = 10_000
 GROUPS_PER_CHUNK = 8
 #: The parquet key listing the accessions a part's piece asked for, one per line.
 ASKED_KEY = b"labdata.asked"
+#: The parquet key listing the accessions a removal part deletes, one per line.
+REMOVED_KEY = b"labdata.removed"
+#: The ``fetch_date`` that marks a row as a removal while pack merges.
+REMOVED = "removed"
 
 SCHEMA = pa.schema(
     [
@@ -161,8 +165,43 @@ def _done(root: Path, source: str, buckets: set[str]) -> dict[str, set[str]]:
 
 def asked(path: Path) -> set[str]:
     """Return the accessions a part's piece asked for."""
+    return _listed(path, ASKED_KEY)
+
+
+def removed(path: Path) -> list[str]:
+    """Return the accessions a removal part deletes, sorted; empty for a row part."""
+    return sorted(_listed(path, REMOVED_KEY))
+
+
+def _listed(path: Path, key: bytes) -> set[str]:
     metadata = pq.read_schema(path).metadata or {}
-    return set(filter(None, metadata.get(ASKED_KEY, b"").decode().split("\n")))
+    return set(filter(None, metadata.get(key, b"").decode().split("\n")))
+
+
+def write_removals(root: Path, source: str, accessions: Iterable[str]) -> list[Path]:
+    """Write removal parts deleting these accessions' rows from one source, one per bucket.
+
+    Pack applies a removal in part order: it deletes the rows saved before it, and a row
+    saved after it wins.
+
+    Returns
+    -------
+    list of pathlib.Path
+        The removal parts written.
+    """
+    by_bucket: dict[str, set[str]] = defaultdict(set)
+    for accession in accessions:
+        by_bucket[bucket_of(source, accession)].add(accession)
+    folder = parts_dir(root, source)
+    written = []
+    for bucket, members in sorted(by_bucket.items()):
+        listed = "\n".join(sorted(members))
+        tag = hashlib.sha256(listed.encode()).hexdigest()[:12]
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f"{bucket}.removed-{tag}.parquet"
+        write_sorted_runs(path, [], SCHEMA.with_metadata({REMOVED_KEY: listed.encode()}))
+        written.append(path)
+    return written
 
 
 def fetch_pieces(
@@ -310,7 +349,8 @@ def _table(rows: list[RawRow], schema: pa.Schema) -> pa.Table:
 def saved(root: Path, source: str, accessions: Iterable[str]) -> dict[str, str]:
     """Return the saved raw text of those ``accessions`` that have a row, in raw or a part.
 
-    A part's row wins over a raw bucket's, and a newer part's over an older one's.
+    A part's row wins over a raw bucket's, and a newer part's over an older one's; a removal
+    part drops the rows saved before it.
     """
     wanted = set(accessions)
     buckets = {bucket_of(source, a) for a in wanted}
@@ -318,6 +358,8 @@ def saved(root: Path, source: str, accessions: Iterable[str]) -> dict[str, str]:
     paths += [p for p in part_files(root, source) if part_bucket(p) in buckets]
     out: dict[str, str] = {}
     for path in paths:
+        for accession in removed(path) if path.is_file() else []:
+            out.pop(accession, None)
         out |= {row.accession: row.raw_text for row in _read(path) if row.accession in wanted}
     return out
 

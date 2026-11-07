@@ -123,6 +123,14 @@ def _is_transient(err: BaseException) -> bool:
     return any(marker in str(err).lower() for marker in _TRANSIENT_MESSAGES)
 
 
+def ids_empty(err: BaseException) -> bool:
+    """Return whether a failed request, or its cause, is NCBI's "ID list is empty" answer.
+
+    That answer means no requested id resolves to a record.
+    """
+    return _ids_empty(err) or (err.__cause__ is not None and _ids_empty(err.__cause__))
+
+
 def _ids_empty(err: BaseException) -> bool:
     """Tell NCBI's "ID list is empty" answer (no requested id resolves) from other failures."""
     body = getattr(err, "body", b"")
@@ -514,6 +522,30 @@ class EntrezClient:
                 break
         out.missing = todo
         return out
+
+    def eutil_text(self, util: str, params: Mapping[str, str]) -> str:
+        """POST one E-utilities call and return its reply as text, unparsed and uncached.
+
+        A record-level error in a 200 reply stays readable in the text.
+
+        Parameters
+        ----------
+        util : str
+            The utility, e.g. ``"esummary"`` or ``"efetch"``.
+        params : mapping
+            The call's parameters; the client adds its identity.
+
+        Returns
+        -------
+        str
+            The reply body.
+
+        Raises
+        ------
+        EntrezError
+            If the call fails; :func:`ids_empty` tells NCBI's "ID list is empty" answer.
+        """
+        return self._eutil(util, params, _read_text)
 
     def fetch_text(self, url: str) -> str:
         """GET an NCBI web page that E-utilities does not serve and return its text.

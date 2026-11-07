@@ -154,10 +154,14 @@ def store_pack(
 ) -> None:
     """Merge the fetched parts under work/parts/ into raw/, one bucket file at a time.
 
-    Rerun it after a cut-off run: parts stay until their bucket is rewritten.
+    Rerun it after a cut-off run: parts stay until their bucket is rewritten. Removal parts
+    delete rows; the records removed are logged per source.
     """
+    import logging
+
     from labdata.store.pack import pack
 
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     store = open_store(root)
     written = pack(store.root)
     typer.echo(f"Packed {len(written)} bucket files into {store.root / 'raw'}")
@@ -484,6 +488,55 @@ def store_eutils(
         f"{report.recovered} came back good"
     )
     _mark_failed(failed_marker, report.failed)
+
+
+@store_app.command("_confirm", hidden=True)
+def store_confirm(
+    candidates: Path | None = typer.Option(
+        None, help="More candidates: a text file, one per line, or a Parquet `accession`."
+    ),
+    root: Path | None = typer.Option(
+        None, help="Store root; default: LABDATA_STORE, then pointer."
+    ),
+) -> None:
+    """Confirm each removal candidate with its own fetch; write removal parts for the gone."""
+    import datetime as dt
+    import logging
+
+    from labdata.store import removals
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    store = open_store(root)
+    extra = [] if candidates is None else _accession_file(candidates)
+    found = removals.candidates(store.root, extra)
+    today = dt.datetime.now(dt.UTC).date().isoformat()
+    report = removals.confirm(store.root, found, client=_store_client(), date=today)
+    typer.echo(
+        f"Removal candidates: {report.asked} asked, {report.gone} confirmed gone, "
+        f"{report.runs_gone} runs gone, {report.kept} still served, "
+        f"{report.failed} failed and kept"
+    )
+    for source, count in sorted(report.removals.items()):
+        typer.echo(f"{source}: {count} to remove")
+
+
+@store_app.command("_reach", hidden=True)
+def store_reach(
+    root: Path | None = typer.Option(
+        None, help="Store root; default: LABDATA_STORE, then pointer."
+    ),
+) -> None:
+    """Write removal parts for every raw row that no target Series reaches."""
+    import logging
+
+    from labdata.store import removals
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    store = open_store(root)
+    counts = removals.reach(store.root)
+    typer.echo(f"Unreached raw rows: {sum(counts.values())} to remove")
+    for source, count in sorted(counts.items()):
+        typer.echo(f"{source}: {count} to remove")
 
 
 def _mark_failed(marker: Path | None, failed: int) -> None:

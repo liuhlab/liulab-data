@@ -77,7 +77,11 @@ class LaneReport:
 
 
 def experiment_list(
-    root: Path, *, date: str | None = None, series: Iterable[str] | None = None
+    root: Path,
+    *,
+    date: str | None = None,
+    series: Iterable[str] | None = None,
+    out: Path | None = None,
 ) -> Path:
     """Write the lane's experiment list and return its path.
 
@@ -91,6 +95,8 @@ def experiment_list(
         Only these GEO Series' experiments: SOFT relations of these Series, and tab rows
         whose GSM the newest ``geo-series`` snapshot lists under one of them. Every
         Series by default.
+    out : pathlib.Path or None
+        Where to write the list; defaults to :func:`list_path`.
 
     Returns
     -------
@@ -113,7 +119,7 @@ def experiment_list(
     if wanted is not None:
         samples = _samples(root, folder / "samples.parquet", wanted)
         geo = f"geo AND gsm IN (SELECT accession FROM read_parquet('{samples}'))"
-    out = list_path(root, snap.date)
+    out = out or list_path(root, snap.date)
     tmp = temp_beside(out)
     try:
         with extract.connect(root) as con:

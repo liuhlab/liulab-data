@@ -61,6 +61,17 @@ The step that merges parts into bucket files. It is the only writer of `raw/`.
 
 _Avoid_: write, save (for `raw/` itself)
 
+### Removal candidate
+
+A record `raw/` holds that may be gone: its renewed snapshot no longer lists it, the snapshot
+marks it not public, or this refresh's fetch got no record for it. A candidate leaves only when
+a fetch of it alone confirms it is gone.
+
+### Removal part
+
+A part that lists accessions to delete instead of holding rows. Pack applies it in part order:
+it deletes the rows saved before it, and a row saved after it wins.
+
 ### Gap
 
 A Series on the target Series list that the store does not hold, recorded with a reason. Coverage
