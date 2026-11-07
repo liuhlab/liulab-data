@@ -39,7 +39,7 @@ src/labdata/
                        declaration, the only writer of build tables);
                        pipeline.py + pipeline.smk (the full-run DAG);
                        changes.py (a refresh's re-fetch list), removals.py
-                       (confirm gone records, drop unreached rows),
+                       (confirm and remove withdrawn Series),
                        refresh.py + refresh.smk (the refresh DAG, its status
                        record; runs from a checkout, as it calls scripts/bulk/)
   papers/            the paper store: root.py (marker, pointer, lock, paper folders);
