@@ -297,7 +297,7 @@ def _fetch_detail(folder: str, etag: str) -> str:
 
 
 def _last_fetch(attempts: list[dict[str, Any]]) -> dict[str, str]:
-    """Return each paper's last PMC fetch: ``"<version folder> <record ETag>"``."""
+    """Return each paper's last PMC fetch, as :func:`_fetch_detail` wrote it."""
     last: dict[str, tuple[dt.date, str]] = {}
     for a in attempts:
         if a["tier"] == _TIER and a["outcome"] == "fetched" and a["detail"]:
