@@ -7,10 +7,10 @@
 # memory and threads, its marker appears only when that command exits 0, and its output also
 # goes to logs/<step>.log. A rerun starts at the first unfinished step.
 #
-# The snapshots are renewed under the refresh's start date, so a killed download resumes into
-# the same folders; every later step reads the newest snapshot. The E-utilities lane runs
-# beside the GEO lane on the experiments the saved SOFT names, and again after it on those
-# the new SOFT names. The status step writes the refresh's date and counts after the switch.
+# The snapshots a build reads are renewed under the refresh's start date, so a killed download
+# resumes into the same folders; every later step reads the newest snapshot. The E-utilities
+# lane runs beside the GEO lane on the experiments the saved SOFT names, and again after it on
+# those the new SOFT names. The status step writes the refresh's date and counts after the switch.
 
 import shlex
 
@@ -38,7 +38,8 @@ rule snapshots:
         mem_mb=MEM["snapshots"],
     shell:
         f"{config['python']} -I {shlex.quote(config['downloader'])} "
-        f"{shlex.quote(config['root'] + '/snapshots')} --date {config['date']} {LOG}"
+        f"{shlex.quote(config['root'] + '/snapshots')} --date {config['date']} "
+        f"{' '.join(sorted(EXTRACTS))} {LOG}"
 
 
 rule targets:

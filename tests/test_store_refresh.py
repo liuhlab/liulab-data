@@ -269,6 +269,9 @@ def test_refresh_hands_snakemake_the_refresh_dag_in_step_order(
     commands = {rule: command for rule, _, _, command in jobs}
     assert f"--date {dt.datetime.now(dt.UTC):%Y-%m-%d}" in commands["snapshots"]
     assert "download_ncbi_bulk.py" in commands["snapshots"]
+    # Only the snapshots a build reads: the SRA Parquet snapshot is never asked for.
+    assert commands["snapshots"].split("--date ", 1)[1].split()[1:5] == sorted(_EXTRACTS)
+    assert "sra-metadata-parquet" not in commands["snapshots"]
     assert "_changes --since 2026-10-14 --out refetch.txt" in commands["changes"]
     assert "_geo --refetch refetch.txt" in commands["geo"]
     assert "--soft-only" in commands["eutils_after_geo"]
