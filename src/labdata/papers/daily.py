@@ -160,7 +160,7 @@ def _daily(
     state.save(root)
     journal.clear()
     queued = _manual_queue(root, state, client, log)
-    # The GCS copy goes here, last.
+    # The paper job copies the store to GCS after the pass (`labdata papers copy`).
     report = DailyReport(queued=queued)
     todays = [a for a in state.attempts if a.get("date") == today]
     report.fetched = dict(Counter(a["tier"] for a in todays if a["outcome"] == "fetched"))
