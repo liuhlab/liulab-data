@@ -149,6 +149,15 @@ new one from the same date and leaves the old folder in place.
 has expired, the refresh still succeeds and `copy_pending` is `true`. Log in, then run
 `labdata store copy`: it copies the store and sets `copy_pending` back to `false`.
 
+To keep the refresh's step logs with the store, copy them into `support/`. `<started>` is the
+refresh's folder under `work/refresh/`, which `refresh-status.json` names:
+
+```bash
+scripts/store/keep_run_logs.sh "$LABDATA_STORE" refresh/<started>
+```
+
+Then `work/` holds nothing the next refresh needs, and you may delete it.
+
 ### What a refresh needs
 
 Every step can be killed and run again. The figures below come from the first full-store
