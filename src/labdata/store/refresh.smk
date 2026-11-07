@@ -135,7 +135,7 @@ rule reach:
     resources:
         mem_mb=MEM["reach"],
     shell:
-        f"{STORE} _reach {ROOT} {LOG}"
+        f"{STORE} _reach --max-share {config['max_share']} {ROOT} {LOG}"
 
 
 rule pack:

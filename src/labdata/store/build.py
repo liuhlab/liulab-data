@@ -60,6 +60,7 @@ from labdata.store.layout import (
     LINKS_BY_TO,
     RECORDS,
     SUPPLEMENTARY_FILES,
+    read_parquet_sql,
     sql_string,
 )
 from labdata.store.model import RELATIONS
@@ -388,7 +389,7 @@ def _read(path: Path) -> str:
     Files are listed, never globbed, so a build id holding glob characters reads as written.
     """
     paths = sorted(path.glob("*.parquet")) if path.is_dir() else [path]
-    return f"read_parquet([{', '.join(sql_string(str(p)) for p in paths)}])"
+    return read_parquet_sql(paths)
 
 
 def _kept_order(folder: Path) -> tuple[str, str, str]:

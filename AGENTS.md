@@ -32,11 +32,15 @@ src/labdata/
                        sratools.py (per-stage tool wrappers), pipeline.py
                        (Snakemake driver), pipeline.smk (the download DAG)
   store/             the source record store: fetch lanes (geo_lane.py, eutils.py),
-                       a refresh's re-fetch list (changes.py), raw/ pieces and pack, snapshot extract, build, gaps, prune,
+                       raw/ pieces and pack, snapshot extract, build, gaps, prune,
                        GCS copy (gcs.py); reader.py (the build reader, the only
                        way to open a build); layout.py (every build table's
                        declaration, the only writer of build tables);
-                       pipeline.py + pipeline.smk (the full-run DAG)
+                       pipeline.py + pipeline.smk (the full-run DAG);
+                       changes.py (a refresh's re-fetch list), removals.py
+                       (confirm gone records, drop unreached rows),
+                       refresh.py + refresh.smk (the refresh DAG, its status
+                       record; runs from a checkout, as it calls scripts/bulk/)
 tests/               pytest suite, mirrors src; mocks the EntrezClient + subprocess seams
 scripts/check.sh     the gate runner
 scripts/conformance.py  the lab template's rules, checked against this repo

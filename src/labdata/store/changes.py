@@ -3,6 +3,9 @@
 The list holds the target Series GEO updated since the last successful refresh, less
 :data:`OVERLAP_DAYS`; the target Series not yet held; and every Series a relation line in
 their saved SOFT names. The fetch lanes take it as their ``refetch`` Series.
+
+The store modules are imported where they are used, so the CLI reads :data:`OVERLAP_DAYS`
+without loading pyarrow.
 """
 
 from __future__ import annotations
@@ -12,13 +15,12 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-import pyarrow.parquet as pq
-
-from labdata.ncbi.entrez import EntrezClient
-from labdata.store import raw, targets
 from labdata.store._files import write_atomic
-from labdata.store.fetch import GDS_OFFSET
+
+if TYPE_CHECKING:
+    from labdata.ncbi.entrez import EntrezClient
 
 #: Days before the last successful refresh the change search starts, so a late update
 #: GEO dates back a little is still found.
@@ -49,6 +51,8 @@ def updated_series(client: EntrezClient, since: dt.date) -> set[str]:
 
     The search is open-ended, as ``[UDAT]`` keeps only a Series' newest update date.
     """
+    from labdata.store.fetch import GDS_OFFSET
+
     term = f"gse[ETYP] AND {since:%Y/%m/%d}:3000[UDAT]"
     offset = GDS_OFFSET["GSE"]
     uids = (int(uid) for uid in client.esearch_all("gds", term, page=PAGE))
@@ -57,6 +61,8 @@ def updated_series(client: EntrezClient, since: dt.date) -> set[str]:
 
 def related(root: Path, series: Iterable[str]) -> set[str]:
     """Return ``series`` and every Series their saved SOFT names by a relation line, in turn."""
+    from labdata.store import raw
+
     found = set(series)
     frontier = set(found)
     while frontier:
@@ -67,6 +73,8 @@ def related(root: Path, series: Iterable[str]) -> set[str]:
 
 def refetch_experiments(root: Path, series: Iterable[str]) -> set[str]:
     """Return the experiments the saved SOFT of ``series`` and their related Series name."""
+    from labdata.store import raw
+
     return raw.scan(root, raw.GEO_SOFT, related(root, series), SRA_RELATION)
 
 
@@ -98,6 +106,10 @@ def change_list(
     ChangeList
         The file and its counts; a Series found two ways counts once, the first way.
     """
+    import pyarrow.parquet as pq
+
+    from labdata.store import raw, targets
+
     path = targets.target_list(root, snapshot_date)
     wanted = {
         gse

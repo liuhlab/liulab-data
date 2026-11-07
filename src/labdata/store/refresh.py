@@ -6,10 +6,9 @@ Snakemake state sit in ``work/refresh/<started>/``. The status record,
 ``refresh-status.json`` in the store root, names that folder until the refresh succeeds, so
 a rerun resumes there.
 
-The status record holds the start, the end, the outcome, the folder, the date the change
-search starts from (``since``), the last successful refresh's date, the added, replaced and
-removed records per source, and whether the GCS copy is pending. The date and the counts are
-written by the step after the switch, the success outcome when the whole DAG has finished.
+GLOSSARY's *Status record* lists the record's fields; it also keeps the folder and the date
+the change search starts from (``since``). The date and the counts are written by the step
+after the switch, the success outcome when the whole DAG has finished.
 """
 
 from __future__ import annotations
@@ -20,14 +19,13 @@ import json
 import logging
 import shlex
 import sys
-from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
 import labdata
 from labdata._pipeline import RESILIENCE_FLAGS
 from labdata.exceptions import LabdataError
-from labdata.store import _limits, extract, gcs, pipeline, provenance
+from labdata.store import _limits, extract, gcs, pack, pipeline, provenance, removals
 from labdata.store._files import write_atomic
 from labdata.store.layout import manifest_path
 from labdata.store.reader import build_path
@@ -103,6 +101,7 @@ def run(
     since: str | None = None,
     cores: int | None = None,
     ncbi: int = pipeline.NCBI_STEPS,
+    max_share: float = removals.MAX_SHARE,
     verbose: bool = True,
 ) -> int:
     """Run a refresh, or resume the unfinished one the status record names.
@@ -119,6 +118,9 @@ def run(
         Cores the steps may use; defaults to :func:`labdata.store._limits.default_workers`.
     ncbi : int
         Network steps that may run at once.
+    max_share : float
+        The most of any raw source the reachability step may remove; a resumed refresh
+        takes this run's value.
     verbose : bool
         Show Snakemake's and each step's output.
 
@@ -137,6 +139,10 @@ def run(
     status = read_status(root)
     if status.get("outcome") in (RUNNING, FAILED) and status.get("folder"):
         logger.info("resuming the refresh started %s", status["started"])
+        if since is not None and since != status["since"]:
+            logger.warning(
+                "--since %s is not used: the unfinished refresh keeps %s", since, status["since"]
+            )
     else:
         started = _now()
         status = {
@@ -169,6 +175,7 @@ def run(
         "root": str(root),
         "date": status["started"][:10],
         "since": status["since"],
+        "max_share": max_share,
         "extracts": list(extract.SOURCES),
         "copy": bool(store.settings.get(gcs.COPY_TO_KEY)),
         "mem_mb": memory_plan(memory),
@@ -216,23 +223,13 @@ def switched(root: Path) -> dict[str, Any]:
     status = read_status(store.root)
     if status.get("outcome") not in (RUNNING, FAILED):
         raise RefreshError(f"no refresh is running: {store.root / STATUS} says so")
-    counts: dict[str, dict[str, int]] = defaultdict(lambda: dict.fromkeys(_COUNTS, 0))
-    path = store.root / status["folder"] / PACK_COUNTS
-    lines = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
-    for line in lines:
-        row = json.loads(line)
-        for key in _COUNTS:
-            counts[row["source"]][key] += row[key]
     status |= {
         "last_success": status["started"][:10],
-        "counts": dict(sorted(counts.items())),
+        "counts": pack.read_counts(store.root / status["folder"] / PACK_COUNTS),
         "copy_pending": bool(store.settings.get(gcs.COPY_TO_KEY)),
     }
     write_status(store.root, status)
     return status
-
-
-_COUNTS = ("added", "replaced", "removed")
 
 
 def note_copy(root: Path, *, pending: bool) -> None:

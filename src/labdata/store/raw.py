@@ -158,20 +158,32 @@ def pieces(
 
 
 def held(
-    root: Path, source: str, accessions: Iterable[str], *, parts_only: bool = False
+    root: Path, source: str, accessions: Iterable[str] | None = None, *, parts_only: bool = False
 ) -> set[str]:
     """Return which of ``accessions`` have a row in ``source``, in raw or a part.
 
-    With ``parts_only``, only rows in parts count: rows fetched since the last pack.
+    With ``accessions`` None, every accession with a row. With ``parts_only``, only rows in
+    parts count: rows fetched since the last pack.
     """
+    if accessions is None:
+        paths = part_files(root, source) if parts_only else source_files(root, source)
+        return {
+            a
+            for path in paths
+            for a in pq.read_table(path, columns=["accession"]).column(0).to_pylist()
+        }
     wanted = set(accessions)
-    paths = _bucket_paths(root, source, wanted, parts_only)
     found: set[str] = set()
-    for path in paths:
+    for path in _bucket_paths(root, source, wanted, parts_only):
         found |= wanted.intersection(
             pq.read_table(path, columns=["accession"]).column(0).to_pylist()
         )
     return found
+
+
+def source_files(root: Path, source: str) -> list[Path]:
+    """Return every file holding a source's rows: its raw buckets, then its parts, oldest first."""
+    return sorted((root / "raw" / source).glob("*.parquet")) + part_files(root, source)
 
 
 def scan(
@@ -254,12 +266,12 @@ def write_removals(root: Path, source: str, accessions: Iterable[str]) -> list[P
     """Write removal parts deleting these accessions' rows from one source, one per bucket.
 
     Pack applies a removal in part order: it deletes the rows saved before it, and a row
-    saved after it wins.
+    saved after it wins. A removal part already written is left as it is, keeping its place.
 
     Returns
     -------
     list of pathlib.Path
-        The removal parts written.
+        The removal parts, written or already there.
     """
     by_bucket: dict[str, set[str]] = defaultdict(set)
     for accession in accessions:
@@ -271,8 +283,10 @@ def write_removals(root: Path, source: str, accessions: Iterable[str]) -> list[P
         tag = hashlib.sha256(listed.encode()).hexdigest()[:12]
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / f"{bucket}.removed-{tag}.parquet"
-        write_sorted_runs(path, [], SCHEMA.with_metadata({REMOVED_KEY: listed.encode()}))
         written.append(path)
+        if path.is_file():
+            continue
+        write_sorted_runs(path, [], SCHEMA.with_metadata({REMOVED_KEY: listed.encode()}))
     return written
 
 
