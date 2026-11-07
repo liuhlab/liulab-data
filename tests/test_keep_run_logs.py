@@ -49,3 +49,23 @@ def test_it_refuses_a_round_that_has_no_folder(tmp_path: Path) -> None:
     result = _keep(tmp_path, "2026-10-14-all")
     assert result.returncode != 0
     assert "2026-10-14-all" in result.stderr
+
+
+def test_it_keeps_a_refreshs_logs_and_config(tmp_path: Path) -> None:
+    store = tmp_path / "store"
+    folder = store / "work" / "refresh" / "2026-11-07T162405Z"
+    (folder / "logs").mkdir(parents=True)
+    (folder / "logs" / "build.log").write_text("build\n")
+    (folder / "config.json").write_text("{}\n")
+    (folder / "build.done").write_text("")
+
+    result = _keep(store, "refresh/2026-11-07T162405Z")
+
+    assert result.returncode == 0, result.stderr
+    support = store / "support" / "logs"
+    assert sorted(p.relative_to(support).as_posix() for p in support.rglob("*")) == [
+        "refresh",
+        "refresh/2026-11-07T162405Z",
+        "refresh/2026-11-07T162405Z/build.log",
+        "refresh/2026-11-07T162405Z/config.json",
+    ]
