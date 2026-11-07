@@ -21,12 +21,12 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
-from labdata._http import RateLimiter, Transport
+from labdata._http import USER_AGENT, HttpTransport, RateLimiter, Transport
 from labdata.ncbi.entrez import EntrezClient
 from labdata.papers.openalex import Account, OpenAlex
 from labdata.papers.root import PaperStore, paper_dir, paper_lock
 from labdata.papers.status import read_status, write_status
-from labdata.papers.sync import status_of
+from labdata.papers.sync import status_of, store_links
 from labdata.papers.tables import PaperTables
 from labdata.store._files import temp_beside, write_atomic
 
@@ -46,8 +46,8 @@ DOIS = "manual-queue-dois.txt"
 #: Downloads the running pass has not yet written to the tables.
 JOURNAL = ".daily-journal.jsonl"
 
-#: Paces free host links, one at a time.
-HOST_LIMITER = RateLimiter(1.0, 1)
+#: The pace of free host links: requests a second, and how many at once.
+HOST_PACE = (1.0, 1)
 
 #: Attempt outcomes that spent a download from an account's quota.
 SPENT = ("fetched", "error", "failed")
@@ -82,6 +82,8 @@ def daily_pass(
     client: EntrezClient,
     openalex: OpenAlex,
     today: dt.date,
+    transport: Transport | None = None,
+    host_limiter: RateLimiter | None = None,
     log: Callable[[str], None] = print,
 ) -> DailyReport:
     """Run the daily pass over the paper store.
@@ -89,7 +91,8 @@ def daily_pass(
     Spends each OpenAlex account's quota on papers OpenAlex holds a copy of, new papers
     first and then the backlog newest first; tries each free host link once where OpenAlex
     has no copy or failed; recomputes every paper's status; and rewrites the manual queue.
-    Holds the paper store's lock; ``paper-status.json`` records the pass.
+    Only papers the current GEO/SRA build links get downloads; the others keep their rows
+    and files. Holds the paper store's lock; ``paper-status.json`` records the pass.
 
     Parameters
     ----------
@@ -98,9 +101,13 @@ def daily_pass(
     client : EntrezClient
         The NCBI client, for the manual queue's MEDLINE records.
     openalex : OpenAlex
-        Its accounts spend the quota; its transport sends every download.
+        Its accounts spend the quota.
     today : datetime.date
         The UTC date of the pass.
+    transport : Transport or None
+        Sends every download; kept-open connections by default.
+    host_limiter : RateLimiter or None
+        Paces free host links; one a second, one at a time, by default.
     log : callable
         Takes one progress line.
 
@@ -114,7 +121,15 @@ def daily_pass(
         start = _now()
         _record(root, {"kind": "daily", "start": start, "end": None, "outcome": "running"})
         try:
-            report = _daily(root, client, openalex, today, log)
+            report = _daily(
+                store,
+                client,
+                openalex,
+                today,
+                transport or HttpTransport(),
+                host_limiter or RateLimiter(*HOST_PACE),
+                log,
+            )
         except BaseException:
             _record(root, {"kind": "daily", "start": start, "end": _now(), "outcome": "failed"})
             raise
@@ -136,12 +151,15 @@ def daily_pass(
 
 
 def _daily(
-    root: Path,
+    store: PaperStore,
     client: EntrezClient,
     openalex: OpenAlex,
     today: dt.date,
+    transport: Transport,
+    host_limiter: RateLimiter,
     log: Callable[[str], None],
 ) -> DailyReport:
+    root = store.root
     state = PaperTables.load(root)
     journal = _Journal(root / JOURNAL)
     if journal.replay(state):
@@ -150,7 +168,8 @@ def _daily(
         journal.clear()
     # The Paperpile step goes here: it files the maintainer's saves before quota is spent.
     _recompute(state, today)
-    fetch = _Fetcher(root, state, journal, openalex.transport, today, log)
+    linked = set(store_links(store, state))
+    fetch = _Fetcher(root, state, journal, transport, host_limiter, linked, today, log)
     if openalex.accounts:
         fetch.openalex(openalex.accounts)
     else:
@@ -250,11 +269,14 @@ class _Fetcher:
         state: PaperTables,
         journal: _Journal,
         transport: Transport,
+        host_limiter: RateLimiter,
+        linked: set[str],
         today: dt.date,
         log: Callable[[str], None],
     ) -> None:
         self.root, self.state, self.journal = root, state, journal
-        self.transport, self.today, self.log = transport, today, log
+        self.transport, self.host_limiter, self.linked = transport, host_limiter, linked
+        self.today, self.log = today, log
         self._clock = time.monotonic()
 
     def openalex(self, accounts: list[Account]) -> None:
@@ -276,6 +298,7 @@ class _Fetcher:
                 k
                 for k, r in self.state.papers.items()
                 if (r.get("status"), r.get("reason")) == ("waiting", "openalex-backlog")
+                and k in self.linked
                 and not r.get("retracted")
                 and k not in held
                 and _pmc_passed(r, tries.get(k, []))
@@ -333,6 +356,7 @@ class _Fetcher:
                 k
                 for k, r in self.state.papers.items()
                 if r.get("status") != "skipped"
+                and k in self.linked
                 and not r.get("retracted")
                 and r.get("host_pdf_urls")
                 and k not in held
@@ -345,7 +369,7 @@ class _Fetcher:
         for n, key in enumerate(queue, 1):
             got, url = _Got(), ""
             for url in self.state.papers[key]["host_pdf_urls"]:
-                with HOST_LIMITER.turn():
+                with self.host_limiter.turn():
                     got = self._get(key, url, {})
                 if got.ok:
                     break
@@ -412,7 +436,7 @@ def _download(transport: Transport, url: str, dest: Path, headers: dict[str, str
     An ``Authorization`` header is not passed on to another host. ``dest`` is written through
     a temp file and a rename, so it is whole or absent.
     """
-    headers = {"User-Agent": "liulab-data", "Accept": "application/pdf", **headers}
+    headers = {"User-Agent": USER_AGENT, "Accept": "application/pdf", **headers}
     for _ in range(_REDIRECTS + 1):
         try:
             with transport.open("GET", url, body=None, headers=headers, timeout=_TIMEOUT) as r:

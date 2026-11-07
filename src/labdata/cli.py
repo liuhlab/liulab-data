@@ -15,6 +15,7 @@ import typer
 
 from labdata import BioProject, Run, Series, TenxConverter, experiments_for
 from labdata import __version__ as _package_version
+from labdata._http import Transport
 from labdata.exceptions import LabdataError
 from labdata.geo import sratools
 from labdata.ncbi.config import (
@@ -25,6 +26,7 @@ from labdata.ncbi.config import (
 )
 from labdata.ncbi.entrez import EntrezClient
 from labdata.papers.openalex import OpenAlex
+from labdata.papers.root import PaperStore
 from labdata.store import init_store, open_store, save_pointer
 from labdata.store.changes import OVERLAP_DAYS
 from labdata.tenx import bamtofastq
@@ -157,6 +159,24 @@ def _openalex_client() -> OpenAlex:
     return OpenAlex(load_accounts())
 
 
+def _paper_transport() -> Transport:
+    """Return the HTTP transport paper steps download through."""
+    from labdata._http import HttpTransport
+
+    return HttpTransport()
+
+
+def _paper_setup(root: Path | None) -> tuple[PaperStore, EntrezClient, OpenAlex]:
+    """Open the paper store and its clients; a setup failure exits 1 with its message."""
+    from labdata.papers import open_paper_store
+
+    try:
+        return open_paper_store(root), _store_client(), _openalex_client()
+    except LabdataError as err:
+        typer.echo(str(err), err=True)
+        raise typer.Exit(1) from err
+
+
 @papers_app.command("pmc-sync")
 def papers_pmc_sync(
     root: Path | None = typer.Option(
@@ -173,20 +193,18 @@ def papers_pmc_sync(
     """
     import time
 
-    from labdata.papers import open_paper_store
     from labdata.papers.sync import pmc_sync
 
     day = dt.date.fromisoformat(today) if today else dt.datetime.now(dt.UTC).date()
     started = time.monotonic()
-    client = _store_client()
-    openalex = _openalex_client()
+    store, client, openalex = _paper_setup(root)
     try:
         report = pmc_sync(
-            open_paper_store(root),
+            store,
             client=client,
             openalex=openalex,
             today=day,
-            transport=openalex.transport,
+            transport=_paper_transport(),
             sample=_fraction(sample),
             log=lambda line: typer.echo(line, err=True),
         )
@@ -215,19 +233,17 @@ def papers_daily(
 
     A rerun the same day spends only the quota left. Holds the paper store's lock.
     """
-    from labdata.papers import open_paper_store
     from labdata.papers.daily import NBIB, daily_pass
 
     day = dt.date.fromisoformat(today) if today else dt.datetime.now(dt.UTC).date()
-    client = _store_client()
-    openalex = _openalex_client()
-    store = open_paper_store(root)
+    store, client, openalex = _paper_setup(root)
     try:
         report = daily_pass(
             store,
             client=client,
             openalex=openalex,
             today=day,
+            transport=_paper_transport(),
             log=lambda line: typer.echo(line, err=True),
         )
     except LabdataError as err:
@@ -252,10 +268,11 @@ def papers_copy(
         None, help="rclone destination <remote>:<bucket>/<path>; default: copy_to in the marker."
     ),
 ) -> None:
-    """Copy the paper store's new and changed files to a bucket with rclone.
+    """Make a bucket match the paper store with rclone: new files first, then deletes.
 
-    Deletes nothing in the bucket. When rclone's Google login has expired, it sets
-    copy_pending in paper-status.json and exits 0; rerun after `rclone config reconnect`.
+    Leaves out paper-status.json and hidden files. When rclone's Google login has expired,
+    it sets copy_pending in paper-status.json and exits 0; rerun after
+    `rclone config reconnect`.
     Holds the paper store's lock.
     """
     from labdata.papers import open_paper_store
@@ -291,14 +308,15 @@ def papers_serve(
     """
     import os
 
-    from labdata.papers import open_paper_store
     from labdata.papers.job import serve
 
     stop = dt.datetime.fromisoformat(until).replace(tzinfo=dt.UTC) if until else None
+    store, client, openalex = _paper_setup(root)
     serve(
-        open_paper_store(root),
-        client=_store_client(),
-        openalex=_openalex_client(),
+        store,
+        client=client,
+        openalex=openalex,
+        transport=_paper_transport(),
         clock=lambda: dt.datetime.now(dt.UTC),
         until=stop,
         job_id=os.environ.get("SLURM_JOB_ID"),

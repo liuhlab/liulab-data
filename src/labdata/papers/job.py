@@ -18,6 +18,7 @@ import traceback
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
+from labdata._http import HttpTransport, Transport
 from labdata.ncbi.entrez import EntrezClient
 from labdata.papers.copy import copy, destination
 from labdata.papers.daily import daily_pass
@@ -80,6 +81,7 @@ def serve(
     client: EntrezClient,
     openalex: OpenAlex,
     clock: Callable[[], dt.datetime],
+    transport: Transport | None = None,
     sleep: Callable[[float], None] = time.sleep,
     until: dt.datetime | None = None,
     job_id: str | None = None,
@@ -98,6 +100,8 @@ def serve(
         The OpenAlex client the passes use.
     clock : callable
         Returns the time, in UTC.
+    transport : Transport or None
+        Sends the passes' downloads; kept-open connections by default.
     sleep : callable
         Waits a number of seconds.
     until : datetime.datetime or None
@@ -111,6 +115,7 @@ def serve(
     """
     if job_id and successor:
         _submit_successor(store, job_id, successor, lambda line: log(f"{_stamp(clock())} {line}"))
+    transport = transport or HttpTransport()
     retry_at: dict[str, dt.datetime] = {}
     while until is None or clock() < until:
         now = clock()
@@ -124,9 +129,23 @@ def serve(
         try:
             with _ticker(kind, log):
                 if kind == "daily":
-                    daily_pass(store, client=client, openalex=openalex, today=today, log=log)
+                    daily_pass(
+                        store,
+                        client=client,
+                        openalex=openalex,
+                        today=today,
+                        transport=transport,
+                        log=log,
+                    )
                 else:
-                    pmc_sync(store, client=client, openalex=openalex, today=today, log=log)
+                    pmc_sync(
+                        store,
+                        client=client,
+                        openalex=openalex,
+                        today=today,
+                        transport=transport,
+                        log=log,
+                    )
         except Exception:
             log(traceback.format_exc().rstrip())
             log(f"{stamp} {kind} pass {today}: failed; tried again after {RETRY}")
