@@ -114,3 +114,17 @@ _Avoid_: round (a share of the target Series list that the full download fetches
 One run of the full download over a seeded sample of the target Series list, such as 1%. A
 smaller round's sample lies inside every larger one's, and gaps and coverage of a round count only
 its sample.
+
+### Paper store
+
+The store of paper files beside the GEO/SRA store: each paper's original files (PMC XML, PDF,
+supplements), the supplement catalog and each paper's status. It holds files that cost quota or
+manual work to replace, so nothing remade from public sources writes into it.
+
+_Avoid_: paper cache
+
+### Tier
+
+One source the paper job tries for a paper, in a fixed order: the PMC bucket, OpenAlex's paid
+copy, a free host link, then the manual queue in Paperpile. A paper moves to the next tier only
+when the one before cannot serve it.
