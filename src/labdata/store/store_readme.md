@@ -29,7 +29,7 @@ ${snapshot_table}
   builds/<build-id>/            the tables, built from raw/ and snapshots/ (query these)
   raw/<source>/                 the text NCBI served for each record, by source
   snapshots/<source>/<date>/    whole NCBI bulk files, as downloaded
-  support/                      kept run logs and hand scripts
+  support/                      kept run logs
   work/                         working files of the download (not part of the store)
 ```
 
@@ -159,35 +159,36 @@ labdata store verify --root <store>
 
 ## support/
 
-- **What:** run logs and hand scripts kept with this copy of the store. Nothing reads them,
-  and `labdata store copy` leaves them out of the GCS copy.
+- **What:** run logs kept with this copy of the store. Nothing reads them, and
+  `labdata store copy` leaves them out of the GCS copy.
 - **Layout:**
-  - `logs/<round>/`: each step's log and the `run.json` of one run. A round is named by the
-    `geo-series` snapshot date and the share of the target Series it covered: `f0.01` or
-    `f0.1` for a sample, `all` for every one, such as `2026-10-14-all`.
-  - `logs/jobs/`: the Slurm job log of each run, `labdata-run.<job id>.log`.
-  - `logs/snapshots-<date>/`: the logs of the snapshot download of that date.
-  - `scripts/`: the commands run by hand to make the snapshots.
-- **Made by:** `scripts/store/keep_run_logs.sh` in the liulab-data repository copies a
-  round's step logs, its `run.json` and its Slurm job logs from `work/run/` into `logs/`.
-  The snapshot download logs and `scripts/` are kept by hand.
-- **Refresh:** after each round, from a checkout of liulab-data:
+  - `logs/<round>/`: each step's log and the `run.json` of one round of the full download. A
+    round is named by the `geo-series` snapshot date and the share of the target Series it
+    covered: `f0.01` or `f0.1` for a sample, `all` for every one, such as `2026-10-14-all`.
+  - `logs/jobs/`: the Slurm job log of each round, `labdata-run.<job id>.log`.
+  - `logs/refresh/<started>/`: each step's log and the `config.json` of one refresh, named by
+    the UTC time it started, such as `2026-11-07T162405Z`.
+- **Made by:** `scripts/store/keep_run_logs.sh` in the liulab-data repository copies them from
+  `work/run/` and `work/refresh/` into `logs/`.
+- **Refresh:** after each round or refresh, from a checkout of liulab-data:
 
   ```bash
   scripts/store/keep_run_logs.sh <store> <round>
+  scripts/store/keep_run_logs.sh <store> refresh/<started>
   ```
 
-  `<round>` is the round's folder under `work/run/`, such as `2026-10-14-all`. The script
+  `<round>` is the round's folder under `work/run/`, such as `2026-10-14-all`; `<started>` is
+  the refresh's folder under `work/refresh/`, which `refresh-status.json` names. The script
   only copies, so running it again is safe.
 
 ## work/
 
-- **What:** working files of the download: fetch parts, snapshot extracts, the target Series
-  list, each run's step markers and logs, and the build lock. It is not part of the store, and
-  `labdata store copy` leaves it out.
-- **Refresh:** none. When no run is going, you may delete it. The next run makes it again,
-  extracting the snapshots and starting each round from its first step. Fetch steps still skip
-  every item saved in `raw/`.
+- **What:** working files of the download and of each refresh: fetch parts, snapshot extracts,
+  the target Series list, step markers and logs, and the build lock. It is not part of the
+  store, and `labdata store copy` leaves it out.
+- **Refresh:** none. When no run is going and `refresh-status.json` says the last refresh
+  succeeded, you may delete it, after keeping the logs in `support/`. The next run makes it
+  again, extracting the snapshots it needs. Fetch steps still skip every item saved in `raw/`.
 
 ## How to refresh
 
@@ -211,6 +212,8 @@ NCBI:
    last successful refresh, the records added, replaced and removed in each `raw/` source, and
    `copy_pending`. When `copy_pending` is `true`, the GCS copy is behind the store. Log in to
    rclone again, then run `labdata store copy --root <store>`.
+
+4. Keep the refresh's logs, as `support/` says above.
 
 The copy holds `labdata-store.toml`, this file, the snapshots the current build reads,
 `raw/` and the current build.

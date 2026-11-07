@@ -285,3 +285,25 @@ def test_a_rerun_after_a_kill_asks_only_for_what_is_not_yet_fetched_again(
     ncbi.fetched.clear()
     _fetch_again(ncbi, monkeypatch, tmp_path, root)
     assert ncbi.fetched == []
+
+
+def test_a_series_whose_soft_fetch_failed_is_fetched_again_by_the_next_refresh(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _held_store(tmp_path)
+    ncbi = Ncbi()  # GSE1's SOFT is not served this time
+    _fetch_again(ncbi, monkeypatch, tmp_path, root, lanes="geo")
+    pack.pack(root)
+    out = tmp_path / "next.txt"
+    changes_args = ["_changes", "--since", "2026-11-01", "--out", str(out), "--root", str(root)]
+
+    said = _cli(ncbi, monkeypatch, *changes_args)
+
+    assert out.read_text().split() == ["GSE1"]
+    assert "1 whose last SOFT fetch failed" in said
+    ncbi.serve_series("GSE1", series_soft("GSE1", "SRX1", version="2"))
+    (tmp_path / "refetch.txt").write_text(out.read_text())
+    _fetch_again(ncbi, monkeypatch, tmp_path, root, lanes="geo")
+    assert "version 2" in _raw(root, raw.GEO_SOFT)["GSE1"]
+    _cli(ncbi, monkeypatch, *changes_args)
+    assert out.read_text().split() == []

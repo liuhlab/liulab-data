@@ -28,6 +28,18 @@ CHUNK = 100
 #: GEO's ``gds`` UID of a Series or Sample is this offset plus its number.
 GDS_OFFSET = {"GSE": 200_000_000, "GSM": 300_000_000}
 
+
+def gds_uid(accession: str) -> int:
+    """Return the ``gds`` UID of a GEO Series or Sample.
+
+    Examples
+    --------
+    >>> gds_uid("GSE12")
+    200000012
+    """
+    return GDS_OFFSET[accession[:3]] + int(accession[3:])
+
+
 _SERIES_TYPE = re.compile(r"^!Series_type = (.*?)\s*$", re.M)
 _SEQUENCING = "high throughput sequencing"
 logger = logging.getLogger(__name__)
@@ -249,26 +261,22 @@ def fetch_entrez_links(
             gse: sorted(a for e, a, _ in sources.soft_blocks(soft[gse]) if e == "SAMPLE")
             for gse in chunk
         }
-        sample_uids = {_gds_uid(gsm): gsm for gsms in samples.values() for gsm in gsms}
-        series_uids = {_gds_uid(gse): gse for gse in chunk}
+        sample_uids = {str(gds_uid(gsm)): gsm for gsms in samples.values() for gsm in gsms}
+        series_uids = {str(gds_uid(gse)): gse for gse in chunk}
         to_sra = client.elink_many("gds", "sra", sorted(sample_uids)) if sample_uids else {}
         to_bp = client.elink_many("gds", "bioproject", sorted(series_uids))
         names = _accessions(client, "sra", {u for us in to_sra.values() for u in us})
         names |= _accessions(client, "bioproject", {u for us in to_bp.values() for u in us})
         lines: dict[str, list[str]] = {gse: [] for gse in chunk}
         for gse in chunk:
-            for uid in to_bp.get(_gds_uid(gse), []):
+            for uid in to_bp.get(str(gds_uid(gse)), []):
                 lines[gse].append(f"{gse}\tbioproject\t{uid}\t{names.get(uid, '')}")
             for gsm in samples[gse]:
-                for uid in to_sra.get(_gds_uid(gsm), []):
+                for uid in to_sra.get(str(gds_uid(gsm)), []):
                     lines[gse].append(f"{gsm}\tsra\t{uid}\t{names.get(uid, '')}")
         return {gse: "\n".join(sorted(rows)) for gse, rows in lines.items()}
 
     return _resume(root, raw.ENTREZ_LINKS, sorted(soft), get, date)
-
-
-def _gds_uid(accession: str) -> str:
-    return str(GDS_OFFSET[accession[:3]] + int(accession[3:]))
 
 
 def _accessions(client: EntrezClient, db: str, uids: set[str]) -> dict[str, str]:

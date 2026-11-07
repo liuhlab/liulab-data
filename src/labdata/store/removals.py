@@ -5,7 +5,7 @@ longer lists, or that this refresh's fetch got no record for. It is removed only
 of it alone confirms it is gone: a record-level "cannot get document summary" in a 200 reply,
 or NCBI's "ID list is empty". Any other answer keeps it; the next refresh finds it again. A
 gone Series takes its rows in every Series-keyed source with it. SRA records are never
-candidates (ADR 0005). Removal parts are applied by pack (see :mod:`labdata.store.raw`).
+candidates. Removal parts are applied by pack (see :mod:`labdata.store.raw`).
 """
 
 from __future__ import annotations
@@ -22,16 +22,18 @@ from pathlib import Path
 
 import pyarrow.parquet as pq
 
-from labdata.exceptions import EntrezError
+from labdata.exceptions import AccessionError, EntrezError
 from labdata.ncbi.entrez import EntrezClient, ids_empty
 from labdata.store import gaps, raw, snapshots
-from labdata.store.fetch import GDS_OFFSET
+from labdata.store.fetch import gds_uid
+from labdata.store.model import kind_of
 
 #: The raw sources keyed by GEO Series: a gone Series' rows leave each of them.
 SERIES_KEYED = (raw.GEO_SOFT, raw.GEO_FILELIST, raw.GEO_GAPS, raw.ENTREZ_LINKS, raw.PUBMED_SI)
 #: Confirmation fetches in flight; the client's limiter sets the rate.
 INFLIGHT = 4
-#: Candidates confirmed between writes of removal parts, so a cut-off run keeps its work.
+#: Candidates confirmed between writes of removal parts: small enough that a cut-off run
+#: loses little work, large enough that it writes few parts.
 BATCH = 100
 
 #: A Series' "not served" answer in a 200 ``esummary`` reply; the uid fills in.
@@ -96,7 +98,7 @@ def confirm(root: Path, accessions: Iterable[str], *, client: EntrezClient) -> C
     pending = _pending_removals(root)
     series = set()
     for accession in accessions:
-        if re.fullmatch(r"GSE\d+", accession):
+        if _is_series(accession):
             series.add(accession)
         else:
             logger.warning("not confirmed, as only GEO Series are: %s", accession)
@@ -119,9 +121,16 @@ def confirm(root: Path, accessions: Iterable[str], *, client: EntrezClient) -> C
     return report
 
 
+def _is_series(accession: str) -> bool:
+    try:
+        return kind_of(accession) == "GEO Series"
+    except AccessionError:
+        return False
+
+
 def _state(client: EntrezClient, accession: str) -> _State:
     """Ask for one Series alone; return whether GEO serves it."""
-    uid = str(GDS_OFFSET["GSE"] + int(accession[3:]))
+    uid = str(gds_uid(accession))
     try:
         text = client.eutil_text("esummary", {"db": "gds", "id": uid})
     except EntrezError as err:
