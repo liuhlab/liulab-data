@@ -133,7 +133,8 @@ def store_fetch(
 
     A GEO Series brings its SubSeries and the SRA packages of every experiment its samples
     link to. A BioProject or SRA study is expanded to its experiments through the newest
-    SRA_Accessions.tab snapshot. Items already saved are skipped, so a rerun resumes.
+    SRA_Accessions.tab snapshot. Items already saved are skipped, so a rerun resumes. The
+    accessions are kept in fetched-by-hand.txt, so a refresh keeps what they brought in.
     """
     from labdata.store.fetch import fetch as fetch_raw
 
@@ -285,7 +286,8 @@ def store_copy(
     """Copy the marker, current snapshots, raw/ and current build to a bucket with rclone.
 
     Refused unless the current build is complete. When rclone's Google login has expired,
-    it skips with a message and exits 0; rerun after `rclone config reconnect`.
+    it skips with a message and exits 0; rerun after `rclone config reconnect`. The status
+    record marks the copy pending until one succeeds.
     """
     from labdata.store import refresh
     from labdata.store.gcs import copy

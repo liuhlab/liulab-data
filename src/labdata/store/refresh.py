@@ -144,7 +144,9 @@ def run(
             "ended": None,
             "outcome": RUNNING,
             "folder": f"work/refresh/{started.replace(':', '')}",
-            "since": since or status.get("last_success") or _first_since(root, store.settings.get("build")),
+            "since": since
+            or status.get("last_success")
+            or _first_since(root, store.settings.get("build")),
             "last_success": status.get("last_success"),
             "counts": {},
             "copy_pending": bool(status.get("copy_pending")),

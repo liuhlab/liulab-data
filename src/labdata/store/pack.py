@@ -111,7 +111,7 @@ def _pack_source(
         # The old bucket is never spilled, so the merge can tell its rows from the parts'.
         most = FAN_IN - 1 if held else FAN_IN
         runs = _fewer(list(_runs(parts)), raw.parts_dir(root, source), spills, chunk_bytes, most)
-        tally = dict.fromkeys(_TALLY, 0)
+        tally: dict[str, int] = dict.fromkeys(_TALLY, 0)
         rows = _merged([_rows(path), *runs] if held else runs, tally, held=held)
         raw.write_sorted_runs(path, rows, raw.SCHEMA, chunk_bytes=chunk_bytes)
         if pq.read_metadata(path).num_rows == 0:

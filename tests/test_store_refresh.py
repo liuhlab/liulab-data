@@ -19,7 +19,6 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
-import pyarrow.parquet as pq
 import pytest
 from typer.testing import CliRunner
 
@@ -31,6 +30,7 @@ from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
 from labdata.store import geo_lane, init_store, open_store, pipeline, raw, refresh
 from labdata.store.fetch import soft_url
+from tests._slices import SLICES, built_root
 from tests.test_store_refresh_fetch import Ncbi, _Reply
 
 _DATA = Path(__file__).parent / "data" / "geo_slice"
@@ -55,7 +55,9 @@ class _Geo(Ncbi):
             uid = params["id"]
             if f"GSE{int(uid) - 200_000_000}" in self.gone:
                 return _Reply(_GONE_GDS.format(uid=uid).encode())
-            return _Reply(f"<eSummaryResult><DocSum><Id>{uid}</Id></DocSum></eSummaryResult>".encode())
+            return _Reply(
+                f"<eSummaryResult><DocSum><Id>{uid}</Id></DocSum></eSummaryResult>".encode()
+            )
         return super()._answer(url, params)
 
 
@@ -127,9 +129,7 @@ def _built(root: Path, monkeypatch: pytest.MonkeyPatch, ncbi: Ncbi) -> Path:
     """A store as the full run left it: KEPT, CHANGED and WITHDRAWN held and built as b1."""
     init_store(root)
     for source in ("bioproject", "biosample", "sra-accessions"):
-        shutil.copytree(
-            _DATA / "snapshots" / source / _OLD, root / "snapshots" / source / _OLD
-        )
+        shutil.copytree(_DATA / "snapshots" / source / _OLD, root / "snapshots" / source / _OLD)
     _geo_series(root / "snapshots" / "geo-series" / _OLD, {KEPT, CHANGED, WITHDRAWN})
     _use(monkeypatch, ncbi)
     where = ["--root", str(root)]
@@ -212,10 +212,13 @@ def _held(root: Path, source: str) -> dict[str, str]:
     return {row.accession: row.raw_text for row in raw.read_rows(root, source)}
 
 
+def _current(root: Path) -> Path:
+    return root / "builds" / str(open_store(root).settings["build"])
+
+
 def _same_build(one: Path, two: Path) -> None:
-    builds = [r / "builds" / str(open_store(r).settings["build"]) for r in (one, two)]
     done = subprocess.run(
-        [sys.executable, str(_COMPARE), *map(str, builds)], capture_output=True, text=True
+        [sys.executable, str(_COMPARE), str(one), str(two)], capture_output=True, text=True
     )
     assert done.returncode == 0, done.stdout + done.stderr
 
@@ -326,3 +329,126 @@ def test_a_refresh_adds_replaces_removes_and_switches_while_an_open_store_keeps_
     assert status["ended"] >= status["started"]
     assert status["counts"][raw.GEO_SOFT] == {"added": 1, "replaced": 1, "removed": 1}
     assert status["copy_pending"] is False
+
+
+def test_a_refresh_killed_after_pack_and_rerun_gives_the_uninterrupted_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    whole_ncbi, cut_ncbi = _ncbi(), _ncbi()
+    whole = _built(tmp_path / "whole", monkeypatch, whole_ncbi)
+    cut = _built(tmp_path / "cut", monkeypatch, cut_ncbi)
+    for ncbi in (whole_ncbi, cut_ncbi):
+        _change(ncbi)
+    _use(monkeypatch, whole_ncbi)
+    _executor(monkeypatch)
+    _refresh(whole)
+
+    _use(monkeypatch, cut_ncbi)
+    _executor(monkeypatch, stop_after="pack")
+    result = CliRunner().invoke(app, ["store", "refresh", "--root", str(cut), "--cores", "1"])
+    assert result.exit_code == 1
+    assert refresh.read_status(cut)["outcome"] == "failed"
+    assert open_store(cut).settings["build"] == "b1"
+    cut_ncbi.fetched.clear()
+    cut_ncbi.terms.clear()
+    _, ran = _executor(monkeypatch)
+    _refresh(cut)
+
+    assert ran == ["build", "status", "prune", "copy", "all"]
+    assert cut_ncbi.fetched == []
+    assert cut_ncbi.terms == []
+    for source in (raw.GEO_SOFT, raw.SRA_XML, raw.GEO_FILELIST):
+        assert _held(cut, source) == _held(whole, source), source
+    _same_build(_current(whole), _current(cut))
+    status = refresh.read_status(cut)
+    assert status["outcome"] == "succeeded"
+    assert status["counts"] == refresh.read_status(whole)["counts"]
+
+
+def test_a_second_refresh_asks_only_for_the_overlap_window(
+    built: tuple[Path, _Geo], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root, ncbi = built
+    _change(ncbi)
+    _executor(monkeypatch)
+    _refresh(root)
+    first = _current(root)
+    ncbi.updated = []
+    ncbi.fetched.clear()
+    ncbi.terms.clear()
+
+    _refresh(root)
+
+    since = dt.datetime.now(dt.UTC).date() - dt.timedelta(days=3)
+    assert ncbi.terms == [f"gse[ETYP] AND {since:%Y/%m/%d}:3000[UDAT]"]
+    assert [call for call in ncbi.fetched if "geo/series" in call] == []
+    assert _current(root) != first
+    _same_build(first, _current(root))
+
+
+def test_an_expired_login_leaves_the_copy_pending_and_a_later_copy_clears_it(
+    built: tuple[Path, _Geo], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, ncbi = built
+    marker = root / "labdata-store.toml"
+    marker.write_text(marker.read_text() + f'copy_to = "{_DEST}"\n', encoding="utf-8")
+    calls: list[list[str]] = []
+
+    def expired(args: list[str]) -> subprocess.CompletedProcess[str]:
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 1, "", _EXPIRED)
+
+    monkeypatch.setattr("labdata.store.gcs._run_rclone", expired)
+    _change(ncbi)
+    _executor(monkeypatch)
+
+    _refresh(root)
+
+    status = refresh.read_status(root)
+    assert status["outcome"] == "succeeded"
+    assert status["copy_pending"] is True
+    assert calls == [["rclone", "lsjson", _DEST, "--max-depth", "1"]]
+
+    monkeypatch.setattr(
+        "labdata.store.gcs._run_rclone",
+        lambda args: subprocess.CompletedProcess(args, 0, "", ""),
+    )
+    assert "Copied the store" in _cli("copy", "--root", str(root))
+    assert refresh.read_status(root)["copy_pending"] is False
+
+
+# ---------------------------------------------------------------- records fetched by hand
+
+
+@pytest.mark.parametrize("slice_name", sorted(SLICES))
+def test_records_fetched_by_hand_stay_through_reachability_and_pack(
+    tmp_path: Path, slice_name: str
+) -> None:
+    root = built_root(tmp_path / "store", slice_name)
+    where = ["--root", str(root)]
+
+    _cli("_reach", *where)
+    _cli("pack", *where)
+    _cli("build", "--build-id", "b2", *where)
+
+    _same_build(root / "builds" / "b1", root / "builds" / "b2")
+
+
+def test_an_accession_only_a_pending_removal_lists_is_fetched_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ncbi = _ncbi()
+    root = tmp_path / "store"
+    init_store(root)
+    _geo_series(root / "snapshots" / "geo-series" / _OLD, {KEPT})
+    _use(monkeypatch, ncbi)
+    _cli("_geo", KEPT, "--root", str(root))
+    _cli("pack", "--root", str(root))
+    raw.write_removals(root, raw.GEO_SOFT, [KEPT])
+    ncbi.fetched.clear()
+
+    _cli("_geo", KEPT, "--root", str(root))
+    _cli("pack", "--root", str(root))
+
+    assert soft_url(KEPT) in ncbi.fetched
+    assert set(_held(root, raw.GEO_SOFT)) == {KEPT}

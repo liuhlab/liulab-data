@@ -97,6 +97,64 @@ can finish; the [API reference](../reference.md#labdata.store.prune) gives its l
 only as a one-off to tidy a store nobody is reading, not as a refresh step. Prune never
 deletes the current build or anything it reads.
 
+## Refresh the store
+
+Once the full download is done, one command a month keeps the store current. It downloads new
+snapshots, fetches the GEO Series that changed or appeared since the last successful refresh,
+removes records that a fetch confirms are gone, builds, switches, prunes and copies. Run it from
+the repository folder:
+
+```bash
+labdata store refresh
+```
+
+The first refresh searches for changes from the date of the `geo-series` snapshot the current
+build read; each later one, from the last successful refresh, less three days. To search from
+another date, add `--since YYYY-MM-DD`.
+
+If it stops, run the same command again. It goes on in the same folder,
+`work/refresh/<start time>/`, from the first unfinished step, and asks for nothing it saved.
+That folder holds the refresh's markers and logs.
+
+`refresh-status.json` in the store root shows the outcome:
+
+```json
+{
+  "started": "2026-11-07T02:00:00Z",
+  "ended": "2026-11-07T03:24:10Z",
+  "outcome": "succeeded",
+  "since": "2026-10-14",
+  "last_success": "2026-11-07",
+  "folder": "work/refresh/2026-11-07T020000Z",
+  "counts": {"geo-soft": {"added": 2410, "replaced": 4180, "removed": 12}},
+  "copy_pending": false
+}
+```
+
+`last_success` changes only once the store has switched to the new build. When rclone's login
+has expired, the refresh still succeeds and `copy_pending` is `true`. Log in, then run
+`labdata store copy`: it copies the store and sets `copy_pending` back to `false`.
+
+### What a refresh needs
+
+Every step can be killed and run again. The first full-store refresh fills in this table.
+
+| Step | CPU | Memory | Scratch disk | Network (NCBI, GEO, GCS) | Wall time |
+| --- | --- | --- | --- | --- | --- |
+| snapshots | | | | | |
+| targets | | | | | |
+| changes | | | | | |
+| geo | | | | | |
+| eutils (beside and after the GEO lane) | | | | | |
+| extract (each source) | | | | | |
+| confirm | | | | | |
+| reach | | | | | |
+| pack | | | | | |
+| build | | | | | |
+| status | | | | | |
+| prune | | | | | |
+| copy | | | | | |
+
 ## Make a sample build
 
 A sample build is a small copy of a full store's tables, for trying a change before you
@@ -129,5 +187,6 @@ point outside a sample, so its link-query timings are indicative only.
 ## Go deeper
 
 The steps are also commands of their own: `labdata store pack`, `build`, `coverage`, `prune`
-and `copy`. Run `labdata store --help` to list them, and see the
+and `copy`. Records fetched with `labdata store fetch` stay through refreshes: the store lists
+them in `fetched-by-hand.txt`. Run `labdata store --help` to list them, and see the
 [API reference](../reference.md) for the modules behind them.

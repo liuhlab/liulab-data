@@ -1,8 +1,9 @@
 """Copy the store's current state to a bucket with ``rclone``.
 
-The copy holds the marker, the root ``README.md``, the snapshots the current build read,
-``raw/`` and the current build; ``work/``, ``support/`` and older builds are left out, and
-the bucket's copies of them are deleted.
+The copy holds the marker, the root ``README.md``, the list of records fetched by hand, the
+snapshots the current build read, ``raw/`` and the current build; ``work/``, ``support/``,
+the status record and older builds are left out, and the bucket's copies of them are deleted.
+One listing call first checks that rclone's login has not expired.
 A first ``rclone copy`` uploads everything but the marker, then an ``rclone sync`` uploads
 the marker and deletes the rest, so the bucket's marker never names a build it lacks. rclone
 skips files already uploaded, so a cut-off copy resumes when rerun.

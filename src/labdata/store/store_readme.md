@@ -25,6 +25,8 @@ ${snapshot_table}
 <store>/
   README.md                     this file
   labdata-store.toml            the marker: format version and the current build
+  refresh-status.json           the status record: the last refresh and its outcome
+  fetched-by-hand.txt           accessions given to `labdata store fetch`, kept by refreshes
   builds/<build-id>/            the tables, built from raw/ and snapshots/ (query these)
   raw/<source>/                 the text NCBI served for each record, by source
   snapshots/<source>/<date>/    whole NCBI bulk files, as downloaded
@@ -184,25 +186,29 @@ labdata store verify --root <store>
 
 ## How to refresh
 
-From a checkout of liulab-data, on a computer that can reach NCBI:
+Refresh the store once a month, from a checkout of liulab-data, on a computer that can reach
+NCBI:
 
-1. Download new snapshots into `snapshots/` (see above).
-2. Save your NCBI email and API key once: `labdata ncbi configure`.
-3. Run the download. It fetches what is missing, builds the tables, checks coverage, switches
-   the store to the new build, deletes builds and snapshots out of use for longer than a grace
-   period, and copies the store to GCS:
+1. Save your NCBI email and API key once: `labdata ncbi configure`.
+2. Run the refresh:
 
    ```bash
-   labdata store run --root <store>
+   labdata store refresh --root <store>
    ```
 
-   On a Slurm cluster, `scripts/store/run.sbatch` runs the same command as a job.
+   It downloads new snapshots, fetches the GEO Series changed or added since the last
+   successful refresh and their SRA experiments, removes records that a fetch confirms are
+   gone, builds the tables, switches the store to the new build, deletes builds and snapshots
+   out of use for longer than a grace period, and copies the store to GCS. If it stops, run
+   the same command again: it goes on from the first unfinished step.
 
-4. Keep the round's logs in `support/`: `scripts/store/keep_run_logs.sh <store> <round>`.
+3. Read `refresh-status.json`. It gives the refresh's start, end and outcome, the date of the
+   last successful refresh, the records added, replaced and removed in each `raw/` source, and
+   `copy_pending`. When `copy_pending` is `true`, the GCS copy is behind the store. Log in to
+   rclone again, then run `labdata store copy --root <store>`.
 
-5. Copy the store to GCS: `labdata store copy --root <store>`. The copy holds
-   `labdata-store.toml`, this file, the snapshots the current build reads, `raw/` and the
-   current build.
+The copy holds `labdata-store.toml`, this file, `fetched-by-hand.txt`, the snapshots the
+current build reads, `raw/` and the current build.
 
 An old build stays for a grace period after the switch, so a reader that opened it can
 finish. The liulab-data API reference for `labdata.store.prune` gives its length.
