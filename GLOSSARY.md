@@ -23,7 +23,8 @@ _Avoid_: snapshot (a dated copy of one bulk source, which a build reads)
 ### Refresh
 
 One pass that brings the store to the sources' current state: it adds new records, replaces
-changed ones, removes withdrawn ones, renews the snapshots and ends in a new current build.
+changed ones, removes withdrawn GEO Series, renews the snapshots and ends in a new current build.
+SRA records stay once held.
 
 _Avoid_: update, sync (each says less than the whole pass)
 
@@ -77,9 +78,9 @@ _Avoid_: write, save (for `raw/` itself)
 
 ### Removal candidate
 
-A record `raw/` holds that may be gone: its renewed snapshot no longer lists it, the snapshot
-marks it not public, or this refresh's fetch got no record for it. A candidate leaves only when
-a fetch of it alone confirms it is gone.
+A GEO Series `raw/` holds that may be withdrawn: GEO's current Series list no longer names it,
+or this refresh's fetch got no record for it. A candidate leaves only when a fetch of it alone
+confirms it is gone.
 
 ### Removal part
 
