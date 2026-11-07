@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+      <url>
+        <loc>https://liuhlab.github.io/liulab-data/</loc>
+      </url>
+      <url>
+        <loc>https://liuhlab.github.io/liulab-data/tutorials/understanding-geo/</loc>
+      </url>
+      <url>
+        <loc>https://liuhlab.github.io/liulab-data/tutorials/geo-series/</loc>
+      </url>
+      <url>
+        <loc>https://liuhlab.github.io/liulab-data/tutorials/tenx-bam/</loc>
+      </url>
+      <url>
+        <loc>https://liuhlab.github.io/liulab-data/how-to/store-run/</loc>
+      </url>
+      <url>
+        <loc>https://liuhlab.github.io/liulab-data/how-to/store-gcs/</loc>
+      </url>
+      <url>
+        <loc>https://liuhlab.github.io/liulab-data/reference/</loc>
+      </url>
+</urlset>
