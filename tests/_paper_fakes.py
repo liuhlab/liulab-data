@@ -26,13 +26,16 @@ from labdata.store import layout
 class Reply:
     """One canned HTTP reply."""
 
-    def __init__(self, body: bytes | str, status: int = 200) -> None:
+    def __init__(
+        self, body: bytes | str, status: int = 200, headers: Mapping[str, str] | None = None
+    ) -> None:
         self._body = io.BytesIO(body.encode() if isinstance(body, str) else body)
         self.status = status
         self.will_close = False
+        self._headers = {k.lower(): v for k, v in (headers or {}).items()}
 
     def getheader(self, name: str) -> str | None:
-        return None
+        return self._headers.get(name.lower())
 
     def read(self, amt: int | None = None) -> bytes:
         return self._body.read(amt)
@@ -222,7 +225,7 @@ class FakeBucket:
 
     ``bad`` keys are served with bytes that do not match their MD5; ``fail`` is called with
     each key fetched and may raise, to stop a pass mid-way. ``gets`` records every object
-    fetched, inventory files included.
+    fetched, inventory files included. ``types`` gives an object's Content-Type.
     """
 
     objects: dict[str, bytes] = field(default_factory=dict)
@@ -231,6 +234,7 @@ class FakeBucket:
     bad: set[str] = field(default_factory=set)
     gets: list[str] = field(default_factory=list)
     fail: Any = None
+    types: dict[str, str] = field(default_factory=dict)
 
     def put(
         self,
@@ -239,6 +243,7 @@ class FakeBucket:
         files: Mapping[str, bytes],
         *,
         manuscript: bool = False,
+        retracted: bool = False,
     ) -> str:
         """Add one article version: its files, and a JSON record naming each one's MD5.
 
@@ -249,6 +254,7 @@ class FakeBucket:
             "pmcid": pmcid,
             "version": version,
             "is_manuscript": manuscript,
+            "is_retracted": retracted,
             "pdf_url": None,
             "media_urls": [],
         }
@@ -304,7 +310,8 @@ class FakeBucket:
             self.fail(key)
         self.gets.append(key)
         data = everything[key]
-        return Reply(data[::-1] + b"x" if key in self.bad else data)
+        headers = {"Content-Type": self.types[key]} if key in self.types else None
+        return Reply(data[::-1] + b"x" if key in self.bad else data, headers=headers)
 
     def _listing(self, everything: dict[str, bytes], query: dict[str, list[str]]) -> str:
         prefix = query.get("prefix", [""])[0]

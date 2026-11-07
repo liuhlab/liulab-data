@@ -8,6 +8,7 @@ record is stored, so a new build never leaves the answer stale.
 from __future__ import annotations
 
 import datetime as dt
+import io
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,6 +18,7 @@ import pyarrow.parquet as pq
 
 from labdata.exceptions import NotMirrored
 from labdata.papers import tables
+from labdata.papers._zst import open_plain
 from labdata.papers.root import paper_key
 from labdata.store.model import kind_of
 from labdata.store.reader import BuildReader
@@ -49,8 +51,9 @@ class PaperInfo:
 class PaperFile:
     """One file of a paper, held or only listed.
 
-    ``path`` is absolute, and ``None`` for a file only listed; ``gone`` is the date its
-    source stopped serving it.
+    ``path`` is absolute, and ``None`` for a file only listed; a file stored compressed ends
+    in ``.zst``, and :meth:`open` reads it decompressed. ``size`` and ``md5`` are of the
+    plain bytes. ``gone`` is the date its source stopped serving it.
     """
 
     kind: str
@@ -64,6 +67,23 @@ class PaperFile:
     caption: str | None
     fetched: dt.date | None
     gone: dt.date | None
+
+    def open(self) -> io.BufferedIOBase:
+        """Open the held file for reading, decompressed.
+
+        Returns
+        -------
+        io.BufferedIOBase
+            A binary file object; close it, or use it in a ``with`` block.
+
+        Raises
+        ------
+        FileNotFoundError
+            If the file is only listed, not held.
+        """
+        if self.path is None:
+            raise FileNotFoundError(f"{self.name} is listed, not held; its URL is {self.url}")
+        return open_plain(self.path)
 
 
 @dataclass(frozen=True, slots=True)

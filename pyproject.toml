@@ -25,6 +25,7 @@ dependencies = [
     "snakemake>=8",   # orchestrates the download DAG (labdata.geo.pipeline)
     "duckdb>=1.5.6,<2",
     "pyarrow>=25.0.0,<26",
+    "backports.zstd>=1.6",   # compression.zstd for Python 3.13: paper files stored as .zst
 ]
 
 [project.urls]
@@ -84,6 +85,8 @@ snakemake-minimal = ">=8"
 pyyaml = "*"
 duckdb = ">=1.5.6,<2"
 pyarrow = ">=25.0.0,<26"
+# Paper files stored zstd-compressed (labdata.papers); the 3.13 backport of compression.zstd.
+"backports.zstd" = ">=1.6"
 # Parallel snapshot extraction: Ray spreads byte ranges over cores or nodes.
 ray-core = ">=2.59"
 # Copies the store to a bucket (`labdata store copy`), through labdata.store.gcs.

@@ -51,7 +51,7 @@ ARTICLE_TYPES = (
 
 _SELECT = (
     "id,doi,ids,type,title,publication_date,has_content,locations,primary_location,"
-    "authorships,abstract_inverted_index"
+    "authorships,abstract_inverted_index,is_retracted"
 )
 _TIMEOUT = 30.0
 _TRIES = 5
@@ -125,6 +125,7 @@ class Work:
     journal: str | None
     authors: tuple[dict[str, Any], ...]
     abstract: str | None
+    retracted: bool = False
 
     @property
     def is_article(self) -> bool:
@@ -281,6 +282,7 @@ def _work(raw: dict[str, Any]) -> Work:
         journal=source.get("display_name"),
         authors=tuple(authors),
         abstract=_abstract(raw.get("abstract_inverted_index")),
+        retracted=bool(raw.get("is_retracted")),
     )
 
 

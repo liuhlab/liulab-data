@@ -6,6 +6,7 @@ import datetime as dt
 from pathlib import Path
 
 import pytest
+from backports import zstd
 from typer.testing import CliRunner
 
 from labdata.cli import app
@@ -13,7 +14,7 @@ from labdata.ncbi import entrez as entrez_mod
 from labdata.ncbi._http import RateLimiter
 from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
-from labdata.papers import init_paper_store, paper_dir, pmc, tables
+from labdata.papers import init_paper_store, open_paper_store, paper_dir, pmc, tables
 from labdata.papers.openalex import OpenAlex
 from tests._paper_fakes import Article, FakeBucket, FakeWeb, fixture_build, md5
 
@@ -27,13 +28,23 @@ CLOSED = "41000103"
 BIG = 10 * 2**20 + 1
 
 OA_XML = b"""<article xmlns:xlink="http://www.w3.org/1999/xlink"><body>
-<fig><graphic xlink:href="gr1"/></fig>
+<fig><label>Figure 1</label><caption><p>Cells
+  divide.</p></caption><graphic xlink:href="gr1"/></fig>
+<fig><label>Figure 2</label><graphic xlink:href="gr2"/></fig>
+<p>Where <inline-graphic xlink:href="eq1"/> holds.</p>
 <supplementary-material><label>Table S1</label><caption><p>Sample
   sheet.</p></caption><media xlink:href="mmc1.xlsx"/></supplementary-material>
 <supplementary-material><label>Data S1</label><caption><title>Counts</title></caption>
 <media xlink:href="mmc2.zip"/></supplementary-material>
+<supplementary-material><label>Movie S1</label><media xlink:href="mmc3.mp4"/>
+</supplementary-material>
 </body></article>"""
 AM_XML = b"<article><body><p>Manuscript.</p></body></article>"
+#: A full-size figure, and the smaller preview the bucket also holds.
+GR1 = b"jpeg " * 20
+TIF = b"II*\x00" + b"\x00" * 200
+CSV = b"a,b\n1,2\n"
+MOVIE = b"\x00\x00\x00\x18ftypmp42" * 10
 
 
 def bucket() -> FakeBucket:
@@ -46,12 +57,19 @@ def bucket() -> FakeBucket:
             "PMC100.2.xml": OA_XML,
             "PMC100.2.pdf": b"%PDF-1.7 article",
             "PMC100.2.txt": b"text",
-            "gr1.jpg": b"jpeg",
+            "gr1.jpg": GR1,
+            "gr1.gif": b"gif",
+            "gr2.tif": TIF,
+            "eq1.gif": b"formula",
             "mmc1.xlsx": b"xlsx table",
             "mmc2.zip": b"z" * BIG,
-            "table.csv": b"a,b\n1,2\n",
+            "mmc3.mp4": MOVIE,
+            "mmc4.dat": MOVIE,
+            "table.csv": CSV,
         },
     )
+    # A video under a name that does not say so: its Content-Type does.
+    b.types["PMC100.2/mmc4.dat"] = "video/quicktime"
     b.put("PMC200", 1, {"PMC200.1.xml": AM_XML, "PMC200.1.txt": b"t"}, manuscript=True)
     return b
 
@@ -122,7 +140,7 @@ def test_an_oa_article_and_an_author_manuscript_give_their_files_and_catalog(
     }
     assert shown == {
         (OA, "xml", f"{OA}.xml"): (
-            f"{oa.as_posix()}/{OA}.xml",
+            f"{oa.as_posix()}/{OA}.xml.zst",
             len(OA_XML),
             md5(OA_XML),
             f"{url}PMC100.2/PMC100.2.xml",
@@ -130,14 +148,52 @@ def test_an_oa_article_and_an_author_manuscript_give_their_files_and_catalog(
             None,
             day,
         ),
+        # The XML and figures replace the PMC PDF: listed, not downloaded.
         (OA, "pdf", f"{OA}.pdf"): (
-            f"{oa.as_posix()}/{OA}.pdf",
+            None,
             16,
             md5(b"%PDF-1.7 article"),
             f"{url}PMC100.2/PMC100.2.pdf",
             None,
             None,
+            None,
+        ),
+        (OA, "figure", "gr1.jpg"): (
+            f"{oa.as_posix()}/fig/gr1.jpg",
+            len(GR1),
+            md5(GR1),
+            f"{url}PMC100.2/gr1.jpg",
+            "Figure 1",
+            "Cells divide.",
             day,
+        ),
+        (OA, "figure", "gr2.tif"): (
+            f"{oa.as_posix()}/fig/gr2.tif.zst",
+            len(TIF),
+            md5(TIF),
+            f"{url}PMC100.2/gr2.tif",
+            "Figure 2",
+            None,
+            day,
+        ),
+        # A video is never downloaded, whatever its size.
+        (OA, "supplement", "mmc3.mp4"): (
+            None,
+            len(MOVIE),
+            md5(MOVIE),
+            f"{url}PMC100.2/mmc3.mp4",
+            "Movie S1",
+            None,
+            None,
+        ),
+        (OA, "supplement", "mmc4.dat"): (
+            None,
+            len(MOVIE),
+            md5(MOVIE),
+            f"{url}PMC100.2/mmc4.dat",
+            None,
+            None,
+            None,
         ),
         (OA, "supplement", "mmc1.xlsx"): (
             f"{oa.as_posix()}/suppl/mmc1.xlsx",
@@ -158,16 +214,16 @@ def test_an_oa_article_and_an_author_manuscript_give_their_files_and_catalog(
             None,
         ),
         (OA, "supplement", "table.csv"): (
-            f"{oa.as_posix()}/suppl/table.csv",
+            f"{oa.as_posix()}/suppl/table.csv.zst",
             8,
-            md5(b"a,b\n1,2\n"),
+            md5(CSV),
             f"{url}PMC100.2/table.csv",
             None,
             None,
             day,
         ),
         (AM, "xml", f"{AM}.xml"): (
-            f"{am.as_posix()}/{AM}.xml",
+            f"{am.as_posix()}/{AM}.xml.zst",
             len(AM_XML),
             md5(AM_XML),
             f"{url}PMC200.1/PMC200.1.xml",
@@ -178,20 +234,33 @@ def test_an_oa_article_and_an_author_manuscript_give_their_files_and_catalog(
     }
     assert {f["tier"] for f in rows.values()} == {"pmc"}
     assert all(f["etag"] for f in rows.values())
-    assert (root / oa / f"{OA}.xml").read_bytes() == OA_XML
-    assert (root / oa / "suppl" / "mmc1.xlsx").read_bytes() == b"xlsx table"
     assert sorted(p.name for p in (root / oa).rglob("*") if p.is_file()) == [
-        f"{OA}.pdf",
-        f"{OA}.xml",
+        f"{OA}.xml.zst",
+        "gr1.jpg",
+        "gr2.tif.zst",
         "mmc1.xlsx",
-        "table.csv",
+        "table.csv.zst",
     ]
-    assert b.fetched("PMC100.2/mmc2.zip") == 0
+    # A stored .zst file decompresses to the bytes whose MD5 the catalog gives.
+    for f in rows.values():
+        if f["path"] and f["path"].endswith(".zst"):
+            assert md5(zstd.decompress((root / f["path"]).read_bytes())) == f["md5"]
+    assert (root / oa / "suppl" / "mmc1.xlsx").read_bytes() == b"xlsx table"
+    for skipped in ("mmc2.zip", "mmc3.mp4", "PMC100.2.pdf", "gr1.gif", "eq1.gif"):
+        assert b.fetched(f"PMC100.2/{skipped}") == 0
     assert b.fetched("PMC100.1/PMC100.1.xml") == 0
+
+    # The reader gives each file's path and opens it decompressed.
+    held = {f.name: f for f in open_paper_store(root).reader.paper(OA).files}
+    assert held[f"{OA}.xml"].path == root / oa / f"{OA}.xml.zst"
+    with held[f"{OA}.xml"].open() as fh:
+        assert fh.read() == OA_XML
+    with held["gr1.jpg"].open() as fh:
+        assert fh.read() == GR1
 
     papers = {r["paper"]: r for r in tables.read(root, tables.PAPERS)}
     assert {k: (r["status"], r["xml_tier"], r["pdf_tier"]) for k, r in papers.items()} == {
-        OA: ("fetched", "pmc", "pmc"),
+        OA: ("fetched", "pmc", None),
         AM: ("fetched", "pmc", None),
         CLOSED: ("manual", None, None),
     }
@@ -209,12 +278,12 @@ def test_a_bad_md5_is_retried_then_recorded_as_a_failed_attempt_with_no_partial_
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     b = bucket()
-    b.bad.add("PMC100.2/PMC100.2.pdf")
+    b.bad.add("PMC100.2/table.csv")
     root = store(tmp_path, web(b), monkeypatch)
     sync(root)
 
-    assert b.fetched("PMC100.2/PMC100.2.pdf") == pmc.TRIES
-    assert not [p.name for p in (root / paper_dir(OA)).iterdir() if "pdf" in p.name]
+    assert b.fetched("PMC100.2/table.csv") == pmc.TRIES
+    assert not [p.name for p in (root / paper_dir(OA)).rglob("*") if "table" in p.name]
     attempts = tables.read(root, tables.ATTEMPTS)
     assert sorted((a["paper"], a["outcome"]) for a in attempts) == [
         (OA, "failed"),
@@ -222,11 +291,11 @@ def test_a_bad_md5_is_retried_then_recorded_as_a_failed_attempt_with_no_partial_
         (CLOSED, "absent"),
     ]
     assert "MD5" in next(a["detail"] for a in attempts if a["paper"] == OA)
-    assert (OA, "pdf", f"{OA}.pdf") not in files(root)
-    # The next sync tries the PDF again, and only what it lacks.
+    assert (OA, "supplement", "table.csv") not in files(root)
+    # The next sync tries the file again, and only what it lacks.
     b.bad.clear()
     sync(root, "2026-12-03")
-    assert files(root)[(OA, "pdf", f"{OA}.pdf")]["fetched"] == dt.date(2026, 12, 3)
+    assert files(root)[(OA, "supplement", "table.csv")]["fetched"] == dt.date(2026, 12, 3)
     assert b.fetched("PMC100.2/PMC100.2.xml") == 1
 
 
@@ -240,7 +309,7 @@ def test_a_file_rewritten_after_its_record_passes_by_its_own_etag(
     sync(root)
     row = files(root)[(OA, "supplement", "table.csv")]
     assert row["md5"] == md5(b"a,b\n1,3\n")
-    assert (root / row["path"]).read_bytes() == b"a,b\n1,3\n"
+    assert zstd.decompress((root / row["path"]).read_bytes()) == b"a,b\n1,3\n"
     assert b.fetched("PMC100.2/table.csv") == 1
 
 
@@ -270,7 +339,7 @@ def test_a_changed_etag_renews_the_file_and_a_removed_copy_keeps_its_file_with_a
     assert after[(OA, "xml", f"{OA}.xml")] == first[(OA, "xml", f"{OA}.xml")]
     manuscript = after[(AM, "xml", f"{AM}.xml")]
     assert manuscript["gone"] == dt.date(2026, 12, 3)
-    assert (root / manuscript["path"]).read_bytes() == AM_XML
+    assert zstd.decompress((root / manuscript["path"]).read_bytes()) == AM_XML
     papers = {r["paper"]: r for r in tables.read(root, tables.PAPERS)}
     assert papers[AM]["status"] == "fetched"
 
@@ -300,6 +369,124 @@ def test_a_kill_mid_sync_and_a_rerun_download_no_file_twice(
     b.fail = None
     sync(root)
     assert not list((root / paper_dir(OA)).rglob(".*"))
-    objects = [g for g in b.gets if g.startswith("PMC") and not g.endswith(".json")]
+    # A video known only by its Content-Type is asked for again, but no byte of it is read.
+    objects = [
+        g for g in b.gets if g.startswith("PMC") and not g.endswith(".json") and g not in b.types
+    ]
     assert len(objects) == len(set(objects))
     assert (OA, "supplement", "table.csv") in files(root)
+
+
+def bucket_gets(b: FakeBucket, since: int) -> list[str]:
+    """Return the article files fetched after the first ``since`` requests."""
+    return sorted(g for g in b.gets[since:] if g.startswith("PMC") and not g.endswith(".json"))
+
+
+def test_a_pdf_from_another_tier_stays(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    b = bucket()
+    root = store(tmp_path, web(b), monkeypatch)
+    pdf = paper_dir(OA) / f"{OA}.pdf"
+    (root / pdf).parent.mkdir(parents=True)
+    (root / pdf).write_bytes(b"%PDF from OpenAlex")
+    paid = {
+        "paper": OA,
+        "kind": "pdf",
+        "name": f"{OA}.pdf",
+        "path": pdf.as_posix(),
+        "size": 18,
+        "md5": md5(b"%PDF from OpenAlex"),
+        "url": "https://content.openalex.org/works/W1.pdf",
+        "tier": "openalex",
+    }
+    tables.write(root, tables.FILES, [paid])
+    sync(root)
+
+    assert (root / pdf).read_bytes() == b"%PDF from OpenAlex"
+    row = files(root)[(OA, "pdf", f"{OA}.pdf")]
+    assert (row["tier"], row["path"], row["md5"]) == ("openalex", pdf.as_posix(), paid["md5"])
+    assert (OA, "xml", f"{OA}.xml") in files(root)
+    assert b.fetched("PMC100.2/PMC100.2.pdf") == 0
+
+
+def test_a_store_fetched_before_figures_and_compression_converts_without_downloading_twice(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    b = bucket()
+    root = store(tmp_path, web(b), monkeypatch)
+    sync(root)
+    new = files(root)
+    on_disk = sorted(p.relative_to(root) for p in (root / "papers").rglob("*") if p.is_file())
+
+    # Put the store back as the PMC tier first wrote it: plain files, the PMC PDF and small
+    # videos held, no figures.
+    old = []
+    for f in new.values():
+        f = dict(f)
+        if f["kind"] == "figure":
+            (root / f["path"]).unlink()
+            continue
+        if f["path"] and f["path"].endswith(".zst"):
+            plain = root / f["path"].removesuffix(".zst")
+            plain.write_bytes(zstd.decompress((root / f["path"]).read_bytes()))
+            (root / f["path"]).unlink()
+            f["path"] = plain.relative_to(root).as_posix()
+        if f["kind"] == "pdf" or f["name"] == "mmc3.mp4":
+            source = f["url"].rsplit("/", 2)
+            data = b.objects[f"{source[1]}/{source[2]}"]
+            sub = "" if f["kind"] == "pdf" else "suppl/"
+            f["path"] = (paper_dir(OA) / f"{sub}{f['name']}").as_posix()
+            (root / f["path"]).write_bytes(data)
+            f["fetched"] = dt.date(2026, 11, 7)
+        old.append(f)
+    tables.write(root, tables.FILES, old)
+    attempts = tables.read(root, tables.ATTEMPTS)
+    for a in attempts:
+        a["detail"] = a["detail"] and a["detail"].removesuffix(f" v{pmc.LAYOUT}")
+    tables.write(root, tables.ATTEMPTS, attempts)
+    papers = tables.read(root, tables.PAPERS)
+    for p in papers:
+        if p["paper"] == OA:
+            p["pdf_tier"] = "pmc"
+    tables.write(root, tables.PAPERS, papers)
+
+    gets = len(b.gets)
+    sync(root)
+
+    assert bucket_gets(b, gets) == ["PMC100.2/gr1.jpg", "PMC100.2/gr2.tif"]
+    assert files(root) == new
+    assert sorted(p.relative_to(root) for p in (root / "papers").rglob("*") if p.is_file()) == (
+        on_disk
+    )
+    assert {r["paper"]: r["pdf_tier"] for r in tables.read(root, tables.PAPERS)}[OA] is None
+
+
+def test_a_retracted_paper_is_skipped_keeps_what_it_holds_and_gets_no_downloads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    b = bucket()
+    # The PMC record says the manuscript is retracted.
+    b.put("PMC200", 1, {"PMC200.1.xml": AM_XML}, manuscript=True, retracted=True)
+    fake = web(b)
+    root = store(tmp_path, fake, monkeypatch)
+    sync(root)
+
+    papers = {r["paper"]: r for r in tables.read(root, tables.PAPERS)}
+    assert (papers[AM]["status"], papers[AM]["reason"]) == ("skipped", "retracted")
+    assert b.fetched("PMC200.1/PMC200.1.xml") == 0
+    assert not [f for f in files(root) if f[0] == AM]
+    held = sorted(p for p in (root / paper_dir(OA)).rglob("*") if p.is_file())
+
+    # A month later PubMed marks the open-access paper retracted: it keeps its files.
+    fake.articles = {
+        **fake.articles,
+        OA: Article(OA, "Open paper", 2024, pmcid="PMC100", types=("Retracted Publication",)),
+    }
+    b.put("PMC100", 2, {"gr1.jpg": b"new figure"})
+    b.day = "2026-12-02"
+    gets = len(b.gets)
+    sync(root, "2026-12-03")
+
+    papers = {r["paper"]: r for r in tables.read(root, tables.PAPERS)}
+    assert (papers[OA]["status"], papers[OA]["reason"]) == ("skipped", "retracted")
+    assert sorted(p for p in (root / paper_dir(OA)).rglob("*") if p.is_file()) == held
+    assert bucket_gets(b, gets) == []

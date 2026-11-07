@@ -1,4 +1,4 @@
-"""The PMC bucket tier: a paper's XML, PDF and supplements from ``pmc-oa-opendata``.
+"""The PMC bucket tier: a paper's XML, figures and supplements from ``pmc-oa-opendata``.
 
 The bucket's daily inventory names every article version's JSON record with its ETag. A
 paper whose newest version and record ETag are those of its last fetch is passed over; any
@@ -6,6 +6,10 @@ other paper in the bucket is listed, and each file whose ETag changed is fetched
 file streams to a temporary name, is checked against the record's MD5 and renamed into
 place, so a killed pass leaves no partial file, and a rerun takes a file already in place
 when its MD5 matches.
+
+The PDF of an article with XML, videos, and files over the size cap are listed, not
+downloaded. XML and plain-text files are stored zstd-compressed as ``<name>.zst``; MD5s are
+of the plain bytes. A retracted article gets no downloads.
 """
 
 from __future__ import annotations
@@ -30,6 +34,7 @@ from typing import Any
 
 from labdata._http import RateLimiter, Transport
 from labdata.exceptions import LabdataError
+from labdata.papers import _zst
 from labdata.papers.root import paper_dir
 from labdata.papers.tables import PaperTables
 from labdata.store._files import temp_beside
@@ -39,8 +44,34 @@ BUCKET = "https://pmc-oa-opendata.s3.amazonaws.com"
 #: Where the bucket's daily inventory of JSON records lives, one dated folder a day.
 INVENTORY = "inventory-reports/pmc-oa-opendata/metadata/"
 
-#: Supplementary files up to this size are downloaded; larger ones are only catalogued.
+#: Supplements and figures up to this size are downloaded; larger ones are only catalogued.
 SUPPLEMENT_MAX = 10 * 2**20
+
+#: File endings of videos, which are only catalogued, whatever their size.
+VIDEOS = frozenset(
+    {
+        ".mp4",
+        ".mov",
+        ".avi",
+        ".mkv",
+        ".webm",
+        ".wmv",
+        ".flv",
+        ".m4v",
+        ".mpg",
+        ".mpeg",
+        ".3gp",
+        ".3g2",
+        ".ogv",
+        ".qt",
+        ".mts",
+        ".m2ts",
+        ".vob",
+    }
+)
+
+#: Bumped when the files a fetch keeps change, so the next sync revisits every paper.
+LAYOUT = 2
 
 #: Requests started per second, and papers worked on at once.
 RATE = 20.0
@@ -67,6 +98,10 @@ _sleep = time.sleep
 
 class PmcError(LabdataError):
     """A PMC bucket request failed after its retries, or a file kept failing its MD5."""
+
+
+class _VideoError(Exception):
+    """The bucket serves an object as a video, which is only listed."""
 
 
 def fetch(
@@ -106,7 +141,11 @@ def fetch(
     PmcError
         If the bucket's inventory cannot be read.
     """
-    pmcids = {k: state.papers[k]["pmcid"] for k in papers if state.papers[k].get("pmcid")}
+    pmcids = {
+        k: state.papers[k]["pmcid"]
+        for k in papers
+        if state.papers[k].get("pmcid") and not state.papers[k].get("retracted")
+    }
     if not pmcids:
         return
     bucket = _Bucket(transport, RateLimiter(RATE, WORKERS))
@@ -134,7 +173,7 @@ def fetch(
                 if row["tier"] == _TIER and row["gone"] is None:
                     row["gone"] = today
                     tally.gone += 1
-        elif last.get(key) != f"{entry[0]} {entry[1]}":
+        elif last.get(key) != _fetch_detail(*entry):
             todo.append((key, *entry))
     log(f"PMC bucket: {len(todo)} papers to sync, {len(pmcids) - len(todo)} unchanged or absent")
 
@@ -161,18 +200,24 @@ def fetch(
             )
             for key, folder, _etag in todo
         ]
-        etags = {key: f"{folder} {etag}" for key, folder, etag in todo}
+        etags = {key: _fetch_detail(folder, etag) for key, folder, etag in todo}
         for done, future in enumerate(as_completed(futures), 1):
             out = future.result()
             other = [r for r in by_paper.get(out.paper, []) if r["tier"] != _TIER]
             by_paper[out.paper] = other + out.rows
             _set_tiers(state.papers[out.paper], out.rows)
+            if out.retracted:
+                state.papers[out.paper]["retracted"] = True
             state.attempts.append(
                 {
                     "paper": out.paper,
                     "tier": _TIER,
                     "date": today,
-                    "outcome": "failed" if out.error else "fetched",
+                    "outcome": "failed"
+                    if out.error
+                    else "retracted"
+                    if out.retracted
+                    else "fetched",
                     "detail": out.error or etags[out.paper],
                 }
             )
@@ -198,7 +243,14 @@ class _Outcome:
     rows: list[dict[str, Any]]
     files: int = 0
     bytes: int = 0
+    stored: int = 0
+    figures: int = 0
+    figure_bytes: int = 0
+    videos: int = 0
+    video_bytes: int = 0
+    dropped: int = 0
     gone: int = 0
+    retracted: bool = False
     error: str | None = None
 
 
@@ -206,21 +258,42 @@ class _Outcome:
 class _Tally:
     files: int = 0
     bytes: int = 0
+    stored: int = 0
+    figures: int = 0
+    figure_bytes: int = 0
+    videos: int = 0
+    video_bytes: int = 0
+    dropped: int = 0
     failed: int = 0
+    retracted: int = 0
     gone: int = 0
 
     def add(self, out: _Outcome) -> None:
         self.files += out.files
         self.bytes += out.bytes
-        if out.error:
-            self.failed += 1
+        self.stored += out.stored
+        self.figures += out.figures
+        self.figure_bytes += out.figure_bytes
+        self.videos += out.videos
+        self.video_bytes += out.video_bytes
+        self.dropped += out.dropped
+        self.failed += bool(out.error)
+        self.retracted += out.retracted
         self.gone += out.gone
 
     def __str__(self) -> str:
         return (
             f"{self.files} files, {self.bytes / 1e9:.3f} GB downloaded, "
-            f"{self.failed} papers failed, {self.gone} files gone"
+            f"{self.stored / 1e9:.3f} GB written; {self.figures} figures, "
+            f"{self.figure_bytes / 1e9:.3f} GB; {self.videos} videos, "
+            f"{self.video_bytes / 1e9:.3f} GB, listed only; {self.dropped} PMC copies removed; "
+            f"{self.failed} papers failed, {self.retracted} retracted, {self.gone} files gone"
         )
+
+
+def _fetch_detail(folder: str, etag: str) -> str:
+    """Return the ``detail`` a fetched attempt records: version folder, record ETag, layout."""
+    return f"{folder} {etag} v{LAYOUT}"
 
 
 def _last_fetch(attempts: list[dict[str, Any]]) -> dict[str, str]:
@@ -251,6 +324,8 @@ def _set_tiers(row: dict[str, Any], files: list[dict[str, Any]]) -> None:
         row["xml_tier"] = _TIER
     if "pdf" in held:
         row["pdf_tier"] = _TIER
+    elif row.get("pdf_tier") == _TIER:
+        row["pdf_tier"] = None
 
 
 def _article(
@@ -270,21 +345,19 @@ def _article(
     for stale in (root / paper_dir(key)).rglob(".*.part"):
         stale.unlink(missing_ok=True)
     try:
-        listing = bucket.list_folder(folder)
         record = json.loads(bucket.get(f"{folder}/{folder}.json"))
+        if record.get("is_retracted"):
+            out.retracted = True
+            out.rows = list(previous.values())
+            return out
+        listing = bucket.list_folder(folder)
         md5s = _md5s(record)
         base = urllib.parse.quote(key, safe="")
         folder_dir = paper_dir(key)
         core = {f"{folder}.{ext}" for ext in ("json", "txt", "xml", "pdf")}
-        wanted: list[tuple[str, str, str, Path | None]] = []
-        xml_name = f"{folder}.xml"
-        if xml_name in listing:
-            wanted.append(("xml", f"{base}.xml", xml_name, folder_dir / f"{base}.xml"))
-        pdf_name = f"{folder}.pdf"
-        if pdf_name in listing and record.get("pdf_url") and not keep_pdf:
-            wanted.append(("pdf", f"{base}.pdf", pdf_name, folder_dir / f"{base}.pdf"))
-        for kind, name, source, path in wanted:
-            done[(kind, name)] = _file(
+
+        def take(kind: str, name: str, source: str, path: Path | None) -> dict[str, Any]:
+            row = _file(
                 bucket,
                 root,
                 out,
@@ -298,31 +371,36 @@ def _article(
                 md5s,
                 today,
             )
+            done[(kind, name)] = row
+            return row
+
+        xml_name, pdf_name = f"{folder}.xml", f"{folder}.pdf"
+        has_xml = xml_name in listing
+        if has_xml:
+            take("xml", f"{base}.xml", xml_name, folder_dir / f"{base}.xml")
+        if pdf_name in listing and record.get("pdf_url") and not keep_pdf:
+            # The XML and figures replace the PDF; it is listed so a reader may fetch it.
+            path = None if has_xml else folder_dir / f"{base}.pdf"
+            take("pdf", f"{base}.pdf", pdf_name, path)
         labels: dict[str, tuple[str | None, str | None]] = {}
-        graphics: set[str] = set()
+        figures: dict[str, tuple[str | None, str | None]] = {}
+        inline: set[str] = set()
         if ("xml", f"{base}.xml") in done:
-            labels, graphics = _supplements(root / folder_dir / f"{base}.xml")
+            labels, figures, inline = _xml_files(root / done[("xml", f"{base}.xml")]["path"])
+        chosen = _figure_files(listing, figures, set(labels))
+        for name, href in chosen.items():
+            path = _capped(folder_dir / "fig", name, listing[name][0])
+            row = take("figure", name, name, path)
+            row["label"], row["caption"] = figures[href]
+            if row["path"]:
+                out.figures += 1
+                out.figure_bytes += listing[name][0]
         for name in sorted(listing):
-            if name in core or not _is_supplement(name, labels, graphics):
+            if name in core or name in chosen or not _is_supplement(name, labels, inline):
                 continue
-            size = listing[name][0]
-            path = folder_dir / "suppl" / name if size <= SUPPLEMENT_MAX and _safe(name) else None
-            row = _file(
-                bucket,
-                root,
-                out,
-                previous.get(("supplement", name)),
-                "supplement",
-                name,
-                folder,
-                name,
-                path,
-                listing,
-                md5s,
-                today,
-            )
+            path = _capped(folder_dir / "suppl", name, listing[name][0])
+            row = take("supplement", name, name, path)
             row["label"], row["caption"] = _match(name, labels) or (None, None)
-            done[("supplement", name)] = row
     except (PmcError, ValueError) as err:
         out.error = str(err)
     for k, row in previous.items():
@@ -333,6 +411,11 @@ def _article(
             done[k] = row
     out.rows = list(done.values())
     return out
+
+
+def _capped(folder: Path, name: str, size: int) -> Path | None:
+    """Return where a supplement or figure goes, or ``None`` when it is only listed."""
+    return folder / name if size <= SUPPLEMENT_MAX and _safe(name) else None
 
 
 def _file(
@@ -349,7 +432,12 @@ def _file(
     md5s: dict[str, str],
     today: dt.date,
 ) -> dict[str, Any]:
-    """Return one file's row, downloading it unless the copy held is current."""
+    """Return one file's row, downloading it unless the copy held is current.
+
+    ``path`` is where the file goes as the publisher names it; a file stored compressed
+    gets ``.zst`` added. A file only listed (``path`` is ``None``, or a video) loses any
+    copy an earlier layout kept.
+    """
     size, etag = listing[source]
     # A single-part ETag is the MD5 of the object as stored; the record's MD5 can be stale
     # for a file rewritten after it, so either one vouches for the bytes.
@@ -371,20 +459,67 @@ def _file(
         "gone": None,
         "etag": etag,
     }
+    if path is not None and _is_video(source):
+        path = None
+    if path is not None and old and old["etag"] == etag and not old["path"] and not old["fetched"]:
+        # Only listed last time though small: the bucket served it as a video.
+        path = None
     if path is None:
+        if old and old["path"]:
+            (root / old["path"]).unlink(missing_ok=True)
+            out.dropped += 1
+        if _is_video(source):
+            out.videos += 1
+            out.video_bytes += size
         return row
-    target = root / path
+    compress = _zst.compressed(name)
+    stored = path.with_name(path.name + _zst.SUFFIX) if compress else path
+    target = root / stored
     if old and old["path"] and old["etag"] == etag and (root / old["path"]).is_file():
-        return {**row, "path": old["path"], "fetched": old["fetched"]}
+        if old["path"] == stored.as_posix():
+            return {**row, "md5": old["md5"], "path": old["path"], "fetched": old["fetched"]}
+        # Held in an earlier layout: store it anew from the copy held, not the bucket.
+        md5 = _restore(root / old["path"], target, compress)
+        (root / old["path"]).unlink()
+        out.stored += target.stat().st_size
+        return {**row, "md5": md5, "path": stored.as_posix(), "fetched": old["fetched"]}
     held = _md5_of(target) if target.is_file() and accepted else None
     if held in accepted:
         md5 = held
     else:
         target.parent.mkdir(parents=True, exist_ok=True)
-        got, md5 = bucket.download(f"{folder}/{source}", target, accepted)
+        try:
+            got, md5 = bucket.download(f"{folder}/{source}", target, accepted, compress)
+        except _VideoError:
+            out.videos += 1
+            out.video_bytes += size
+            return row
         out.bytes += got
         out.files += 1
-    return {**row, "md5": md5, "path": path.as_posix(), "fetched": today}
+        out.stored += target.stat().st_size
+    if old and old["path"] and old["path"] != stored.as_posix():
+        (root / old["path"]).unlink(missing_ok=True)
+    return {**row, "md5": md5, "path": stored.as_posix(), "fetched": today}
+
+
+def _restore(source: Path, target: Path, compress: bool) -> str:
+    """Copy a held file to ``target`` through a temporary name; return its plain MD5."""
+    digest = hashlib.md5()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = temp_beside(target, "part")
+    try:
+        with _zst.open_plain(source) as src, _zst.open_stored(tmp, compress) as dst:
+            while chunk := src.read(_CHUNK):
+                digest.update(chunk)
+                dst.write(chunk)
+        tmp.replace(target)
+    finally:
+        tmp.unlink(missing_ok=True)
+    return digest.hexdigest()
+
+
+def _is_video(name: str) -> bool:
+    return Path(name).suffix.lower() in VIDEOS
 
 
 def _md5s(record: dict[str, Any]) -> dict[str, str]:
@@ -402,34 +537,81 @@ def _md5s(record: dict[str, Any]) -> dict[str, str]:
     return found
 
 
-def _supplements(xml: Path) -> tuple[dict[str, tuple[str | None, str | None]], set[str]]:
-    """Return the article XML's supplements, href to label and caption, and its figure hrefs."""
+_Labels = dict[str, tuple[str | None, str | None]]
+
+
+def _xml_files(xml: Path) -> tuple[_Labels, _Labels, set[str]]:
+    """Return the article XML's supplements and figures, and its inline images' hrefs.
+
+    Supplements and figures map each href to its label and caption.
+    """
     try:
-        tree = ET.parse(xml)
-    except ET.ParseError:
-        return {}, set()
+        with _zst.open_plain(xml) as fh:
+            tree = ET.parse(fh)
+    except (ET.ParseError, OSError):
+        return {}, {}, set()
     labels: dict[str, tuple[str | None, str | None]] = {}
+    figures: dict[str, tuple[str | None, str | None]] = {}
     graphics: set[str] = set()
+    inline: set[str] = set()
     for el in tree.iter():
         tag = _local(el.tag)
-        if tag in ("graphic", "inline-graphic") and el.get(_XLINK):
-            graphics.add(str(el.get(_XLINK)).rsplit("/", 1)[-1])
-        if tag != "supplementary-material":
-            continue
-        label = caption = None
-        for child in el:
-            if _local(child.tag) == "label":
-                label = " ".join("".join(child.itertext()).split()) or None
-            elif _local(child.tag) == "caption":
-                caption = " ".join("".join(child.itertext()).split()) or None
-        for sub in el.iter():
-            href = sub.get(_XLINK)
-            if not href:
-                continue
-            href = href.rsplit("/", 1)[-1]
-            had_label, had_caption = labels.get(href, (None, None))
-            labels[href] = (_join(had_label, label), _join(had_caption, caption))
-    return labels, graphics - set(labels)
+        if tag == "graphic" and el.get(_XLINK):
+            graphics.add(_href(el))
+        elif tag == "inline-graphic" and el.get(_XLINK):
+            inline.add(_href(el))
+        elif tag in ("fig", "table-wrap"):
+            # Document order visits an outer container first, so the inner one's label wins.
+            text = _label_caption(el)
+            for sub in el.iter():
+                if _local(sub.tag) == "graphic" and sub.get(_XLINK):
+                    figures[_href(sub)] = text
+        elif tag == "supplementary-material":
+            label, caption = _label_caption(el)
+            for sub in el.iter():
+                if not sub.get(_XLINK):
+                    continue
+                href = _href(sub)
+                had_label, had_caption = labels.get(href, (None, None))
+                labels[href] = (_join(had_label, label), _join(had_caption, caption))
+    figures = {h: figures.get(h, (None, None)) for h in graphics if h not in labels}
+    return labels, figures, inline - set(labels)
+
+
+def _href(el: ET.Element) -> str:
+    return str(el.get(_XLINK)).rsplit("/", 1)[-1]
+
+
+def _label_caption(el: ET.Element) -> tuple[str | None, str | None]:
+    label = caption = None
+    for child in el:
+        if _local(child.tag) == "label":
+            label = " ".join("".join(child.itertext()).split()) or None
+        elif _local(child.tag) == "caption":
+            caption = " ".join("".join(child.itertext()).split()) or None
+    return label, caption
+
+
+def _figure_files(
+    listing: dict[str, tuple[int, str]],
+    figures: dict[str, tuple[str | None, str | None]],
+    supplements: set[str],
+) -> dict[str, str]:
+    """Return the bucket file each figure href names, mapped to its href.
+
+    Where several images share a figure's name, the largest is the full size; the others
+    are previews and are left out.
+    """
+    by_stem: dict[str, list[str]] = {}
+    for name in listing:
+        if Path(name).suffix.lower() in _IMAGES and _match(name, supplements) is None:
+            by_stem.setdefault(name.rsplit(".", 1)[0], []).append(name)
+    chosen: dict[str, str] = {}
+    for href in figures:
+        names = by_stem.get(href, []) or by_stem.get(href.rsplit(".", 1)[0], [])
+        if names:
+            chosen[max(names, key=lambda n: (listing[n][0], n))] = href
+    return chosen
 
 
 def _join(a: str | None, b: str | None) -> str | None:
@@ -467,8 +649,9 @@ def _safe(name: str) -> bool:
 
 
 def _md5_of(path: Path) -> str:
+    """Return the MD5 of a stored file's plain bytes."""
     h = hashlib.md5()
-    with path.open("rb") as fh:
+    with _zst.open_plain(path) as fh:
         while chunk := fh.read(_CHUNK):
             h.update(chunk)
     return h.hexdigest()
@@ -523,13 +706,20 @@ class _Bucket:
         objects, _ = self.list(f"{folder}/")
         return {key[len(folder) + 1 :]: (size, etag) for key, size, etag in objects}
 
-    def download(self, key: str, target: Path, md5s: Collection[str]) -> tuple[int, str]:
+    def download(
+        self, key: str, target: Path, md5s: Collection[str], compress: bool = False
+    ) -> tuple[int, str]:
         """Stream one object to ``target`` through a temporary name; return its size and MD5.
+
+        With ``compress``, the bytes are zstd-compressed as they are written; the size and
+        MD5 are those of the bytes downloaded.
 
         Raises
         ------
         PmcError
             If every try failed or gave bytes whose MD5 is none of ``md5s``.
+        _VideoError
+            If the bucket serves the object as a video; nothing is written.
         """
         url = f"{BUCKET}/{urllib.parse.quote(key)}"
         last = ""
@@ -545,8 +735,11 @@ class _Bucket:
                     ) as response,
                 ):
                     status = response.status
+                    kind = (response.getheader("Content-Type") or "").lower()
+                    if status == 200 and kind.startswith("video/"):
+                        raise _VideoError(key)
                     if status == 200:
-                        with tmp.open("wb") as out:
+                        with _zst.open_stored(tmp, compress) as out:
                             while chunk := response.read(_CHUNK):
                                 digest.update(chunk)
                                 out.write(chunk)

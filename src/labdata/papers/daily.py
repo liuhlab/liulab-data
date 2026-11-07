@@ -276,6 +276,7 @@ class _Fetcher:
                 k
                 for k, r in self.state.papers.items()
                 if (r.get("status"), r.get("reason")) == ("waiting", "openalex-backlog")
+                and not r.get("retracted")
                 and k not in held
                 and _pmc_passed(r, tries.get(k, []))
                 and not _openalex_done(r, tries.get(k, []))
@@ -332,6 +333,7 @@ class _Fetcher:
                 k
                 for k, r in self.state.papers.items()
                 if r.get("status") != "skipped"
+                and not r.get("retracted")
                 and r.get("host_pdf_urls")
                 and k not in held
                 and not _host_tried(tries.get(k, []))
