@@ -133,7 +133,8 @@ def run_query(name: str, root: Path, samples: dict[str, list[str]], tmp: Path) -
         from labdata.store.readme import duckdb_examples
 
         sql = duckdb_examples()[int(arg) - 1].format(build=store.reader.path)
-        con = duckdb.connect(config={"temp_directory": str(tmp / "duckdb")})
+        config = {"temp_directory": str(tmp / "duckdb"), "threads": BENCHMARK_THREADS}
+        con = duckdb.connect(config=config)
         return len(con.sql(sql).fetchall())
     raise ValueError(f"unknown query {name!r}")
 
