@@ -20,6 +20,13 @@ never changed afterward. The store names one build as current, and readers open 
 
 _Avoid_: snapshot (a dated copy of one bulk source, which a build reads)
 
+### Refresh
+
+One pass that brings the store to the sources' current state: it adds new records, replaces
+changed ones, removes withdrawn ones, renews the snapshots and ends in a new current build.
+
+_Avoid_: update, sync (each says less than the whole pass)
+
 ### Build reader
 
 The one way to open a build: it knows where the build lives, reads its tables through a DuckDB
