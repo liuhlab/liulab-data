@@ -117,6 +117,7 @@ def fetch(
         f"{len(newest)} of {len(pmcids)} papers with a PMCID are in the bucket"
     )
     last = _last_fetch(state.attempts)
+    outcome = _last_outcome(state.attempts)
     by_paper: dict[str, list[dict[str, Any]]] = {}
     for row in state.files:
         by_paper.setdefault(row["paper"], []).append(row)
@@ -125,6 +126,10 @@ def fetch(
     for key, pmcid in pmcids.items():
         entry = newest.get(pmcid)
         if entry is None:
+            if outcome.get(key) != "absent":
+                state.attempts.append(
+                    {"paper": key, "tier": _TIER, "date": today, "outcome": "absent"}
+                )
             for row in by_paper.get(key, []):
                 if row["tier"] == _TIER and row["gone"] is None:
                     row["gone"] = today
@@ -229,6 +234,17 @@ def _last_fetch(attempts: list[dict[str, Any]]) -> dict[str, str]:
     return {k: v for k, (_, v) in last.items()}
 
 
+def _last_outcome(attempts: list[dict[str, Any]]) -> dict[str, str]:
+    """Return the outcome of each paper's latest PMC attempt."""
+    last: dict[str, tuple[dt.date, str]] = {}
+    for a in attempts:
+        if a["tier"] == _TIER:
+            date = a["date"] or dt.date.min
+            if a["paper"] not in last or date >= last[a["paper"]][0]:
+                last[a["paper"]] = (date, a["outcome"])
+    return {k: v for k, (_, v) in last.items()}
+
+
 def _set_tiers(row: dict[str, Any], files: list[dict[str, Any]]) -> None:
     held = {f["kind"] for f in files if f["path"]}
     if "xml" in held:
@@ -250,6 +266,9 @@ def _article(
     out = _Outcome(key, [])
     previous = {(r["kind"], r["name"]): r for r in old}
     done: dict[tuple[str, str], dict[str, Any]] = {}
+    # A pass killed outright leaves its temporary files; this paper's folder is ours now.
+    for stale in (root / paper_dir(key)).rglob(".*.part"):
+        stale.unlink(missing_ok=True)
     try:
         listing = bucket.list_folder(folder)
         record = json.loads(bucket.get(f"{folder}/{folder}.json"))

@@ -195,6 +195,14 @@ def test_an_oa_article_and_an_author_manuscript_give_their_files_and_catalog(
         AM: ("fetched", "pmc", None),
         CLOSED: ("manual", None, None),
     }
+    # A paper the bucket lacks is recorded as tried, once, so later tiers may take it.
+    sync(root)
+    attempts = tables.read(root, tables.ATTEMPTS)
+    assert sorted((a["paper"], a["tier"], a["outcome"]) for a in attempts) == [
+        (OA, "pmc", "fetched"),
+        (AM, "pmc", "fetched"),
+        (CLOSED, "pmc", "absent"),
+    ]
 
 
 def test_a_bad_md5_is_retried_then_recorded_as_a_failed_attempt_with_no_partial_file(
@@ -211,6 +219,7 @@ def test_a_bad_md5_is_retried_then_recorded_as_a_failed_attempt_with_no_partial_
     assert sorted((a["paper"], a["outcome"]) for a in attempts) == [
         (OA, "failed"),
         (AM, "fetched"),
+        (CLOSED, "absent"),
     ]
     assert "MD5" in next(a["detail"] for a in attempts if a["paper"] == OA)
     assert (OA, "pdf", f"{OA}.pdf") not in files(root)
@@ -286,8 +295,11 @@ def test_a_kill_mid_sync_and_a_rerun_download_no_file_twice(
     assert (root / paper_dir(OA) / "suppl" / "mmc1.xlsx").is_file()
     assert not list((root / paper_dir(OA)).rglob(".*"))
 
+    # A hard kill leaves its temporary file behind; the rerun clears it.
+    (root / paper_dir(OA) / "suppl" / ".table.csv.999.part").write_bytes(b"a,")
     b.fail = None
     sync(root)
+    assert not list((root / paper_dir(OA)).rglob(".*"))
     objects = [g for g in b.gets if g.startswith("PMC") and not g.endswith(".json")]
     assert len(objects) == len(set(objects))
     assert (OA, "supplement", "table.csv") in files(root)
