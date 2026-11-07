@@ -149,23 +149,25 @@ has expired, the refresh still succeeds and `copy_pending` is `true`. Log in, th
 
 ### What a refresh needs
 
-Every step can be killed and run again. The first full-store refresh fills in this table.
+Every step can be killed and run again. The figures below come from the first full-store
+refresh, a month after the last fetch, with 32 CPUs and 90 GB. A dash means no load worth
+counting; "not measured" means the step did not run in that refresh.
 
 | Step | CPU | Memory | Scratch disk | Network (NCBI, GEO, GCS) | Wall time |
 | --- | --- | --- | --- | --- | --- |
-| snapshots | | | | | |
-| targets | | | | | |
-| changes | | | | | |
-| geo | | | | | |
-| eutils (beside and after the GEO lane) | | | | | |
-| extract (each source) | | | | | |
-| confirm | | | | | |
-| reach | | | | | |
-| pack | | | | | |
-| build | | | | | |
-| status | | | | | |
-| prune | | | | | |
-| copy | | | | | |
+| snapshots | 1 core | 1 GB | 43 GB new | 45 GB from NCBI FTP, 600 E-utilities calls | 42 min |
+| targets | 1 core | 1 GB | – | – | 1 min |
+| changes | 1 core | 1 GB | – | 1 E-utilities search | 2 min |
+| geo | 1 core | 4 GB | 2 GB | 6,500 GEO FTP requests, 1.6 GB | 9 min |
+| eutils (beside and after the GEO lane) | 1 core | 4 GB | 1 GB | 320 E-utilities calls, 0.7 GB | 12 min, then 4 min |
+| extract (each source) | up to 37 cores | up to 38 GB | 18 GB | – | 10 min (biosample), under 1 min (others) |
+| confirm | 1 core | 1 GB | – | 2,000 E-utilities calls, 0.4 GB | 18 min |
+| reach | 1 core | 5 GB | – | – | 39 min |
+| pack | 1 core | 3 GB | rewrites the raw buckets it touches | – | 7 min |
+| build | not measured | not measured | 22 GB, one build | – | 44 min in the last full build |
+| status | not measured | | | | |
+| prune | not measured | | | | |
+| copy | not measured | | | the store, to GCS | |
 
 ## Make a sample build
 
