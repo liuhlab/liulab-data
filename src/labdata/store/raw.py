@@ -212,7 +212,10 @@ def _bucket_paths(root: Path, source: str, accessions: set[str], parts_only: boo
 def _done(
     root: Path, source: str, buckets: set[str]
 ) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
-    """Return each bucket's accessions saved in raw, and those saved or asked in a part."""
+    """Return each bucket's accessions saved in raw, and those saved or asked in a part.
+
+    A removal part unsaves the accessions it lists, until a later part saves them again.
+    """
     packed: dict[str, set[str]] = defaultdict(set)
     parted: dict[str, set[str]] = defaultdict(set)
     for bucket in buckets:
@@ -221,9 +224,14 @@ def _done(
             packed[bucket] |= set(pq.read_table(path, columns=["accession"]).column(0).to_pylist())
     for path in part_files(root, source):
         bucket = part_bucket(path)
-        if bucket in buckets:
-            parted[bucket] |= set(pq.read_table(path, columns=["accession"]).column(0).to_pylist())
-            parted[bucket] |= asked(path)
+        if bucket not in buckets:
+            continue
+        if gone := removed(path):
+            packed[bucket] -= set(gone)
+            parted[bucket] -= set(gone)
+            continue
+        parted[bucket] |= set(pq.read_table(path, columns=["accession"]).column(0).to_pylist())
+        parted[bucket] |= asked(path)
     return packed, parted
 
 

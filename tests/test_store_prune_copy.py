@@ -186,9 +186,11 @@ def test_copy_syncs_exactly_the_marker_readme_snapshots_raw_and_current_build(
         "--filter=+ /raw/**",
         "--filter=+ /builds/b2/**",
         "--filter=+ /README.md",
+        "--filter=+ /fetched-by-hand.txt",
     ]
     progress = ["--stats=1m", "--stats-one-line", "--stats-log-level=NOTICE"]
     assert rclone.calls == [
+        ["rclone", "lsjson", _DEST, "--max-depth", "1"],
         ["rclone", "copy", str(root), _DEST, *selected, "--filter=- **", *progress],
         [
             "rclone",

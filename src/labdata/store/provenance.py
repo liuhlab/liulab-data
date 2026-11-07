@@ -31,7 +31,8 @@ _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _CHUNK = 1 << 20
 _FTP = "https://ftp.ncbi.nlm.nih.gov"
 _EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
-_DOWNLOADER = "scripts/bulk/download_ncbi_bulk.py"
+#: The bulk snapshot downloader, relative to a checkout of liulab-data.
+DOWNLOADER = "scripts/bulk/download_ncbi_bulk.py"
 
 #: What each raw folder holds and where its text comes from.
 RAW_SOURCES: dict[str, tuple[str, str]] = {
@@ -248,7 +249,7 @@ def document_snapshot(folder: Path) -> list[Path]:
                     "date": date,
                     "files": file_entries(folder),
                     "produced_by": produced_by("labdata store verify --write-missing"),
-                    "note": f"Documents files already present; {_DOWNLOADER} fetches them.",
+                    "note": f"Documents files already present; {DOWNLOADER} fetches them.",
                 }
             ),
         )
@@ -256,7 +257,7 @@ def document_snapshot(folder: Path) -> list[Path]:
     if not (folder / README).is_file():
         manifest = json.loads((folder / MANIFEST).read_text(encoding="utf-8"))
         made = manifest.get("produced_by") or {
-            "command": (manifest.get("fetched_by") or {}).get("script", _DOWNLOADER),
+            "command": (manifest.get("fetched_by") or {}).get("script", DOWNLOADER),
             "commit": (manifest.get("fetched_by") or {}).get("commit"),
         }
         write_atomic(
@@ -273,7 +274,7 @@ def document_snapshot(folder: Path) -> list[Path]:
                     "files": manifest.get("files", []),
                     "produced_by": made,
                     "refresh": (
-                        f"Run `python -I {_DOWNLOADER} <snapshots-root> --date <YYYY-MM-DD> "
+                        f"Run `python -I {DOWNLOADER} <snapshots-root> --date <YYYY-MM-DD> "
                         f"{source}` into a new dated folder; never overwrite this one."
                     ),
                 }

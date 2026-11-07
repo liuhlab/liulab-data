@@ -148,6 +148,9 @@ def store_fetch(
 
 @store_app.command("pack")
 def store_pack(
+    counts: Path | None = typer.Option(
+        None, help="Append each bucket's added, replaced and removed records to this file."
+    ),
     root: Path | None = typer.Option(
         None, help="Store root; default: LABDATA_STORE, then pointer."
     ),
@@ -163,7 +166,7 @@ def store_pack(
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     store = open_store(root)
-    written = pack(store.root)
+    written = pack(store.root, counts=counts)
     typer.echo(f"Packed {len(written)} bucket files into {store.root / 'raw'}")
 
 
@@ -284,13 +287,16 @@ def store_copy(
     Refused unless the current build is complete. When rclone's Google login has expired,
     it skips with a message and exits 0; rerun after `rclone config reconnect`.
     """
+    from labdata.store import refresh
     from labdata.store.gcs import copy
 
+    where = root if root is not None else open_store().root
     try:
-        result = copy(root if root is not None else open_store().root, to)
+        result = copy(where, to)
     except LabdataError as err:
         typer.echo(str(err), err=True)
         raise typer.Exit(1) from err
+    refresh.note_copy(where, pending=result.skipped)
     typer.echo(result.message if result.skipped else f"Copied the store to {result.destination}")
 
 
@@ -365,6 +371,69 @@ def store_run(
         typer.echo(f"The run stopped with steps unfinished (snakemake exit {code}).", err=True)
         raise typer.Exit(code)
     typer.echo("The run finished: every step done.")
+
+
+@store_app.command("refresh")
+def store_refresh(
+    since: str | None = typer.Option(
+        None,
+        help="Search GEO's changes from this date, YYYY-MM-DD, less 3 days; default: the last "
+        "successful refresh, then the geo-series snapshot of the current build.",
+    ),
+    cores: int | None = typer.Option(
+        None, min=1, help="Cores the steps may use; default: SLURM_CPUS_ON_NODE, then all."
+    ),
+    ncbi: int = typer.Option(2, min=1, help="Network steps that may run at once."),
+    root: Path | None = typer.Option(
+        None, help="Store root; default: LABDATA_STORE, then pointer."
+    ),
+) -> None:
+    """Bring the store to the sources' current state in one resumable run.
+
+    Renews the snapshots, fetches what GEO and SRA changed, removes what is confirmed gone,
+    builds, switches, prunes and copies. Rerun the same command to resume an unfinished
+    refresh. The outcome is in refresh-status.json in the store root.
+    """
+    import logging
+
+    from labdata.store import refresh
+
+    if since is not None:
+        _date(since, "--since")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    try:
+        code = refresh.run(open_store(root).root, since=since, cores=cores, ncbi=ncbi)
+    except LabdataError as err:
+        typer.echo(str(err), err=True)
+        raise typer.Exit(1) from err
+    if code:
+        typer.echo(f"The refresh stopped with steps unfinished (snakemake exit {code}).", err=True)
+        raise typer.Exit(code)
+    typer.echo("The refresh finished: every step done.")
+
+
+@store_app.command("_refreshed", hidden=True)
+def store_refreshed(
+    root: Path | None = typer.Option(
+        None, help="Store root; default: LABDATA_STORE, then pointer."
+    ),
+) -> None:
+    """Record the running refresh's date and counts in the status record, after the switch."""
+    from labdata.store import refresh
+
+    status = refresh.switched(open_store(root).root)
+    typer.echo(f"Refreshed as of {status['last_success']}")
+    for source, counts in status["counts"].items():
+        typer.echo(f"{source}: " + ", ".join(f"{n} {key}" for key, n in counts.items()))
+
+
+def _date(value: str, hint: str) -> None:
+    import datetime as dt
+
+    try:
+        dt.date.fromisoformat(value)
+    except ValueError as err:
+        raise typer.BadParameter(str(err), param_hint=hint) from err
 
 
 @store_app.command("_targets", hidden=True)
@@ -503,6 +572,9 @@ def store_eutils(
     refetch: Path | None = typer.Option(
         None, help="The re-fetch list: Series whose experiments to fetch again."
     ),
+    soft_only: bool = typer.Option(
+        False, help="Take the experiments from the saved SOFT only, not SRA_Accessions.tab."
+    ),
     failed_marker: Path | None = typer.Option(
         None, help="Write this file when items are left failed, remove it when none are."
     ),
@@ -519,7 +591,7 @@ def store_eutils(
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     store = open_store(root)
     wanted = None if series is None else _accession_file(series)
-    listed = eutils.experiment_list(store.root, date=date, series=wanted)
+    listed = eutils.experiment_list(store.root, date=date, series=wanted, from_tab=not soft_only)
     today = dt.datetime.now(dt.UTC).date().isoformat()
     again = set()
     if refetch is not None:

@@ -19,6 +19,7 @@ from pathlib import Path
 
 from labdata.exceptions import LabdataError, NotAStoreError
 from labdata.store.build import build_lock
+from labdata.store.fetch import BY_HAND
 from labdata.store.layout import MANIFEST, manifest_path
 from labdata.store.provenance import README
 from labdata.store.reader import build_path
@@ -77,8 +78,21 @@ def copy(root: Path, destination: str | None = None) -> CopyResult:
             f"no destination: pass --to <remote>:<bucket>/<path> or set "
             f"{COPY_TO_KEY} in {root / MARKER}"
         )
+    remote = dest.split(":", 1)[0]
+    expired = CopyResult(
+        str(dest),
+        skipped=True,
+        message=(
+            f"rclone's Google login has expired, so the bucket is behind the store. "
+            f"Run `rclone config reconnect {remote}:`, then `labdata store copy`."
+        ),
+    )
     with build_lock(root):
         selected = _selected(root, store.settings.get("build"))
+        # One cheap call shows an expired login before any upload; other faults show below.
+        probe = _run_rclone(["rclone", "lsjson", dest, "--max-depth", "1"])
+        if probe.returncode and _EXPIRED.search(probe.stderr):
+            return expired
         src = str(root)
         for args in (
             ["rclone", "copy", src, dest, *selected, "--filter=- **", *_PROGRESS],
@@ -98,15 +112,7 @@ def copy(root: Path, destination: str | None = None) -> CopyResult:
             if done.returncode == 0:
                 continue
             if _EXPIRED.search(done.stderr):
-                remote = dest.split(":", 1)[0]
-                return CopyResult(
-                    str(dest),
-                    skipped=True,
-                    message=(
-                        f"rclone's Google login has expired, so the bucket is behind the store. "
-                        f"Run `rclone config reconnect {remote}:`, then `labdata store copy`."
-                    ),
-                )
+                return expired
             raise StoreCopyError(f"rclone {args[1]} failed ({done.returncode}): {done.stderr}")
     return CopyResult(str(dest))
 
@@ -151,6 +157,7 @@ def _selected(root: Path, build: object) -> list[str]:
         "--filter=+ /raw/**",
         f"--filter=+ /{rel}/**",
         f"--filter=+ /{README}",
+        f"--filter=+ /{BY_HAND}",
     ]
 
 

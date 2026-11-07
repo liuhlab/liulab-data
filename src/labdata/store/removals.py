@@ -28,7 +28,7 @@ from labdata.geo.sra_records import split_packages
 from labdata.ncbi.entrez import EntrezClient, ids_empty
 from labdata.store import eutils, extract, gaps, raw, snapshots, targets
 from labdata.store._files import temp_beside
-from labdata.store.fetch import GDS_OFFSET
+from labdata.store.fetch import GDS_OFFSET, experiments_under, fetched_by_hand
 from labdata.store.layout import sql_string
 from labdata.store.model import kind_of
 
@@ -178,7 +178,9 @@ def reach(root: Path) -> dict[str, int]:
     A target Series reaches itself, the Series its SOFT names as SuperSeries of, SubSeries
     of or Reanalysis of (in turn), and the experiments, BioProjects and SRA studies those
     Series' SOFT, Entrez links and packages name. The newest ``geo-series`` snapshot's whole
-    target list counts.
+    target list counts, and so does every accession ``labdata store fetch`` was given: an
+    experiment, the experiments a BioProject or SRA study has, and their ``[si]`` rows. A
+    record a pending removal part deletes reaches nothing.
 
     Returns
     -------
@@ -187,12 +189,20 @@ def reach(root: Path) -> dict[str, int]:
     """
     target = targets.target_list(root)
     series = set(pq.read_table(target, columns=["accession"]).column(0).to_pylist())
-    reached = _closure(root, series)
+    by_hand = fetched_by_hand(root)
+    kinds = {a: _kind(a) for a in by_hand}
+    series |= {a for a, kind in kinds.items() if kind == "GEO Series"}
+    parents = {a for a, kind in kinds.items() if kind in ("BioProject", "SRA study")}
+    pending = _pending_removals(root)
+    reached = _closure(root, series - pending, pending)
     unreached: dict[str, set[str]] = {
         source: {a for a in _held(root, source) if a not in reached} for source in SERIES_KEYED
     }
-    wanted = _experiments(root, reached)
-    unreached[raw.PUBMED_SI] -= _linked(root, reached, target, wanted, unreached[raw.PUBMED_SI])
+    extra = {a for a, kind in kinds.items() if kind == "SRA experiment"}
+    extra |= experiments_under(root, parents)
+    wanted = _experiments(root, reached, extra - pending)
+    linked = _linked(root, reached, target, wanted, unreached[raw.PUBMED_SI])
+    unreached[raw.PUBMED_SI] -= linked | parents
     unreached[raw.SRA_XML] = _unreached_experiments(root, wanted)
     out = {}
     for source, gone in unreached.items():
@@ -377,12 +387,16 @@ def _tab_table(rows: list[tuple[str, str, str]]) -> pa.Table:
     return pa.table(dict(zip(_TAB_SCHEMA.names, columns, strict=True)), schema=_TAB_SCHEMA)
 
 
-def _closure(root: Path, series: set[str]) -> set[str]:
-    """Return the Series reached from ``series`` through SOFT relation lines, in turn."""
+def _closure(root: Path, series: set[str], pending: set[str]) -> set[str]:
+    """Return the Series reached from ``series`` through SOFT relation lines, in turn.
+
+    A Series in ``pending``, about to be removed, names none.
+    """
     named: dict[str, set[str]] = defaultdict(set)
     for path in _files(root, raw.GEO_SOFT):
         for gse, text in _part_rows(path, "raw_text"):
-            named[gse] |= set(_RELATION.findall(text))
+            if gse not in pending:
+                named[gse] |= set(_RELATION.findall(text)) - pending
     reached = set(series)
     todo = list(series)
     while todo:
@@ -414,8 +428,11 @@ def _linked(root: Path, reached: set[str], target: Path, wanted: Path, keys: set
     return keys & names
 
 
-def _experiments(root: Path, reached: set[str]) -> Path:
-    """Write the experiments the reached Series name: SOFT, the tab's GSMs and Entrez links."""
+def _experiments(root: Path, reached: set[str], extra: set[str]) -> Path:
+    """Write the experiments the reached Series name, and ``extra``.
+
+    The Series name them in SOFT, through the tab's GSMs and in Entrez links.
+    """
     folder = root / "work" / "removals"
     folder.mkdir(parents=True, exist_ok=True)
     listed = eutils.experiment_list(root, series=reached, out=folder / "reached.parquet")
@@ -434,7 +451,7 @@ def _experiments(root: Path, reached: set[str]) -> Path:
         table = pa.concat_tables(
             [
                 pq.read_table(listed, columns=["accession"]),
-                pa.table({"accession": sorted(linked - {""})}, schema=_ACCESSIONS),
+                pa.table({"accession": sorted((linked | extra) - {""})}, schema=_ACCESSIONS),
             ]
         )
         pq.write_table(table, tmp)

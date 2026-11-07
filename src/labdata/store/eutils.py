@@ -84,6 +84,7 @@ def experiment_list(
     date: str | None = None,
     series: Iterable[str] | None = None,
     out: Path | None = None,
+    from_tab: bool = True,
 ) -> Path:
     """Write the lane's experiment list and return its path.
 
@@ -99,6 +100,9 @@ def experiment_list(
         Series by default.
     out : pathlib.Path or None
         Where to write the list; defaults to :func:`list_path`.
+    from_tab : bool
+        Whether the tab's GEO rows add experiments; without, only the SOFT names them and
+        the tab gives each its status.
 
     Returns
     -------
@@ -118,7 +122,9 @@ def experiment_list(
     wanted = None if series is None else set(series)
     soft = _soft_experiments(root, folder / "soft.parquet", wanted)
     geo = "geo"
-    if wanted is not None:
+    if not from_tab:
+        geo = "false"
+    elif wanted is not None:
         samples = _samples(root, folder / "samples.parquet", wanted)
         geo = f"geo AND gsm IN (SELECT accession FROM read_parquet('{samples}'))"
     out = out or list_path(root, snap.date)
