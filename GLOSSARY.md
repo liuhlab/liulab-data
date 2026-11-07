@@ -114,3 +114,54 @@ _Avoid_: round (a share of the target Series list that the full download fetches
 One run of the full download over a seeded sample of the target Series list, such as 1%. A
 smaller round's sample lies inside every larger one's, and gaps and coverage of a round count only
 its sample.
+
+### Paper store
+
+The store of paper files beside the GEO/SRA store: each paper's original files (PMC XML, PDF,
+supplements), the supplement catalog and each paper's status. It holds files that cost quota or
+manual work to replace, so nothing remade from public sources writes into it.
+
+_Avoid_: paper cache
+
+### Paper
+
+A publication linked to a Series or BioProject, preprints included, identified by its PMID, or by
+its DOI when it has no PMID. A paper that later gets a PMID is the same paper under its PMID.
+
+### Paper status
+
+Where a paper stands in the paper store: fetched (the store holds its XML or PDF), waiting (a tier
+will serve it later), manual (only a save in Paperpile can serve it) or skipped (not a real
+paper). A paper that is not fetched is missing.
+
+_Avoid_: paper state
+
+### Tier
+
+One source the paper job tries for a paper, in a fixed order: the PMC bucket, OpenAlex's paid
+copy, a free host link, then the manual queue in Paperpile. A paper moves to the next tier only
+when the one before cannot serve it.
+
+### Paper job
+
+The one long-running job that keeps the paper store current. It runs the daily pass every day and
+the PMC sync every month, one at a time, and never runs inside a refresh.
+
+_Avoid_: paper refresh (a refresh is the GEO/SRA store's pass)
+
+### Daily pass
+
+The paper job's daily run over the tiers that ration work by day: OpenAlex's paid copy, free host
+links and the Paperpile folder. It ends by rewriting the manual queue.
+
+### PMC sync
+
+The paper job's monthly run against the PMC bucket: it adds papers newly linked by the current
+build, renews changed PMC files and paper details, and releases papers whose PMC wait has ended.
+The first PMC sync is the backfill.
+
+_Avoid_: PMC refresh
+
+### Manual queue
+
+The papers in manual status, newest first, handed to the maintainer to save in Paperpile.
