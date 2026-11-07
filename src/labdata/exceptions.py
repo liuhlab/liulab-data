@@ -56,3 +56,7 @@ class NotFound(LabdataError):  # noqa: N818 - the spec names it
 
 class StoreBuildError(LabdataError):
     """A store fetch or build cannot finish: an input is missing or sources disagree."""
+
+
+class SnapshotError(LabdataError):
+    """A snapshot could not be fetched whole, so none was written."""

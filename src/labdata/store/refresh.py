@@ -39,7 +39,7 @@ RUNNING, SUCCEEDED, FAILED = "running", "succeeded", "failed"
 PACK_COUNTS = "pack-counts.jsonl"
 #: The version of ``refresh.smk``'s markers; raise it when a marker changes meaning, so an
 #: unfinished refresh an older DAG opened is left, not resumed.
-DAG = 2
+DAG = 3
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +55,9 @@ def memory_plan(total_mb: int) -> dict[str, int]:
     GEO lane and one other step leave; the build runs alone with all of it.
     """
     geo, lane = total_mb // 16, total_mb // 8
-    plan = dict.fromkeys(("snapshots", "targets", "changes", "eutils", "confirm", "pack"), lane)
+    plan = dict.fromkeys(
+        ("snapshots", "geo_series", "targets", "changes", "eutils", "confirm", "pack"), lane
+    )
     plan |= dict.fromkeys(("status", "prune", "copy"), lane)
     return plan | {"geo": geo, "extract": total_mb - geo - lane, "build": total_mb}
 
