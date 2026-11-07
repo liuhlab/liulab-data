@@ -133,7 +133,7 @@ def test_a_short_or_failed_listing_fails_and_writes_no_snapshot(
     series_snapshot.download(tmp_path / "2026-10-01", _client(Gds(_SIX)))
     monkeypatch.setattr(series_snapshot, "PAGE", 2)
     monkeypatch.setattr(series_snapshot, "DROP_FLOOR", 1)
-    gds = Gds(**({"titles": _SIX} | fault))
+    gds = Gds(**{"titles": _SIX, **fault})
 
     with pytest.raises(LabdataError):
         series_snapshot.download(tmp_path / "2026-11-01", _client(gds))
