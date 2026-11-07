@@ -180,6 +180,93 @@ counting; "not measured" means the step did not run in that refresh.
 | prune | not measured | | | | |
 | copy | not measured | | | the store, to GCS | |
 
+## Yearly
+
+Once a year, add five heavy steps to that month's refresh. Each one either takes hours or
+loads NCBI more than a refresh does, so none of them runs in a normal month. Run them in this
+order. The first two check the current build, so run them before the refresh:
+
+1. **Open every record.** Check the current build with the network blocked:
+
+    ```bash
+    pixi run python scripts/store/check_stage1.py --every-record
+    ```
+
+    Without `--every-record`, the script runs only the 13 quick checks of a few chosen
+    records, as after a normal refresh. The flag adds two passes over every record held: each
+    one opens, and its hash matches its raw text.
+
+2. **Rebuild with no network and compare.** Make a scratch store from the store's raw files
+    and snapshots, build it, and compare it with the current build. Hard links cost no extra
+    disk, and the store itself is only read:
+
+    ```bash
+    scratch=/path/to/scratch
+    mkdir "$scratch"
+    cp "$LABDATA_STORE/labdata-store.toml" "$scratch/"
+    cp -al "$LABDATA_STORE/raw" "$LABDATA_STORE/snapshots" "$scratch/"
+    for source in geo-series sra-accessions bioproject biosample; do
+      labdata store extract --root "$scratch" --source "$source"
+    done
+    unshare -rn labdata store build --root "$scratch" --build-id offline
+    pixi run python scripts/store/compare_builds.py \
+      "$LABDATA_STORE/builds/<current build>" "$scratch/builds/offline"
+    ```
+
+    `unshare -rn` blocks the network; leave it out where the node does not allow it. The
+    compare prints each difference and ends with `the builds match` when there is none.
+    Delete the scratch store after.
+
+3. **Fetch the whole Series list again.** A monthly refresh patches the `geo-series`
+    snapshot: it fetches only the Series GEO marks as new or changed. GEO sometimes changes a
+    Series without moving its update date, so once a year fetch every summary. Do it on the
+    day of the refresh, before it starts, so the refresh uses this snapshot:
+
+    ```bash
+    python -I scripts/bulk/download_ncbi_bulk.py "$LABDATA_STORE/snapshots" \
+      --date YYYY-MM-DD --full geo-series
+    ```
+
+    Then run the refresh as usual.
+
+4. **Remove withdrawn SRA records.** After the refresh, remove the SRA experiments and runs
+    that NCBI no longer serves. Each one goes only after a fetch of it alone confirms it gone.
+    Then pack and build to apply the removals, and copy the store:
+
+    ```bash
+    labdata store remove-sra --root "$LABDATA_STORE"
+    labdata store pack
+    labdata store build
+    labdata store copy
+    ```
+
+    If it stops, run it again: it goes on where it stopped and asks again for any that failed.
+    The [decision record](../adr/0008-yearly-sra-removal.md) says why this runs once a year.
+
+5. **Time the queries on a quiet node.** Run the full benchmark on the new build, on a whole
+    node with no other jobs. Other jobs on the node slow the reads and make the timings
+    useless:
+
+    ```bash
+    LABDATA_STORE=/path/to/store sbatch --exclusive --output=OUT/bench.%j.log \
+      scripts/store/benchmark.sbatch OUT
+    ```
+
+    It prints each query's wall time and memory against its limit.
+
+### What a yearly run adds
+
+Rough figures, measured on the full store in 2026. The rebuild and the removal each add a
+full build, about an hour. "Not measured" means no full-store run has timed it yet.
+
+| Step | CPU | Memory | Network | Wall time |
+| --- | --- | --- | --- | --- |
+| Open every record | 1 core | about 60 GB | none | about 3 h |
+| Rebuild and compare | up to 32 cores | about 60 GB, with DuckDB's share capped | none | about 1 h to build; the compare is not measured |
+| Whole Series list | 1 core | 1 GB | about 600 E-utilities calls | about 40 min |
+| SRA removal | 1 core | not measured | one E-utilities call per batch of candidates | about 1 h, then an hour to pack and build |
+| Benchmark | a whole node | up to 128 GB | none | not measured; the job asks for up to 4 h |
+
 ## Make a sample build
 
 A sample build is a small copy of a full store's tables, for trying a change before you
