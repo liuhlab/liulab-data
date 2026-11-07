@@ -54,10 +54,10 @@ Four Parquet tables at the root, each sorted by `paper`. Query them with DuckDB,
 
 | File | One row per | Columns |
 | --- | --- | --- |
-| `papers.parquet` | paper | `paper`, `pmid`, `pmcid`, `doi`, `openalex`, `published`, `status`, `reason`, `xml_tier`, `pdf_tier` |
+| `papers.parquet` | paper | `paper`, `pmid`, `pmcid`, `doi`, `openalex`, `published`, `status`, `reason`, `xml_tier`, `pdf_tier`, `added`, `looked_up`, `work_type`, `openalex_pdf`, `host_pdf_urls` |
 | `paper_info.parquet` | paper | `paper`, `pmid`, `pmcid`, `doi`, `title`, `journal`, `published`, `authors`, `abstract`, `publication_type` |
-| `files.parquet` | file held or only listed | `paper`, `kind`, `name`, `path`, `size`, `md5`, `url`, `tier`, `label`, `caption`, `fetched`, `gone` |
-| `attempts.parquet` | try at one source for one paper | `paper`, `tier`, `date`, `outcome`, `detail` |
+| `files.parquet` | file held or only listed | `paper`, `kind`, `name`, `path`, `size`, `md5`, `url`, `tier`, `label`, `caption`, `fetched`, `gone`, `etag` |
+| `attempts.parquet` | try at one source for one paper | `paper`, `tier`, `date`, `account`, `outcome`, `detail` |
 
 - `status` is one of these:
 
@@ -75,6 +75,11 @@ Four Parquet tables at the root, each sorted by `paper`. Query them with DuckDB,
   file only listed. Supplementary files up to 10 MB are downloaded; larger ones are listed
   with their URL.
 - `gone` is the date a source stopped serving a file. The file and its row are kept.
+- `added` is the day a paper entered the store. `looked_up` is the day its IDs, details and
+  OpenAlex record were last renewed; this happens at most once a month. `work_type` is
+  OpenAlex's type for the paper, `openalex_pdf` is true when OpenAlex sells a copy, and
+  `host_pdf_urls` are free PDF links on the publisher's or a preprint server's site.
+- `account` names the OpenAlex account a paid try used, by its email.
 - `authors` is a list of `{name, affiliations}`, in author order.
 
 ## papers/

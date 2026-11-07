@@ -56,7 +56,10 @@ class PaperTable:
         return root / f"{self.name}.parquet"
 
 
-#: One row per paper: its IDs, status and which tier supplied its XML and PDF.
+#: One row per paper: its IDs, status and which tier supplied its XML and PDF. ``added`` is
+#: the day it entered the store, ``looked_up`` the day its IDs, details and OpenAlex lookup
+#: were last renewed; ``work_type``, ``openalex_pdf`` and ``host_pdf_urls`` come from that
+#: lookup.
 PAPERS = PaperTable(
     "papers",
     pa.schema(
@@ -71,6 +74,11 @@ PAPERS = PaperTable(
             ("reason", pa.string()),
             ("xml_tier", pa.string()),
             ("pdf_tier", pa.string()),
+            ("added", pa.date32()),
+            ("looked_up", pa.date32()),
+            ("work_type", pa.string()),
+            ("openalex_pdf", pa.bool_()),
+            ("host_pdf_urls", pa.list_(pa.string())),
         ]
     ),
     ("paper",),
@@ -100,7 +108,8 @@ PAPER_INFO = PaperTable(
 )
 
 #: One row per file held or only catalogued: the article's XML and PDF, and supplements.
-#: ``path`` is relative to the paper store root and empty when the file is not downloaded.
+#: ``path`` is relative to the paper store root and empty when the file is not downloaded;
+#: ``etag`` is the source's ETag of the copy held.
 FILES = PaperTable(
     "files",
     pa.schema(
@@ -117,6 +126,7 @@ FILES = PaperTable(
             ("caption", pa.string()),
             ("fetched", pa.date32()),
             ("gone", pa.date32()),
+            ("etag", pa.string()),
         ]
     ),
     ("paper", "kind", "name"),
@@ -125,6 +135,7 @@ FILES = PaperTable(
 )
 
 #: One row per tier tried for a paper: the paper job's own state, not for readers.
+#: ``account`` names the OpenAlex account a paid try spent, by its email, never its key.
 ATTEMPTS = PaperTable(
     "attempts",
     pa.schema(
@@ -132,11 +143,12 @@ ATTEMPTS = PaperTable(
             pa.field("paper", pa.string(), nullable=False),
             ("tier", pa.string()),
             ("date", pa.date32()),
+            ("account", pa.string()),
             ("outcome", pa.string()),
             ("detail", pa.string()),
         ]
     ),
-    ("paper", "date", "tier", "outcome", "detail"),
+    ("paper", "date", "tier", "account", "outcome", "detail"),
 )
 
 #: Every paper store table.
@@ -217,3 +229,42 @@ def write(root: Path, table: PaperTable, rows: Iterable[Mapping[str, Any]]) -> P
     finally:
         tmp.unlink(missing_ok=True)
     return path
+
+
+@dataclass
+class PaperTables:
+    """The four tables of one paper store, loaded whole for a pass to change.
+
+    Attributes
+    ----------
+    papers, info : dict of str to dict
+        ``papers`` and ``paper_info`` rows by ``paper``.
+    files, attempts : list of dict
+        ``files`` and ``attempts`` rows.
+    """
+
+    papers: dict[str, dict[str, Any]]
+    info: dict[str, dict[str, Any]]
+    files: list[dict[str, Any]]
+    attempts: list[dict[str, Any]]
+
+    @classmethod
+    def load(cls, root: Path) -> PaperTables:
+        """Read every table of the paper store at ``root``."""
+        return cls(
+            papers={r["paper"]: r for r in read(root, PAPERS)},
+            info={r["paper"]: r for r in read(root, PAPER_INFO)},
+            files=read(root, FILES),
+            attempts=read(root, ATTEMPTS),
+        )
+
+    def save(self, root: Path) -> None:
+        """Write every table back, each through a temp file and a rename."""
+        write(root, PAPERS, self.papers.values())
+        write(root, PAPER_INFO, self.info.values())
+        write(root, FILES, self.files)
+        write(root, ATTEMPTS, self.attempts)
+
+    def held(self) -> set[str]:
+        """Return the papers whose XML or PDF the store holds."""
+        return {f["paper"] for f in self.files if f["kind"] in ("xml", "pdf") and f["path"]}

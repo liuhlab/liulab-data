@@ -24,6 +24,7 @@ from labdata.ncbi.config import (
     save_credentials,
 )
 from labdata.ncbi.entrez import EntrezClient
+from labdata.papers.openalex import OpenAlex
 from labdata.store import init_store, open_store, save_pointer
 from labdata.store.changes import OVERLAP_DAYS
 from labdata.tenx import bamtofastq
@@ -147,6 +148,59 @@ def papers_init(
         typer.echo(str(err), err=True)
         raise typer.Exit(1) from err
     typer.echo(f"Wrote {marker}")
+
+
+def _openalex_client() -> OpenAlex:
+    """Return the OpenAlex client paper steps use, with the configured accounts."""
+    from labdata.papers.openalex import OpenAlex, load_accounts
+
+    return OpenAlex(load_accounts())
+
+
+@papers_app.command("pmc-sync")
+def papers_pmc_sync(
+    root: Path | None = typer.Option(
+        None, help="Paper store root; default: LABDATA_PAPERS, then pointer."
+    ),
+    sample: float | None = typer.Option(
+        None, help="Take only this seeded share of the linked papers, e.g. 0.03; default: all."
+    ),
+    today: str | None = typer.Option(None, hidden=True, help="The pass date, YYYY-MM-DD."),
+) -> None:
+    """Take in the papers the current build links: IDs, PubMed details, OpenAlex, status.
+
+    Each paper is looked up at most once a month. Holds the paper store's lock.
+    """
+    import time
+
+    from labdata.papers import open_paper_store
+    from labdata.papers.sync import pmc_sync
+
+    day = dt.date.fromisoformat(today) if today else dt.datetime.now(dt.UTC).date()
+    started = time.monotonic()
+    client = _store_client()
+    openalex = _openalex_client()
+    try:
+        report = pmc_sync(
+            open_paper_store(root),
+            client=client,
+            openalex=openalex,
+            today=day,
+            sample=_fraction(sample),
+            log=lambda line: typer.echo(line, err=True),
+        )
+    except LabdataError as err:
+        typer.echo(str(err), err=True)
+        raise typer.Exit(1) from err
+    typer.echo(
+        f"{report.added} added, {report.looked_up} looked up, {report.failed} failed, "
+        f"{report.rekeyed} re-keyed in {time.monotonic() - started:.0f} s"
+    )
+    for status, reasons in sorted(report.counts.items()):
+        each = ", ".join(f"{r or '-'}: {n}" for r, n in sorted(reasons.items()))
+        typer.echo(f"{status}: {each}")
+    typer.echo(f"NCBI: {client.traffic}")
+    typer.echo(f"OpenAlex: {openalex.traffic}")
 
 
 def _store_client() -> EntrezClient:
