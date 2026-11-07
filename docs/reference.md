@@ -39,3 +39,11 @@
 ::: labdata.store.readme
 
 ::: labdata.store.gcs
+
+::: labdata.papers.root
+
+::: labdata.papers.tables
+
+::: labdata.papers.status
+
+::: labdata.papers.reader

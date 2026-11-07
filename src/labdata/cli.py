@@ -45,6 +45,11 @@ store_app = typer.Typer(
     help="Configure, fetch into and build the shared record store.", no_args_is_help=True
 )
 app.add_typer(store_app, name="store")
+papers_app = typer.Typer(
+    help="Keep the paper store: the files and status of every linked paper.",
+    no_args_is_help=True,
+)
+app.add_typer(papers_app, name="papers")
 
 
 @app.command()
@@ -116,6 +121,32 @@ def store_configure(
     """
     path = save_pointer(root)
     typer.echo(f"Saved store root {root} to {path}")
+
+
+@papers_app.command("init")
+def papers_init(
+    root: Path = typer.Argument(..., help="The paper store root; created if missing."),
+    store: Path | None = typer.Option(
+        None, help="The GEO/SRA store it reads; default: LABDATA_STORE, then pointer."
+    ),
+    copy_to: str = typer.Option("", help="rclone destination <remote>:<bucket>/<path>."),
+    drive_remote: str = typer.Option("", help="rclone remote of the Paperpile Drive."),
+    drive_folder: str = typer.Option("", help="Drive ID of the Paperpile folder."),
+) -> None:
+    """Make a paper store: write labdata-papers.toml and README.md, and point to it.
+
+    Refuses if the root already has a labdata-papers.toml.
+    """
+    from labdata.papers import init_paper_store
+
+    try:
+        marker = init_paper_store(
+            root, store, copy_to=copy_to, drive_remote=drive_remote, drive_folder=drive_folder
+        )
+    except LabdataError as err:
+        typer.echo(str(err), err=True)
+        raise typer.Exit(1) from err
+    typer.echo(f"Wrote {marker}")
 
 
 def _store_client() -> EntrezClient:

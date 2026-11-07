@@ -42,6 +42,9 @@ src/labdata/
                        (confirm gone records, drop unreached rows),
                        refresh.py + refresh.smk (the refresh DAG, its status
                        record; runs from a checkout, as it calls scripts/bulk/)
+  papers/            the paper store: root.py (marker, pointer, lock, paper folders);
+                       tables.py (the four tables' declaration and only writer);
+                       status.py (paper-status.json); reader.py (PaperReader)
 tests/               pytest suite, mirrors src; mocks the EntrezClient + subprocess seams
 scripts/check.sh     the gate runner
 scripts/conformance.py  the lab template's rules, checked against this repo
@@ -88,7 +91,8 @@ CI runs `check-static` in one job and `test` in another.
   An `ncbi` resource caps concurrent network jobs independently of `--cores` (total CPU),
   keeping the link busy while cores extract/compress. The store DAG adds a `mem_mb` resource:
   each step gets its share as `LABDATA_MEMORY_MB` and caps DuckDB and Ray inside it.
-  Future pipelines follow this split.
+  Future pipelines follow this split. The paper job is the exception: one process with a
+  lock (ADR 0007).
 - **Lazy, cached domain objects.** `Series(...)` is cheap; network happens on first
   property access (`functools.cached_property`) and is cached thereafter.
 - **Accessions are validated at construction** and malformed input raises
