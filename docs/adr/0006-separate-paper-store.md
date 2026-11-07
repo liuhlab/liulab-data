@@ -24,5 +24,6 @@ a Series' paper status is a join of the two on PMID.
 
 - A full copy of the lab's data is both stores.
 - A reader that wants a Series with its paper opens the build and the paper store.
-- PMC sync runs in the paper job after a refresh switches builds. Its failure never fails a
+- The PMC sync runs in the paper job once a month, on a fixed day, and reads whichever build is
+  current then. It is not tied to a refresh's build switch, and its failure never fails a
   refresh.
