@@ -66,6 +66,14 @@ _Avoid_: write, save (for `raw/` itself)
 A Series on the target Series list that the store does not hold, recorded with a reason. Coverage
 passes when every target Series is either held or a gap with a known reason.
 
+### Refresh
+
+One unattended pass that brings the store to the sources' current state: it adds new records,
+replaces changed ones, removes withdrawn ones, renews the snapshots, and ends in a new current
+build.
+
+_Avoid_: update, sync, incremental download
+
 ### Sample build
 
 A build of a seeded share of a full store, made into a scratch root by the full build's own
