@@ -26,11 +26,10 @@ ${snapshot_table}
   README.md                     this file
   labdata-store.toml            the marker: format version and the current build
   refresh-status.json           the status record: the last refresh and its outcome
-  fetched-by-hand.txt           accessions given to `labdata store fetch`, kept by refreshes
   builds/<build-id>/            the tables, built from raw/ and snapshots/ (query these)
   raw/<source>/                 the text NCBI served for each record, by source
   snapshots/<source>/<date>/    whole NCBI bulk files, as downloaded
-  support/                      kept run logs and hand scripts
+  support/                      kept run logs
   work/                         working files of the download (not part of the store)
 ```
 
@@ -149,40 +148,45 @@ labdata store verify --root <store>
     geo-series sra-accessions bioproject biosample
   ```
 
+  `geo-series` is patched from the newest earlier snapshot: only the summaries of new Series
+  and Series GEO updated since then are fetched. Its README names the snapshot it was
+  patched from. Add `--full` to fetch every summary.
+
   It needs `curl`, and `aria2c` for faster downloads. The next `labdata store run` uses the
   newest date of each source.
 
 ## support/
 
-- **What:** run logs and hand scripts kept with this copy of the store. Nothing reads them,
-  and `labdata store copy` leaves them out of the GCS copy.
+- **What:** run logs kept with this copy of the store. Nothing reads them, and
+  `labdata store copy` leaves them out of the GCS copy.
 - **Layout:**
-  - `logs/<round>/`: each step's log and the `run.json` of one run. A round is named by the
-    `geo-series` snapshot date and the share of the target Series it covered: `f0.01` or
-    `f0.1` for a sample, `all` for every one, such as `2026-10-14-all`.
-  - `logs/jobs/`: the Slurm job log of each run, `labdata-run.<job id>.log`.
-  - `logs/snapshots-<date>/`: the logs of the snapshot download of that date.
-  - `scripts/`: the commands run by hand to make the snapshots.
-- **Made by:** `scripts/store/keep_run_logs.sh` in the liulab-data repository copies a
-  round's step logs, its `run.json` and its Slurm job logs from `work/run/` into `logs/`.
-  The snapshot download logs and `scripts/` are kept by hand.
-- **Refresh:** after each round, from a checkout of liulab-data:
+  - `logs/<round>/`: each step's log and the `run.json` of one round of the full download. A
+    round is named by the `geo-series` snapshot date and the share of the target Series it
+    covered: `f0.01` or `f0.1` for a sample, `all` for every one, such as `2026-10-14-all`.
+  - `logs/jobs/`: the Slurm job log of each round, `labdata-run.<job id>.log`.
+  - `logs/refresh/<started>/`: each step's log and the `config.json` of one refresh, named by
+    the UTC time it started, such as `2026-11-07T162405Z`.
+- **Made by:** `scripts/store/keep_run_logs.sh` in the liulab-data repository copies them from
+  `work/run/` and `work/refresh/` into `logs/`.
+- **Refresh:** after each round or refresh, from a checkout of liulab-data:
 
   ```bash
   scripts/store/keep_run_logs.sh <store> <round>
+  scripts/store/keep_run_logs.sh <store> refresh/<started>
   ```
 
-  `<round>` is the round's folder under `work/run/`, such as `2026-10-14-all`. The script
+  `<round>` is the round's folder under `work/run/`, such as `2026-10-14-all`; `<started>` is
+  the refresh's folder under `work/refresh/`, which `refresh-status.json` names. The script
   only copies, so running it again is safe.
 
 ## work/
 
-- **What:** working files of the download: fetch parts, snapshot extracts, the target Series
-  list, each run's step markers and logs, and the build lock. It is not part of the store, and
-  `labdata store copy` leaves it out.
-- **Refresh:** none. When no run is going, you may delete it. The next run makes it again,
-  extracting the snapshots and starting each round from its first step. Fetch steps still skip
-  every item saved in `raw/`.
+- **What:** working files of the download and of each refresh: fetch parts, snapshot extracts,
+  the target Series list, step markers and logs, and the build lock. It is not part of the
+  store, and `labdata store copy` leaves it out.
+- **Refresh:** none. When no run is going and `refresh-status.json` says the last refresh
+  succeeded, you may delete it, after keeping the logs in `support/`. The next run makes it
+  again, extracting the snapshots it needs. Fetch steps still skip every item saved in `raw/`.
 
 ## How to refresh
 
@@ -197,8 +201,8 @@ NCBI:
    ```
 
    It downloads new snapshots, fetches the GEO Series changed or added since the last
-   successful refresh and their SRA experiments, removes records that a fetch confirms are
-   gone, builds the tables, switches the store to the new build, deletes builds and snapshots
+   successful refresh and their SRA experiments, removes the GEO Series that a fetch confirms
+   are withdrawn, builds the tables, switches the store to the new build, deletes builds and snapshots
    out of use for longer than a grace period, and copies the store to GCS. If it stops, run
    the same command again: it goes on from the first unfinished step.
 
@@ -207,8 +211,10 @@ NCBI:
    `copy_pending`. When `copy_pending` is `true`, the GCS copy is behind the store. Log in to
    rclone again, then run `labdata store copy --root <store>`.
 
-The copy holds `labdata-store.toml`, this file, `fetched-by-hand.txt`, the snapshots the
-current build reads, `raw/` and the current build.
+4. Keep the refresh's logs, as `support/` says above.
+
+The copy holds `labdata-store.toml`, this file, the snapshots the current build reads,
+`raw/` and the current build.
 
 An old build stays for a grace period after the switch, so a reader that opened it can
 finish. The liulab-data API reference for `labdata.store.prune` gives its length.
@@ -247,8 +253,9 @@ print(table.num_rows)
 ```
 
 `open` raises `NotMirrored` for an accession that a snapshot lists but this store does not
-hold, and `NotFound` for one that no snapshot lists as public. A withdrawn or suppressed
-record is not public, so it raises `NotFound`.
+hold, and `NotFound` for one that no snapshot lists as public. A refresh removes a withdrawn
+GEO Series, so it raises `NotFound`. An SRA record NCBI no longer serves stays in the store and
+opens as before.
 
 ### With DuckDB
 
@@ -286,6 +293,20 @@ duckdb.sql(f"""
     SELECT owner, name, size, url
     FROM read_parquet('{build}/supplementary_files.parquet')
     WHERE owner = 'GSE20301'
+""").show()
+
+# The Series with no SRA experiment; their text, such as Series_overall_design, may say why
+duckdb.sql(f"""
+    WITH links AS (SELECT * FROM read_parquet('{build}/links_by_from.parquet'))
+    SELECT g.accession
+    FROM read_parquet('{build}/records/geo-series.parquet') g
+    WHERE NOT EXISTS (
+        SELECT 1 FROM links WHERE "from" = g.accession AND relation = 'SRA'
+        UNION ALL
+        SELECT 1 FROM links s JOIN links x ON x."from" = s."to" AND x.relation = 'SRA'
+        WHERE s."from" = g.accession AND s.relation = 'sample'
+    )
+    ORDER BY g.accession
 """).show()
 ```
 

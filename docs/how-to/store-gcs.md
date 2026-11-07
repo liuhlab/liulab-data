@@ -42,11 +42,11 @@ a grace period after it goes out of use, so a reader can finish; the
 [API reference](../reference.md#labdata.store.prune) gives its length. `--grace 0` deletes
 them at once: use it only as a one-off to tidy a store nobody is reading.
 
-`copy` sends the marker file, the store's `README.md`, `fetched-by-hand.txt`, the current
-snapshots, `raw/` and the current build, and deletes anything else in the bucket's copy. It
-leaves out `work/`, `support/` and `refresh-status.json`. It will not run unless the current
-build is complete. It first checks the login with one listing call. When the login has
-expired, it stops and exits cleanly:
+`copy` sends the marker file, the store's `README.md`, the current snapshots, `raw/` and the
+current build, and deletes anything else in the bucket's copy. It leaves out `work/`,
+`support/` and `refresh-status.json`. It will not run unless the current build is complete.
+It first checks the login with one listing call. When the login has expired, it stops and
+exits cleanly:
 
 ```text
 rclone's Google login has expired, so the bucket is behind the store. Run `rclone config reconnect gcs:`, then `labdata store copy`.

@@ -92,6 +92,8 @@ it deletes the rows saved before it, and a row saved after it wins.
 `refresh-status.json` in the store root: the last refresh's start, end and outcome, the date
 of the last successful refresh, the records it added, replaced and removed per source, and
 whether the GCS copy is pending. The date is written only after the switch to the new build.
+It also names the refresh DAG version that started the refresh; a refresh another version
+started is not resumed.
 
 _Avoid_: status file, refresh log
 

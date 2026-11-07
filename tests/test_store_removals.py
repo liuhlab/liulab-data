@@ -1,4 +1,4 @@
-"""Confirm and remove gone records: the hidden ``_confirm`` and ``_reach`` steps, then pack."""
+"""Confirm and remove withdrawn Series: the hidden ``_confirm`` step, then pack."""
 
 from __future__ import annotations
 
@@ -23,7 +23,6 @@ from labdata.ncbi.entrez import EntrezClient
 from labdata.store import pack, raw, removals
 from labdata.store.gaps import SOFT_MISSING, gap_row
 from tests.test_store_geo_lane import Reply
-from tests.test_store_refresh_fetch import _changed_ncbi, _fetch_again, _held_store
 
 _DATE = "2026-11-01"
 _OLD = "2026-10-14"
@@ -196,136 +195,42 @@ def test_a_candidate_whose_fetch_fails_or_times_out_stays(
     assert set(_held(root, raw.GEO_SOFT)) == {"GSE1", "GSE3", "GSE4", "GSE5", "GSE6"}
 
 
-def test_a_tab_unpublished_experiment_still_served_stays_and_a_gone_one_leaves(
+def test_no_sra_record_is_a_candidate_and_each_stays_after_pack(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    tab = [("SRX1", "unpublished", "EXPERIMENT", "-"), ("SRX2", "suppressed", "EXPERIMENT", "-")]
+    tab = [("SRX1", "suppressed", "EXPERIMENT", "-"), ("SRR2", "suppressed", "RUN", "SRX2")]
     root = _store(tmp_path / "store", ["GSE1"], tab)
     _hold_series(root, "GSE1", _soft("GSE1", _srx_line("SRX1"), _srx_line("SRX2")))
-    rows = [raw.RawRow(s, _package(s, f"SRR{s[3:]}"), _OLD) for s in ("SRX1", "SRX2")]
-    pack.write_rows(root, raw.SRA_XML, rows)
-    _use(
-        monkeypatch,
-        Ncbi(
-            {
-                ("efetch", "SRX1"): [_served(_package("SRX1", "SRR1"))],
-                ("efetch", "SRX2"): [_EMPTY_IDS],
-            }
-        ),
-    )
-
-    _step(root, "_confirm")
-    _step(root, "pack")
-
-    assert _held(root, raw.SRA_XML) == {"SRX1": _package("SRX1", "SRR1")}
-
-
-def test_an_experiment_ncbi_answers_is_not_public_leaves(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    # NCBI's answer for a suppressed experiment: HTTP 200, a record-level error, no package.
-    not_public = (
-        b'<?xml version="1.0" encoding="UTF-8"  ?>\n<EXPERIMENT_PACKAGE_SET>\n'
-        b'<ERROR procedure="SRA_Main..GET_ExperimentPackage_xml" line="68" severity="13" '
-        b'number="50000" public="yes">SRA Experiment %s is not public</ERROR>'
-        b"</EXPERIMENT_PACKAGE_SET>\n"
-    )
-    tab = [("SRX1", "suppressed", "EXPERIMENT", "-"), ("SRX2", "suppressed", "EXPERIMENT", "-")]
-    root = _store(tmp_path / "store", ["GSE1"], tab)
-    _hold_series(root, "GSE1", _soft("GSE1", _srx_line("SRX1"), _srx_line("SRX2")))
-    rows = [raw.RawRow(s, _package(s, f"SRR{s[3:]}"), _OLD) for s in ("SRX1", "SRX2")]
-    pack.write_rows(root, raw.SRA_XML, rows)
-    _use(
-        monkeypatch,
-        Ncbi(
-            {
-                ("efetch", "SRX1"): [Reply(not_public % b"SRX1")],
-                # An error naming another accession confirms nothing.
-                ("efetch", "SRX2"): [Reply(not_public % b"SRX9")],
-            }
-        ),
-    )
-
-    _step(root, "_confirm")
-    _step(root, "pack")
-
-    assert set(_held(root, raw.SRA_XML)) == {"SRX2"}
-
-
-def test_experiments_are_confirmed_in_one_batch_and_only_the_unanswered_alone(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    tab = [(f"SRX{i}", "suppressed", "EXPERIMENT", "-") for i in (1, 2, 3)]
-    root = _store(tmp_path / "store", ["GSE1"], tab)
-    _hold_series(root, "GSE1", _soft("GSE1", *(_srx_line(f"SRX{i}") for i in (1, 2, 3))))
-    rows = [raw.RawRow(f"SRX{i}", _package(f"SRX{i}", f"SRR{i}"), _OLD) for i in (1, 2, 3)]
-    pack.write_rows(root, raw.SRA_XML, rows)
-    batch = (
-        "<EXPERIMENT_PACKAGE_SET>"
-        + _package("SRX1", "SRR1")
-        + '<ERROR number="50000" public="yes">SRA Experiment SRX2 is not public</ERROR>'
-        + "</EXPERIMENT_PACKAGE_SET>"
-    )
-    ncbi = Ncbi(
-        {
-            ("efetch", "SRX1,SRX2,SRX3"): [Reply(batch.encode())],
-            ("efetch", "SRX3"): [_EMPTY_IDS],
-        }
-    )
+    packages = {s: _package(s, f"SRR{s[3:]}") for s in ("SRX1", "SRX2")}
+    pack.write_rows(root, raw.SRA_XML, [raw.RawRow(s, p, _OLD) for s, p in packages.items()])
+    # This refresh's fetch got no package for SRX3.
+    _part(root, raw.SRA_XML, raw.RawRow("SRX3", "", _DATE))
+    ncbi = Ncbi({("efetch", s): [_EMPTY_IDS] for s in ("SRX1", "SRX2", "SRX3")})
     _use(monkeypatch, ncbi)
 
-    _step(root, "_confirm")
+    assert "0 asked" in _step(root, "_confirm")
     _step(root, "pack")
 
-    assert set(_held(root, raw.SRA_XML)) == {"SRX1"}
-    assert sorted(ncbi.calls) == [("efetch", "SRX1,SRX2,SRX3"), ("efetch", "SRX3")]
+    assert ncbi.calls == []
+    assert _held(root, raw.SRA_XML) == packages | {"SRX3": ""}
 
 
-def test_a_run_missing_from_its_package_leaves(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    tab = [
-        ("SRX1", "live", "EXPERIMENT", "-"),
-        ("SRR4", "suppressed", "RUN", "SRX1"),
-        ("SRR5", "suppressed", "RUN", "SRX1"),
-    ]
-    root = _store(tmp_path / "store", ["GSE1"], tab)
-    _hold_series(root, "GSE1", _soft("GSE1", _srx_line("SRX1")))
-    pack.write_rows(root, raw.SRA_XML, [raw.RawRow("SRX1", _package("SRX1", "SRR4", "SRR5"), _OLD)])
-    ncbi = Ncbi({("efetch", "SRX1"): [_served(_package("SRX1", "SRR4"))]})
-    _use(monkeypatch, ncbi)
-
-    _step(root, "_confirm")
-    _step(root, "pack")
-
-    assert _held(root, raw.SRA_XML) == {"SRX1": _package("SRX1", "SRR4")}
-    assert ncbi.calls == [("efetch", "SRX1")]
-
-
-def test_records_with_no_record_in_this_fetch_are_confirmed(
+def test_a_series_this_fetch_got_no_record_for_is_confirmed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = _store(tmp_path / "store", ["GSE1", "GSE2"])
-    _hold_series(root, "GSE1", _soft("GSE1", _srx_line("SRX7"), _srx_line("SRX8")))
+    _hold_series(root, "GSE1")
     _hold_series(root, "GSE2")
     _part(root, raw.GEO_GAPS, gap_row("GSE2", SOFT_MISSING, _DATE))
-    _part(root, raw.SRA_XML, raw.RawRow("SRX7", "", _DATE), raw.RawRow("SRX8", "", _DATE))
-    ncbi = Ncbi(
-        {
-            _gds("GSE2"): [Reply(_GONE_GDS % 200000002)],
-            ("efetch", "SRX7,SRX8"): [_served(_package("SRX8", "SRR8"))],
-            ("efetch", "SRX7"): [_EMPTY_IDS],
-        }
-    )
+    ncbi = Ncbi({_gds("GSE2"): [Reply(_GONE_GDS % 200000002)]})
     _use(monkeypatch, ncbi)
 
-    assert "2 confirmed gone" in _step(root, "_confirm")
+    assert "1 confirmed gone" in _step(root, "_confirm")
     _step(root, "pack")
 
     assert set(_held(root, raw.GEO_SOFT)) == {"GSE1"}
     assert set(_held(root, raw.GEO_GAPS)) == {"GSE1"}
-    assert _held(root, raw.SRA_XML) == {"SRX8": ""}
-    assert sorted(ncbi.calls) == [("efetch", "SRX7"), ("efetch", "SRX7,SRX8"), _gds("GSE2")]
+    assert ncbi.calls == [_gds("GSE2")]
 
 
 def test_a_later_fetch_beats_an_older_removal_and_a_later_removal_an_older_row(
@@ -346,88 +251,6 @@ def test_a_later_fetch_beats_an_older_removal_and_a_later_removal_an_older_row(
 
     assert _held(root, raw.GEO_SOFT) == {"GSE1": _soft("GSE1"), "GSE3": "came back"}
     assert set(_held(root, raw.GEO_FILELIST)) == {"GSE1"}
-
-
-def test_rows_no_target_series_reaches_are_dropped(tmp_path: Path) -> None:
-    root = _store(tmp_path / "store", ["GSE1"], [("SRX12", "live", "EXPERIMENT", "-")])
-    super_soft = _soft(
-        "GSE1",
-        "!Series_relation = SuperSeries of: GSE10",
-        "!Series_relation = BioProject: https://www.ncbi.nlm.nih.gov/bioproject/PRJNA1",
-        _srx_line("SRX1"),
-    )
-    _hold_series(root, "GSE1", super_soft)
-    _hold_series(root, "GSE10", _soft("GSE10", _srx_line("SRX10")))
-    _hold_series(root, "GSE9", _soft("GSE9", _srx_line("SRX9")))
-    linked = raw.RawRow("GSE1", "GSM1\tsra\t11\tSRX11", _OLD)
-    pack.write_rows(root, raw.ENTREZ_LINKS, [linked])
-    srx = ("SRX1", "SRX9", "SRX10", "SRX11", "SRX99")
-    pack.write_rows(root, raw.SRA_XML, [raw.RawRow(s, _package(s), _OLD) for s in srx])
-    _part(root, raw.SRA_XML, raw.RawRow("SRX98", _package("SRX98"), _DATE))
-    projects = ("PRJNA1", "PRJNA9")
-    pack.write_rows(root, raw.PUBMED_SI, [raw.RawRow(p, "", _OLD) for p in projects])
-
-    _step(root, "_reach", "--max-share", "1")
-    _step(root, "pack")
-
-    assert set(_held(root, raw.GEO_SOFT)) == {"GSE1", "GSE10"}
-    assert set(_held(root, raw.GEO_GAPS)) == {"GSE1", "GSE10"}
-    assert set(_held(root, raw.SRA_XML)) == {"SRX1", "SRX10", "SRX11"}
-    assert set(_held(root, raw.PUBMED_SI)) == {"GSE1", "GSE10", "PRJNA1"}
-
-
-def test_reach_refuses_to_empty_raw_when_the_snapshot_is_truncated(tmp_path: Path) -> None:
-    held = [f"GSE{n}" for n in range(1, 41)]
-    root = _store(tmp_path / "store", held[:1])
-    pack.write_rows(root, raw.GEO_SOFT, [raw.RawRow(gse, _soft(gse), _OLD) for gse in held])
-
-    refused = CliRunner().invoke(app, ["store", "_reach", "--root", str(root)])
-    allowed = _step(root, "_reach", "--max-share", "1")
-
-    assert refused.exit_code == 1
-    assert "remove 39 of 40 geo-soft records (97.5%), more than 5%" in refused.output
-    assert "39 to remove" in allowed
-
-
-def test_reach_removes_a_few_rows_of_a_small_source_past_the_share(tmp_path: Path) -> None:
-    root = _store(tmp_path / "store", ["GSE1", "GSE2", "GSE3"])
-    for gse in ("GSE1", "GSE2", "GSE3"):
-        _hold_series(root, gse)
-    pack.write_rows(root, raw.GEO_GAPS, [gap_row(g, SOFT_MISSING, _OLD) for g in ("GSE8", "GSE9")])
-
-    out = _step(root, "_reach")
-    _step(root, "pack")
-
-    assert "geo-gaps: 2 to remove" in out
-    assert set(_held(root, raw.GEO_GAPS)) == {"GSE1", "GSE2", "GSE3"}
-
-
-def test_reach_keeps_a_series_confirmation_kept(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    root = _store(tmp_path / "store", ["GSE1"])
-    for gse in ("GSE1", "GSE3", "GSE4", "GSE5"):
-        _hold_series(root, gse, _soft(gse, _srx_line(f"SRX{gse[3:]}")))
-    srx = [raw.RawRow(f"SRX{n}", _package(f"SRX{n}"), _OLD) for n in (1, 3, 4, 5)]
-    pack.write_rows(root, raw.SRA_XML, srx)
-    _use(
-        monkeypatch,
-        Ncbi(
-            {
-                _gds("GSE3"): [500],
-                _gds("GSE4"): [_live_gds("GSE4")],
-                _gds("GSE5"): [Reply(_GONE_GDS % 200000005)],
-            }
-        ),
-    )
-
-    _step(root, "_confirm")
-    _step(root, "_reach", "--max-share", "1")
-    _step(root, "pack")
-
-    for source in _SERIES_SOURCES:
-        assert set(_held(root, source)) == {"GSE1", "GSE3", "GSE4"}, source
-    assert set(_held(root, raw.SRA_XML)) == {"SRX1", "SRX3", "SRX4"}
 
 
 def test_pack_cut_off_and_rerun_or_a_removal_applied_twice_changes_nothing(
@@ -461,51 +284,38 @@ def test_pack_cut_off_and_rerun_or_a_removal_applied_twice_changes_nothing(
     assert not list(parts.rglob("*.parquet"))
 
 
-def test_a_refetched_experiment_served_none_is_confirmed_next(
+def test_a_failed_confirmation_is_asked_again_by_the_next_refresh(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    root = _held_store(tmp_path)
-    assert "served none: SRX2" in _fetch_again(_changed_ncbi(), monkeypatch, tmp_path, root)
-    ncbi = Ncbi({("efetch", "SRX2"): [_EMPTY_IDS]})
-    _use(monkeypatch, ncbi)
-
-    _step(root, "_confirm")
-    _step(root, "pack")
-
-    assert ("efetch", "SRX2") in ncbi.calls
-    assert "SRX2" not in _held(root, raw.SRA_XML)
-    assert "SRX1" in _held(root, raw.SRA_XML)
-
-
-def test_a_failed_confirmation_is_asked_again_until_it_gets_an_answer(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    root = _store(tmp_path / "store", ["GSE1", "GSE2"])
-    _hold_series(root, "GSE1", _soft("GSE1", _srx_line("SRX7")))
+    root = _store(tmp_path / "store", ["GSE1"])
+    _hold_series(root, "GSE1")
     _hold_series(root, "GSE2")
-    _part(root, raw.GEO_GAPS, gap_row("GSE2", SOFT_MISSING, _DATE))
-    _part(root, raw.SRA_XML, raw.RawRow("SRX7", "", _DATE))
-    removals.note_unserved(root, ["SRX9"])
-    ncbi = Ncbi({_gds("GSE2"): [500], ("efetch", "SRX7"): [500], ("efetch", "SRX9"): [500]})
+    ncbi = Ncbi({_gds("GSE2"): [Reply(b"<eSummaryResult><oops"), Reply(_GONE_GDS % 200000002)]})
     _use(monkeypatch, ncbi)
 
-    assert "3 failed and kept" in _step(root, "_confirm")
+    assert "1 failed and kept" in _step(root, "_confirm")
     _step(root, "pack")
-    ncbi.calls.clear()
-    ncbi.answers = {
-        _gds("GSE2"): [Reply(_GONE_GDS % 200000002)],
-        ("efetch", "SRX7,SRX9"): [_served(_package("SRX7", "SRR7"))],
-        ("efetch", "SRX9"): [500],
-    }
+    assert set(_held(root, raw.GEO_SOFT)) == {"GSE1", "GSE2"}
 
     assert "1 confirmed gone" in _step(root, "_confirm")
-    assert set(ncbi.calls) == {("efetch", "SRX7,SRX9"), ("efetch", "SRX9"), _gds("GSE2")}
     _step(root, "pack")
-    ncbi.calls.clear()
-    _step(root, "_confirm")
-
-    assert set(ncbi.calls) == {("efetch", "SRX9")}
     assert set(_held(root, raw.GEO_SOFT)) == {"GSE1"}
+
+
+def test_confirm_logs_its_progress_per_batch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    root = _store(tmp_path / "store", [])
+    for n in range(1, 4):
+        _hold_series(root, f"GSE{n}")
+    monkeypatch.setattr(removals, "BATCH", 2)
+    _use(monkeypatch, Ncbi({_gds(f"GSE{n}"): [_live_gds(f"GSE{n}")] for n in range(1, 4)}))
+
+    with caplog.at_level("INFO"):
+        _step(root, "_confirm")
+
+    assert "confirmed 2 of 3: 0 gone, 2 served, 0 failed" in caplog.text
+    assert "confirmed 3 of 3: 0 gone, 3 served, 0 failed" in caplog.text
 
 
 def test_writing_the_same_removal_again_keeps_its_place_before_later_rows(tmp_path: Path) -> None:

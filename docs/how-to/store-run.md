@@ -101,8 +101,8 @@ deletes the current build or anything it reads.
 
 Once the full download is done, one command a month keeps the store current. It downloads new
 snapshots, fetches the GEO Series that changed or appeared since the last successful refresh,
-removes records that a fetch confirms are gone, builds, switches, prunes and copies. Run it from
-the repository folder:
+removes the GEO Series that a fetch confirms are withdrawn, builds, switches, prunes and
+copies. Run it from the repository folder:
 
 ```bash
 labdata store refresh
@@ -124,9 +124,11 @@ If it stops, run the same command again. It goes on in the same folder,
 `work/refresh/<start time>/`, from the first unfinished step, and asks for nothing it saved.
 That folder holds the refresh's markers and logs.
 
-The refresh stops before it removes more than 5% of any source's records, and more than 20,
-as a cut-off snapshot looks the same as a mass withdrawal. Check the newest `geo-series` snapshot. If the
-removals are right, run the same command with `--max-share 0.2`, or the share you expect.
+A refresh removes a GEO Series only when GEO no longer lists it, or the refresh got no record
+for it, and a fetch of it alone then says it is gone. It keeps every SRA record.
+
+A refresh that an older version of liulab-data started is not resumed: the next run starts a
+new one from the same date and leaves the old folder in place.
 
 `refresh-status.json` in the store root shows the outcome:
 
@@ -147,6 +149,15 @@ removals are right, run the same command with `--max-share 0.2`, or the share yo
 has expired, the refresh still succeeds and `copy_pending` is `true`. Log in, then run
 `labdata store copy`: it copies the store and sets `copy_pending` back to `false`.
 
+To keep the refresh's step logs with the store, copy them into `support/`. `<started>` is the
+refresh's folder under `work/refresh/`, which `refresh-status.json` names:
+
+```bash
+scripts/store/keep_run_logs.sh "$LABDATA_STORE" refresh/<started>
+```
+
+Then `work/` holds nothing the next refresh needs, and you may delete it.
+
 ### What a refresh needs
 
 Every step can be killed and run again. The figures below come from the first full-store
@@ -155,14 +166,14 @@ counting; "not measured" means the step did not run in that refresh.
 
 | Step | CPU | Memory | Scratch disk | Network (NCBI, GEO, GCS) | Wall time |
 | --- | --- | --- | --- | --- | --- |
-| snapshots | 1 core | 1 GB | 43 GB new | 45 GB from NCBI FTP, 600 E-utilities calls | 42 min |
+| snapshots | 1 core | 1 GB | 43 GB new | 45 GB from NCBI FTP | 5 min |
+| geo-series | 1 core | not measured | 0.2 GB new | 33 E-utilities calls | 1 min, measured alone |
 | targets | 1 core | 1 GB | – | – | 1 min |
 | changes | 1 core | 1 GB | – | 1 E-utilities search | 2 min |
 | geo | 1 core | 4 GB | 2 GB | 6,500 GEO FTP requests, 1.6 GB | 9 min |
 | eutils (beside and after the GEO lane) | 1 core | 4 GB | 1 GB | 320 E-utilities calls, 0.7 GB | 12 min, then 4 min |
 | extract (each source) | up to 37 cores | up to 38 GB | 18 GB | – | 10 min (biosample), under 1 min (others) |
-| confirm | 1 core | 1 GB | – | 2,000 E-utilities calls, 0.4 GB | 18 min |
-| reach | 1 core | 5 GB | – | – | 39 min |
+| confirm | 1 core | 1 GB | – | one E-utilities call per removal candidate | not measured |
 | pack | 1 core | 3 GB | rewrites the raw buckets it touches | – | 7 min |
 | build | not measured | not measured | 22 GB, one build | – | 44 min in the last full build |
 | status | not measured | | | | |
@@ -201,6 +212,5 @@ point outside a sample, so its link-query timings are indicative only.
 ## Go deeper
 
 The steps are also commands of their own: `labdata store pack`, `build`, `coverage`, `prune`
-and `copy`. Records fetched with `labdata store fetch` stay through refreshes: the store lists
-them in `fetched-by-hand.txt`. Run `labdata store --help` to list them, and see the
+and `copy`. Run `labdata store --help` to list them, and see the
 [API reference](../reference.md) for the modules behind them.

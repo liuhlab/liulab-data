@@ -68,6 +68,7 @@ def test_it_reports_each_query_and_each_table_and_writes_nothing_in_the_store(
         "readme 1",
         "readme 2",
         "readme 3",
+        "readme 4",
         "raw 5",
     ]
     held = pq.read_table(root / "builds" / "b1" / "holdings.parquet").to_pylist()
@@ -100,7 +101,7 @@ def test_a_query_over_its_limit_fails_the_run_naming_the_query(tmp_path: Path) -
     )
     assert done.returncode == 1, done.stderr
     breaches = [line for line in done.stdout.splitlines() if line.startswith("over the limit")]
-    assert len(breaches) == 4, done.stdout
+    assert len(breaches) == 5, done.stdout
     assert "get 1: wall" in breaches[0]
     assert all("peak" in line for line in breaches[1:])
 
@@ -129,3 +130,26 @@ def test_every_query_runs_with_the_pinned_thread_count(
         benchmark.measure("get 1", tmp_path, tmp_path / "samples.json", tmp_path)
     assert seen["env"]["LABDATA_THREADS"] == "8"
     assert seen["env"]["XDG_CACHE_HOME"] == str(tmp_path / "cache")
+
+
+def test_the_readme_queries_run_with_the_pinned_thread_count(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import duckdb
+
+    spec = importlib.util.spec_from_file_location("benchmark", SCRIPT)
+    assert spec is not None
+    assert spec.loader is not None
+    benchmark = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(benchmark)
+    root = built_root(tmp_path / "store", "geo_slice")
+    seen: dict[str, Any] = {}
+    connect = duckdb.connect
+
+    def spy(*args: Any, **kwargs: Any) -> Any:
+        seen.update(kwargs.get("config", {}))
+        return connect(*args, **kwargs)
+
+    monkeypatch.setattr(duckdb, "connect", spy)
+    benchmark.run_query("readme 1", root, {}, tmp_path)
+    assert seen["threads"] == 8

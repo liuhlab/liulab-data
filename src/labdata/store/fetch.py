@@ -19,7 +19,6 @@ from labdata.exceptions import PageNotFound
 from labdata.geo.sra_records import fetch_package_texts
 from labdata.ncbi.entrez import EntrezClient, docsum_uid
 from labdata.store import pack, provenance, raw, snapshots, sources
-from labdata.store._files import write_atomic
 from labdata.store.model import kind_of
 
 #: Upper bound on PMIDs kept per ``[si]`` search.
@@ -28,8 +27,18 @@ PUBMED_RETMAX = 10_000
 CHUNK = 100
 #: GEO's ``gds`` UID of a Series or Sample is this offset plus its number.
 GDS_OFFSET = {"GSE": 200_000_000, "GSM": 300_000_000}
-#: The file in the store root listing every accession fetched by hand, one per line.
-BY_HAND = "fetched-by-hand.txt"
+
+
+def gds_uid(accession: str) -> int:
+    """Return the ``gds`` UID of a GEO Series or Sample.
+
+    Examples
+    --------
+    >>> gds_uid("GSE12")
+    200000012
+    """
+    return GDS_OFFSET[accession[:3]] + int(accession[3:])
+
 
 _SERIES_TYPE = re.compile(r"^!Series_type = (.*?)\s*$", re.M)
 _SEQUENCING = "high throughput sequencing"
@@ -88,7 +97,6 @@ def fetch(
     date = today or dt.datetime.now(dt.UTC).date().isoformat()
     given = sorted({a.strip().upper() for a in accessions})
     kinds = {a: kind_of(a) for a in given}
-    _remember(root, given)
     soft = fetch_series(root, client, [a for a, k in kinds.items() if k == "GEO Series"], date)
     fetch_filelists(root, client, sorted(soft), date)
     linked = fetch_entrez_links(root, client, soft, date)
@@ -133,19 +141,6 @@ def fetch(
         {acc: tuple(text.split()) for acc, text in sorted(searched.items())},
         tuple(sorted(soft)),
     )
-
-
-def fetched_by_hand(root: Path) -> set[str]:
-    """Return every accession ``labdata store fetch`` was given in this store."""
-    path = root / BY_HAND
-    return set(path.read_text(encoding="utf-8").split()) if path.is_file() else set()
-
-
-def _remember(root: Path, accessions: list[str]) -> None:
-    """Add accessions to :data:`BY_HAND`, so a refresh keeps what they brought in."""
-    known = fetched_by_hand(root)
-    if set(accessions) - known:
-        write_atomic(root / BY_HAND, "".join(f"{a}\n" for a in sorted(known | set(accessions))))
 
 
 def _resume(
@@ -266,26 +261,22 @@ def fetch_entrez_links(
             gse: sorted(a for e, a, _ in sources.soft_blocks(soft[gse]) if e == "SAMPLE")
             for gse in chunk
         }
-        sample_uids = {_gds_uid(gsm): gsm for gsms in samples.values() for gsm in gsms}
-        series_uids = {_gds_uid(gse): gse for gse in chunk}
+        sample_uids = {str(gds_uid(gsm)): gsm for gsms in samples.values() for gsm in gsms}
+        series_uids = {str(gds_uid(gse)): gse for gse in chunk}
         to_sra = client.elink_many("gds", "sra", sorted(sample_uids)) if sample_uids else {}
         to_bp = client.elink_many("gds", "bioproject", sorted(series_uids))
         names = _accessions(client, "sra", {u for us in to_sra.values() for u in us})
         names |= _accessions(client, "bioproject", {u for us in to_bp.values() for u in us})
         lines: dict[str, list[str]] = {gse: [] for gse in chunk}
         for gse in chunk:
-            for uid in to_bp.get(_gds_uid(gse), []):
+            for uid in to_bp.get(str(gds_uid(gse)), []):
                 lines[gse].append(f"{gse}\tbioproject\t{uid}\t{names.get(uid, '')}")
             for gsm in samples[gse]:
-                for uid in to_sra.get(_gds_uid(gsm), []):
+                for uid in to_sra.get(str(gds_uid(gsm)), []):
                     lines[gse].append(f"{gsm}\tsra\t{uid}\t{names.get(uid, '')}")
         return {gse: "\n".join(sorted(rows)) for gse, rows in lines.items()}
 
     return _resume(root, raw.ENTREZ_LINKS, sorted(soft), get, date)
-
-
-def _gds_uid(accession: str) -> str:
-    return str(GDS_OFFSET[accession[:3]] + int(accession[3:]))
 
 
 def _accessions(client: EntrezClient, db: str, uids: set[str]) -> dict[str, str]:
