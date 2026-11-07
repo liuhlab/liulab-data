@@ -199,7 +199,7 @@ def document_build(
         "layout": (
             "records/<type>.parquet, one per record type, sorted by accession; "
             "links_by_from.parquet and links_by_to.parquet, the same links sorted by each end; "
-            "holdings.parquet, every accession held; known.parquet, every accession the "
+            "holdings.parquet, every accession held; known.parquet, every public accession the "
             "snapshots list with the snapshot date; supplementary_files.parquet, the supplementary "
             "files of each held record, sorted by owner accession; gaps.parquet, each target "
             "Series not held with its reason; notes.parquet, what the build met and kept, such "

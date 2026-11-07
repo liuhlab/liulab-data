@@ -7,13 +7,15 @@ geo-series snapshot, so it is known but not held.
 from __future__ import annotations
 
 import datetime as dt
+import gzip
+import shutil
 from pathlib import Path
 
 import pyarrow.parquet as pq
 import pytest
 
-from labdata.exceptions import AccessionError, NotFound, NotMirrored
-from labdata.store import Partial, Store, open_store
+from labdata.exceptions import AccessionError, NotFound, NotMirrored, StoreBuildError
+from labdata.store import Partial, Store, extract, known, open_store
 from labdata.store.build import build
 from labdata.store.fetch import fetch
 from tests._fakes import FakeEntrezClient
@@ -31,15 +33,15 @@ def _isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.delenv("LABDATA_STORE", raising=False)
 
 
-def _root(tmp_path: Path) -> Path:
+def _root(tmp_path: Path, snapshots: Path = _SNAPSHOTS) -> Path:
     root = tmp_path / "store"
-    copy_snapshots(_SNAPSHOTS, root)
+    copy_snapshots(snapshots, root)
     (root / "labdata-store.toml").write_text("format_version = 1\n", encoding="utf-8")
     return root
 
 
-def _store(tmp_path: Path, accessions: list[str]) -> Store:
-    root = _root(tmp_path)
+def _store(tmp_path: Path, accessions: list[str], snapshots: Path = _SNAPSHOTS) -> Store:
+    root = _root(tmp_path, snapshots)
     client = FakeEntrezClient(
         esearch={f"{_PROJECT}[si]": ["39637862"]},
         packages={srx: (_DATA / "sra_package" / f"{srx}.xml").read_text() for srx in _SRX},
@@ -95,6 +97,47 @@ def test_known_lists_every_snapshot_with_its_date(store: Store) -> None:
     assert by_acc["PRJNA3"] == ("bioproject", dt.date(2026, 10, 14))
     assert by_acc["SAMN00000002"] == ("biosample", dt.date(2026, 10, 14))
     assert "Accession" not in by_acc
+
+
+def _with_gone_records(tmp_path: Path) -> Path:
+    """Copy the fixture snapshots, adding a suppressed experiment and a withdrawn BioSample.
+
+    A withdrawn Series is simply absent from the geo-series snapshot.
+    """
+    out = tmp_path / "snapshots"
+    shutil.copytree(_SNAPSHOTS, out)
+    tab = out / "sra-accessions" / "2026-10-14" / "SRA_Accessions.tab"
+    day = "2024-05-28T07:01:47Z"
+    gone = f"SRA1\tsuppressed\t{day}\t{day}\t{day}\tEXPERIMENT\tX\tpublic\tSRX99000001"
+    with tab.open("a", encoding="utf-8") as fh:
+        fh.write(f"SRX99000001\t{gone}\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\n")
+    biosample = out / "biosample" / "2026-10-14" / "biosample_set.xml.gz"
+    text = gzip.decompress(biosample.read_bytes()).decode()
+    withdrawn = (
+        '<BioSample access="public" id="99000001" accession="SAMN99000001"><Ids>'
+        '<Id db="BioSample" is_primary="1">SAMN99000001</Id></Ids>'
+        '<Status status="suppressed" when="2025-01-01T00:00:00.000"/></BioSample>\n'
+    )
+    text = text.replace("</BioSampleSet>", withdrawn + "</BioSampleSet>")
+    biosample.write_bytes(gzip.compress(text.encode(), mtime=0))
+    return out
+
+
+def test_withdrawn_and_suppressed_records_raise_not_found(tmp_path: Path) -> None:
+    store = _store(tmp_path, [_PROJECT], _with_gone_records(tmp_path))
+    result = store.open_many(["SRX99000001", "SAMN99000001", "GSE99000001"])
+    assert {a: type(e) for a, e in result.items()} == dict.fromkeys(result, NotFound)
+    public = store.open_many(["DRX000001", "SAMN00000002", "PRJNA3", "GSE19970"])
+    assert {a: type(e) for a, e in public.items()} == dict.fromkeys(public, NotMirrored)
+
+
+def test_a_biosample_extract_without_status_asks_for_a_new_extract(tmp_path: Path) -> None:
+    root = _root(tmp_path)
+    folder, _ = extract.done_dir(root, "biosample")
+    for part in folder.glob("part-*.parquet"):
+        pq.write_table(pq.read_table(part).drop_columns("status"), part)
+    with pytest.raises(StoreBuildError, match="labdata store extract --source biosample"):
+        known.write(root, tmp_path / "known.parquet")
 
 
 # ---------------------------------------------------------------- walks

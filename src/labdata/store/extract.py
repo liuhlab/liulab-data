@@ -65,12 +65,14 @@ _RAY_MAC_STORE = 2 << 30
 _CHUNK = 1 << 24
 _BIOPROJECT_KEY = re.compile(rb'<ArchiveID\b[^>]*?\baccession="(PRJ[A-Z]+\d+)"')
 _BIOSAMPLE_KEY = re.compile(rb'<BioSample\b[^>]*?\baccession="(SAM[A-Z]+\d+)"')
+_BIOSAMPLE_STATUS = re.compile(rb'<Status\b[^>]*?\bstatus="([^"]*)"')
 _TAGS = {
     snapshots.BIOSAMPLE: re.compile(rb"<BioSample[\s>]"),
     snapshots.BIOPROJECT: re.compile(rb"<Package[\s>]"),
 }
 
 _TEXT_SCHEMA = pa.schema([("accession", pa.string()), ("raw_text", pa.string())])
+_BIOSAMPLE_SCHEMA = _TEXT_SCHEMA.append(pa.field("status", pa.string()))
 _TAB_SCHEMA = pa.schema(
     [
         ("accession", pa.string()),
@@ -451,6 +453,16 @@ def _xml_rows(
     return rows
 
 
+def _biosample_rows(fh: BinaryIO, start: int, end: int) -> Iterator[tuple[str | None, ...]]:
+    """Yield each BioSample's accession, text and ``<Status status>``."""
+    for element in _elements(fh, start, end, b"BioSample"):
+        key = _BIOSAMPLE_KEY.search(element)
+        if key:
+            status = _BIOSAMPLE_STATUS.search(element)
+            text = element.decode("utf-8")
+            yield key[1].decode("ascii"), text, status[1].decode("ascii") if status else None
+
+
 def _tab_rows(fh: BinaryIO, start: int, end: int) -> Iterator[tuple[str | None, ...]]:
     """Yield each data line's accession and typed columns; a ``-`` cell reads as empty."""
     fh.seek(0)
@@ -489,7 +501,7 @@ def _geo_rows(fh: BinaryIO, start: int, end: int) -> Iterator[tuple[str | None, 
 _READERS: dict[
     str, tuple[pa.Schema, Callable[[BinaryIO, int, int], Iterator[tuple[str | None, ...]]]]
 ] = {
-    snapshots.BIOSAMPLE: (_TEXT_SCHEMA, _xml_rows(b"BioSample", _BIOSAMPLE_KEY)),
+    snapshots.BIOSAMPLE: (_BIOSAMPLE_SCHEMA, _biosample_rows),
     snapshots.BIOPROJECT: (_TEXT_SCHEMA, _xml_rows(b"Package", _BIOPROJECT_KEY)),
     snapshots.SRA_ACCESSIONS: (_TAB_SCHEMA, _tab_rows),
     snapshots.GEO_SERIES: (_GEO_SCHEMA, _geo_rows),

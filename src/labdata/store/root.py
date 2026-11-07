@@ -144,7 +144,7 @@ class Store:
         NotMirrored
             If a snapshot lists it but the store does not hold it.
         NotFound
-            If no snapshot lists it. The message gives the snapshot date.
+            If no snapshot lists it as public. The message gives the snapshot date.
         """
         [result] = self.open_many([accession]).values()
         if isinstance(result, LabdataError):
@@ -227,7 +227,7 @@ class Store:
             If a snapshot lists an accession the store does not hold. The message lists
             every such accession.
         NotFound
-            If no snapshot lists an accession. The message gives the snapshot date.
+            If no snapshot lists an accession as public. The message gives the snapshot date.
         """
         wanted = set(_accessions(accessions))
         texts = self.reader.raw(wanted) if wanted else {}
@@ -258,7 +258,7 @@ class Store:
             If a snapshot lists an accession the store does not hold. The message lists
             every such accession.
         NotFound
-            If no snapshot lists an accession. The message gives the snapshot date.
+            If no snapshot lists an accession as public. The message gives the snapshot date.
         """
         order = _accessions(accessions)
         self._require_held(set(order))
@@ -302,7 +302,7 @@ class Store:
         AccessionError
             If an accession is malformed.
         NotFound
-            If no snapshot lists a root, even with ``partial``.
+            If no snapshot lists a root as public, even with ``partial``.
         NotMirrored
             If a root or a record on the way down is not held, unless ``partial``. The
             message lists every missing accession.
@@ -375,7 +375,7 @@ class Store:
         AccessionError
             If the accession is malformed.
         NotFound
-            If no snapshot lists the accession.
+            If no snapshot lists the accession as public.
         NotMirrored
             If the accession, or a record under it, is not held (unless ``partial``).
         """
