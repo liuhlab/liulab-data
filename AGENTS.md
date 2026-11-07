@@ -32,7 +32,7 @@ src/labdata/
                        sratools.py (per-stage tool wrappers), pipeline.py
                        (Snakemake driver), pipeline.smk (the download DAG)
   store/             the source record store: fetch lanes (geo_lane.py, eutils.py),
-                       raw/ pieces and pack, snapshot extract, build, gaps, prune,
+                       a refresh's re-fetch list (changes.py), raw/ pieces and pack, snapshot extract, build, gaps, prune,
                        GCS copy (gcs.py); reader.py (the build reader, the only
                        way to open a build); layout.py (every build table's
                        declaration, the only writer of build tables);

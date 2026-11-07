@@ -19,6 +19,7 @@ import logging
 import re
 import shutil
 import xml.etree.ElementTree as ET
+from collections import defaultdict
 from collections.abc import Iterable, Iterator
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
@@ -66,7 +67,7 @@ class LaneReport:
 
     ``reasked`` counts saved bad packages asked for again, ``recovered`` those that came back
     good. A bad saved package NCBI again serves none for is kept as saved and is not in
-    ``missing``.
+    ``missing``; nor is a re-fetch experiment's, which ``unserved`` lists.
     """
 
     fetched: int
@@ -74,6 +75,7 @@ class LaneReport:
     failed: int
     reasked: int = 0
     recovered: int = 0
+    unserved: frozenset[str] = frozenset()
 
 
 def experiment_list(
@@ -246,8 +248,9 @@ class _Part:
     spill: Path
     again: frozenset[str] = frozenset()
     fetched: int = 0
-    recovered: int = 0
+    recovered: set[str] = field(default_factory=set)
     missing: list[str] = field(default_factory=list)
+    kept: set[str] = field(default_factory=set)
     failed: set[str] = field(default_factory=set)
     _writer: pq.ParquetWriter | None = None
 
@@ -258,6 +261,7 @@ class _Part:
         still served none is left as saved and not counted.
         """
         missing = [a for a in got.missing if a not in self.again]
+        self.kept.update(a for a in got.missing if a in self.again)
         texts = got.records | dict.fromkeys(missing, "")
         if texts:
             if self._writer is None:
@@ -266,7 +270,7 @@ class _Part:
             columns = {"accession": list(texts), "raw_text": list(texts.values())}
             self._writer.write_table(pa.table(columns, schema=_SPILL_SCHEMA))
         self.fetched += len(got.records)
-        self.recovered += len(self.again & got.records.keys())
+        self.recovered |= self.again & got.records.keys()
         self.missing += missing
         self.failed |= set(got.failed)
         self.batches -= 1
@@ -292,8 +296,12 @@ def fetch_packages(
     inflight: int = INFLIGHT,
     part_size: int = EXPERIMENTS_PER_PART,
     log_every: float = EVERY,
+    refetch: Iterable[str] = (),
 ) -> LaneReport:
     """Fetch the package of every listed experiment no part or raw bucket holds yet.
+
+    A ``refetch`` experiment, listed or not, is fetched again though a raw bucket holds it;
+    only a part saves it.
 
     Calls finish in any order: a slow call holds back only its own part, while at most
     :data:`OPEN_PARTS` parts are open at once.
@@ -312,6 +320,8 @@ def fetch_packages(
         Experiments per call, calls in flight, experiments per part.
     log_every : float
         Seconds between progress lines.
+    refetch : iterable of str
+        Experiments to fetch again.
 
     Returns
     -------
@@ -320,21 +330,28 @@ def fetch_packages(
         lane ends; if that fails too it is not saved, so the next run asks for it again. A new
         one NCBI has no package for is saved with an empty text and counted in ``missing``.
         Saved bad packages are asked again: ``reasked`` counts them, ``recovered`` those that
-        came back good and replace the saved copy.
+        came back good and replace the saved copy. A re-fetch experiment NCBI serves none
+        for keeps its saved package and is listed in ``unserved``.
     """
     sizes = (batch, inflight, part_size)
     noted = gaps.noted(root, gaps.UNPARSABLE_PACKAGE)
-    first, settled = _fetch_once(root, experiments, client, date, sizes, log_every, noted, set())
+    again = frozenset(refetch)
+    first, settled = _fetch_once(
+        root, experiments, client, date, sizes, log_every, noted, set(), again
+    )
     report = first
     if first.failed:
         logger.info("asking again for the %d experiments whose calls failed", first.failed)
-        last, _ = _fetch_once(root, experiments, client, date, sizes, log_every, noted, settled)
+        last, _ = _fetch_once(
+            root, experiments, client, date, sizes, log_every, noted, settled, again
+        )
         report = LaneReport(
             first.fetched + last.fetched,
             first.missing + last.missing,
             last.failed,
             len(settled) + last.reasked,
             first.recovered + last.recovered,
+            first.unserved | last.unserved,
         )
     logger.info(
         "asked again for %d saved bad packages; %d came back good",
@@ -353,15 +370,17 @@ def _fetch_once(
     log_every: float,
     noted: set[str],
     settled: set[str],
+    refetch: frozenset[str],
 ) -> tuple[LaneReport, set[str]]:
-    """Run the lane once; also return the saved experiments asked again whose call worked."""
+    """Run the lane once; also return the saved bad packages asked again whose call worked."""
     batch, inflight, part_size = sizes
     spill = root / "work" / "eutils" / "spill"
     shutil.rmtree(spill, ignore_errors=True)
-    total = sum(len(p.todo) for p in _pieces(root, experiments, noted, settled))
+    total = sum(len(p.todo) for p in _pieces(root, experiments, noted, settled, refetch))
     report = {"fetched": 0, "missing": 0, "failed": 0, "reasked": 0, "recovered": 0}
     asked_again: set[str] = set()
-    jobs = _jobs(root, experiments, batch, part_size, spill, noted, settled)
+    unserved: set[str] = set()
+    jobs = _jobs(root, experiments, batch, part_size, spill, noted, settled, refetch)
     pending: dict[Future[FetchedRecords], _Part] = {}
     opened: set[_Part] = set()
     upcoming: list[tuple[_Part, list[str]]] = []
@@ -401,11 +420,12 @@ def _fetch_once(
                     report["fetched"] += part.fetched
                     report["missing"] += len(part.missing)
                     report["failed"] += len(part.failed)
-                    report["reasked"] += len(part.again)
-                    report["recovered"] += part.recovered
-                    asked_again |= part.again - part.failed
+                    report["reasked"] += len(part.again - refetch)
+                    report["recovered"] += len(part.recovered - refetch)
+                    asked_again |= part.again - part.failed - refetch
+                    unserved |= part.kept & refetch
             refill()
-    return LaneReport(**report), asked_again
+    return LaneReport(**report, unserved=frozenset(unserved)), asked_again
 
 
 def _fetch(client: EntrezClient, ids: list[str]) -> FetchedRecords:
@@ -433,8 +453,9 @@ def _jobs(
     spill: Path,
     noted: set[str],
     settled: set[str],
+    refetch: frozenset[str],
 ) -> Iterator[tuple[_Part, list[str]]]:
-    for piece in _pieces(root, experiments, noted, settled):
+    for piece in _pieces(root, experiments, noted, settled, refetch):
         for start in range(0, len(piece.todo), part_size):
             todo = piece.todo[start : start + part_size]
             part = _Part(
@@ -454,14 +475,32 @@ class _Work(raw.Piece):
     again: frozenset[str] = frozenset()
 
 
-def _pieces(root: Path, experiments: Path, noted: set[str], settled: set[str]) -> Iterator[_Work]:
+def _pieces(
+    root: Path, experiments: Path, noted: set[str], settled: set[str], refetch: frozenset[str]
+) -> Iterator[_Work]:
     """Yield each bucket's work, one bucket at a time; ``settled`` are not asked again."""
-    for status in _buckets(experiments):
+    for status in _with_refetch(_buckets(experiments), refetch):
+        bucket = raw.bucket_of(raw.SRA_XML, next(iter(status)))
         unsaved = {a for p in raw.pieces(root, raw.SRA_XML, status) for a in p.todo}
-        again = _bad_saved(root, status, noted) - settled - unsaved
+        redo = refetch.intersection(status) - unsaved
+        renew = {a for p in raw.pieces(root, raw.SRA_XML, (), redo) for a in p.todo}
+        again = (_bad_saved(root, status, noted) - settled - unsaved) | renew
         if unsaved or again:
-            bucket = raw.bucket_of(raw.SRA_XML, next(iter(status)))
             yield _Work(raw.SRA_XML, bucket, tuple(sorted(unsaved | again)), frozenset(again))
+
+
+def _with_refetch(
+    listed: Iterator[dict[str, str]], refetch: frozenset[str]
+) -> Iterator[dict[str, str]]:
+    """Add each bucket's re-fetch experiments to it; those of buckets the list lacks come last."""
+    extra: dict[str, set[str]] = defaultdict(set)
+    for accession in refetch:
+        extra[raw.bucket_of(raw.SRA_XML, accession)].add(accession)
+    for status in listed:
+        more = extra.pop(raw.bucket_of(raw.SRA_XML, next(iter(status))), set())
+        yield dict.fromkeys(sorted(more - status.keys()), "") | status
+    for bucket in sorted(extra):
+        yield dict.fromkeys(sorted(extra[bucket]), "")
 
 
 def _bad_saved(root: Path, status: dict[str, str], noted: set[str]) -> set[str]:

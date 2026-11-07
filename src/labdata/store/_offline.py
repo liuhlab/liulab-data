@@ -28,6 +28,9 @@ class OfflineEntrezClient(EntrezClient):
     def esearch(self, db: str, term: str, *, retmax: int = 20) -> list[str]:
         _refuse("esearch")
 
+    def esearch_all(self, db: str, term: str, *, page: int = 10_000) -> list[str]:
+        _refuse("esearch_all")
+
     def esummary(self, db: str, uid: str) -> dict[str, Any]:
         _refuse("esummary")
 
