@@ -6,6 +6,8 @@ translates arguments, dispatches, and chooses an output format.
 
 from __future__ import annotations
 
+import atexit
+import logging
 from collections.abc import Callable
 from pathlib import Path
 
@@ -116,8 +118,13 @@ def store_configure(
 
 
 def _store_client() -> EntrezClient:
-    """Return the Entrez client store fetches use; never prompts, so batch jobs never hang."""
-    return EntrezClient(allow_prompt=False)
+    """Return the Entrez client store fetches use; never prompts, so batch jobs never hang.
+
+    The step logs the client's requests and bytes read when it exits.
+    """
+    client = EntrezClient(allow_prompt=False)
+    atexit.register(lambda: logging.getLogger("labdata.ncbi").info("NCBI: %s", client.traffic))
+    return client
 
 
 @store_app.command("fetch")

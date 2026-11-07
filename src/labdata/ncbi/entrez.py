@@ -20,9 +20,11 @@ import http.client
 import io
 import random
 import socket
+import threading
 import time
 import urllib.error
 import urllib.parse
+from collections import Counter
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from email.message import Message
@@ -225,6 +227,50 @@ def _chunked(items: list[str], size: int) -> list[list[str]]:
     return [items[i : i + size] for i in range(0, len(items), size)]
 
 
+class Traffic:
+    """What one client sent and read: requests per ``<host> <status>``, and body bytes read.
+
+    A request that got no reply counts under its exception's name instead of a status.
+    """
+
+    def __init__(self) -> None:
+        self.requests: Counter[str] = Counter()
+        self.bytes = 0
+        self._lock = threading.Lock()
+
+    def count(self, host: str, outcome: object) -> None:
+        """Count one request to ``host`` that ended in ``outcome``."""
+        with self._lock:
+            self.requests[f"{host} {outcome}"] += 1
+
+    def add_bytes(self, n: int) -> None:
+        """Count ``n`` body bytes read."""
+        with self._lock:
+            self.bytes += n
+
+    def __str__(self) -> str:
+        """Return one log line: the totals, then the count per host and status."""
+        each = ", ".join(f"{k}: {v}" for k, v in sorted(self.requests.items()))
+        return f"{self.requests.total()} requests, {self.bytes} bytes read: {each}"
+
+
+class _Counted:
+    """A response whose body reads are added to a :class:`Traffic`."""
+
+    def __init__(self, response: Response, traffic: Traffic) -> None:
+        self._response = response
+        self._traffic = traffic
+        self.status = response.status
+
+    def getheader(self, name: str) -> str | None:
+        return self._response.getheader(name)
+
+    def read(self, amt: int | None = None) -> bytes:
+        data = self._response.read(amt)
+        self._traffic.add_bytes(len(data))
+        return data
+
+
 class EntrezClient:
     """Authenticated entry point to NCBI E-utilities and the GEO download site.
 
@@ -261,6 +307,8 @@ class EntrezClient:
         # Per-instance response cache keyed by call signature. Redundant lookups
         # across records that share this client are served without a request.
         self._cache: dict[tuple[Any, ...], Any] = {}
+        #: Requests sent and bytes read, for a step's log.
+        self.traffic = Traffic()
 
     def clear_cache(self) -> None:
         """Drop all cached responses (forcing fresh requests on the next call)."""
@@ -732,6 +780,8 @@ class EntrezClient:
             headers["Content-Type"] = "application/x-www-form-urlencoded"
         refused = 0
         attempt = 0
+        host = urllib.parse.urlsplit(url).netloc
+        response: _Counted | None = None
         while True:
             try:
                 pace = limiter.turn() if limiter else contextlib.nullcontext()
@@ -739,14 +789,19 @@ class EntrezClient:
                     pace,
                     self._transport.open(
                         method, url, body=body, headers=headers, timeout=timeout
-                    ) as response,
+                    ) as reply,
                 ):
+                    response = _Counted(reply, self.traffic)
+                    self.traffic.count(host, response.status)
                     if response.status != 200:
                         raise _StatusError(
                             url, response.status, _headers(response), response.read()
                         )
                     return read(response)
             except Exception as err:
+                if response is None:
+                    self.traffic.count(host, type(err).__name__)
+                response = None
                 attempt += 1
                 wait = _backoff(attempt - 1)
                 status = getattr(err, "code", None)
