@@ -109,12 +109,17 @@ labdata store refresh
 ```
 
 The first refresh searches for changes from the date of the `geo-series` snapshot the current
-build read; each later one, from the last successful refresh, less three days. To search from
-another date, add `--since YYYY-MM-DD`.
+build read; each later one, from the last successful refresh, less a few days of overlap
+(`labdata store refresh --help` gives the number). To search from another date, add
+`--since YYYY-MM-DD`.
 
 If it stops, run the same command again. It goes on in the same folder,
 `work/refresh/<start time>/`, from the first unfinished step, and asks for nothing it saved.
 That folder holds the refresh's markers and logs.
+
+The refresh stops before it removes more than 5% of any source's records, as a cut-off
+snapshot looks the same as a mass withdrawal. Check the newest `geo-series` snapshot. If the
+removals are right, run the same command with `--max-share 0.2`, or the share you expect.
 
 `refresh-status.json` in the store root shows the outcome:
 

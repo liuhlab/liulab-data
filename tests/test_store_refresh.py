@@ -204,8 +204,12 @@ def _executor(
     return run, ran
 
 
+#: The withdrawn Series' one experiment is a seventh of this fixture's, past the default cap.
+_SHARE = ("--max-share", "0.5")
+
+
 def _refresh(root: Path, *extra: str) -> str:
-    return _cli("refresh", "--root", str(root), "--cores", "1", *extra)
+    return _cli("refresh", "--root", str(root), "--cores", "1", *_SHARE, *extra)
 
 
 def _held(root: Path, source: str) -> dict[str, str]:
@@ -275,6 +279,7 @@ def test_refresh_hands_snakemake_the_refresh_dag_in_step_order(
     assert "_changes --since 2026-10-14 --out refetch.txt" in commands["changes"]
     assert "_geo --refetch refetch.txt" in commands["geo"]
     assert "--soft-only" in commands["eutils_after_geo"]
+    assert "_reach --max-share 0.5" in commands["reach"]
     argv = seen["argv"]
     assert isinstance(argv, list)
     assert argv[argv.index("--resources") + 1] == "ncbi=2"
@@ -288,6 +293,29 @@ def test_refresh_hands_snakemake_the_refresh_dag_in_step_order(
 
 
 _EXTRACTS = ("biosample", "bioproject", "sra-accessions", "geo-series")
+
+
+def test_a_resumed_refresh_says_it_keeps_its_own_since_date(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    root = tmp_path / "store"
+    init_store(root)
+    started = "2026-11-01T02:00:00Z"
+    folder = "work/refresh/2026-11-01T020000Z"
+    unfinished = {"started": started, "outcome": "failed", "folder": folder, "since": _OLD}
+    refresh.write_status(root, unfinished)
+    seen: list[str] = []
+
+    def fake(argv: list[str], *, verbose: bool) -> int:
+        seen.append(json.loads(Path(argv[argv.index("--configfile") + 1]).read_text())["since"])
+        return 0
+
+    monkeypatch.setattr(pipeline, "_run_snakemake", fake)
+    with caplog.at_level("WARNING"):
+        _refresh(root, "--since", "2026-01-01")
+
+    assert seen == [_OLD]
+    assert f"--since 2026-01-01 is not used: the unfinished refresh keeps {_OLD}" in caplog.text
 
 
 # ---------------------------------------------------------------- a fixture refresh
@@ -348,7 +376,9 @@ def test_a_refresh_killed_after_pack_and_rerun_gives_the_uninterrupted_build(
 
     _use(monkeypatch, cut_ncbi)
     _executor(monkeypatch, stop_after="pack")
-    result = CliRunner().invoke(app, ["store", "refresh", "--root", str(cut), "--cores", "1"])
+    result = CliRunner().invoke(
+        app, ["store", "refresh", "--root", str(cut), "--cores", "1", *_SHARE]
+    )
     assert result.exit_code == 1
     assert refresh.read_status(cut)["outcome"] == "failed"
     assert open_store(cut).settings["build"] == "b1"

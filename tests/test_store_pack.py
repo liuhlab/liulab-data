@@ -143,3 +143,44 @@ def test_pack_repacks_buckets_of_another_width_to_the_same_rows(tmp_path: Path) 
     ]
     assert {s: raw.read_rows(root, s) for s in before} == before
     assert "10,000" in (soft / "README.md").read_text()
+
+
+def _counted_store(root: Path) -> Path:
+    """A packed bucket, then parts that replace, keep, add and remove rows in two buckets."""
+    old = [raw.RawRow(f"GSE{n}", "old", "d0") for n in (10001, 10002, 10003, 20001)]
+    pack.write_rows(root, raw.GEO_SOFT, old)
+    new = [raw.RawRow("GSE10001", "old", "d1"), raw.RawRow("GSE10002", "new", "d1")]
+    raw.write_part(root, raw.Piece(raw.GEO_SOFT, "GSE1nnnn", ("GSE10001", "GSE10002")), new)
+    added = [raw.RawRow("GSE20002", "added", "d1")]
+    raw.write_part(root, raw.Piece(raw.GEO_SOFT, "GSE2nnnn", ("GSE20002",)), added)
+    raw.write_removals(root, raw.GEO_SOFT, ["GSE10003"])
+    return root
+
+
+@pytest.mark.parametrize("kill", ["before", "after"])
+def test_pack_counts_after_a_kill_and_rerun_match_an_uninterrupted_pack(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kill: str
+) -> None:
+    whole, cut = _counted_store(tmp_path / "whole"), _counted_store(tmp_path / "cut")
+    real = raw.write_sorted_runs
+
+    def killed(path: Path, rows: Any, schema: Any, **kw: Any) -> None:
+        """Kill the pack of one bucket just before or just after its file is renamed."""
+        if path != cut / "raw" / raw.GEO_SOFT / "GSE1nnnn.parquet":
+            return real(path, rows, schema, **kw)
+        if kill == "before":
+            list(rows)
+        else:
+            real(path, rows, schema, **kw)
+        raise KilledError(path)
+
+    monkeypatch.setattr(raw, "write_sorted_runs", killed)
+    with pytest.raises(KilledError):
+        pack.pack(cut, counts=cut / "counts.jsonl")
+    monkeypatch.setattr(raw, "write_sorted_runs", real)
+    pack.pack(cut, counts=cut / "counts.jsonl")
+    pack.pack(whole, counts=whole / "counts.jsonl")
+
+    expected = {raw.GEO_SOFT: {"added": 1, "replaced": 1, "removed": 1}}
+    assert pack.read_counts(whole / "counts.jsonl") == expected
+    assert pack.read_counts(cut / "counts.jsonl") == expected

@@ -7,6 +7,7 @@ translates arguments, dispatches, and chooses an output format.
 from __future__ import annotations
 
 import atexit
+import datetime as dt
 import logging
 from collections.abc import Callable
 from pathlib import Path
@@ -25,6 +26,7 @@ from labdata.ncbi.config import (
 )
 from labdata.ncbi.entrez import EntrezClient
 from labdata.store import init_store, open_store, save_pointer
+from labdata.store.changes import OVERLAP_DAYS
 from labdata.tenx import bamtofastq
 
 app = typer.Typer(
@@ -386,13 +388,16 @@ def store_run(
 def store_refresh(
     since: str | None = typer.Option(
         None,
-        help="Search GEO's changes from this date, YYYY-MM-DD, less 3 days; default: the last "
-        "successful refresh, then the geo-series snapshot of the current build.",
+        help=f"Search GEO's changes from this date, YYYY-MM-DD, less {OVERLAP_DAYS} days; "
+        "default: the last successful refresh, then the geo-series snapshot of the current build.",
     ),
     cores: int | None = typer.Option(
         None, min=1, help="Cores the steps may use; default: SLURM_CPUS_ON_NODE, then all."
     ),
     ncbi: int = typer.Option(2, min=1, help="Network steps that may run at once."),
+    max_share: float = typer.Option(
+        0.05, min=0.0, max=1.0, help="Refuse to remove more than this share of any raw source."
+    ),
     root: Path | None = typer.Option(
         None, help="Store root; default: LABDATA_STORE, then pointer."
     ),
@@ -411,7 +416,9 @@ def store_refresh(
         _date(since, "--since")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     try:
-        code = refresh.run(open_store(root).root, since=since, cores=cores, ncbi=ncbi)
+        code = refresh.run(
+            open_store(root).root, since=since, cores=cores, ncbi=ncbi, max_share=max_share
+        )
     except LabdataError as err:
         typer.echo(str(err), err=True)
         raise typer.Exit(1) from err
@@ -436,11 +443,9 @@ def store_refreshed(
         typer.echo(f"{source}: " + ", ".join(f"{n} {key}" for key, n in counts.items()))
 
 
-def _date(value: str, hint: str) -> None:
-    import datetime as dt
-
+def _date(value: str, hint: str) -> dt.date:
     try:
-        dt.date.fromisoformat(value)
+        return dt.date.fromisoformat(value)
     except ValueError as err:
         raise typer.BadParameter(str(err), param_hint=hint) from err
 
@@ -470,7 +475,9 @@ def store_targets(
 @store_app.command("_changes", hidden=True)
 def store_changes(
     since: str = typer.Option(
-        ..., help="The last successful refresh's date, YYYY-MM-DD; the search starts 3 days before."
+        ...,
+        help=f"The last successful refresh's date, YYYY-MM-DD; the search starts {OVERLAP_DAYS} "
+        "days before.",
     ),
     out: Path = typer.Option(..., help="The re-fetch list to write, one Series per line."),
     snapshot_date: str | None = typer.Option(
@@ -481,14 +488,9 @@ def store_changes(
     ),
 ) -> None:
     """Write the re-fetch list: target Series GEO changed or added, and those they name."""
-    import datetime as dt
-
     from labdata.store import changes
 
-    try:
-        last = dt.date.fromisoformat(since)
-    except ValueError as err:
-        raise typer.BadParameter(str(err), param_hint="--since") from err
+    last = _date(since, "--since")
     store = open_store(root)
     found = changes.change_list(
         store.root, last, out, client=_store_client(), snapshot_date=snapshot_date
@@ -645,7 +647,6 @@ def store_confirm(
     found = removals.candidates(store.root, extra)
     today = dt.datetime.now(dt.UTC).date().isoformat()
     report = removals.confirm(store.root, found, client=_store_client(), date=today)
-    removals.clear_unserved(store.root)
     typer.echo(
         f"Removal candidates: {report.asked} asked, {report.gone} confirmed gone, "
         f"{report.runs_gone} runs gone, {report.kept} still served, "
@@ -657,6 +658,9 @@ def store_confirm(
 
 @store_app.command("_reach", hidden=True)
 def store_reach(
+    max_share: float = typer.Option(
+        0.05, min=0.0, max=1.0, help="Refuse to remove more than this share of any source."
+    ),
     root: Path | None = typer.Option(
         None, help="Store root; default: LABDATA_STORE, then pointer."
     ),
@@ -668,7 +672,11 @@ def store_reach(
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     store = open_store(root)
-    counts = removals.reach(store.root)
+    try:
+        counts = removals.reach(store.root, max_share=max_share)
+    except LabdataError as err:
+        typer.echo(str(err), err=True)
+        raise typer.Exit(1) from err
     typer.echo(f"Unreached raw rows: {sum(counts.values())} to remove")
     for source, count in sorted(counts.items()):
         typer.echo(f"{source}: {count} to remove")

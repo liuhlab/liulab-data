@@ -234,6 +234,11 @@ def sql_string(text: str) -> str:
     return "'" + text.replace("'", "''") + "'"
 
 
+def read_parquet_sql(paths: Iterable[Path]) -> str:
+    """Return a DuckDB ``read_parquet`` over these files, listed, never globbed."""
+    return f"read_parquet([{', '.join(sql_string(str(p)) for p in paths)}])"
+
+
 def sql_ident(name: str) -> str:
     """Return ``name`` as a quoted SQL identifier."""
     return '"' + name.replace('"', '""') + '"'

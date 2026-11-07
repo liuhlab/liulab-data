@@ -10,6 +10,7 @@ repacks the same rows.
 
 from __future__ import annotations
 
+import hashlib
 import heapq
 import itertools
 import json
@@ -111,14 +112,14 @@ def _pack_source(
         # The old bucket is never spilled, so the merge can tell its rows from the parts'.
         most = FAN_IN - 1 if held else FAN_IN
         runs = _fewer(list(_runs(parts)), raw.parts_dir(root, source), spills, chunk_bytes, most)
-        tally: dict[str, int] = dict.fromkeys(_TALLY, 0)
+        tally: dict[str, int] = dict.fromkeys(COUNTS, 0)
         rows = _merged([_rows(path), *runs] if held else runs, tally, held=held)
+        if counts is not None:
+            record = {"source": source, "bucket": bucket, "parts": _parts_tag(parts)}
+            rows = _counted(rows, counts, record, tally)
         raw.write_sorted_runs(path, rows, raw.SCHEMA, chunk_bytes=chunk_bytes)
         if pq.read_metadata(path).num_rows == 0:
             path.unlink()
-        if counts is not None:
-            with counts.open("a", encoding="utf-8") as fh:
-                fh.write(json.dumps({"source": source, "bucket": bucket, **tally}) + "\n")
         for done in [*parts, *spills]:
             done.unlink()
         written.append(path)
@@ -126,7 +127,44 @@ def _pack_source(
     return written, removed
 
 
-_TALLY = ("added", "replaced", "removed")
+#: The counts a pack records per bucket rewritten.
+COUNTS = ("added", "replaced", "removed")
+
+
+def read_counts(path: Path) -> dict[str, dict[str, int]]:
+    """Return the records added, replaced and removed per source, from a pack's counts file.
+
+    A bucket packed again from the same parts, after a kill, counts once: its first record.
+    """
+    out: dict[str, dict[str, int]] = defaultdict(lambda: dict.fromkeys(COUNTS, 0))
+    seen: set[tuple[str, str, str]] = set()
+    lines = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:  # a line cut off by a kill
+            continue
+        key = (row["source"], row["bucket"], row.get("parts", ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        for name in COUNTS:
+            out[row["source"]][name] += row[name]
+    return dict(sorted(out.items()))
+
+
+def _parts_tag(parts: list[Path]) -> str:
+    return hashlib.sha256("\n".join(p.name for p in parts).encode()).hexdigest()[:12]
+
+
+def _counted(
+    rows: Iterator[RawRow], counts: Path, record: dict[str, str], tally: dict[str, int]
+) -> Iterator[RawRow]:
+    """Pass ``rows`` on, then append the bucket's counts, before its new file is renamed in."""
+    yield from rows
+    with counts.open("a+b") as fh:
+        torn = fh.tell() > 0 and fh.seek(-1, os.SEEK_END) >= 0 and fh.read(1) != b"\n"
+        fh.write(b"\n" * torn + json.dumps({**record, **tally}).encode() + b"\n")
 
 
 def _fewer(
