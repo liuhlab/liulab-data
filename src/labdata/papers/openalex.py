@@ -36,7 +36,17 @@ API = "https://api.openalex.org"
 BATCH = 100
 
 #: Work types the paper job takes for a paper; any other is ``not-article``.
-ARTICLE_TYPES = ("article", "preprint", "review", "letter", "book-chapter", "report")
+#: A ``data-paper`` is an article that describes a dataset, so it counts.
+ARTICLE_TYPES = (
+    "article",
+    "preprint",
+    "review",
+    "letter",
+    "data-paper",
+    "conference-paper",
+    "book-chapter",
+    "report",
+)
 
 _SELECT = (
     "id,doi,ids,type,title,publication_date,has_content,locations,primary_location,"
