@@ -244,19 +244,19 @@ def fetch_geo_series(out: Path, *, base: Path | None, full: bool) -> None:
     from labdata.store import series_snapshot
 
     logging.basicConfig(format="%(asctime)s %(message)s", level=logging.INFO)
+    client = None
     try:
         client = EntrezClient(allow_prompt=False)
-    except LabdataError as e:
-        raise FetchError(str(e)) from e
-    try:
         done = series_snapshot.download(out, client, base=base, full=full)
     except LabdataError as e:
         raise FetchError(str(e)) from e
     finally:
-        log(f"geo-series: NCBI {client.traffic}")
+        if client is not None:
+            log(f"geo-series: NCBI {client.traffic}")
     how = f"patched from {done.patched_from}" if done.patched_from else "dumped whole"
     log(
-        f"geo-series: {done.records} records, {done.fetched} fetched, {done.dropped} dropped, {how}"
+        f"geo-series: {done.records} records, {done.fetched} fetched, "
+        f"{done.unanswered} unanswered, {done.dropped} dropped, {how}"
     )
 
 

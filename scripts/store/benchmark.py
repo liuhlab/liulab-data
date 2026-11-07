@@ -45,7 +45,7 @@ LIMITS: dict[str, tuple[float, float]] = {
     "links 1000 Series": (2, 1024),
     "readme *": (1, 1024),
     # Lists every Series with no SRA experiment, so it joins the whole links table.
-    "readme 4": (2, 2048),
+    "readme 4": (2, 1536),
     "raw 1000": (3, 4096),
 }
 
@@ -133,7 +133,8 @@ def run_query(name: str, root: Path, samples: dict[str, list[str]], tmp: Path) -
         from labdata.store.readme import duckdb_examples
 
         sql = duckdb_examples()[int(arg) - 1].format(build=store.reader.path)
-        con = duckdb.connect(config={"temp_directory": str(tmp / "duckdb")})
+        config = {"temp_directory": str(tmp / "duckdb"), "threads": BENCHMARK_THREADS}
+        con = duckdb.connect(config=config)
         return len(con.sql(sql).fetchall())
     raise ValueError(f"unknown query {name!r}")
 

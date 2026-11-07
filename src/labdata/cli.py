@@ -491,7 +491,8 @@ def store_changes(
     )
     typer.echo(
         f"{found.total} Series to fetch again in {found.path}: {found.updated} updated, "
-        f"{found.new} new, {found.related} named by a relation line"
+        f"{found.new} new, {found.failed} whose last SOFT fetch failed, "
+        f"{found.related} named by a relation line"
     )
 
 

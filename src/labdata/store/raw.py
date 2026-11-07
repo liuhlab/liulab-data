@@ -450,6 +450,23 @@ def saved(
     return out
 
 
+def fetch_dates(root: Path, source: str, accessions: Iterable[str]) -> dict[str, str]:
+    """Return the fetch date of each of ``accessions`` saved, as :func:`saved` picks the row.
+
+    Only the accession and date columns are read.
+    """
+    wanted = set(accessions)
+    out: dict[str, str] = {}
+    for path in _bucket_paths(root, source, wanted, False):
+        for accession in removed(path):
+            out.pop(accession, None)
+        data = pq.read_table(path, columns=["accession", "fetch_date"]).to_pydict()
+        out |= {
+            a: d for a, d in zip(data["accession"], data["fetch_date"], strict=True) if a in wanted
+        }
+    return out
+
+
 def read_rows(root: Path, source: str) -> list[RawRow]:
     """Return every raw row of one source, sorted by accession."""
     folder = root / "raw" / source
