@@ -1,8 +1,8 @@
 """A refresh's re-fetch list: the GEO Series to fetch again though ``raw/`` may hold them.
 
 The list holds the target Series GEO updated since the last successful refresh, less
-:data:`OVERLAP_DAYS`; the target Series not yet held; and every Series a relation line in
-their saved SOFT names. The fetch lanes take it as their ``refetch`` Series.
+:data:`OVERLAP_DAYS`; the target Series not yet held; the held target Series whose last SOFT
+fetch failed; and every Series a relation line in their saved SOFT names. The fetch lanes take it as their ``refetch`` Series.
 
 The store modules are imported where they are used, so the CLI reads :data:`OVERLAP_DAYS`
 without loading pyarrow.
@@ -42,6 +42,7 @@ class ChangeList:
     path: Path
     updated: int
     new: int
+    failed: int
     related: int
     total: int
 
@@ -120,10 +121,27 @@ def change_list(
     updated = updated_series(client, since) & wanted
     unheld = wanted - updated
     unheld -= raw.held(root, raw.GEO_SOFT, unheld) | raw.held(root, raw.GEO_GAPS, unheld)
-    listed = related(root, updated | unheld)
+    failed = soft_failed(root, wanted) - updated
+    listed = related(root, updated | unheld | failed)
     out.parent.mkdir(parents=True, exist_ok=True)
     write_atomic(out, "".join(f"{gse}\n" for gse in sorted(listed, key=_number)))
-    return ChangeList(out, len(updated), len(unheld), len(listed - updated - unheld), len(listed))
+    rest = listed - updated - unheld - failed
+    return ChangeList(out, len(updated), len(unheld), len(failed), len(rest), len(listed))
+
+
+def soft_failed(root: Path, series: Iterable[str]) -> set[str]:
+    """Return which of ``series`` hold a SOFT older than their ``soft-missing`` gap row.
+
+    Such a Series was held when a re-fetch of its SOFT failed: no later fetch asks for it
+    unless GEO updates it again.
+    """
+    from labdata.store import gaps, raw
+
+    gap_rows = raw.saved(root, raw.GEO_GAPS, series)
+    missing = {gse for gse, text in gap_rows.items() if text.split("\n", 1)[0] == gaps.SOFT_MISSING}
+    gap_dates = raw.fetch_dates(root, raw.GEO_GAPS, missing)
+    soft = raw.fetch_dates(root, raw.GEO_SOFT, missing)
+    return {gse for gse in missing if gse in soft and gap_dates[gse] > soft[gse]}
 
 
 def _number(accession: str) -> tuple[str, int]:
