@@ -108,6 +108,13 @@ the repository folder:
 labdata store refresh
 ```
 
+On a Slurm cluster, run it as one job:
+
+```bash
+export LABDATA_STORE=/path/to/store
+sbatch scripts/store/refresh.sbatch
+```
+
 The first refresh searches for changes from the date of the `geo-series` snapshot the current
 build read; each later one, from the last successful refresh, less a few days of overlap
 (`labdata store refresh --help` gives the number). To search from another date, add
