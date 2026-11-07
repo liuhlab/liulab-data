@@ -291,6 +291,20 @@ duckdb.sql(f"""
     FROM read_parquet('{build}/supplementary_files.parquet')
     WHERE owner = 'GSE20301'
 """).show()
+
+# The Series with no SRA experiment; their text, such as Series_overall_design, may say why
+duckdb.sql(f"""
+    WITH links AS (SELECT * FROM read_parquet('{build}/links_by_from.parquet'))
+    SELECT g.accession
+    FROM read_parquet('{build}/records/geo-series.parquet') g
+    WHERE NOT EXISTS (
+        SELECT 1 FROM links WHERE "from" = g.accession AND relation = 'SRA'
+        UNION ALL
+        SELECT 1 FROM links s JOIN links x ON x."from" = s."to" AND x.relation = 'SRA'
+        WHERE s."from" = g.accession AND s.relation = 'sample'
+    )
+    ORDER BY g.accession
+""").show()
 ```
 
 ## Sizes

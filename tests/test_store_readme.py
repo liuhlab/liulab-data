@@ -144,8 +144,16 @@ def test_the_readme_credits_no_checkout_when_the_build_names_no_producer(root: P
 
 def test_the_duckdb_examples_are_the_readme_queries_each_over_the_build() -> None:
     examples = readme.duckdb_examples()
-    assert len(examples) == 3
+    assert len(examples) == 4
     assert all("read_parquet('{build}/" in sql for sql in examples)
+
+
+def test_the_last_duckdb_example_lists_the_series_with_no_sra_experiment(root: Path) -> None:
+    import duckdb
+
+    sql = readme.duckdb_examples()[-1].format(build=root / "builds" / "b1")
+    # GSE15556 is the geo slice's one Series with no SRA link, of its own or of its samples.
+    assert duckdb.sql(sql).fetchall() == [("GSE15556",)]
 
 
 def test_a_readme_with_no_duckdb_example_fails_loudly() -> None:

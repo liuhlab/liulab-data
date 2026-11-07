@@ -68,6 +68,7 @@ def test_it_reports_each_query_and_each_table_and_writes_nothing_in_the_store(
         "readme 1",
         "readme 2",
         "readme 3",
+        "readme 4",
         "raw 5",
     ]
     held = pq.read_table(root / "builds" / "b1" / "holdings.parquet").to_pylist()
@@ -100,7 +101,7 @@ def test_a_query_over_its_limit_fails_the_run_naming_the_query(tmp_path: Path) -
     )
     assert done.returncode == 1, done.stderr
     breaches = [line for line in done.stdout.splitlines() if line.startswith("over the limit")]
-    assert len(breaches) == 4, done.stdout
+    assert len(breaches) == 5, done.stdout
     assert "get 1: wall" in breaches[0]
     assert all("peak" in line for line in breaches[1:])
 

@@ -44,6 +44,8 @@ LIMITS: dict[str, tuple[float, float]] = {
     f"table {TABLE_TYPE}": (6, 8192),
     "links 1000 Series": (2, 1024),
     "readme *": (1, 1024),
+    # Lists every Series with no SRA experiment, so it joins the whole links table.
+    "readme 4": (2, 2048),
     "raw 1000": (3, 4096),
 }
 
