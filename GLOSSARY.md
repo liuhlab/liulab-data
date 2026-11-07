@@ -24,7 +24,7 @@ _Avoid_: snapshot (a dated copy of one bulk source, which a build reads)
 
 One pass that brings the store to the sources' current state: it adds new records, replaces
 changed ones, removes withdrawn GEO Series, renews the snapshots and ends in a new current build.
-SRA records stay once held.
+A refresh never removes an SRA record; only a yearly maintenance run may.
 
 _Avoid_: update, sync (each says less than the whole pass)
 
@@ -96,6 +96,21 @@ It also names the refresh DAG version that started the refresh; a refresh anothe
 started is not resumed.
 
 _Avoid_: status file, refresh log
+
+### Maintenance run
+
+One pass of upkeep on the stores, monthly or yearly, done by one written procedure. A monthly run is
+the refresh and its light checks; a yearly run adds the heavy checks and the removal of withdrawn
+SRA records.
+
+_Avoid_: refresh (one step of a monthly maintenance run, not the whole of it)
+
+### Maintenance log
+
+The file in the repository with one entry per maintenance run: its date, period, build, each
+check's outcome and its time against budget.
+
+_Avoid_: status record (the refresh's own file in the store root)
 
 ### Gap
 
