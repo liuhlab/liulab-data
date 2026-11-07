@@ -30,7 +30,6 @@ from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
 from labdata.store import geo_lane, init_store, open_store, pipeline, raw, refresh
 from labdata.store.fetch import soft_url
-from tests._slices import SLICES, built_root
 from tests.test_store_refresh_fetch import Ncbi, _Reply
 
 _DATA = Path(__file__).parent / "data" / "geo_slice"
@@ -204,12 +203,8 @@ def _executor(
     return run, ran
 
 
-#: The withdrawn Series' one experiment is a seventh of this fixture's, past the default cap.
-_SHARE = ("--max-share", "0.5")
-
-
 def _refresh(root: Path, *extra: str) -> str:
-    return _cli("refresh", "--root", str(root), "--cores", "1", *_SHARE, *extra)
+    return _cli("refresh", "--root", str(root), "--cores", "1", *extra)
 
 
 def _held(root: Path, source: str) -> dict[str, str]:
@@ -258,8 +253,7 @@ def test_refresh_hands_snakemake_the_refresh_dag_in_step_order(
         "eutils_beside_geo": {"refetch.txt"},
         "eutils_after_geo": {"geo.done", "eutils-beside-geo.done"},
         "confirm": {"eutils.done"},
-        "reach": {"confirm.done"},
-        "pack": {"reach.done"},
+        "pack": {"confirm.done"},
         "build": {"pack.done", *(f"extract-{s}.done" for s in _EXTRACTS)},
         "status": {"build.done"},
         "prune": {"status.done"},
@@ -284,7 +278,6 @@ def test_refresh_hands_snakemake_the_refresh_dag_in_step_order(
     assert "_changes --since 2026-10-14 --out refetch.txt" in commands["changes"]
     assert "_geo --refetch refetch.txt" in commands["geo"]
     assert "--soft-only" in commands["eutils_after_geo"]
-    assert "_reach --max-share 0.5" in commands["reach"]
     argv = seen["argv"]
     assert isinstance(argv, list)
     assert argv[argv.index("--resources") + 1] == "ncbi=2"
@@ -307,7 +300,13 @@ def test_a_resumed_refresh_says_it_keeps_its_own_since_date(
     init_store(root)
     started = "2026-11-01T02:00:00Z"
     folder = "work/refresh/2026-11-01T020000Z"
-    unfinished = {"started": started, "outcome": "failed", "folder": folder, "since": _OLD}
+    unfinished = {
+        "started": started,
+        "outcome": "failed",
+        "folder": folder,
+        "since": _OLD,
+        "dag": refresh.DAG,
+    }
     refresh.write_status(root, unfinished)
     seen: list[str] = []
 
@@ -321,6 +320,39 @@ def test_a_resumed_refresh_says_it_keeps_its_own_since_date(
 
     assert seen == [_OLD]
     assert f"--since 2026-01-01 is not used: the unfinished refresh keeps {_OLD}" in caplog.text
+
+
+def test_a_refresh_an_older_dag_opened_is_left_and_a_new_one_starts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    root = tmp_path / "store"
+    init_store(root)
+    folder = "work/refresh/2026-11-01T020000Z"
+    (root / folder).mkdir(parents=True)
+    for marker in ("snapshots", "targets", "eutils", "confirm", "reach", "pack"):
+        (root / folder / f"{marker}.done").touch()
+    old = {"started": "2026-11-01T02:00:00Z", "outcome": "failed", "folder": folder, "since": _OLD}
+    refresh.write_status(root, old)
+    seen: list[str] = []
+
+    def fake(argv: list[str], *, verbose: bool) -> int:
+        seen.append(argv[argv.index("--directory") + 1])
+        return 1
+
+    monkeypatch.setattr(pipeline, "_run_snakemake", fake)
+    again = ["store", "refresh", "--root", str(root), "--cores", "1"]
+    with caplog.at_level("WARNING"):
+        assert CliRunner().invoke(app, again).exit_code == 1
+
+    assert Path(seen[0]) != root / folder
+    assert not list(Path(seen[0]).glob("*.done"))
+    status = refresh.read_status(root)
+    assert status["since"] == _OLD
+    assert status["folder"] != folder
+    assert f"left unfinished: {folder}" in caplog.text
+    # The new refresh, cut off in turn, resumes in its own folder.
+    assert CliRunner().invoke(app, again).exit_code == 1
+    assert seen[1] == seen[0]
 
 
 # ---------------------------------------------------------------- a fixture refresh
@@ -381,9 +413,7 @@ def test_a_refresh_killed_after_pack_and_rerun_gives_the_uninterrupted_build(
 
     _use(monkeypatch, cut_ncbi)
     _executor(monkeypatch, stop_after="pack")
-    result = CliRunner().invoke(
-        app, ["store", "refresh", "--root", str(cut), "--cores", "1", *_SHARE]
-    )
+    result = CliRunner().invoke(app, ["store", "refresh", "--root", str(cut), "--cores", "1"])
     assert result.exit_code == 1
     assert refresh.read_status(cut)["outcome"] == "failed"
     assert open_store(cut).settings["build"] == "b1"
@@ -453,23 +483,6 @@ def test_an_expired_login_leaves_the_copy_pending_and_a_later_copy_clears_it(
     )
     assert "Copied the store" in _cli("copy", "--root", str(root))
     assert refresh.read_status(root)["copy_pending"] is False
-
-
-# ---------------------------------------------------------------- records fetched by hand
-
-
-@pytest.mark.parametrize("slice_name", sorted(SLICES))
-def test_records_fetched_by_hand_stay_through_reachability_and_pack(
-    tmp_path: Path, slice_name: str
-) -> None:
-    root = built_root(tmp_path / "store", slice_name)
-    where = ["--root", str(root)]
-
-    _cli("_reach", *where)
-    _cli("pack", *where)
-    _cli("build", "--build-id", "b2", *where)
-
-    _same_build(root / "builds" / "b1", root / "builds" / "b2")
 
 
 def test_an_accession_only_a_pending_removal_lists_is_fetched_again(
