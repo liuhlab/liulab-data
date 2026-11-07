@@ -18,9 +18,7 @@ import csv
 import datetime as dt
 import gzip
 import hashlib
-import http.client
 import json
-import random
 import re
 import tempfile
 import time
@@ -32,7 +30,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from labdata._http import RateLimiter, Transport
+from labdata._http import (
+    RETRY_STATUSES,
+    USER_AGENT,
+    GaveUp,
+    RateLimiter,
+    Transport,
+    TryAgain,
+    retry,
+)
 from labdata.exceptions import LabdataError
 from labdata.papers import _zst
 from labdata.papers.root import paper_dir
@@ -118,7 +124,7 @@ def fetch(
     It adds or renews ``files`` rows, writes the files under each paper's folder, sets
     ``xml_tier`` and ``pdf_tier`` on ``papers`` rows and adds one ``attempts`` row per paper
     tried. A file the bucket no longer serves keeps its copy and gets a ``gone`` date. A PDF
-    another tier supplied stays. The tables are saved every few minutes; the caller
+    another tier supplied stays; PMC's PDF is then listed as ``<PMCID>.pdf``. The tables are saved every few minutes; the caller
     recomputes status and saves at the end. Papers with no PMCID are passed over.
 
     Parameters
@@ -378,10 +384,14 @@ def _article(
         has_xml = xml_name in listing
         if has_xml:
             take("xml", f"{base}.xml", xml_name, folder_dir / f"{base}.xml")
-        if pdf_name in listing and record.get("pdf_url") and not keep_pdf:
-            # The XML and figures replace the PDF; it is listed so a reader may fetch it.
-            path = None if has_xml else folder_dir / f"{base}.pdf"
-            take("pdf", f"{base}.pdf", pdf_name, path)
+        if pdf_name in listing and record.get("pdf_url"):
+            if keep_pdf:
+                # Another tier's PDF holds the paper's name; PMC's is listed under its own.
+                take("pdf", f"{folder.rsplit('.', 1)[0]}.pdf", pdf_name, None)
+            else:
+                # The XML and figures replace the PDF; it is listed so a reader may fetch it.
+                path = None if has_xml else folder_dir / f"{base}.pdf"
+                take("pdf", f"{base}.pdf", pdf_name, path)
         labels: dict[str, tuple[str | None, str | None]] = {}
         figures: dict[str, tuple[str | None, str | None]] = {}
         inline: set[str] = set()
@@ -461,7 +471,14 @@ def _file(
     }
     if path is not None and _is_video(source):
         path = None
-    if path is not None and old and old["etag"] == etag and not old["path"] and not old["fetched"]:
+    if (
+        path is not None
+        and kind != "pdf"
+        and old
+        and old["etag"] == etag
+        and not old["path"]
+        and not old["fetched"]
+    ):
         # Only listed last time though small: the bucket served it as a video.
         path = None
     if path is None:
@@ -722,8 +739,8 @@ class _Bucket:
             If the bucket serves the object as a video; nothing is written.
         """
         url = f"{BUCKET}/{urllib.parse.quote(key)}"
-        last = ""
-        for attempt in range(TRIES):
+
+        def once() -> tuple[int, str]:
             tmp = temp_beside(target, "part")
             try:
                 digest = hashlib.md5()
@@ -744,21 +761,18 @@ class _Bucket:
                                 digest.update(chunk)
                                 out.write(chunk)
                                 size += len(chunk)
-                if status != 200:
-                    last = f"HTTP {status}"
-                    if status not in _RETRY:
-                        break
-                elif md5s and digest.hexdigest() not in md5s:
-                    last = "MD5 mismatch"
-                else:
-                    tmp.replace(target)
-                    return size, digest.hexdigest()
-            except (OSError, http.client.HTTPException) as err:
-                last = type(err).__name__
+                _check(status)
+                if md5s and digest.hexdigest() not in md5s:
+                    raise TryAgain("MD5 mismatch")
+                tmp.replace(target)
+                return size, digest.hexdigest()
             finally:
                 tmp.unlink(missing_ok=True)
-            _sleep(min(30.0, 2.0**attempt) * random.uniform(0.5, 1.0))
-        raise PmcError(f"{key}: {last}")
+
+        try:
+            return retry(once, tries=TRIES, cap=30.0, sleep=_sleep)
+        except GaveUp as err:
+            raise PmcError(f"{key}: {err}") from None
 
     def inventory(self, pmcids: set[str], today: dt.date, root: Path) -> dict[str, tuple[str, str]]:
         """Return the newest version folder and record ETag of each of ``pmcids`` in the bucket.
@@ -793,28 +807,31 @@ class _Bucket:
         return {p: (f"{p}.{v}", etag) for p, (v, etag) in newest.items()}
 
     def _request(self, url: str, what: str) -> bytes:
-        last = ""
-        for attempt in range(TRIES):
-            try:
-                with (
-                    self.limiter.turn(),
-                    self.transport.open(
-                        "GET", url, body=None, headers=_HEADERS, timeout=_TIMEOUT
-                    ) as response,
-                ):
-                    body = response.read()
-                    status = response.status
-            except (OSError, http.client.HTTPException) as err:
-                last = type(err).__name__
-            else:
-                if status == 200:
-                    return body
-                last = f"HTTP {status}"
-                if status not in _RETRY:
-                    break
-            _sleep(min(30.0, 2.0**attempt) * random.uniform(0.5, 1.0))
-        raise PmcError(f"{what}: {last}")
+        def once() -> bytes:
+            with (
+                self.limiter.turn(),
+                self.transport.open(
+                    "GET", url, body=None, headers=_HEADERS, timeout=_TIMEOUT
+                ) as response,
+            ):
+                body = response.read()
+                status = response.status
+            _check(status)
+            return body
+
+        try:
+            return retry(once, tries=TRIES, cap=30.0, sleep=_sleep)
+        except GaveUp as err:
+            raise PmcError(f"{what}: {err}") from None
 
 
-_HEADERS = {"User-Agent": "liulab-data"}
-_RETRY = frozenset({429, 500, 502, 503, 504})
+def _check(status: int) -> None:
+    """Pass a 200; otherwise raise :class:`TryAgain` or, if no retry helps, :class:`GaveUp`."""
+    if status == 200:
+        return
+    if status in RETRY_STATUSES:
+        raise TryAgain(f"HTTP {status}")
+    raise GaveUp(f"HTTP {status}")
+
+
+_HEADERS = {"User-Agent": USER_AGENT}

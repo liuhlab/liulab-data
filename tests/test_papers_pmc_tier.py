@@ -9,9 +9,9 @@ import pytest
 from backports import zstd
 from typer.testing import CliRunner
 
+from labdata._http import RateLimiter
 from labdata.cli import app
 from labdata.ncbi import entrez as entrez_mod
-from labdata.ncbi._http import RateLimiter
 from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
 from labdata.papers import init_paper_store, open_paper_store, paper_dir, pmc, tables
@@ -110,6 +110,7 @@ def store(tmp_path: Path, fake: FakeWeb, monkeypatch: pytest.MonkeyPatch) -> Pat
         "labdata.cli._openalex_client",
         lambda: OpenAlex(transport=fake, limiter=RateLimiter(1000.0, 8)),
     )
+    monkeypatch.setattr("labdata.cli._paper_transport", lambda: fake)
     return root
 
 
@@ -406,6 +407,37 @@ def test_a_pdf_from_another_tier_stays(tmp_path: Path, monkeypatch: pytest.Monke
     assert (row["tier"], row["path"], row["md5"]) == ("openalex", pdf.as_posix(), paid["md5"])
     assert (OA, "xml", f"{OA}.xml") in files(root)
     assert b.fetched("PMC100.2/PMC100.2.pdf") == 0
+    listed = files(root)[(OA, "pdf", "PMC100.pdf")]
+    assert (listed["tier"], listed["path"], listed["gone"]) == ("pmc", None, None)
+    assert listed["url"].endswith("/PMC100.2/PMC100.2.pdf")
+
+    held = {
+        k.split("/", 1)[1]: v
+        for k, v in b.objects.items()
+        if k.startswith("PMC100.2/") and not k.endswith(".json")
+    }
+    b.put("PMC100", 2, {**held, "mmc1.xlsx": b"xlsx table, corrected"})
+    b.day = "2026-12-02"
+    sync(root, "2026-12-03")
+    assert files(root)[(OA, "pdf", "PMC100.pdf")]["gone"] is None
+    assert files(root)[(OA, "pdf", f"{OA}.pdf")]["tier"] == "openalex"
+
+
+def test_a_listed_pmc_pdf_is_downloaded_once_the_article_has_no_xml(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    b = bucket()
+    root = store(tmp_path, web(b), monkeypatch)
+    sync(root)
+    assert files(root)[(OA, "pdf", f"{OA}.pdf")]["path"] is None
+
+    b.put("PMC100", 3, {"PMC100.3.pdf": b"%PDF-1.7 article"})
+    b.day = "2026-12-02"
+    sync(root, "2026-12-03")
+
+    row = files(root)[(OA, "pdf", f"{OA}.pdf")]
+    assert row["path"] == (paper_dir(OA) / f"{OA}.pdf").as_posix()
+    assert (root / row["path"]).read_bytes() == b"%PDF-1.7 article"
 
 
 def test_a_store_fetched_before_figures_and_compression_converts_without_downloading_twice(
