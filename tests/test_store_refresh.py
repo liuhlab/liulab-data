@@ -251,7 +251,8 @@ def test_refresh_hands_snakemake_the_refresh_dag_in_step_order(
     needs = {rule: set(inputs) for rule, inputs, _, _ in jobs if rule != "extract"}
     assert needs == {
         "snapshots": set(),
-        "targets": {"snapshots.done"},
+        "geo_series": set(),
+        "targets": {"snapshots.done", "geo-series.done"},
         "changes": {"targets.done"},
         "geo": {"refetch.txt"},
         "eutils_beside_geo": {"refetch.txt"},
@@ -269,13 +270,17 @@ def test_refresh_hands_snakemake_the_refresh_dag_in_step_order(
     assert sorted(o for j in extracts for o in j[2]) == sorted(
         f"extract-{s}.done" for s in _EXTRACTS
     )
-    assert all(j[1] == ["snapshots.done"] for j in extracts)
+    assert all(set(j[1]) == {"snapshots.done", "geo-series.done"} for j in extracts)
     commands = {rule: command for rule, _, _, command in jobs}
     assert f"--date {dt.datetime.now(dt.UTC):%Y-%m-%d}" in commands["snapshots"]
     assert "download_ncbi_bulk.py" in commands["snapshots"]
-    # Only the snapshots a build reads: the SRA Parquet snapshot is never asked for.
-    assert commands["snapshots"].split("--date ", 1)[1].split()[1:5] == sorted(_EXTRACTS)
+    # Only the snapshots a build reads: the SRA Parquet snapshot is never asked for, and the
+    # geo-series patch runs beside the FTP downloads as its own step.
+    ftp = sorted(set(_EXTRACTS) - {"geo-series"})
+    assert commands["snapshots"].split("--date ", 1)[1].split()[1:4] == ftp
     assert "sra-metadata-parquet" not in commands["snapshots"]
+    assert "download_ncbi_bulk.py" in commands["geo_series"]
+    assert commands["geo_series"].split(" 2>&1")[0].endswith(" geo-series")
     assert "_changes --since 2026-10-14 --out refetch.txt" in commands["changes"]
     assert "_geo --refetch refetch.txt" in commands["geo"]
     assert "--soft-only" in commands["eutils_after_geo"]

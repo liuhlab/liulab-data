@@ -53,7 +53,8 @@ def memory_plan(total_mb: int) -> dict[str, int]:
     """
     geo, lane = total_mb // 16, total_mb // 8
     plan = dict.fromkeys(
-        ("snapshots", "targets", "changes", "eutils", "confirm", "reach", "pack"), lane
+        ("snapshots", "geo_series", "targets", "changes", "eutils", "confirm", "reach", "pack"),
+        lane,
     )
     plan |= dict.fromkeys(("status", "prune", "copy"), lane)
     return plan | {"geo": geo, "extract": total_mb - geo - lane, "build": total_mb}

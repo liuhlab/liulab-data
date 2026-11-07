@@ -1,4 +1,4 @@
-# One refresh: snapshots -> change list -> GEO lane || E-utilities lane -> confirm removals
+# One refresh: snapshots || geo-series patch -> change list -> GEO lane || E-utilities lane -> confirm removals
 # -> reachability -> pack -> build (after the snapshot extracts) -> status -> prune -> copy.
 #
 # Driven by labdata.store.refresh.run, which runs snakemake in the refresh's folder,
@@ -8,7 +8,8 @@
 # goes to logs/<step>.log. A rerun starts at the first unfinished step.
 #
 # The snapshots a build reads are renewed under the refresh's start date, so a killed download
-# resumes into the same folders; every later step reads the newest snapshot. The E-utilities
+# resumes into the same folders; every later step reads the newest snapshot. The geo-series
+# snapshot is patched from the previous one in its own step, beside the FTP downloads. The E-utilities
 # lane runs beside the GEO lane on the experiments the saved SOFT names, and again after it on
 # those the new SOFT names. The status step writes the refresh's date and counts after the switch.
 
@@ -19,6 +20,12 @@ STORE = f"LABDATA_MEMORY_MB={{resources.mem_mb}} LABDATA_THREADS={{threads}} {LA
 MEM = config["mem_mb"]
 ROOT = "--root " + shlex.quote(config["root"])
 EXTRACTS = config["extracts"]
+FTP = sorted(set(EXTRACTS) - {"geo-series"})
+DOWNLOAD = (
+    f"{config['python']} -I {shlex.quote(config['downloader'])} "
+    f"{shlex.quote(config['root'] + '/snapshots')} --date {config['date']}"
+)
+SNAPSHOTS = ["snapshots.done", "geo-series.done"]
 REFETCH = "--series refetch.txt --refetch refetch.txt --soft-only"
 LOG = "2>&1 | tee -a {log}"
 
@@ -37,14 +44,24 @@ rule snapshots:
         ncbi=1,
         mem_mb=MEM["snapshots"],
     shell:
-        f"{config['python']} -I {shlex.quote(config['downloader'])} "
-        f"{shlex.quote(config['root'] + '/snapshots')} --date {config['date']} "
-        f"{' '.join(sorted(EXTRACTS))} {LOG}"
+        f"{DOWNLOAD} {' '.join(FTP)} {LOG}"
+
+
+rule geo_series:
+    output:
+        touch("geo-series.done"),
+    log:
+        "logs/geo-series.log",
+    resources:
+        ncbi=1,
+        mem_mb=MEM["geo_series"],
+    shell:
+        f"{DOWNLOAD} geo-series {LOG}"
 
 
 rule targets:
     input:
-        "snapshots.done",
+        SNAPSHOTS,
     output:
         touch("targets.done"),
     log:
@@ -155,7 +172,7 @@ rule pack:
 # Leaves two cores to the fetch lanes, which may run at the same time.
 rule extract:
     input:
-        "snapshots.done",
+        SNAPSHOTS,
     output:
         touch("extract-{source}.done"),
     log:

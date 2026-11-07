@@ -149,6 +149,10 @@ labdata store verify --root <store>
     geo-series sra-accessions bioproject biosample
   ```
 
+  `geo-series` is patched from the newest earlier snapshot: only the summaries of new Series
+  and Series GEO updated since then are fetched. Its README names the snapshot it was
+  patched from. Add `--full` to fetch every summary.
+
   It needs `curl`, and `aria2c` for faster downloads. The next `labdata store run` uses the
   newest date of each source.
 

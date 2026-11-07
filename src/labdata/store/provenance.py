@@ -265,7 +265,8 @@ def document_snapshot(folder: Path) -> list[Path]:
             _render(
                 {
                     "title": f"snapshots/{source}/{date}",
-                    "what": f"A bulk {source} snapshot, kept whole as NCBI serves it.",
+                    "what": manifest.get("what")
+                    or f"A bulk {source} snapshot, kept whole as NCBI serves it.",
                     "source": manifest.get("source")
                     or manifest.get("url")
                     or SNAPSHOT_SOURCES.get(source, "NCBI"),
