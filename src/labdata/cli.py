@@ -142,8 +142,7 @@ def store_fetch(
 
     A GEO Series brings its SubSeries and the SRA packages of every experiment its samples
     link to. A BioProject or SRA study is expanded to its experiments through the newest
-    SRA_Accessions.tab snapshot. Items already saved are skipped, so a rerun resumes. The
-    accessions are kept in fetched-by-hand.txt, so a refresh keeps what they brought in.
+    SRA_Accessions.tab snapshot. Items already saved are skipped, so a rerun resumes.
     """
     from labdata.store.fetch import fetch as fetch_raw
 
@@ -395,9 +394,6 @@ def store_refresh(
         None, min=1, help="Cores the steps may use; default: SLURM_CPUS_ON_NODE, then all."
     ),
     ncbi: int = typer.Option(2, min=1, help="Network steps that may run at once."),
-    max_share: float = typer.Option(
-        0.05, min=0.0, max=1.0, help="Refuse to remove more than this share of any raw source."
-    ),
     root: Path | None = typer.Option(
         None, help="Store root; default: LABDATA_STORE, then pointer."
     ),
@@ -416,9 +412,7 @@ def store_refresh(
         _date(since, "--since")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     try:
-        code = refresh.run(
-            open_store(root).root, since=since, cores=cores, ncbi=ncbi, max_share=max_share
-        )
+        code = refresh.run(open_store(root).root, since=since, cores=cores, ncbi=ncbi)
     except LabdataError as err:
         typer.echo(str(err), err=True)
         raise typer.Exit(1) from err
@@ -597,7 +591,7 @@ def store_eutils(
     import datetime as dt
     import logging
 
-    from labdata.store import changes, eutils, removals
+    from labdata.store import changes, eutils
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     store = open_store(root)
@@ -622,7 +616,6 @@ def store_eutils(
             f"{len(again)} experiments on the re-fetch list; "
             f"{len(report.unserved)} fetched again but served none: {unserved}"
         )
-    removals.note_unserved(store.root, report.unserved)
     _mark_failed(failed_marker, report.failed)
 
 
@@ -636,7 +629,6 @@ def store_confirm(
     ),
 ) -> None:
     """Confirm each removal candidate with its own fetch; write removal parts for the gone."""
-    import datetime as dt
     import logging
 
     from labdata.store import removals
@@ -645,40 +637,12 @@ def store_confirm(
     store = open_store(root)
     extra = [] if candidates is None else _accession_file(candidates)
     found = removals.candidates(store.root, extra)
-    today = dt.datetime.now(dt.UTC).date().isoformat()
-    report = removals.confirm(store.root, found, client=_store_client(), date=today)
+    report = removals.confirm(store.root, found, client=_store_client())
     typer.echo(
         f"Removal candidates: {report.asked} asked, {report.gone} confirmed gone, "
-        f"{report.runs_gone} runs gone, {report.kept} still served, "
-        f"{report.failed} failed and kept"
+        f"{report.kept} still served, {report.failed} failed and kept"
     )
     for source, count in sorted(report.removals.items()):
-        typer.echo(f"{source}: {count} to remove")
-
-
-@store_app.command("_reach", hidden=True)
-def store_reach(
-    max_share: float = typer.Option(
-        0.05, min=0.0, max=1.0, help="Refuse to remove more than this share of any source."
-    ),
-    root: Path | None = typer.Option(
-        None, help="Store root; default: LABDATA_STORE, then pointer."
-    ),
-) -> None:
-    """Write removal parts for every raw row that no target Series reaches."""
-    import logging
-
-    from labdata.store import removals
-
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
-    store = open_store(root)
-    try:
-        counts = removals.reach(store.root, max_share=max_share)
-    except LabdataError as err:
-        typer.echo(str(err), err=True)
-        raise typer.Exit(1) from err
-    typer.echo(f"Unreached raw rows: {sum(counts.values())} to remove")
-    for source, count in sorted(counts.items()):
         typer.echo(f"{source}: {count} to remove")
 
 

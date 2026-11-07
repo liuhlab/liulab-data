@@ -12,25 +12,25 @@ Rerunning with the same ``--date`` resumes a partial fetch and verifies a finish
 never mixes two remote releases into one file. When the remote file changed since the first
 attempt, it stops and asks for a new ``--date``.
 
-Needs ``curl`` and, for parallel transfers, ``aria2c``. ``geo-series`` reads NCBI credentials
-from ``NCBI_EMAIL``/``NCBI_API_KEY`` or ``~/.cache/liulab-data/ncbi.toml``.
+``geo-series`` patches the newest earlier snapshot beside it, or the one ``--base`` names: it
+lists every Series and fetches only the summaries of new Series and Series GEO updated since
+that snapshot. ``--full`` fetches every summary. It runs with liulab-data installed and reads
+NCBI credentials as ``labdata ncbi configure`` saves them.
+
+Needs ``curl`` and, for parallel transfers, ``aria2c``.
 """
 
 from __future__ import annotations
 
 import argparse
 import datetime as dt
-import gzip
 import hashlib
 import json
-import os
+import logging
 import re
 import shutil
 import subprocess
 import sys
-import time
-import tomllib
-import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -44,9 +44,6 @@ FILES = {
 }
 S3_BUCKET = "https://sra-pub-metadata-us-east-1.s3.amazonaws.com"
 S3_PREFIX = "sra/metadata/"
-EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
-GSE_TERM = "gse[ETYP]"
-ESUMMARY_BATCH = 500
 DEFAULT_SOURCES = [*FILES, "geo-series"]
 SOURCES = [*DEFAULT_SOURCES, "sra-metadata-parquet"]
 
@@ -240,110 +237,26 @@ def fetch_parquet(out: Path, tmp: Path) -> None:
     )
 
 
-def _credentials() -> tuple[str, str]:
-    email, key = os.environ.get("NCBI_EMAIL", ""), os.environ.get("NCBI_API_KEY", "")
-    cfg = Path.home() / ".cache" / "liulab-data" / "ncbi.toml"
-    if not (email and key) and cfg.exists():
-        ncbi = tomllib.loads(cfg.read_text()).get("ncbi", {})
-        email, key = email or ncbi.get("email", ""), key or ncbi.get("api_key", "")
-    return email, key
+def fetch_geo_series(out: Path, *, base: Path | None, full: bool) -> None:
+    """Patch the previous ``geo-series`` snapshot, or dump every Series summary."""
+    from labdata.exceptions import LabdataError
+    from labdata.ncbi.entrez import EntrezClient
+    from labdata.store import series_snapshot
 
-
-def _eutils(tool: str, params: dict[str, str | int]) -> dict:
-    email, key = _credentials()
-    base = {"tool": "labdata-bulk", "email": email}
-    if key:
-        base["api_key"] = key
-    data = urllib.parse.urlencode({**base, **params}).encode()
-    for attempt in range(10):
-        try:
-            with urllib.request.urlopen(EUTILS + tool, data=data, timeout=60) as r:
-                body = r.read()
-            time.sleep(0.12 if key else 0.4)
-            return json.loads(body)
-        except (OSError, json.JSONDecodeError, urllib.error.URLError) as e:
-            log(f"{tool} retry {attempt}: {e!r}")
-            time.sleep(min(2**attempt, 120))
-    raise FetchError(f"{tool} failed after retries")
-
-
-def fetch_geo_series(out: Path) -> None:
-    """Dump ``esummary db=gds`` for every GEO Series to gzipped JSON Lines."""
-    final = out / "gds_gse_esummary.jsonl.gz"
-    parts = out / "parts"  # in-flight batches; removed once the dump is assembled
-    if final.exists() and (out / "manifest.json").exists():
-        log("geo-series: present, verifying sha256")
-        want = json.loads((out / "manifest.json").read_text())["files"][0]["sha256"]
-        if sha256(final) != want:
-            raise FetchError(f"{final} does not match manifest.json")
-        return
-    if final.exists() and not parts.exists():
-        with gzip.open(final, "rt") as fh:
-            n = sum(1 for _ in fh)
-        _geo_manifest(out, final, n)
-        return
-    uid_file = out / "gse_uids.txt"
-    if not uid_file.exists():
-        count = int(
-            _eutils(
-                "esearch.fcgi", {"db": "gds", "term": GSE_TERM, "retmax": 0, "retmode": "json"}
-            )["esearchresult"]["count"]
-        )
-        uids: set[str] = set()
-        for start in range(0, count, 10000):
-            r = _eutils(
-                "esearch.fcgi",
-                {
-                    "db": "gds",
-                    "term": GSE_TERM,
-                    "retstart": start,
-                    "retmax": 10000,
-                    "retmode": "json",
-                },
-            )
-            uids.update(r["esearchresult"]["idlist"])
-        log(f"geo-series: esearch count={count} unique uids={len(uids)}")
-        uid_file.write_text("\n".join(sorted(uids, key=int)) + "\n")
-    uids_list = uid_file.read_text().split()
-    parts.mkdir(exist_ok=True)
-    for i in range(0, len(uids_list), ESUMMARY_BATCH):
-        part = parts / f"{i:07d}.json"
-        if part.exists():
-            continue
-        batch = uids_list[i : i + ESUMMARY_BATCH]
-        res = _eutils(
-            "esummary.fcgi",
-            {"db": "gds", "id": ",".join(batch), "retmode": "json", "version": "2.0"},
-        )["result"]
-        got = res.get("uids", [])
-        if len(got) != len(batch):
-            log(f"geo-series: batch {i} asked {len(batch)} got {len(got)}")
-        tmp_part = part.with_suffix(".tmp")
-        tmp_part.write_text(json.dumps([res[u] for u in got]))
-        tmp_part.replace(part)
-        if i % 20000 == 0:
-            log(f"geo-series: batch {i}/{len(uids_list)}")
-    n = 0
-    with gzip.open(final, "wt") as fh:
-        for part in sorted(parts.glob("*.json")):
-            for rec in json.loads(part.read_text()):
-                fh.write(json.dumps(rec, separators=(",", ":")) + "\n")
-                n += 1
-    log(f"geo-series: wrote {n} records")
-    _geo_manifest(out, final, n)
-    shutil.rmtree(parts)
-
-
-def _geo_manifest(out: Path, final: Path, n: int) -> None:
-    uids = len((out / "gse_uids.txt").read_text().split())
-    write_manifest(
-        out,
-        {
-            "url": f"{EUTILS}esummary.fcgi?db=gds (term {GSE_TERM})",
-            "query_uids": uids,
-            "records": n,
-            "files": [{"name": final.name, "bytes": final.stat().st_size, "sha256": sha256(final)}],
-        },
+    logging.basicConfig(format="%(asctime)s %(message)s", level=logging.INFO)
+    try:
+        client = EntrezClient(allow_prompt=False)
+    except LabdataError as e:
+        raise FetchError(str(e)) from e
+    try:
+        done = series_snapshot.download(out, client, base=base, full=full)
+    except LabdataError as e:
+        raise FetchError(str(e)) from e
+    finally:
+        log(f"geo-series: NCBI {client.traffic}")
+    how = f"patched from {done.patched_from}" if done.patched_from else "dumped whole"
+    log(
+        f"geo-series: {done.records} records, {done.fetched} fetched, {done.dropped} dropped, {how}"
     )
 
 
@@ -352,6 +265,8 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     p.add_argument("root", type=Path, help="destination root, e.g. <datalake>/ncbi-bulk")
     p.add_argument("--date", default=f"{dt.datetime.now(dt.UTC):%Y-%m-%d}", help="snapshot dir")
+    p.add_argument("--full", action="store_true", help="geo-series: fetch every summary")
+    p.add_argument("--base", type=Path, help="geo-series: the snapshot folder to patch from")
     p.add_argument("sources", nargs="*", metavar="SOURCE", help=", ".join(SOURCES))
     args = p.parse_args(argv)
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", args.date):
@@ -368,7 +283,7 @@ def main(argv: list[str] | None = None) -> int:
             elif source == "sra-metadata-parquet":
                 fetch_parquet(out, args.root / "tmp" / source / args.date)
             else:
-                fetch_geo_series(out)
+                fetch_geo_series(out, base=args.base, full=args.full)
             log(f"{source}: OK")
         except (FetchError, subprocess.CalledProcessError, OSError) as e:
             log(f"{source}: FAILED: {e}")
