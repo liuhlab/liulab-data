@@ -55,7 +55,7 @@ Four Parquet tables at the root, each sorted by `paper`. Query them with DuckDB,
 
 | File | One row per | Columns |
 | --- | --- | --- |
-| `papers.parquet` | paper | `paper`, `pmid`, `pmcid`, `doi`, `openalex`, `published`, `status`, `reason`, `xml_tier`, `pdf_tier`, `added`, `looked_up`, `work_type`, `openalex_pdf`, `host_pdf_urls` |
+| `papers.parquet` | paper | `paper`, `pmid`, `pmcid`, `doi`, `openalex`, `published`, `status`, `reason`, `xml_tier`, `pdf_tier`, `added`, `looked_up`, `work_type`, `openalex_pdf`, `host_pdf_urls`, `retracted` |
 | `paper_info.parquet` | paper | `paper`, `pmid`, `pmcid`, `doi`, `title`, `journal`, `published`, `authors`, `abstract`, `publication_type` |
 | `files.parquet` | file held or only listed | `paper`, `kind`, `name`, `path`, `size`, `md5`, `url`, `tier`, `label`, `caption`, `fetched`, `gone`, `etag` |
 | `attempts.parquet` | try at one source for one paper | `paper`, `tier`, `date`, `account`, `outcome`, `detail` |
@@ -67,14 +67,22 @@ Four Parquet tables at the root, each sorted by `paper`. Query them with DuckDB,
   | `fetched` | the paper store holds the paper's XML or PDF |
   | `waiting` | a source will serve it later; `reason` says which |
   | `manual` | only a save in Paperpile can serve it; `reason` gives the last failure |
-  | `skipped` | not a real paper, such as a placeholder PMID |
+  | `skipped` | not a real paper, such as a placeholder PMID, or retracted |
+
+- `retracted` is true once PMC, PubMed or OpenAlex calls the paper retracted. A retracted
+  paper is `skipped` with reason `retracted`: nothing more is downloaded for it, and the
+  files already held stay.
 
 - A tier is the source a file came from: `pmc` (the PMC bucket), `openalex`, `host` (a free
   link on the publisher's site) or `paperpile`. `xml_tier` and `pdf_tier` name the tier of
   the paper's XML and PDF.
-- `kind` is `xml`, `pdf` or `supplement`. `path` is relative to the root, and empty for a
-  file only listed. Supplementary files up to 10 MB are downloaded; larger ones are listed
-  with their URL.
+- `kind` is `xml`, `pdf`, `figure` or `supplement`. `path` is relative to the root, and
+  empty for a file only listed. Figures and supplementary files up to 10 MB are downloaded;
+  larger ones are listed with their URL. Videos are always only listed. When PMC has a
+  paper's XML, its PDF from PMC is only listed too: the XML and figures replace it.
+- XML and plain-text files are stored compressed with zstd, one file at a time, with `.zst`
+  added to the name: `zstd -d` or Python's `compression.zstd` reads them. `size` and `md5`
+  are of the file before compression.
 - `gone` is the date a source stopped serving a file. The file and its row are kept.
 - `added` is the day a paper entered the store. `looked_up` is the day its IDs, details and
   OpenAlex record were last renewed; this happens at most once a month. `work_type` is
@@ -90,8 +98,9 @@ Four Parquet tables at the root, each sorted by `paper`. Query them with DuckDB,
 
   ```text
   papers/39637nnn/39637862/
-    39637862.xml             the article as XML, at most one
+    39637862.xml.zst         the article as XML, at most one
     39637862.pdf             the article as PDF, at most one
+    fig/<file name>          figure images, under the publisher's own names
     suppl/<file name>        supplementary files, under the publisher's own names
   papers/doi/10.1101%2F2024.01.15.575678/
     10.1101%2F2024.01.15.575678.pdf

@@ -300,6 +300,30 @@ def test_three_openalex_errors_move_a_paper_to_its_host_link_then_to_manual(
     assert fake.count("host") == 1
 
 
+def test_a_retracted_paper_spends_no_quota_and_tries_no_host_link(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    host = "https://journal.org/r.pdf"
+    root = paper_store(
+        tmp_path,
+        [
+            {**paper("41000010", hosts=(host,)), "retracted": True},
+            {**paper("41000011", pdf=False, hosts=(host,)), "retracted": True},
+        ],
+    )
+    fake = DailyWeb(hosts={host: Headed(PDF, 200)})
+    use(monkeypatch, fake, KEYS)
+    daily(root)
+
+    assert fake.spent == {}
+    assert fake.count("host") == 0
+    papers = by_key(root, tables.PAPERS)
+    assert {k: (r["status"], r["reason"]) for k, r in papers.items()} == {
+        "41000010": ("skipped", "retracted"),
+        "41000011": ("skipped", "retracted"),
+    }
+
+
 def test_a_host_link_serves_a_paper_openalex_has_no_copy_of(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

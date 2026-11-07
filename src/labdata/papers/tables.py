@@ -22,7 +22,7 @@ from labdata.store._files import temp_beside
 STATUSES = ("fetched", "waiting", "manual", "skipped")
 
 #: File kinds in ``files``.
-KINDS = ("xml", "pdf", "supplement")
+KINDS = ("xml", "pdf", "figure", "supplement")
 
 _AUTHOR = pa.struct([("name", pa.string()), ("affiliations", pa.list_(pa.string()))])
 
@@ -59,7 +59,7 @@ class PaperTable:
 #: One row per paper: its IDs, status and which tier supplied its XML and PDF. ``added`` is
 #: the day it entered the store, ``looked_up`` the day its IDs, details and OpenAlex lookup
 #: were last renewed; ``work_type``, ``openalex_pdf`` and ``host_pdf_urls`` come from that
-#: lookup.
+#: lookup. ``retracted`` is true once any source calls the paper retracted.
 PAPERS = PaperTable(
     "papers",
     pa.schema(
@@ -79,6 +79,7 @@ PAPERS = PaperTable(
             ("work_type", pa.string()),
             ("openalex_pdf", pa.bool_()),
             ("host_pdf_urls", pa.list_(pa.string())),
+            ("retracted", pa.bool_()),
         ]
     ),
     ("paper",),
@@ -107,9 +108,10 @@ PAPER_INFO = PaperTable(
     key=("paper",),
 )
 
-#: One row per file held or only catalogued: the article's XML and PDF, and supplements.
-#: ``path`` is relative to the paper store root and empty when the file is not downloaded;
-#: ``etag`` is the source's ETag of the copy held.
+#: One row per file held or only catalogued: the article's XML and PDF, figures and
+#: supplements. ``path`` is relative to the paper store root, ends in ``.zst`` for a file
+#: stored compressed, and is empty when the file is not downloaded; ``size`` and ``md5`` are
+#: of the plain bytes; ``etag`` is the source's ETag of the copy held.
 FILES = PaperTable(
     "files",
     pa.schema(

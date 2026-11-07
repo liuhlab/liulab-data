@@ -36,6 +36,9 @@ from labdata.store.targets import check_fraction, in_sample
 #: PMIDs below this, linked only from BioProject XML, are placeholders.
 PLACEHOLDER_BELOW = 100_000
 
+#: The PubMed publication type of a retracted paper.
+RETRACTED_TYPE = "Retracted Publication"
+
 #: A paper published this many days ago or less waits for PMC.
 EMBARGO_DAYS = 365
 
@@ -105,6 +108,8 @@ def status_of(
     """
     if placeholder:
         return "skipped", "placeholder"
+    if row.get("retracted"):
+        return "skipped", "retracted"
     if (
         not row["paper"].isdigit()
         and row.get("work_type")
@@ -338,6 +343,8 @@ def _look_up(
             )
             if info is not None:
                 state.info[key] = _pubmed_info(key, row, info)
+                if RETRACTED_TYPE in info.publication_type:
+                    row["retracted"] = True
     for key in (rekeyed.get(k, k) for k in chunk):
         if key in failed:
             report.failed += 1
@@ -352,6 +359,8 @@ def _set_work(row: dict[str, Any], work: Work | None) -> None:
     row["work_type"] = work.type if work else None
     row["openalex_pdf"] = work.has_pdf if work else False
     row["host_pdf_urls"] = list(work.pdf_urls) if work else []
+    if work is not None and work.retracted:
+        row["retracted"] = True
 
 
 def _pubmed_info(key: str, row: dict[str, Any], info: Details) -> dict[str, Any]:
