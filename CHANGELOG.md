@@ -49,6 +49,8 @@ tags of the form `vYYYY.M.PATCH` (e.g. `v2026.6.0`).
   (`papers`, `paper_info`, `files`, `attempts`) and `paper-status.json` are empty until the
   paper job fills them. `open_paper_store().reader` gives a paper's details, status and files,
   and the papers a Series or BioProject links.
+- `labdata papers pmc-sync` fetches each linked paper's XML and PDF from PMC's public bucket,
+  with its supplementary files up to 10 MB, and lists every supplementary file in `files`.
 - `labdata.stream_run_reads` (and its building block `iter_run_reads`) — stream the first
   N spots of an SRA run into memory **without writing any FASTQ, `.sra`, or cache to disk**.
   Shells out to `fastq-dump --stdout --maxSpotId N --split-spot --readids` inside a

@@ -6,6 +6,8 @@ over it, and it records every request it answers.
 
 from __future__ import annotations
 
+import gzip
+import hashlib
 import io
 import json
 import urllib.parse
@@ -14,6 +16,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from xml.sax.saxutils import escape
 
 import duckdb
 
@@ -145,6 +148,7 @@ class FakeWeb:
     works: list[dict[str, Any]] = field(default_factory=list)
     batch_misses: set[str] = field(default_factory=set)
     calls: list[str] = field(default_factory=list)
+    bucket: FakeBucket = field(default_factory=lambda: FakeBucket())
 
     @contextmanager
     def open(
@@ -175,6 +179,8 @@ class FakeWeb:
             yield Reply(json.dumps({"status": "ok", "records": records}))
         elif parts.netloc == "api.openalex.org":
             yield self._openalex(parts.path, query)
+        elif parts.netloc == BUCKET_HOST:
+            yield self.bucket.reply(parts.path, query)
         else:
             raise AssertionError(f"unexpected request: {url}")
 
@@ -200,6 +206,137 @@ class FakeWeb:
     def count(self, kind: str) -> int:
         """Return how many requests of one kind were answered."""
         return self.calls.count(kind)
+
+
+BUCKET_HOST = "pmc-oa-opendata.s3.amazonaws.com"
+_INVENTORY = "inventory-reports/pmc-oa-opendata/metadata/"
+
+
+def md5(data: bytes) -> str:
+    return hashlib.md5(data).hexdigest()
+
+
+@dataclass
+class FakeBucket:
+    """The PMC bucket: objects by key, listings, and the daily inventory of JSON records.
+
+    ``bad`` keys are served with bytes that do not match their MD5; ``fail`` is called with
+    each key fetched and may raise, to stop a pass mid-way. ``gets`` records every object
+    fetched, inventory files included.
+    """
+
+    objects: dict[str, bytes] = field(default_factory=dict)
+    day: str = "2026-11-06"
+    page: int = 1000
+    bad: set[str] = field(default_factory=set)
+    gets: list[str] = field(default_factory=list)
+    fail: Any = None
+
+    def put(
+        self,
+        pmcid: str,
+        version: int,
+        files: Mapping[str, bytes],
+        *,
+        manuscript: bool = False,
+    ) -> str:
+        """Add one article version: its files, and a JSON record naming each one's MD5.
+
+        Returns the version's folder, ``PMC<id>.<v>``.
+        """
+        folder = f"{pmcid}.{version}"
+        record: dict[str, Any] = {
+            "pmcid": pmcid,
+            "version": version,
+            "is_manuscript": manuscript,
+            "pdf_url": None,
+            "media_urls": [],
+        }
+        for name, data in files.items():
+            url = f"s3://pmc-oa-opendata/{folder}/{name}?md5={md5(data)}"
+            if name == f"{folder}.xml":
+                record["xml_url"] = url
+            elif name == f"{folder}.pdf":
+                record["pdf_url"] = url
+            elif name == f"{folder}.txt":
+                record["text_url"] = url
+            else:
+                record["media_urls"].append(url)
+            self.objects[f"{folder}/{name}"] = data
+        self.objects[f"{folder}/{folder}.json"] = json.dumps(record).encode()
+        return folder
+
+    def drop(self, folder: str) -> None:
+        """Remove one article version from the bucket."""
+        for key in [k for k in self.objects if k.startswith(f"{folder}/")]:
+            del self.objects[key]
+
+    def fetched(self, key: str) -> int:
+        """Return how many times one object was fetched."""
+        return self.gets.count(key)
+
+    def _inventory(self) -> dict[str, bytes]:
+        lines = "".join(
+            f'"pmc-oa-opendata","metadata/{k.split("/")[1]}","2026-07-01T00:00:00.000Z",'
+            f'"{md5(v)}"\n'
+            for k, v in sorted(self.objects.items())
+            if k.endswith(".json") and k.count("/") == 1
+        )
+        part = gzip.compress(lines.encode(), mtime=0)
+        part_key = f"{_INVENTORY}data/part-0.csv.gz"
+        manifest = {
+            "fileSchema": "Bucket, Key, LastModifiedDate, ETag",
+            "files": [{"key": part_key, "size": len(part), "MD5checksum": md5(part)}],
+        }
+        return {
+            f"{_INVENTORY}{self.day}T01-00Z/manifest.json": json.dumps(manifest).encode(),
+            part_key: part,
+        }
+
+    def reply(self, path: str, query: dict[str, list[str]]) -> Reply:
+        everything = {**self.objects, **self._inventory()}
+        if path in ("", "/") and query.get("list-type") == ["2"]:
+            return Reply(self._listing(everything, query))
+        key = urllib.parse.unquote(path.lstrip("/"))
+        if key not in everything:
+            return Reply("<Error><Code>NoSuchKey</Code></Error>", status=404)
+        if self.fail is not None:
+            self.fail(key)
+        self.gets.append(key)
+        data = everything[key]
+        return Reply(data[::-1] + b"x" if key in self.bad else data)
+
+    def _listing(self, everything: dict[str, bytes], query: dict[str, list[str]]) -> str:
+        prefix = query.get("prefix", [""])[0]
+        delimiter = query.get("delimiter", [""])[0]
+        keys = sorted(k for k in everything if k.startswith(prefix))
+        prefixes: list[str] = []
+        if delimiter:
+            rest = [k for k in keys if delimiter in k[len(prefix) :]]
+            prefixes = sorted({k[: k.index(delimiter, len(prefix)) + 1] for k in rest})
+            keys = [k for k in keys if k not in rest]
+        start = int(query.get("continuation-token", ["0"])[0])
+        shown = keys[start : start + self.page]
+        more = start + self.page < len(keys)
+        contents = "".join(
+            f"<Contents><Key>{escape(k)}</Key><LastModified>2026-07-01T00:00:00.000Z"
+            f"</LastModified><ETag>&quot;{md5(everything[k])}&quot;</ETag>"
+            f"<Size>{len(everything[k])}</Size></Contents>"
+            for k in shown
+        )
+        common = "".join(
+            f"<CommonPrefixes><Prefix>{escape(p)}</Prefix></CommonPrefixes>" for p in prefixes
+        )
+        token = (
+            f"<NextContinuationToken>{start + self.page}</NextContinuationToken>" if more else ""
+        )
+        return (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">'
+            f"<Prefix>{escape(prefix)}</Prefix><KeyCount>{len(shown)}</KeyCount>"
+            f"<IsTruncated>{'true' if more else 'false'}</IsTruncated>{token}"
+            f"{contents}{common}</ListBucketResult>"
+        )
 
 
 def _value(w: dict[str, Any], name: str) -> str | None:
