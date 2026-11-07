@@ -252,6 +252,35 @@ def test_an_experiment_ncbi_answers_is_not_public_leaves(
     assert set(_held(root, raw.SRA_XML)) == {"SRX2"}
 
 
+def test_experiments_are_confirmed_in_one_batch_and_only_the_unanswered_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tab = [(f"SRX{i}", "suppressed", "EXPERIMENT", "-") for i in (1, 2, 3)]
+    root = _store(tmp_path / "store", ["GSE1"], tab)
+    _hold_series(root, "GSE1", _soft("GSE1", *(_srx_line(f"SRX{i}") for i in (1, 2, 3))))
+    rows = [raw.RawRow(f"SRX{i}", _package(f"SRX{i}", f"SRR{i}"), _OLD) for i in (1, 2, 3)]
+    pack.write_rows(root, raw.SRA_XML, rows)
+    batch = (
+        "<EXPERIMENT_PACKAGE_SET>"
+        + _package("SRX1", "SRR1")
+        + '<ERROR number="50000" public="yes">SRA Experiment SRX2 is not public</ERROR>'
+        + "</EXPERIMENT_PACKAGE_SET>"
+    )
+    ncbi = Ncbi(
+        {
+            ("efetch", "SRX1,SRX2,SRX3"): [Reply(batch.encode())],
+            ("efetch", "SRX3"): [_EMPTY_IDS],
+        }
+    )
+    _use(monkeypatch, ncbi)
+
+    _step(root, "_confirm")
+    _step(root, "pack")
+
+    assert set(_held(root, raw.SRA_XML)) == {"SRX1"}
+    assert sorted(ncbi.calls) == [("efetch", "SRX1,SRX2,SRX3"), ("efetch", "SRX3")]
+
+
 def test_a_run_missing_from_its_package_leaves(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -284,8 +313,8 @@ def test_records_with_no_record_in_this_fetch_are_confirmed(
     ncbi = Ncbi(
         {
             _gds("GSE2"): [Reply(_GONE_GDS % 200000002)],
+            ("efetch", "SRX7,SRX8"): [_served(_package("SRX8", "SRR8"))],
             ("efetch", "SRX7"): [_EMPTY_IDS],
-            ("efetch", "SRX8"): [_served(_package("SRX8", "SRR8"))],
         }
     )
     _use(monkeypatch, ncbi)
@@ -296,7 +325,7 @@ def test_records_with_no_record_in_this_fetch_are_confirmed(
     assert set(_held(root, raw.GEO_SOFT)) == {"GSE1"}
     assert set(_held(root, raw.GEO_GAPS)) == {"GSE1"}
     assert _held(root, raw.SRA_XML) == {"SRX8": ""}
-    assert sorted(ncbi.calls) == [("efetch", "SRX7"), ("efetch", "SRX8"), _gds("GSE2")]
+    assert sorted(ncbi.calls) == [("efetch", "SRX7"), ("efetch", "SRX7,SRX8"), _gds("GSE2")]
 
 
 def test_a_later_fetch_beats_an_older_removal_and_a_later_removal_an_older_row(
@@ -452,12 +481,12 @@ def test_a_failed_confirmation_is_asked_again_until_it_gets_an_answer(
     ncbi.calls.clear()
     ncbi.answers = {
         _gds("GSE2"): [Reply(_GONE_GDS % 200000002)],
-        ("efetch", "SRX7"): [_served(_package("SRX7", "SRR7"))],
+        ("efetch", "SRX7,SRX9"): [_served(_package("SRX7", "SRR7"))],
         ("efetch", "SRX9"): [500],
     }
 
     assert "1 confirmed gone" in _step(root, "_confirm")
-    assert set(ncbi.calls) == {("efetch", "SRX7"), ("efetch", "SRX9"), _gds("GSE2")}
+    assert set(ncbi.calls) == {("efetch", "SRX7,SRX9"), ("efetch", "SRX9"), _gds("GSE2")}
     _step(root, "pack")
     ncbi.calls.clear()
     _step(root, "_confirm")

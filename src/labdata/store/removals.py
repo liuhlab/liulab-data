@@ -44,9 +44,10 @@ BATCH = 1_000
 MAX_SHARE = 0.05
 
 #: The record-level "not served" answers in a 200 reply, per E-utility; uid and accession fill in.
+_NOT_PUBLIC = r"<ERROR[^>]*>SRA Experiment {acc} is not public</ERROR>"
 _GONE = {
     "esummary": r"<ERROR>UID={uid}: cannot get document summary</ERROR>",
-    "efetch": r"<ERROR[^>]*>(?:ID list is empty![^<]*|SRA Experiment {acc} is not public)</ERROR>",
+    "efetch": r"<ERROR[^>]*>ID list is empty![^<]*</ERROR>|" + _NOT_PUBLIC,
 }
 _LINKED = re.compile(r"\b(PRJ[A-Z]{1,2}\d+|[SED]RP\d+)\b")
 #: An Entrez links line to an SRA record: its fourth field is the accession.
@@ -118,7 +119,10 @@ def note_unserved(root: Path, accessions: Iterable[str]) -> None:
 def confirm(
     root: Path, accessions: Iterable[str], *, client: EntrezClient, date: str
 ) -> ConfirmReport:
-    """Ask NCBI for each candidate alone and write removal parts for those confirmed gone.
+    """Ask NCBI about each candidate and write removal parts for those confirmed gone.
+
+    Experiments are asked in batches first. Series, and experiments a batch neither serves
+    nor names as not public, are asked alone.
 
     A candidate whose fetch fails stays on the retry list until a later answer says gone or
     served. The candidates kept, failed or served, are listed for :func:`reach`.
@@ -159,7 +163,9 @@ def confirm(
     with ThreadPoolExecutor(INFLIGHT, thread_name_prefix="confirm") as pool:
         for start in range(0, len(todo), BATCH):
             batch = todo[start : start + BATCH]
-            states = dict(zip(batch, pool.map(lambda a: _state(client, a), batch), strict=True))
+            states = _batch_states(client, pool, [a for a in batch if not a.startswith("GSE")])
+            alone = [a for a in batch if a not in states]
+            states |= dict(zip(alone, pool.map(lambda a: _state(client, a), alone), strict=True))
             _apply(root, states, runs, report, date)
             failed = {a for a, (state, _) in states.items() if state is _State.FAILED}
             settled = set(states) - failed
@@ -242,6 +248,35 @@ def reach(root: Path, *, max_share: float = MAX_SHARE) -> dict[str, int]:
             out[source] = len(gone)
             logger.info("%s: %d records no target Series reaches", source, len(gone))
     return out
+
+
+def _batch_states(
+    client: EntrezClient, pool: ThreadPoolExecutor, experiments: list[str]
+) -> dict[str, tuple[_State, str]]:
+    """Ask for experiments :data:`eutils.BATCH` at a time; return those the answers settle.
+
+    A batch settles an experiment it returns a package for, or names in a "not public"
+    error. Any other experiment, and every one of a failed batch, is left to be asked alone.
+    """
+
+    def one(ids: list[str]) -> dict[str, tuple[_State, str]]:
+        params = {"db": "sra", "id": ",".join(ids), "rettype": "full", "retmode": "xml"}
+        try:
+            text = client.eutil_text("efetch", params)
+        except EntrezError as err:
+            logger.warning("batch from %s not confirmed, so asked alone: %s", ids[0], err)
+            return {}
+        packages = split_packages(text)
+        out = {a: (_State.SERVED, packages[a]) for a in ids if packages.get(a)}
+        gone = (a for a in ids if a not in out)
+        return out | {
+            a: (_State.GONE, "") for a in gone if re.search(_NOT_PUBLIC.format(acc=a), text)
+        }
+
+    if len(experiments) < 2:
+        return {}
+    chunks = [experiments[i : i + eutils.BATCH] for i in range(0, len(experiments), eutils.BATCH)]
+    return {a: state for got in pool.map(one, chunks) for a, state in got.items()}
 
 
 def _state(client: EntrezClient, accession: str) -> tuple[_State, str]:
