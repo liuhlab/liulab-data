@@ -24,6 +24,7 @@ src/labdata/
                        BioProject, SraDownloader, __version__
   _cache.py          cache-dir resolution ($XDG_CACHE_HOME/liulab-data)
   exceptions.py      LabdataError hierarchy
+  _http.py, _rclone.py  the HTTP and rclone seams every client shares
   cli.py             thin Typer CLI (labdata version, labdata ncbi configure,
                        labdata geo download, + hidden per-stage subcommands)
   ncbi/              NCBI E-utilities: credential config + EntrezClient seam
@@ -73,11 +74,12 @@ CI runs `check-static` in one job and `test` in another.
   (Parameters / Returns / Raises / Examples) on public API.
 - **External access is concentrated in seams.** Every NCBI call goes through
   `labdata.ncbi.EntrezClient` (domain classes take a `client` argument; never call
-  `Bio.Entrez` directly); its HTTP goes through `ncbi._http.HttpTransport`, which tests
-  replace with a fake transport. Subprocess seams: `sratools._run` (sra-tools/pigz),
-  `geo.pipeline._run_snakemake` and `store.pipeline._run_snakemake` (Snakemake),
-  `store.gcs._run_rclone` (rclone) and `store.extract._popen` (rapidgzip/pigz). Tests mock
-  the seams, never the real binaries.
+  `Bio.Entrez` directly); its HTTP, and every other web client's, goes through
+  `labdata._http.HttpTransport`, which tests replace with a fake transport. Subprocess
+  seams: `sratools._run` (sra-tools/pigz), `geo.pipeline._run_snakemake` and
+  `store.pipeline._run_snakemake` (Snakemake), `labdata._rclone.run` (rclone; the store
+  copy calls it through `store.gcs._run_rclone`) and `store.extract._popen`
+  (rapidgzip/pigz). Tests mock the seams, never the real binaries.
 - **Pipelines are Snakemake DAGs with typed resources.** The download DAG
   (`prefetch → extract → compress`) lives in `pipeline.smk`, driven by
   `labdata.geo.pipeline`. labdata owns per-stage logic (tool calls, resume flags, cleanup,

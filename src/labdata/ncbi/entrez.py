@@ -33,8 +33,8 @@ from typing import Any, TypeVar
 
 from Bio import Entrez
 
+from labdata._http import HttpTransport, RateLimiter, Response, Transport
 from labdata.exceptions import EntrezError, PageNotFound
-from labdata.ncbi._http import HttpTransport, RateLimiter, Response, Transport
 from labdata.ncbi.config import NcbiCredentials, load_credentials
 
 # Bio.Entrez ships no type stubs; alias it as Any so the type checker doesn't fight it.
