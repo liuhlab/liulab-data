@@ -55,9 +55,11 @@ scripts/check.sh     the gate runner
 scripts/conformance.py  the lab template's rules, checked against this repo
 scripts/bulk/        the NCBI bulk snapshot downloader
 scripts/store/       the store full-run job script and its checks
+skills/              repo-local agent skills; install.py links them into .claude/ and .agents/
 ```
 
-Running the store on a cluster: follow `docs/how-to/store-run.md`.
+Running the store on a cluster: follow `docs/how-to/store-run.md`. A monthly or yearly
+maintenance run: the user invokes `/store-maintenance`.
 Changing the store's code or table layout: try it small first, per `docs/agents/store-dev.md`.
 
 ## Quality gates (all green before commit)
@@ -153,6 +155,7 @@ A fact that must survive lives where it is checked:
 | A decision and its trade-off | an ADR in `docs/adr/` |
 | Vocabulary | `GLOSSARY.md` |
 | What is still open | an issue |
+| A maintenance run's record | the maintenance log, `docs/maintenance-log.md` |
 | A measurement | nowhere: delete it |
 
 Keep a docstring to its contract: Parameters, Returns, Raises, one example if it earns its
