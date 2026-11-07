@@ -14,6 +14,9 @@ non-public, or a held experiment no live Series reaches. A live Series is one th
 confirms it gone, by the rule the Series confirm uses; any other answer keeps it. Removals go in
 as removal parts, applied by pack.
 
+A run is confirmed gone when its experiment's package, fetched alone, lacks it. It is dropped by
+saving that package again as a row part, not by a removal part.
+
 ## Considered options
 
 - **Keep every SRA record for good.** The store keeps growing with records NCBI no longer serves.

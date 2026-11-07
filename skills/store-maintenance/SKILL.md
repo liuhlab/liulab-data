@@ -20,11 +20,10 @@ Done when: the user has named the period.
 
 ## 2. Preflight
 
-Load `lab-hpc` before the first ssh. Then confirm all three, and state each to the user in one
-line:
+Confirm all three, and state each to the user in one line:
 
 1. **Held node.** The standing `labdata-dev` job runs on arc. Short commands and checks run
-   inside it, never on a login node. If it is gone, resubmitting it is the run plan's first job.
+   inside it. If it is gone, resubmitting it is the run plan's first job.
 2. **rclone login.** The Google login lasts one day. `pixi run rclone lsd <copy_to>` lists the
    bucket for each store (`copy_to` in `labdata-store.toml` and in `labdata-papers.toml`). If
    it fails, ask the user to log in as `docs/how-to/store-gcs.md` shows, and wait. A run with no

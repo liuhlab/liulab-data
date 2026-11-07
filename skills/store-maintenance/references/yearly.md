@@ -12,8 +12,8 @@ run adds", with an hour's margin; size the run plan from that table.
 2. **The monthly page.** Run every step of [`monthly.md`](monthly.md), on the snapshot step 1
    fetched.
 3. **After the refresh**: "Remove withdrawn SRA records", then "Time the queries on a quiet
-   node" on the build that removal made. The removal ends with a copy, so run the monthly
-   page's store `rclone check` again after it.
+   node" on the build that removal made. The removal ends with a copy, so run "Check the copy"
+   in `docs/how-to/store-gcs.md` again after it.
 
 Record in the log entry, beside the monthly checks:
 

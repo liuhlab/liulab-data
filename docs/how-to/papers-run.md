@@ -132,3 +132,16 @@ The file at the paper store root says what the job did last and where the papers
 
 The copy makes the bucket match the paper store. It leaves out `paper-status.json`, the lock
 file and the files a pass writes while it runs.
+
+## Check the copy
+
+Compare the paper store with its `copy_to`, leaving out the hidden files and the status
+record, as the copy does:
+
+```bash
+pixi run rclone check "$LABDATA_PAPERS" <copy_to> --one-way \
+  --filter "- .*" --filter "- .*/**" --filter "- /paper-status.json"
+```
+
+It should report 0 differences. Run it between passes: a pass that runs beside it changes
+files under it.

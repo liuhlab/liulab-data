@@ -56,6 +56,20 @@ Log in, then run `labdata store copy` again. Files already sent are skipped. A r
 meets an expired login still succeeds, and marks the copy pending in `refresh-status.json`
 until `labdata store copy` succeeds.
 
+## Check the copy
+
+Compare the store with its `copy_to`, leaving out what the copy leaves out:
+
+```bash
+pixi run rclone check "$LABDATA_STORE" <copy_to> --one-way \
+  --filter "- .*" --filter "- .*/**" --filter "- /work/**" \
+  --filter "- /support/**" --filter "- /refresh-status.json" \
+  --filter "- /builds/<old build>/**"
+```
+
+It should report 0 differences. A build or snapshot that prune keeps for its grace period is
+not in the bucket: add a filter for each one instead of counting it as a difference.
+
 ## Read the store on another computer
 
 Copy the store down, check it against the bucket, and point labdata at it:

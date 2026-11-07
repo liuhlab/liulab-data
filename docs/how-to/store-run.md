@@ -192,7 +192,7 @@ order. The first two check the current build, so run them before the refresh:
     pixi run python scripts/store/check_stage1.py --every-record
     ```
 
-    Without `--every-record`, the script runs only the 13 quick checks of a few chosen
+    Without `--every-record`, the script runs only the thin-slice checks of a few chosen
     records, as after a normal refresh. The flag adds two passes over every record held: each
     one opens, and its hash matches its raw text.
 
@@ -264,7 +264,7 @@ full build, about an hour. "Not measured" means no full-store run has timed it y
 | Open every record | 1 core | about 60 GB | none | about 3 h |
 | Rebuild and compare | up to 32 cores | about 60 GB, with DuckDB's share capped | none | about 1 h to build; the compare is not measured |
 | Whole Series list | 1 core | 1 GB | about 600 E-utilities calls | about 40 min |
-| SRA removal | 1 core | not measured | one E-utilities call per batch of candidates | about 1 h, then an hour to pack and build |
+| SRA removal | 1 core | not measured | one E-utilities call per batch of candidates | not measured; inferred about 1 h, then an hour to pack and build |
 | Benchmark | a whole node | up to 128 GB | none | not measured; the job asks for up to 4 h |
 
 ## Make a sample build

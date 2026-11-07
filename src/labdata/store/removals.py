@@ -17,21 +17,19 @@ import re
 from collections.abc import Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from enum import Enum
 from pathlib import Path
 
 import pyarrow.parquet as pq
 
-from labdata.exceptions import AccessionError, EntrezError
-from labdata.ncbi.entrez import EntrezClient, ids_empty
+from labdata.exceptions import AccessionError
+from labdata.ncbi.entrez import EntrezClient
 from labdata.store import gaps, raw, snapshots
+from labdata.store._removal import INFLIGHT, State, ask_alone, pending_removals, write_removals
 from labdata.store.fetch import gds_uid
 from labdata.store.model import kind_of
 
 #: The raw sources keyed by GEO Series: a gone Series' rows leave each of them.
 SERIES_KEYED = (raw.GEO_SOFT, raw.GEO_FILELIST, raw.GEO_GAPS, raw.ENTREZ_LINKS, raw.PUBMED_SI)
-#: Confirmation fetches in flight; the client's limiter sets the rate.
-INFLIGHT = 4
 #: Candidates confirmed between writes of removal parts: small enough that a cut-off run
 #: loses little work, large enough that it writes few parts.
 BATCH = 100
@@ -39,12 +37,6 @@ BATCH = 100
 #: A Series' "not served" answer in a 200 ``esummary`` reply; the uid fills in.
 _GONE = r"<ERROR>UID={uid}: cannot get document summary</ERROR>"
 logger = logging.getLogger(__name__)
-
-
-class _State(Enum):
-    GONE = "gone"
-    SERVED = "served"
-    FAILED = "failed"
 
 
 @dataclass
@@ -95,7 +87,7 @@ def confirm(root: Path, accessions: Iterable[str], *, client: EntrezClient) -> C
     ConfirmReport
         Counts for this run.
     """
-    pending = _pending_removals(root)
+    pending = pending_removals(root, raw.GEO_SOFT)
     series = set()
     for accession in accessions:
         if _is_series(accession):
@@ -128,45 +120,30 @@ def _is_series(accession: str) -> bool:
         return False
 
 
-def _state(client: EntrezClient, accession: str) -> _State:
+def _state(client: EntrezClient, accession: str) -> State:
     """Ask for one Series alone; return whether GEO serves it."""
     uid = str(gds_uid(accession))
-    try:
-        text = client.eutil_text("esummary", {"db": "gds", "id": uid})
-    except EntrezError as err:
-        if ids_empty(err):
-            return _State.GONE
-        logger.warning("could not confirm %s: %s", accession, err)
-        return _State.FAILED
-    if re.search(rf"<Id>{uid}</Id>", text):
-        return _State.SERVED
-    if re.search(_GONE.format(uid=uid), text):
-        return _State.GONE
-    logger.warning(
-        "could not confirm %s: an answer that is neither a record nor not-found", accession
+    state, _ = ask_alone(
+        client,
+        accession,
+        "esummary",
+        {"db": "gds", "id": uid},
+        served=lambda text: text if re.search(rf"<Id>{uid}</Id>", text) else None,
+        gone=lambda text: re.search(_GONE.format(uid=uid), text) is not None,
     )
-    return _State.FAILED
+    return state
 
 
-def _apply(root: Path, states: dict[str, _State], report: ConfirmReport) -> None:
+def _apply(root: Path, states: dict[str, State], report: ConfirmReport) -> None:
     """Write one batch's removal parts and count its answers."""
-    gone = {a for a, state in states.items() if state is _State.GONE}
+    gone = {a for a, state in states.items() if state is State.GONE}
     report.gone += len(gone)
-    report.failed += sum(state is _State.FAILED for state in states.values())
-    report.kept += sum(state is _State.SERVED for state in states.values())
+    report.failed += sum(state is State.FAILED for state in states.values())
+    report.kept += sum(state is State.SERVED for state in states.values())
     if not gone:
         return
     for source in SERIES_KEYED:
-        held = raw.held(root, source, gone)
-        if held:
-            raw.write_removals(root, source, held)
-            report.removals[source] = report.removals.get(source, 0) + len(held)
-
-
-def _pending_removals(root: Path) -> set[str]:
-    return {
-        accession for path in raw.part_files(root, raw.GEO_SOFT) for accession in raw.removed(path)
-    }
+        write_removals(root, source, raw.held(root, source, gone), report.removals)
 
 
 def _part_rows(path: Path, column: str) -> Iterator[tuple[str, str]]:

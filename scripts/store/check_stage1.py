@@ -3,8 +3,8 @@
 Usage: ``pixi run python scripts/store/check_stage1.py [ROOT] [--every-record]``. ROOT defaults
 to the configured store (``LABDATA_STORE``, then the pointer file).
 
-By default it runs the 13 thin-slice checks, which take minutes. ``--every-record`` adds two
-passes that open and re-hash every held record; on a full store they take hours.
+By default it runs the thin-slice checks. ``--every-record`` adds two passes that open and
+re-hash every held record.
 """
 
 import socket
@@ -43,7 +43,7 @@ from labdata.store.model import Record  # noqa: E402
 _parser = argparse.ArgumentParser(description="Run the stage 1 acceptance checks.")
 _parser.add_argument("root", nargs="?", type=Path, help="store root; default: the configured one")
 _parser.add_argument(
-    "--every-record", action="store_true", help="also open and re-hash every held record (hours)"
+    "--every-record", action="store_true", help="also open and re-hash every held record"
 )
 ARGS = _parser.parse_args()
 

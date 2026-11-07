@@ -1,18 +1,8 @@
 """The yearly SRA removal: confirm which held SRA experiments and runs are withdrawn.
 
-A candidate is a held experiment, or a run in a held experiment's package, that the newest
-``SRA_Accessions.tab`` marks non-public, or a held experiment no live Series reaches. A live
-Series is one the newest ``geo-series`` snapshot lists; it reaches the experiments its saved
-SOFT, its samples' tab rows and its Entrez links name.
-
-A candidate is removed only when a fetch of its experiment alone confirms it: NCBI's "ID list
-is empty" or "is not public" removes the experiment with its runs, and a served package
-without a candidate run removes that run, by saving the package as served. Any other answer
-keeps it. Batched fetches only keep: they settle the experiments served with every candidate
-run, so fewer are asked alone. Removals are written as removal parts for pack to apply.
-
-The step works in batches under ``work/sra-removal/<tab date>/``: a rerun skips what an
-earlier run settled and asks the failed again. The monthly refresh never runs it.
+The candidate and confirm rules are in ADR 0008. The step writes removal parts and saved
+packages for pack to apply, and works in batches under ``work/sra-removal/<tab date>/``, so a
+rerun skips what an earlier run settled.
 """
 
 from __future__ import annotations
@@ -26,7 +16,6 @@ from collections import defaultdict
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from enum import Enum
 from pathlib import Path
 
 import pyarrow as pa
@@ -34,13 +23,12 @@ import pyarrow.parquet as pq
 
 from labdata.exceptions import EntrezError
 from labdata.geo.sra_records import split_packages
-from labdata.ncbi.entrez import EntrezClient, ids_empty
+from labdata.ncbi.entrez import EntrezClient
 from labdata.store import eutils, extract, raw, snapshots
 from labdata.store._files import temp_beside
+from labdata.store._removal import INFLIGHT, State, ask_alone, pending_removals, write_removals
 from labdata.store.layout import read_parquet_sql, sql_string
 
-#: Fetches in flight; the client's limiter sets the rate.
-INFLIGHT = 4
 #: Candidates confirmed between writes of removal parts and progress.
 BATCH = 1_000
 
@@ -51,26 +39,47 @@ _TAB_SCHEMA = pa.schema(
     [("accession", pa.string()), ("kind", pa.string()), ("experiment", pa.string())]
 )
 _LIVE_SCHEMA = pa.schema([("accession", pa.string())])
+_CANDIDATE_SCHEMA = pa.schema(
+    [
+        ("accession", pa.string()),
+        ("non_public", pa.bool_()),
+        ("unreached", pa.bool_()),
+        ("runs", pa.list_(pa.string())),
+    ]
+)
 _ROWS = 500_000
 logger = logging.getLogger(__name__)
-
-
-class _State(Enum):
-    GONE = "gone"
-    SERVED = "served"
-    FAILED = "failed"
 
 
 @dataclass
 class SraRemovalReport:
     """What one run found.
 
-    ``candidates`` counts the experiments listed: ``non_public`` marked so as a whole,
-    ``with_runs`` holding a non-public run, ``unreached`` reached by no live Series (an
-    experiment may count under more than one). ``asked`` counts the experiments this run
-    asked about; ``gone`` those confirmed gone, ``runs_gone`` the runs confirmed gone from a
-    served experiment, ``kept`` the experiments still served with every candidate run and
-    ``failed`` those whose answer settled nothing.
+    An experiment may count under more than one of ``non_public``, ``with_runs`` and
+    ``unreached``.
+
+    Attributes
+    ----------
+    candidates : int
+        Experiments the candidate list holds.
+    non_public : int
+        Candidates the tab marks non-public as a whole.
+    with_runs : int
+        Candidates holding a non-public run.
+    unreached : int
+        Candidates no live Series reaches.
+    asked : int
+        Candidates this run asked about.
+    gone : int
+        Experiments confirmed gone.
+    runs_gone : int
+        Runs confirmed gone from a served experiment.
+    kept : int
+        Experiments still served with every candidate run.
+    failed : int
+        Experiments whose answer settled nothing.
+    removals : dict of str to int
+        Accessions each source's removal parts list.
     """
 
     candidates: int = 0
@@ -94,13 +103,29 @@ class _Candidate:
 
 
 def work_dir(root: Path) -> Path:
-    """Return this step's folder for the newest ``SRA_Accessions.tab`` snapshot."""
+    """Return this step's folder for the newest ``SRA_Accessions.tab`` snapshot.
+
+    Parameters
+    ----------
+    root : pathlib.Path
+        The store root.
+
+    Returns
+    -------
+    pathlib.Path
+        ``work/sra-removal/<tab date>`` under ``root``; it may not exist yet.
+    """
     snap = snapshots.snapshot(root, snapshots.SRA_ACCESSIONS)
     return root / "work" / "sra-removal" / snap.date
 
 
 def candidates(root: Path) -> Path:
     """Write the candidate list once per tab snapshot and return its path.
+
+    Parameters
+    ----------
+    root : pathlib.Path
+        The store root.
 
     Returns
     -------
@@ -116,7 +141,7 @@ def candidates(root: Path) -> Path:
     folder.mkdir(parents=True, exist_ok=True)
     files = raw.source_files(root, raw.SRA_XML)
     if not files:
-        pq.write_table(_candidate_table([]), out)
+        pq.write_table(_CANDIDATE_SCHEMA.empty_table(), out)
         return out
     tab = _tab_non_public(snapshots.snapshot(root, snapshots.SRA_ACCESSIONS), folder)
     reached = _reached(root, folder)
@@ -184,7 +209,7 @@ def remove(root: Path, *, client: EntrezClient, date: str | None = None) -> SraR
         report.unreached,
     )
     progress = listing.parent / "settled.txt"
-    skip = _settled(progress) | _pending_removals(root)
+    skip = _settled(progress) | pending_removals(root, raw.SRA_XML)
     report.asked = sum(1 for c in _read(listing) if c.accession not in skip)
     done = 0
     with ThreadPoolExecutor(INFLIGHT, thread_name_prefix="sra-removal") as pool:
@@ -221,9 +246,9 @@ def _confirm(
     saved: list[raw.RawRow] = []
     report.kept += len(kept)
     for candidate, (state, package) in answers.items():
-        if state is _State.FAILED:
+        if state is State.FAILED:
             report.failed += 1
-        elif state is _State.GONE:
+        elif state is State.GONE:
             gone.add(candidate.accession)
         elif left := [r for r in candidate.runs if not _has_run(package, r)]:
             report.runs_gone += len(left)
@@ -231,16 +256,14 @@ def _confirm(
         else:
             report.kept += 1
     report.gone += len(gone)
-    if gone:
-        raw.write_removals(root, raw.SRA_XML, gone)
-        report.removals[raw.SRA_XML] = report.removals.get(raw.SRA_XML, 0) + len(gone)
+    write_removals(root, raw.SRA_XML, gone, report.removals)
     by_bucket: dict[str, list[raw.RawRow]] = defaultdict(list)
     for row in saved:
         by_bucket[raw.bucket_of(raw.SRA_XML, row.accession)].append(row)
     for bucket, rows in sorted(by_bucket.items()):
         todo = tuple(sorted(row.accession for row in rows))
         raw.write_part(root, raw.Piece(raw.SRA_XML, bucket, todo), rows)
-    failed = {c.accession for c, (state, _) in answers.items() if state is _State.FAILED}
+    failed = {c.accession for c, (state, _) in answers.items() if state is State.FAILED}
     return {c.accession for c in batch} - failed
 
 
@@ -269,24 +292,17 @@ def _batch_kept(
     return {a for got in pool.map(one, chunks) for a in got}
 
 
-def _alone(client: EntrezClient, accession: str) -> tuple[_State, str]:
+def _alone(client: EntrezClient, accession: str) -> tuple[State, str]:
     """Ask for one experiment alone; return its state and, when served, its package."""
-    params = {"db": "sra", "id": accession, "rettype": "full", "retmode": "xml"}
-    try:
-        text = client.eutil_text("efetch", params)
-    except EntrezError as err:
-        if ids_empty(err):
-            return _State.GONE, ""
-        logger.warning("could not confirm %s: %s", accession, err)
-        return _State.FAILED, ""
-    if package := split_packages(text).get(accession):
-        return _State.SERVED, package
-    if re.search(_EMPTY_IDS, text) or re.search(_NOT_PUBLIC.format(acc=re.escape(accession)), text):
-        return _State.GONE, ""
-    logger.warning(
-        "could not confirm %s: an answer that is neither a record nor not-found", accession
+    not_public = _NOT_PUBLIC.format(acc=re.escape(accession))
+    return ask_alone(
+        client,
+        accession,
+        "efetch",
+        {"db": "sra", "id": accession, "rettype": "full", "retmode": "xml"},
+        served=lambda text: split_packages(text).get(accession),
+        gone=lambda text: bool(re.search(_EMPTY_IDS, text) or re.search(not_public, text)),
     )
-    return _State.FAILED, ""
 
 
 def _has_run(package: str, run: str) -> bool:
@@ -330,10 +346,6 @@ def _batches(items: Iterator[_Candidate], size: int) -> Iterator[list[_Candidate
 
 def _settled(path: Path) -> set[str]:
     return set(path.read_text(encoding="utf-8").split()) if path.is_file() else set()
-
-
-def _pending_removals(root: Path) -> set[str]:
-    return {a for path in raw.part_files(root, raw.SRA_XML) for a in raw.removed(path)}
 
 
 def _tab_non_public(snap: snapshots.Snapshot, folder: Path) -> Path:
@@ -402,15 +414,3 @@ def _live_series(root: Path) -> set[str]:
 def _table(rows: list[tuple[str, ...]], schema: pa.Schema) -> pa.Table:
     columns = list(zip(*rows, strict=True)) if rows else [[]] * len(schema)
     return pa.table(dict(zip(schema.names, columns, strict=True)), schema=schema)
-
-
-def _candidate_table(rows: list[tuple[str, bool, bool, list[str]]]) -> pa.Table:
-    schema = pa.schema(
-        [
-            ("accession", pa.string()),
-            ("non_public", pa.bool_()),
-            ("unreached", pa.bool_()),
-            ("runs", pa.list_(pa.string())),
-        ]
-    )
-    return _table(rows, schema)  # type: ignore[arg-type]

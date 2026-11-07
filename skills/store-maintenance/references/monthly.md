@@ -18,23 +18,12 @@ Follow "Refresh the store" in `docs/how-to/store-run.md`.
    `true`, get the login (SKILL.md, preflight), run `labdata store copy`, and read it again.
 3. **Coverage.** `labdata store coverage` ends with `Coverage passes.`
 4. **Thin-slice checks.** `pixi run python scripts/store/check_stage1.py` on the held node:
-   the 13 quick checks pass with the network blocked. Its `--every-record` flag belongs to the
+   the thin-slice checks pass with the network blocked. Its `--every-record` flag belongs to the
    yearly page, or to a run the user said yes to.
 5. **Refresh logs.** `scripts/store/keep_run_logs.sh "$LABDATA_STORE" refresh/<started>`, with
    `<started>` from the status record's `folder`. Deleting `work/` after that needs the user's
    yes.
-6. **GCS copy.** `rclone check` of the store against its `copy_to` reports 0 differences.
-   Leave out what the copy leaves out:
-
-    ```bash
-    pixi run rclone check "$LABDATA_STORE" <copy_to> --one-way \
-      --filter "- .*" --filter "- .*/**" --filter "- /work/**" \
-      --filter "- /support/**" --filter "- /refresh-status.json" \
-      --filter "- /builds/<old build>/**"
-    ```
-
-    A build or snapshot that prune keeps for its grace period is not in the bucket; add a
-    filter for each one instead of counting it as a difference.
+6. **GCS copy.** "Check the copy" in `docs/how-to/store-gcs.md` reports 0 differences.
 
 ## Paper store
 
@@ -45,14 +34,6 @@ Follow `docs/how-to/papers-run.md`. The paper job does the work; these checks re
    is `false`. Record the `counts` by status in the log entry.
 2. **This month's PMC sync.** `last_pmc_sync_success` falls in this month, on or after the 3rd.
    Before the 3rd, it falls in last month. A sampled sync never sets it.
-3. **GCS copy.** `rclone check` of the paper store against its `copy_to` reports 0 differences.
-   Leave out the hidden files and the status record, as the copy does:
+3. **GCS copy.** "Check the copy" in `docs/how-to/papers-run.md` reports 0 differences.
 
-    ```bash
-    pixi run rclone check "$LABDATA_PAPERS" <copy_to> --one-way \
-      --filter "- .*" --filter "- .*/**" --filter "- /paper-status.json"
-    ```
-
-    Run it between passes: a pass that runs beside it changes files under it.
-
-Done when: all nine checks have an outcome.
+Done when: every check on this page has an outcome.

@@ -889,11 +889,9 @@ def store_remove_sra(
 ) -> None:
     """Remove withdrawn SRA experiments and runs: the yearly maintenance step.
 
-    Candidates are the held experiments and runs the newest SRA_Accessions.tab marks
-    non-public, and the held experiments no Series in the newest geo-series snapshot
-    reaches. Each is removed only when a fetch of it alone confirms it gone. It writes
-    removal parts: run `labdata store pack`, then `labdata store build`, to apply them.
-    Rerun it to resume a cut-off run or to ask the failed again.
+    It writes removal parts: run `labdata store pack`, then `labdata store build`, to
+    apply them. Rerun it to resume a cut-off run. The candidate and confirm rules are in
+    docs/adr/0008-yearly-sra-removal.md.
     """
     import logging
 
