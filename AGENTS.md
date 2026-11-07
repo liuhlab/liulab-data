@@ -44,7 +44,11 @@ src/labdata/
                        record; runs from a checkout, as it calls scripts/bulk/)
   papers/            the paper store: root.py (marker, pointer, lock, paper folders);
                        tables.py (the four tables' declaration and only writer);
-                       status.py (paper-status.json); reader.py (PaperReader)
+                       status.py (paper-status.json); reader.py (PaperReader);
+                       sync.py (the monthly PMC sync), pubmed.py, openalex.py,
+                       pmc.py (the PMC bucket tier), _zst.py (zstd files);
+                       daily.py (quota, host links, manual queue); copy.py
+                       (GCS copy); job.py (the long-running paper job)
 tests/               pytest suite, mirrors src; mocks the EntrezClient + subprocess seams
 scripts/check.sh     the gate runner
 scripts/conformance.py  the lab template's rules, checked against this repo
@@ -80,9 +84,9 @@ CI runs `check-static` in one job and `test` in another.
   `Bio.Entrez` directly); its HTTP, and every other web client's, goes through
   `labdata._http.HttpTransport`, which tests replace with a fake transport. Subprocess
   seams: `sratools._run` (sra-tools/pigz), `geo.pipeline._run_snakemake` and
-  `store.pipeline._run_snakemake` (Snakemake), `labdata._rclone.run` (rclone; the store
-  copy calls it through `store.gcs._run_rclone`) and `store.extract._popen`
-  (rapidgzip/pigz). Tests mock the seams, never the real binaries.
+  `store.pipeline._run_snakemake` (Snakemake), `labdata._rclone.run` (rclone; the copies
+  call it through `store.gcs._run_rclone` and `papers.copy._run_rclone`),
+  `papers.job._submit` (sbatch) and `store.extract._popen` (rapidgzip/pigz). Tests mock the seams, never the real binaries.
 - **Pipelines are Snakemake DAGs with typed resources.** The download DAG
   (`prefetch → extract → compress`) lives in `pipeline.smk`, driven by
   `labdata.geo.pipeline`. labdata owns per-stage logic (tool calls, resume flags, cleanup,
