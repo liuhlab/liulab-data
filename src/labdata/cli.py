@@ -204,6 +204,72 @@ def papers_pmc_sync(
     typer.echo(f"OpenAlex: {openalex.traffic}")
 
 
+@papers_app.command("daily")
+def papers_daily(
+    root: Path | None = typer.Option(
+        None, help="Paper store root; default: LABDATA_PAPERS, then pointer."
+    ),
+    today: str | None = typer.Option(None, hidden=True, help="The pass date, YYYY-MM-DD."),
+) -> None:
+    """Spend today's OpenAlex quota, try free host links, and rewrite the manual queue.
+
+    A rerun the same day spends only the quota left. Holds the paper store's lock.
+    """
+    from labdata.papers import open_paper_store
+    from labdata.papers.daily import NBIB, daily_pass
+
+    day = dt.date.fromisoformat(today) if today else dt.datetime.now(dt.UTC).date()
+    client = _store_client()
+    openalex = _openalex_client()
+    store = open_paper_store(root)
+    try:
+        report = daily_pass(
+            store,
+            client=client,
+            openalex=openalex,
+            today=day,
+            log=lambda line: typer.echo(line, err=True),
+        )
+    except LabdataError as err:
+        typer.echo(str(err), err=True)
+        raise typer.Exit(1) from err
+    fetched = ", ".join(f"{t}: {n}" for t, n in sorted(report.fetched.items())) or "none"
+    typer.echo(f"fetched today: {fetched}")
+    for email, n in sorted(report.quota.items()):
+        typer.echo(f"OpenAlex quota spent today by {email}: {n}")
+    for status, reasons in sorted(report.counts.items()):
+        each = ", ".join(f"{r or '-'}: {n}" for r, n in sorted(reasons.items()))
+        typer.echo(f"{status}: {each}")
+    typer.echo(f"manual queue: {report.queued} papers in {store.root / NBIB}")
+
+
+@papers_app.command("configure")
+def papers_configure() -> None:
+    """Save the OpenAlex accounts the daily pass spends: one key and email per account.
+
+    Prompts for each account in turn; a blank email ends the list. Replaces the saved
+    accounts. ``OPENALEX_API_KEYS`` (``key:email`` pairs, comma-separated) overrides the file.
+    """
+    from labdata.papers.openalex import Account, save_accounts
+
+    accounts = []
+    while True:
+        n = len(accounts) + 1
+        email = typer.prompt(
+            f"Account {n} email (blank to finish)", default="", show_default=False
+        ).strip()
+        if not email:
+            break
+        key = typer.prompt(f"Account {n} API key", hide_input=True).strip()
+        accounts.append(Account(key, email))
+    if not accounts:
+        typer.echo("No accounts given; nothing saved.", err=True)
+        raise typer.Exit(1)
+    path = save_accounts(accounts)
+    emails = ", ".join(a.email for a in accounts)
+    typer.echo(f"Saved {len(accounts)} OpenAlex accounts ({emails}) to {path}")
+
+
 def _store_client() -> EntrezClient:
     """Return the Entrez client store fetches use; never prompts, so batch jobs never hang.
 

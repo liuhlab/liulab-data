@@ -19,10 +19,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from labdata._cache import liulab_data_cache_dir
+from labdata._cache import ensure_cache_dir, liulab_data_cache_dir
 from labdata._http import HttpTransport, RateLimiter, Transport
 from labdata.exceptions import LabdataError
 from labdata.ncbi.entrez import Traffic
+from labdata.store._files import temp_beside, toml_line
 
 #: Environment variable of ``key:email`` pairs, comma-separated; overrides the file.
 KEYS_ENV = "OPENALEX_API_KEYS"
@@ -305,3 +306,29 @@ def _abstract(index: dict[str, list[int]] | None) -> str | None:
 def accounts_path() -> Path:
     """Return the accounts file, ``<cache>/openalex.toml``, which may not exist."""
     return liulab_data_cache_dir() / ACCOUNTS_FILENAME
+
+
+def save_accounts(accounts: Iterable[Account]) -> Path:
+    """Replace ``<cache>/openalex.toml`` with ``accounts``, readable by its owner only.
+
+    Returns
+    -------
+    pathlib.Path
+        The file written.
+    """
+    ensure_cache_dir()
+    path = accounts_path()
+    text = "".join(
+        f"[[accounts]]\n{toml_line('key', a.key)}\n{toml_line('email', a.email)}\n\n"
+        for a in accounts
+    )
+    tmp = temp_beside(path)
+    try:
+        # Made owner-only before the keys are written.
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        tmp.replace(path)
+    finally:
+        tmp.unlink(missing_ok=True)
+    return path

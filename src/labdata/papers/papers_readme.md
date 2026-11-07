@@ -18,6 +18,7 @@ labdata store never writes into it.
   labdata-papers.toml       the marker: the labdata store it reads, and where it is copied
   paper-status.json         the last pass of the paper job, and counts by status
   .lock                     held by a running pass, so two passes never overlap
+  .daily-journal.jsonl      downloads a stopped daily pass has not yet put in the tables
   papers.parquet            one row per paper: IDs and status
   paper_info.parquet        one row per paper: title, authors, abstract
   files.parquet             one row per file, held or only listed
