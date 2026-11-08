@@ -35,9 +35,8 @@ BATCH = 1_000
 _NOT_PUBLIC = r"<ERROR[^>]*>SRA Experiment {acc} is not public</ERROR>"
 _EMPTY_IDS = r"<ERROR[^>]*>ID list is empty![^<]*</ERROR>"
 _SRA_LINK = r"\tsra\t[^\t\n]*\t([^\t\n]+)"
-_TAB_SCHEMA = pa.schema(
-    [("accession", pa.string()), ("kind", pa.string()), ("experiment", pa.string())]
-)
+_RUN_ACCESSION = r'<RUN\b[^>]*\baccession="([^"]+)"'
+_TAB_SCHEMA = pa.schema([("accession", pa.string()), ("kind", pa.string())])
 _LIVE_SCHEMA = pa.schema([("accession", pa.string())])
 _CANDIDATE_SCHEMA = pa.schema(
     [
@@ -152,13 +151,18 @@ def candidates(root: Path) -> Path:
             con.execute(
                 f"""
                 COPY (
-                  WITH tab AS (SELECT * FROM read_parquet({sql_string(str(tab))})),
+                  WITH tab AS (SELECT accession, kind FROM read_parquet({sql_string(str(tab))})),
                   held AS (SELECT DISTINCT accession FROM {held}),
+                  -- raw_text stays in a streaming scan: a join on it would hold every package
+                  held_runs AS (
+                    SELECT accession,
+                      unnest(regexp_extract_all(raw_text, {sql_string(_RUN_ACCESSION)}, 1)) AS run
+                    FROM {held}
+                  ),
                   runs AS (
-                    SELECT p.accession, list(DISTINCT t.accession ORDER BY t.accession) AS runs
-                    FROM {held} p JOIN tab t ON t.kind = 'RUN' AND t.experiment = p.accession
-                    WHERE strpos(p.raw_text, 'accession="' || t.accession || '"') > 0
-                    GROUP BY p.accession
+                    SELECT h.accession, list(DISTINCT h.run ORDER BY h.run) AS runs
+                    FROM held_runs h JOIN tab t ON t.kind = 'RUN' AND t.accession = h.run
+                    GROUP BY h.accession
                   ),
                   flagged AS (
                     SELECT h.accession,
@@ -356,7 +360,7 @@ def _tab_non_public(snap: snapshots.Snapshot, folder: Path) -> Path:
     tmp = temp_beside(out)
     try:
         with pq.ParquetWriter(tmp, _TAB_SCHEMA) as writer:
-            rows: list[tuple[str, str, str]] = []
+            rows: list[tuple[str, str]] = []
             for row in snapshots.tab_rows(
                 snap.path,
                 lambda r: (
@@ -365,7 +369,7 @@ def _tab_non_public(snap: snapshots.Snapshot, folder: Path) -> Path:
                 ),
                 line_filter=lambda line: "\tlive\t" not in line,
             ):
-                rows.append((row["Accession"], row["Type"], row.get("Experiment", "")))
+                rows.append((row["Accession"], row["Type"]))
                 if len(rows) >= _ROWS:
                     writer.write_table(_table(rows, _TAB_SCHEMA))
                     rows = []

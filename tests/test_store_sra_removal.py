@@ -7,7 +7,9 @@ import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
+import duckdb
 import pytest
 from typer.testing import CliRunner
 
@@ -90,7 +92,7 @@ def _store(tmp_path: Path) -> Path:
                 dst.write(line)
     rows = [
         (SUPPRESSED, "suppressed", "EXPERIMENT", "-"),
-        (RUN, "withdrawn", "RUN", RUN_SRX),
+        (RUN, "withdrawn", "RUN", "-"),  # the tab names no experiment on a non-public run
         ("SRR037171", "live", "RUN", SUPPRESSED),
         ("SRX999999", "suppressed", "EXPERIMENT", "-"),  # not held
     ]
@@ -152,6 +154,40 @@ def test_only_candidates_ncbi_confirms_gone_are_removed(
     assert set(ncbi.fetched) == {SUPPRESSED, RUN_SRX, ITS_SRX, DROPPED_SRX}
     assert "4 candidates" in said
     assert "2 confirmed gone, 1 runs gone, 1 still served, 0 failed and kept" in said
+
+
+def test_a_non_public_run_is_a_candidate_though_its_tab_row_names_no_experiment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _store(tmp_path)
+    _use(monkeypatch, _ncbi())
+
+    said = _step(root, "remove-sra")
+
+    assert "1 with a non-public run" in said
+    assert "1 runs gone" in said
+
+
+def test_every_duckdb_the_step_opens_is_capped_and_spills_to_disk(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _store(tmp_path)
+    _use(monkeypatch, _ncbi())
+    monkeypatch.delenv("LABDATA_DUCKDB_MEMORY", raising=False)
+    monkeypatch.setenv("LABDATA_MEMORY_MB", "1000")
+    configs: list[dict[str, Any]] = []
+    real = duckdb.connect
+
+    def spy(database: str, config: dict[str, Any]) -> duckdb.DuckDBPyConnection:
+        configs.append(config)
+        return real(database, config=config)
+
+    monkeypatch.setattr(duckdb, "connect", spy)
+
+    _step(root, "remove-sra")
+
+    assert configs
+    assert all(c["memory_limit"] == "500MB" and c["temp_directory"] for c in configs)
 
 
 def test_a_fetch_error_keeps_a_candidate_and_a_rerun_asks_only_it_again(
