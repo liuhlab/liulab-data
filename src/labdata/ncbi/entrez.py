@@ -20,6 +20,7 @@ import http.client
 import io
 import random
 import socket
+import ssl
 import threading
 import time
 import urllib.error
@@ -84,6 +85,8 @@ _TRANSIENT_EXCEPTIONS: tuple[type[BaseException], ...] = (
     socket.timeout,
     socket.gaierror,
     EOFError,
+    ssl.SSLEOFError,
+    ssl.SSLZeroReturnError,
 )
 
 #: Substrings marking a transient drop when it reaches us as a bare ``RuntimeError``.
