@@ -184,11 +184,19 @@ labdata store verify --root <store>
 ## work/
 
 - **What:** working files of the download and of each refresh: fetch parts, snapshot extracts,
-  the target Series list, step markers and logs, and the build lock. It is not part of the
-  store, and `labdata store copy` leaves it out.
+  the target Series list, step markers and logs, and the build lock. `labdata store copy`
+  leaves it out.
+- **Keep `work/extract/`.** `work/extract/<source>-<date>/` holds the Parquet extract of one
+  snapshot. Every build reads the extracts of the snapshots it uses, so a sample build
+  (`labdata store build --sample-of <store>`) and a rebuild of this store fail without them.
+  `labdata store prune` deletes an extract with its snapshot. If an extract is lost,
+  `labdata store extract --source <source>` makes it again, which is slow on a large
+  snapshot.
 - **Refresh:** none. When no run is going and `refresh-status.json` says the last refresh
-  succeeded, you may delete it, after keeping the logs in `support/`. The next run makes it
-  again, extracting the snapshots it needs. Fetch steps still skip every item saved in `raw/`.
+  succeeded, you may delete everything else in `work/`, after keeping the logs in `support/`:
+  `parts/`, `run/`, `refresh/`, `targets/`, `known/`, `eutils/`, `build/`, `tmp/` and
+  `sra-removal/`. The next run makes what it needs again. Fetch steps still skip every item
+  saved in `raw/`.
 
 ## How to refresh
 

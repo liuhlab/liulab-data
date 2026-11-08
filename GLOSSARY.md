@@ -76,6 +76,14 @@ The step that merges parts into bucket files. It is the only writer of `raw/`.
 
 _Avoid_: write, save (for `raw/` itself)
 
+### Extract
+
+The Parquet copy of one snapshot under `work/extract/<source>-<date>/`. Every build reads the
+extracts of its snapshots, so the current snapshots' extracts are kept with the store, not
+treated as scratch. Prune deletes an extract with its snapshot.
+
+_Avoid_: scratch, cache (both say it can be deleted)
+
 ### Removal candidate
 
 A GEO Series `raw/` holds that may be withdrawn: GEO's current Series list no longer names it,

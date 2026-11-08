@@ -76,6 +76,7 @@ def test_prune_keeps_what_the_grace_covers_and_deletes_the_rest_after_it(root: P
     assert report.deleted == [root / "builds" / "b1", read_by_b1]
     assert sorted(p.name for p in (root / "builds").iterdir()) == ["b2"]
     assert not extract.extract_dir(root, "bioproject", "2026-10-14").exists()
+    assert extract.extract_dir(root, "bioproject", "2026-11-01").is_dir()
     for kept in (newer, pending, root / "snapshots" / "biosample" / "2026-10-14"):
         assert kept.is_dir()
 

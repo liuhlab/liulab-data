@@ -84,7 +84,7 @@ scripts/store/keep_run_logs.sh "$LABDATA_STORE" <round>
 ```
 
 The build writes `README.md` at the store root. It says what each folder holds, how it was
-made, and how to open the store as a database. After you copy logs into `support/` or delete
+made, and how to open the store as a database. After you copy logs into `support/` or clean
 `work/`, write it again with fresh folder sizes:
 
 ```bash
@@ -156,7 +156,12 @@ refresh's folder under `work/refresh/`, which `refresh-status.json` names:
 scripts/store/keep_run_logs.sh "$LABDATA_STORE" refresh/<started>
 ```
 
-Then `work/` holds nothing the next refresh needs, and you may delete it.
+Then you may delete everything in `work/` except `work/extract/`. That folder holds the
+Parquet extracts of the current snapshots, and every build reads them, a sample build
+(`labdata store build --sample-of`) and a rebuild of the store included. `labdata store prune`
+deletes an old snapshot's extract with the snapshot. If you lose an extract,
+`labdata store extract --source <source>` makes it again, slowly. The store's `README.md` lists
+the `work/` folders that are safe to delete.
 
 ### What a refresh needs
 
