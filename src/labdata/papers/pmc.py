@@ -21,9 +21,11 @@ import hashlib
 import json
 import re
 import tempfile
+import threading
 import time
 import urllib.parse
 import xml.etree.ElementTree as ET
+from collections import Counter
 from collections.abc import Callable, Collection
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -98,12 +100,31 @@ _IMAGES = frozenset(
 )
 _RECORD = re.compile(r"metadata/(PMC\d+)\.(\d+)\.json")
 
+#: HTTP statuses by which the bucket asks a client to slow down.
+THROTTLE_STATUSES = frozenset({429, 503})
+
 # Bound at import, so tests may stub it.
 _sleep = time.sleep
 
 
 class PmcError(LabdataError):
     """A PMC bucket request failed after its retries, or a file kept failing its MD5."""
+
+
+@dataclass(frozen=True)
+class Replies:
+    """One pass's bucket retries, by HTTP status or failure, and throttling replies, by status."""
+
+    retries: dict[str, int]
+    throttled: dict[str, int]
+
+    def __str__(self) -> str:
+        """Return the counts as one log phrase."""
+        return f"retries {_counts(self.retries)}; throttling replies {_counts(self.throttled)}"
+
+
+def _counts(counts: dict[str, int]) -> str:
+    return ", ".join(f"{k}: {n}" for k, n in counts.items()) or "none"
 
 
 class _VideoError(Exception):
@@ -118,7 +139,7 @@ def fetch(
     transport: Transport,
     today: dt.date,
     log: Callable[[str], None],
-) -> None:
+) -> Replies:
     """Fetch what the PMC bucket holds for ``papers`` into the store, changing ``state``.
 
     It adds or renews ``files`` rows, writes the files under each paper's folder, sets
@@ -142,6 +163,11 @@ def fetch(
     log : callable
         Takes one progress line.
 
+    Returns
+    -------
+    Replies
+        The pass's bucket retries and throttling replies.
+
     Raises
     ------
     PmcError
@@ -153,7 +179,7 @@ def fetch(
         if state.papers[k].get("pmcid") and not state.papers[k].get("retracted")
     }
     if not pmcids:
-        return
+        return Replies({}, {})
     bucket = _Bucket(transport, RateLimiter(RATE, WORKERS))
     clock = time.monotonic()
     newest = bucket.inventory(set(pmcids.values()), today, root)
@@ -238,7 +264,12 @@ def fetch(
     finally:
         pool.shutdown(wait=True, cancel_futures=True)
     save()
-    log(f"PMC bucket: {len(todo)} papers synced in {time.monotonic() - clock:.0f} s, {tally}")
+    replies = bucket.replies()
+    log(
+        f"PMC bucket: {len(todo)} papers synced in {time.monotonic() - clock:.0f} s, {tally}; "
+        f"{replies}"
+    )
+    return replies
 
 
 @dataclass
@@ -680,6 +711,16 @@ class _Bucket:
     def __init__(self, transport: Transport, limiter: RateLimiter) -> None:
         self.transport = transport
         self.limiter = limiter
+        self._retries: Counter[str] = Counter()
+        self._throttled: Counter[str] = Counter()
+        self._counting = threading.Lock()
+
+    def replies(self) -> Replies:
+        """Return the retries and throttling replies so far."""
+        with self._counting:
+            return Replies(
+                dict(sorted(self._retries.items())), dict(sorted(self._throttled.items()))
+            )
 
     def get(self, key: str) -> bytes:
         """Return one small object whole."""
@@ -761,7 +802,7 @@ class _Bucket:
                                 digest.update(chunk)
                                 out.write(chunk)
                                 size += len(chunk)
-                _check(status)
+                self._check(status)
                 if md5s and digest.hexdigest() not in md5s:
                     raise TryAgain("MD5 mismatch")
                 tmp.replace(target)
@@ -770,7 +811,7 @@ class _Bucket:
                 tmp.unlink(missing_ok=True)
 
         try:
-            return retry(once, tries=TRIES, cap=30.0, sleep=_sleep)
+            return retry(once, tries=TRIES, cap=30.0, sleep=_sleep, retried=self._retried)
         except GaveUp as err:
             raise PmcError(f"{key}: {err}") from None
 
@@ -816,13 +857,23 @@ class _Bucket:
             ):
                 body = response.read()
                 status = response.status
-            _check(status)
+            self._check(status)
             return body
 
         try:
-            return retry(once, tries=TRIES, cap=30.0, sleep=_sleep)
+            return retry(once, tries=TRIES, cap=30.0, sleep=_sleep, retried=self._retried)
         except GaveUp as err:
             raise PmcError(f"{what}: {err}") from None
+
+    def _retried(self, how: str) -> None:
+        with self._counting:
+            self._retries[how.removeprefix("HTTP ")] += 1
+
+    def _check(self, status: int) -> None:
+        if status in THROTTLE_STATUSES:
+            with self._counting:
+                self._throttled[str(status)] += 1
+        _check(status)
 
 
 def _check(status: int) -> None:

@@ -51,13 +51,14 @@ _RECORD_TYPES = ("GEO Series", "BioProject")
 
 @dataclass
 class SyncReport:
-    """What one PMC sync did: papers added and looked up, and lookups that failed."""
+    """What one PMC sync did: papers added and looked up, lookups that failed, bucket replies."""
 
     added: int = 0
     looked_up: int = 0
     failed: int = 0
     rekeyed: int = 0
     counts: dict[str, dict[str, int]] = field(default_factory=dict)
+    bucket: pmc.Replies = field(default_factory=lambda: pmc.Replies({}, {}))
 
 
 def linked_papers(build: Path, target_series: Collection[str]) -> dict[str, set[str]]:
@@ -216,7 +217,11 @@ def pmc_sync(
             root,
             replace(
                 status,
-                last_pass=last_pass(_now(), "success"),
+                last_pass={
+                    **last_pass(_now(), "success"),
+                    "bucket_retries": report.bucket.retries,
+                    "bucket_throttled": report.bucket.throttled,
+                },
                 # A sampled sync is a backfill round, never the month's sync.
                 last_pmc_sync_success=(
                     today.isoformat() if sample is None else status.last_pmc_sync_success
@@ -272,7 +277,7 @@ def _sync(
             f"looked up {min(i + CHUNK, len(todo))}/{len(todo)} papers "
             f"in {time.monotonic() - clock:.0f} s; {report.failed} failed"
         )
-    pmc.fetch(
+    report.bucket = pmc.fetch(
         state,
         [k for k in linked if k not in placeholders],
         root=root,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 from pathlib import Path
 
 import pytest
@@ -16,7 +17,7 @@ from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
 from labdata.papers import init_paper_store, open_paper_store, paper_dir, pmc, tables
 from labdata.papers.openalex import OpenAlex
-from tests._paper_fakes import Article, FakeBucket, FakeWeb, fixture_build, md5
+from tests._paper_fakes import Article, FakeBucket, FakeWeb, Reply, fixture_build, md5
 
 TODAY = "2026-11-07"
 #: An open-access article in two versions: XML, PDF, a figure and supplements.
@@ -298,6 +299,31 @@ def test_a_bad_md5_is_retried_then_recorded_as_a_failed_attempt_with_no_partial_
     sync(root, "2026-12-03")
     assert files(root)[(OA, "supplement", "table.csv")]["fetched"] == dt.date(2026, 12, 3)
     assert b.fetched("PMC100.2/PMC100.2.xml") == 1
+
+
+def test_bucket_retries_and_throttling_replies_are_counted_by_status_in_the_pass_and_log(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    b = bucket()
+    queued = {
+        "PMC100.2/gr1.jpg": [503, 503],
+        "PMC100.2/mmc1.xlsx": [429],
+        "PMC200.1/PMC200.1.xml": [500],
+    }
+
+    def busy(key: str) -> Reply | None:
+        statuses = queued.get(key)
+        return Reply("busy", status=statuses.pop()) if statuses else None
+
+    b.fail = busy
+    root = store(tmp_path, web(b), monkeypatch)
+    output = sync(root)
+
+    assert (root / paper_dir(OA) / "suppl" / "mmc1.xlsx").is_file()
+    last = json.loads((root / "paper-status.json").read_text())["last_pass"]
+    assert last["bucket_retries"] == {"429": 1, "500": 1, "503": 2}
+    assert last["bucket_throttled"] == {"429": 1, "503": 2}
+    assert "retries 429: 1, 500: 1, 503: 2; throttling replies 429: 1, 503: 2" in output
 
 
 def test_a_file_rewritten_after_its_record_passes_by_its_own_etag(

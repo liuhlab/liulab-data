@@ -40,11 +40,13 @@ def retry[T](
     cap: float,
     sleep: Callable[[float], None],
     errors: tuple[type[BaseException], ...] = (OSError, http.client.HTTPException),
+    retried: Callable[[str], None] | None = None,
 ) -> T:
     """Return ``call()``, trying again with jittered exponential backoff when it fails.
 
     ``call`` raises :class:`TryAgain` for a failure worth another try and :class:`GaveUp`
     for one that is not; an exception in ``errors`` counts as worth another try.
+    ``retried``, if given, takes how each try that is retried failed.
 
     Raises
     ------
@@ -60,6 +62,8 @@ def retry[T](
         except errors as err:
             last = type(err).__name__
         if attempt + 1 < tries:
+            if retried is not None:
+                retried(last)
             sleep(min(cap, 2.0**attempt) * random.uniform(0.5, 1.0))
     raise GaveUp(last)
 

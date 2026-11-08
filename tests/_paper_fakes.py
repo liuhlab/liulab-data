@@ -229,7 +229,8 @@ class FakeBucket:
 
     ``bad`` keys are served with bytes that do not match their MD5; ``fail`` is called with
     each key fetched and may raise, to stop a pass mid-way. ``gets`` records every object
-    fetched, inventory files included. ``types`` gives an object's Content-Type.
+    fetched, inventory files included; a :class:`Reply` it returns is served instead. ``types``
+    gives an object's Content-Type.
     """
 
     objects: dict[str, bytes] = field(default_factory=dict)
@@ -310,8 +311,8 @@ class FakeBucket:
         key = urllib.parse.unquote(path.lstrip("/"))
         if key not in everything:
             return Reply("<Error><Code>NoSuchKey</Code></Error>", status=404)
-        if self.fail is not None:
-            self.fail(key)
+        if self.fail is not None and (instead := self.fail(key)) is not None:
+            return instead
         self.gets.append(key)
         data = everything[key]
         headers = {"Content-Type": self.types[key]} if key in self.types else None
