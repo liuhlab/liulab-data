@@ -6,7 +6,9 @@
 # At start the job submits its own successor, which waits for this job to end for any reason
 # (time limit, failure, cancel), then takes over. To stop the chain, cancel the waiting
 # successor first, then this job. The successor gets the Slurm options written here, not
-# options given on the first sbatch command line.
+# options given on the first sbatch command line, except its log: each job writes
+# labdata-papers.<job id>.log into the folder of the job before it. The first job's log
+# goes where --output says, or into the submit directory without it.
 #SBATCH --job-name=labdata-papers
 #SBATCH --partition=cpu_batch
 #SBATCH --open-mode=append

@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -17,13 +18,15 @@ from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
 from labdata.papers import init_paper_store, open_paper_store
 from labdata.papers import job as job_mod
-from labdata.papers.openalex import OpenAlex
+from labdata.papers.openalex import Account, OpenAlex, accounts_path, load_accounts, save_accounts
 from tests._paper_fakes import Article, FakeWeb, fixture_build, work
 
 PMID = "41000001"
 DEST = "gcs:bucket/datalake/paper-store"
 JOB = "4242"
 SCRIPT = "/repo/scripts/papers/serve.sbatch"
+RUN = "/data/paper-run"
+OUTPUT = f"--output={RUN}/labdata-papers.%j.log"
 
 
 class Clock:
@@ -69,6 +72,14 @@ def _isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.delenv("LABDATA_PAPERS", raising=False)
     monkeypatch.delenv("OPENALEX_API_KEYS", raising=False)
     monkeypatch.setattr(entrez_mod.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(
+        job_mod, "_show_job", lambda _id: show_job(f"{RUN}/labdata-papers.{JOB}.log")
+    )
+
+
+def show_job(stdout: str) -> str:
+    """The part of ``scontrol show job`` output that names the job's log."""
+    return f"JobId={JOB} JobName=labdata-papers\n   WorkDir=/repo\n   StdOut={stdout}\n"
 
 
 @pytest.fixture
@@ -110,7 +121,7 @@ def serve(root: Path, clock: Clock, until: dt.datetime) -> list[str]:
         client=EntrezClient(
             NcbiCredentials("t@t.org", "abc"), transport=web, limiter=RateLimiter(1000.0, 8)
         ),
-        openalex=OpenAlex(transport=web, limiter=RateLimiter(1000.0, 8)),
+        openalex=lambda: OpenAlex(load_accounts(), transport=web, limiter=RateLimiter(1000.0, 8)),
         transport=web,
         clock=clock,
         sleep=clock.sleep,
@@ -154,7 +165,7 @@ def test_one_daily_pass_a_day_after_0030_and_the_pmc_sync_on_the_3rd(
     # Every pass ends with a copy to GCS.
     assert len([c for c in rclone.calls if c[1] == "copy"]) == 5
     assert sbatch.calls == [
-        ["sbatch", "--parsable", f"--dependency=afterany:{JOB}", SCRIPT],
+        ["sbatch", "--parsable", f"--dependency=afterany:{JOB}", OUTPUT, SCRIPT],
     ]
     # Idle, the job prints a line a minute.
     idle = [line for line in lines if line.startswith("2026-11-02T01:") and " idle" in line]
@@ -193,6 +204,82 @@ def test_a_failed_successor_submission_is_logged_and_the_job_goes_on(
 
     assert any("successor not submitted" in line and "Access denied" in line for line in lines)
     assert passes(lines) == ["2026-11-05T07:00Z daily pass 2026-11-05: success"]
+
+
+@pytest.mark.parametrize(
+    ("shown", "output"),
+    [
+        (show_job("/repo with space/labdata-papers.4242.log"), "--output=/repo with space/"),
+        ("", None),
+    ],
+    ids=["log folder", "no scontrol answer"],
+)
+def test_the_successor_logs_into_the_folder_of_the_job_before_it(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    sbatch: Sbatch,
+    rclone: Rclone,
+    shown: str,
+    output: str | None,
+) -> None:
+    root = synced(paper_store(tmp_path))
+    monkeypatch.setattr(job_mod, "_show_job", lambda _id: shown)
+    serve(root, Clock(utc("2026-11-05 07:00")), until=utc("2026-11-05 07:01"))
+
+    [args] = sbatch.calls
+    logs = [a for a in args if a.startswith("--output=")]
+    assert logs == ([f"{output}labdata-papers.%j.log"] if output else [])
+
+
+class EditingClock(Clock):
+    """A clock that runs ``edit`` once, the first time it sleeps past ``at``."""
+
+    def __init__(self, start: dt.datetime, at: dt.datetime, edit: Callable[[], object]) -> None:
+        super().__init__(start)
+        self.at, self.edit = at, edit
+
+    def sleep(self, seconds: float) -> None:
+        super().sleep(seconds)
+        if self.now >= self.at and self.edit:
+            self.edit()
+            self.edit = None
+
+
+def test_each_daily_pass_spends_the_accounts_saved_before_it(
+    tmp_path: Path, sbatch: Sbatch, rclone: Rclone
+) -> None:
+    root = synced(paper_store(tmp_path))
+    save_accounts([Account("k1", "a@lab.org")])
+    clock = EditingClock(
+        utc("2026-11-05 07:00"),
+        at=utc("2026-11-05 12:00"),
+        edit=lambda: save_accounts([Account("k1", "a@lab.org"), Account("k2", "b@lab.org")]),
+    )
+    lines = serve(root, clock, until=utc("2026-11-06 02:00"))
+
+    spending = [line for line in lines if "accounts with quota left" in line]
+    assert [line.split(", ")[1] for line in spending] == [
+        "1 accounts with quota left",
+        "2 accounts with quota left",
+    ]
+    assert status(root)["quota"]["by_key"] == {"a@lab.org": 0, "b@lab.org": 0}
+
+
+def test_an_unreadable_accounts_file_fails_that_pass_and_the_job_goes_on(
+    tmp_path: Path, sbatch: Sbatch, rclone: Rclone
+) -> None:
+    root = synced(paper_store(tmp_path))
+    accounts_path().parent.mkdir(parents=True, exist_ok=True)
+    accounts_path().write_text("not toml [")
+    clock = EditingClock(
+        utc("2026-11-05 07:00"),
+        at=utc("2026-11-05 07:30"),
+        edit=lambda: save_accounts([Account("k1", "a@lab.org")]),
+    )
+    lines = serve(root, clock, until=utc("2026-11-05 09:00"))
+
+    assert any("cannot read OpenAlex accounts" in line for line in lines)
+    assert passes(lines) == ["2026-11-05T08:00Z daily pass 2026-11-05: success"]
 
 
 def copy(root: Path) -> str:
@@ -266,5 +353,7 @@ def test_serve_submits_its_successor_from_the_slurm_job_id(
     )
 
     assert result.exit_code == 0, result.output
-    assert sbatch.calls == [["sbatch", "--parsable", f"--dependency=afterany:{JOB}", SCRIPT]]
+    assert sbatch.calls == [
+        ["sbatch", "--parsable", f"--dependency=afterany:{JOB}", OUTPUT, SCRIPT]
+    ]
     assert f"successor job 4243 submitted, to start after job {JOB}" in result.output

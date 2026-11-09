@@ -90,7 +90,7 @@ CI runs `check-static` in one job and `test` in another.
   seams: `sratools._run` (sra-tools/pigz), `geo.pipeline._run_snakemake` and
   `store.pipeline._run_snakemake` (Snakemake), `labdata._rclone.run` (rclone; the copies
   call it through `store.gcs._run_rclone` and `papers.copy._run_rclone`),
-  `papers.job._submit` (sbatch) and `store.extract._popen` (rapidgzip/pigz). Tests mock the seams, never the real binaries.
+  `papers.job._submit` (sbatch), `papers.job._show_job` (scontrol) and `store.extract._popen` (rapidgzip/pigz). Tests mock the seams, never the real binaries.
 - **Pipelines are Snakemake DAGs with typed resources.** The download DAG
   (`prefetch → extract → compress`) lives in `pipeline.smk`, driven by
   `labdata.geo.pipeline`. labdata owns per-stage logic (tool calls, resume flags, cleanup,

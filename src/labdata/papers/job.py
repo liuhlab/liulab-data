@@ -11,6 +11,7 @@ job ends for any reason.
 from __future__ import annotations
 
 import datetime as dt
+import posixpath
 import subprocess
 import threading
 import time
@@ -49,6 +50,17 @@ def _submit(args: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(args, capture_output=True, text=True, check=False)
 
 
+def _show_job(job_id: str) -> str:
+    """Return ``scontrol show job`` output, or ``""``; the seam that reads the job's log path."""
+    try:
+        done = subprocess.run(
+            ["scontrol", "show", "job", job_id], capture_output=True, text=True, check=False
+        )
+    except OSError:
+        return ""
+    return done.stdout if done.returncode == 0 else ""
+
+
 def due(store: PaperStore, now: dt.datetime) -> list[str]:
     """Return the passes due at ``now``, daily first: ``daily``, ``pmc-sync``, or both.
 
@@ -79,7 +91,7 @@ def serve(
     store: PaperStore,
     *,
     client: EntrezClient,
-    openalex: OpenAlex,
+    openalex: Callable[[], OpenAlex],
     clock: Callable[[], dt.datetime],
     transport: Transport | None = None,
     sleep: Callable[[float], None] = time.sleep,
@@ -96,8 +108,9 @@ def serve(
         The paper store.
     client : EntrezClient
         The NCBI client the passes use.
-    openalex : OpenAlex
-        The OpenAlex client the passes use.
+    openalex : callable
+        Returns the OpenAlex client for one pass; called at each pass, so saved accounts
+        count from the next pass.
     clock : callable
         Returns the time, in UTC.
     transport : Transport or None
@@ -128,11 +141,12 @@ def serve(
         stamp, today = _stamp(now), now.date()
         try:
             with _ticker(kind, log):
+                alex = openalex()
                 if kind == "daily":
                     daily_pass(
                         store,
                         client=client,
-                        openalex=openalex,
+                        openalex=alex,
                         today=today,
                         transport=transport,
                         log=log,
@@ -141,7 +155,7 @@ def serve(
                     pmc_sync(
                         store,
                         client=client,
-                        openalex=openalex,
+                        openalex=alex,
                         today=today,
                         transport=transport,
                         log=log,
@@ -176,6 +190,10 @@ def _submit_successor(
         log(f"successor already submitted by job {job_id}")
         return
     args = ["sbatch", "--parsable", f"--dependency=afterany:{job_id}", script]
+    log_dir = _log_dir(job_id)
+    if log_dir is not None:
+        # Otherwise the successor's log lands in its submit directory: the repo checkout.
+        args.insert(-1, f"--output={posixpath.join(log_dir, 'labdata-papers.%j.log')}")
     try:
         done = _submit(args)
     except OSError as err:
@@ -187,6 +205,15 @@ def _submit_successor(
     next_id = done.stdout.strip().split(";")[0]
     write_atomic(record, f"{job_id} {next_id}\n")
     log(f"successor job {next_id} submitted, to start after job {job_id}")
+
+
+def _log_dir(job_id: str) -> str | None:
+    """Return the folder of this job's log, as Slurm reports it, or ``None``."""
+    for line in _show_job(job_id).splitlines():
+        key, _, value = line.strip().partition("=")
+        if key == "StdOut" and value:
+            return posixpath.dirname(value)
+    return None
 
 
 def _idle(store: PaperStore, now: dt.datetime, log: Callable[[str], None]) -> None:
