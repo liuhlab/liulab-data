@@ -98,8 +98,9 @@ says `successor not submitted` when it could not submit the next job.
 
 ## Watch it
 
-The job log, `labdata-papers.<job id>.log`, prints a line a minute. Between passes it looks
-like this:
+The job log, `labdata-papers.<job id>.log`, prints a line a minute. The first job writes it
+where `sbatch --output` says, or into the folder you submitted from. Each next job writes its
+log into the same folder. Between passes it looks like this:
 
 ```text
 2026-11-05T07:01Z idle; last daily pass 2026-11-05, last PMC sync 2026-11-03, copy pending: no
