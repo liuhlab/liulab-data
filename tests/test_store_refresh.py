@@ -16,11 +16,14 @@ import shlex
 import shutil
 import subprocess
 import sys
+import threading
+import time
+import traceback
 from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from typer.testing import CliRunner
+from typer.testing import CliRunner, Result
 
 import labdata.ncbi.entrez as entrez_mod
 from labdata._http import RateLimiter
@@ -162,6 +165,14 @@ def _jobs(argv: list[str]) -> list[tuple[str, list[str], list[str], str]]:
     return jobs
 
 
+def _step_log(rule: str, result: Result) -> str:
+    """Return what Snakemake's log of a failed step holds: its output, then its traceback."""
+    text = f"rule {rule} failed:\n{result.output}"
+    if result.exc_info and not isinstance(result.exception, SystemExit):
+        text += "".join(traceback.format_exception(*result.exc_info))
+    return text
+
+
 def _executor(
     monkeypatch: pytest.MonkeyPatch, *, stop_after: str | None = None
 ) -> tuple[Callable[..., int], list[str]]:
@@ -188,7 +199,7 @@ def _executor(
                     words = shlex.split(command.split(" -m labdata ", 1)[1].split(" 2>&1")[0])
                     result = CliRunner().invoke(app, words)
                     if result.exit_code:
-                        sys.stderr.write(result.output)
+                        sys.stderr.write(_step_log(rule, result))
                         return 1
                 for out in outputs:
                     Path(out).touch()
@@ -201,6 +212,16 @@ def _executor(
 
     monkeypatch.setattr(pipeline, "_run_snakemake", run)
     return run, ran
+
+
+def _next_second() -> None:
+    """Wait for the next UTC second: a refresh's folder and its build are named to the second.
+
+    ``time.sleep`` is a no-op in these tests, so the wait is an event's.
+    """
+    start = int(time.time())
+    while int(time.time()) == start:
+        threading.Event().wait(0.01)
 
 
 def _refresh(root: Path, *extra: str) -> str:
@@ -444,6 +465,7 @@ def test_a_second_refresh_asks_only_for_the_overlap_window(
     ncbi.updated = []
     ncbi.fetched.clear()
     ncbi.terms.clear()
+    _next_second()
 
     _refresh(root)
 
