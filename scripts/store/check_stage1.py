@@ -1,7 +1,10 @@
 """Run the stage 1 acceptance checks against a real store with the network blocked.
 
-Usage: ``pixi run python scripts/store/check_stage1.py [ROOT]``. ROOT defaults to the configured
-store (``LABDATA_STORE``, then the pointer file).
+Usage: ``pixi run python scripts/store/check_stage1.py [ROOT] [--every-record]``. ROOT defaults
+to the configured store (``LABDATA_STORE``, then the pointer file).
+
+By default it runs the thin-slice checks. ``--every-record`` adds two passes that open and
+re-hash every held record.
 """
 
 import socket
@@ -21,6 +24,7 @@ socket.socket.connect_ex = _refuse  # type: ignore[method-assign]
 socket.create_connection = _refuse  # type: ignore[assignment]
 socket.getaddrinfo = _refuse  # type: ignore[assignment]
 
+import argparse  # noqa: E402
 import hashlib  # noqa: E402
 import re  # noqa: E402
 import sys  # noqa: E402
@@ -36,7 +40,14 @@ from labdata.store import open_store, raw, targets  # noqa: E402
 from labdata.store.layout import GAPS, HOLDINGS  # noqa: E402
 from labdata.store.model import Record  # noqa: E402
 
-store = open_store(Path(sys.argv[1]) if len(sys.argv) > 1 else None)
+_parser = argparse.ArgumentParser(description="Run the stage 1 acceptance checks.")
+_parser.add_argument("root", nargs="?", type=Path, help="store root; default: the configured one")
+_parser.add_argument(
+    "--every-record", action="store_true", help="also open and re-hash every held record"
+)
+ARGS = _parser.parse_args()
+
+store = open_store(ARGS.root)
 ROOT = store.root
 READER = store.reader
 RESULTS: list[tuple[str, bool, str]] = []
@@ -280,48 +291,8 @@ def _r11() -> str:
     return f"studies={studies}; BP={bp}; umbrella of {len(kids)} children"
 
 
-# ------------------------------------------------------------ every record
-held = pq.read_table(HOLDINGS.path(READER.path)).column("accession").to_pylist()
-# Records and raw texts are checked a chunk at a time, so memory stays flat as the store grows.
-CHUNK = 20_000
-
-
-def chunks() -> Iterator[list[str]]:
-    """Yield the held accessions in lists of at most ``CHUNK``."""
-    for start in range(0, len(held), CHUNK):
-        yield held[start : start + CHUNK]
-
-
-@check("every: open all held")
-def _open() -> str:
-    bad = []
-    for part in chunks():
-        opened = store.open_many(part)
-        bad += [a for a, r in opened.items() if not isinstance(r, Record)]
-    eq(bad, [], "failed opens")
-    return f"{len(held)} held, all open"
-
-
-@check("every: content_hash recomputes from store.raw")
-def _hash() -> str:
-    bad = []
-    for part in chunks():
-        raws = store.raw(part)
-        opened = store.open_many(part)
-        for a in part:
-            rec = opened[a]
-            if not (
-                isinstance(rec, Record)
-                and hashlib.sha256(raws[a].text.encode()).hexdigest()
-                == raws[a].content_hash
-                == rec.content_hash
-            ):
-                bad.append(a)
-    eq(bad, [], "hash mismatch")
-    return f"{len(held)} hashes match"
-
-
-@check("every: malformed -> AccessionError")
+# ------------------------------------------------------------ malformed and absent
+@check("malformed -> AccessionError")
 def _malformed() -> str:
     for acc in ["GSE", "SRX12a", "PRJ1", "FOO1", "", "SAMN", "GSMx1"]:
         try:
@@ -332,7 +303,7 @@ def _malformed() -> str:
     return "7 malformed raise AccessionError"
 
 
-@check("every: absent -> NotFound with date")
+@check("absent -> NotFound with date")
 def _absent() -> str:
     msgs = []
     for acc in [
@@ -355,6 +326,45 @@ def _absent() -> str:
             assert re.search(r"\d{4}-\d{2}-\d{2}", m), m
             msgs.append(m)
     return msgs[0]
+
+
+# ------------------------------------------------------------ every record, on the flag
+if ARGS.every_record:
+    held = pq.read_table(HOLDINGS.path(READER.path)).column("accession").to_pylist()
+    # Records and raw texts are checked a chunk at a time, so memory stays flat as the store grows.
+    CHUNK = 20_000
+
+    def chunks() -> Iterator[list[str]]:
+        """Yield the held accessions in lists of at most ``CHUNK``."""
+        for start in range(0, len(held), CHUNK):
+            yield held[start : start + CHUNK]
+
+    @check("every record: open all held")
+    def _open() -> str:
+        bad = []
+        for part in chunks():
+            opened = store.open_many(part)
+            bad += [a for a, r in opened.items() if not isinstance(r, Record)]
+        eq(bad, [], "failed opens")
+        return f"{len(held)} held, all open"
+
+    @check("every record: content_hash recomputes from store.raw")
+    def _hash() -> str:
+        bad = []
+        for part in chunks():
+            raws = store.raw(part)
+            opened = store.open_many(part)
+            for a in part:
+                rec = opened[a]
+                if not (
+                    isinstance(rec, Record)
+                    and hashlib.sha256(raws[a].text.encode()).hexdigest()
+                    == raws[a].content_hash
+                    == rec.content_hash
+                ):
+                    bad.append(a)
+        eq(bad, [], "hash mismatch")
+        return f"{len(held)} hashes match"
 
 
 for name, ok, detail in RESULTS:

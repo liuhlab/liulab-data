@@ -171,27 +171,60 @@ class PaperReader:
             If the paper store does not hold the paper.
         """
         wanted = paper_key(key)
-        rows = self._rows(tables.PAPERS, [wanted], dois=[] if wanted.isdigit() else [wanted])
-        if not rows:
+        found = self.papers([wanted])
+        if wanted not in found:
             raise NotMirrored(f"not in the paper store: {wanted}")
-        row = next((r for r in rows if r["paper"] == wanted), rows[0])
-        found = row["paper"]
-        info = self._rows(tables.PAPER_INFO, [found])
-        files = self._rows(tables.FILES, [found])
-        return Paper(
-            key=found,
-            status=row["status"],
-            reason=row["reason"],
-            pmid=row["pmid"],
-            pmcid=row["pmcid"],
-            doi=row["doi"],
-            openalex=row["openalex"],
-            published=row["published"],
-            xml_tier=row["xml_tier"],
-            pdf_tier=row["pdf_tier"],
-            info=_info(info[0]) if info else None,
-            files=tuple(_file(self.root, f) for f in files),
-        )
+        return found[wanted]
+
+    def papers(self, keys: Iterable[str]) -> dict[str, Paper]:
+        """Return many papers, reading each table once; use it to walk many papers.
+
+        Parameters
+        ----------
+        keys : iterable of str
+            PMIDs, bare or as ``PMID:<n>``, or DOIs, as :meth:`paper` takes them.
+
+        Returns
+        -------
+        dict of str to Paper
+            Each held key, as :func:`~labdata.papers.root.paper_key` gives it, in input
+            order, mapped to its paper; a key the store does not hold is left out.
+
+        Raises
+        ------
+        ValueError
+            If a key is neither a PMID nor a DOI.
+        """
+        wanted = list(dict.fromkeys(paper_key(k) for k in keys))
+        if not wanted:
+            return {}
+        dois = [w for w in wanted if not w.isdigit()]
+        rows = self._rows(tables.PAPERS, wanted, dois=dois)
+        by_key = {r["paper"]: r for r in rows}
+        by_doi = {r["doi"]: r for r in rows if r["doi"]}
+        hits = {w: row for w in wanted if (row := by_key.get(w) or by_doi.get(w))}
+        held = {row["paper"] for row in hits.values()}
+        info = {r["paper"]: r for r in self._rows(tables.PAPER_INFO, held)} if held else {}
+        files: dict[str, list[PaperFile]] = {}
+        for f in self._rows(tables.FILES, held) if held else []:
+            files.setdefault(f["paper"], []).append(_file(self.root, f))
+        return {
+            w: Paper(
+                key=row["paper"],
+                status=row["status"],
+                reason=row["reason"],
+                pmid=row["pmid"],
+                pmcid=row["pmcid"],
+                doi=row["doi"],
+                openalex=row["openalex"],
+                published=row["published"],
+                xml_tier=row["xml_tier"],
+                pdf_tier=row["pdf_tier"],
+                info=_info(info[row["paper"]]) if row["paper"] in info else None,
+                files=tuple(files.get(row["paper"], ())),
+            )
+            for w, row in hits.items()
+        }
 
     def papers_for(self, accessions: Iterable[str]) -> dict[str, PaperLinks]:
         """Map each Series or BioProject to the papers its build links, with their status.

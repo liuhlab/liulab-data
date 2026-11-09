@@ -6,6 +6,7 @@ a web service, so one fake transport serves every test.
 
 from __future__ import annotations
 
+import errno
 import http.client
 import random
 import threading
@@ -40,11 +41,14 @@ def retry[T](
     cap: float,
     sleep: Callable[[float], None],
     errors: tuple[type[BaseException], ...] = (OSError, http.client.HTTPException),
+    retried: Callable[[str], None] | None = None,
 ) -> T:
     """Return ``call()``, trying again with jittered exponential backoff when it fails.
 
     ``call`` raises :class:`TryAgain` for a failure worth another try and :class:`GaveUp`
-    for one that is not; an exception in ``errors`` counts as worth another try.
+    for one that is not; an exception in ``errors`` counts as worth another try, except a
+    file name too long for the file system.
+    ``retried``, if given, takes how each try that is retried failed.
 
     Raises
     ------
@@ -58,8 +62,12 @@ def retry[T](
         except TryAgain as err:
             last = str(err)
         except errors as err:
+            if isinstance(err, OSError) and err.errno == errno.ENAMETOOLONG:
+                raise GaveUp(f"{type(err).__name__}: {err.strerror}") from err
             last = type(err).__name__
         if attempt + 1 < tries:
+            if retried is not None:
+                retried(last)
             sleep(min(cap, 2.0**attempt) * random.uniform(0.5, 1.0))
     raise GaveUp(last)
 

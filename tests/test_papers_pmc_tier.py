@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import datetime as dt
+import errno
+import json
 from pathlib import Path
 
 import pytest
@@ -16,7 +18,7 @@ from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
 from labdata.papers import init_paper_store, open_paper_store, paper_dir, pmc, tables
 from labdata.papers.openalex import OpenAlex
-from tests._paper_fakes import Article, FakeBucket, FakeWeb, fixture_build, md5
+from tests._paper_fakes import Article, FakeBucket, FakeWeb, Reply, fixture_build, md5
 
 TODAY = "2026-11-07"
 #: An open-access article in two versions: XML, PDF, a figure and supplements.
@@ -300,6 +302,57 @@ def test_a_bad_md5_is_retried_then_recorded_as_a_failed_attempt_with_no_partial_
     assert b.fetched("PMC100.2/PMC100.2.xml") == 1
 
 
+def test_bucket_retries_and_throttling_replies_are_counted_by_status_in_the_pass_and_log(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    b = bucket()
+    queued = {
+        "PMC100.2/gr1.jpg": [503, 503],
+        "PMC100.2/mmc1.xlsx": [429],
+        "PMC200.1/PMC200.1.xml": [500],
+    }
+
+    def busy(key: str) -> Reply | None:
+        statuses = queued.get(key)
+        return Reply("busy", status=statuses.pop()) if statuses else None
+
+    b.fail = busy
+    root = store(tmp_path, web(b), monkeypatch)
+    output = sync(root)
+
+    assert (root / paper_dir(OA) / "suppl" / "mmc1.xlsx").is_file()
+    last = json.loads((root / "paper-status.json").read_text())["last_pass"]
+    assert last["bucket_retries"] == {"429": 1, "500": 1, "503": 2}
+    assert last["bucket_throttled"] == {"429": 1, "503": 2}
+    assert "retries 429: 1, 500: 1, 503: 2; throttling replies 429: 1, 503: 2" in output
+
+
+def test_a_failed_pass_still_records_and_logs_its_bucket_retries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    b = bucket()
+    calls: list[str] = []
+
+    def busy_then_killed(key: str) -> Reply | None:
+        if key != "PMC100.2/gr1.jpg":
+            return None
+        calls.append(key)
+        if len(calls) == 1:
+            return Reply("busy", status=503)
+        raise KilledError
+
+    b.fail = busy_then_killed
+    root = store(tmp_path, web(b), monkeypatch)
+    result = CliRunner().invoke(app, ["papers", "pmc-sync", "--root", str(root), "--today", TODAY])
+
+    assert isinstance(result.exception, KilledError)
+    last = json.loads((root / "paper-status.json").read_text())["last_pass"]
+    assert last["outcome"] == "failed"
+    assert last["bucket_retries"] == {"503": 1}
+    assert last["bucket_throttled"] == {"503": 1}
+    assert "retries 503: 1; throttling replies 503: 1" in result.output
+
+
 def test_a_file_rewritten_after_its_record_passes_by_its_own_etag(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -522,3 +575,53 @@ def test_a_retracted_paper_is_skipped_keeps_what_it_holds_and_gets_no_downloads(
     assert (papers[OA]["status"], papers[OA]["reason"]) == ("skipped", "retracted")
     assert sorted(p for p in (root / paper_dir(OA)).rglob("*") if p.is_file()) == held
     assert bucket_gets(b, gets) == []
+
+
+def test_a_supplement_with_a_250_character_name_is_stored_and_opens_through_the_reader(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    long_xlsx = ("NIHMS1-supplement-" + "Table_S2_" * 30)[:245] + ".xlsx"
+    long_txt = ("NIHMS1-supplement-" + "Notes_S3_" * 30)[:246] + ".txt"
+    assert len(long_xlsx) == len(long_txt) == 250
+    b = bucket()
+    b.put(
+        "PMC200",
+        1,
+        {"PMC200.1.xml": AM_XML, long_xlsx: b"long table", long_txt: b"long notes"},
+        manuscript=True,
+    )
+    root = store(tmp_path, web(b), monkeypatch)
+    sync(root)
+
+    rows = files(root)
+    held = {f.name: f for f in open_paper_store(root).reader.paper(AM).files}
+    for name, data in ((long_xlsx, b"long table"), (long_txt, b"long notes")):
+        assert rows[(AM, "supplement", name)]["fetched"] == dt.date(2026, 11, 7)
+        with held[name].open() as fh:
+            assert fh.read() == data
+    # The stored name is the same on every pass, so a rerun downloads nothing again.
+    b.put("PMC200", 1, {"PMC200.1.xml": AM_XML + b" "}, manuscript=True)
+    gets = len(b.gets)
+    sync(root, "2026-12-03")
+    assert bucket_gets(b, gets) == ["PMC200.1/PMC200.1.xml"]
+    assert files(root)[(AM, "supplement", long_xlsx)] == rows[(AM, "supplement", long_xlsx)]
+
+
+def test_a_name_the_file_system_refuses_fails_once_without_a_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    b = bucket()
+    tries: list[str] = []
+
+    def refuse(key: str) -> None:
+        if key == "PMC100.2/table.csv":
+            tries.append(key)
+            raise OSError(errno.ENAMETOOLONG, "File name too long")
+
+    b.fail = refuse
+    root = store(tmp_path, web(b), monkeypatch)
+    sync(root)
+
+    assert len(tries) == 1
+    attempts = tables.read(root, tables.ATTEMPTS)
+    assert "File name too long" in next(a["detail"] for a in attempts if a["paper"] == OA)

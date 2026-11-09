@@ -14,7 +14,8 @@ from labdata.cli import app
 from labdata.ncbi import entrez as entrez_mod
 from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
-from labdata.papers import init_paper_store, paper_dir, tables
+from labdata.papers import init_paper_store, open_paper_store, paper_dir, tables
+from labdata.papers import job as job_mod
 from labdata.papers import openalex as openalex_mod
 from labdata.papers.openalex import Account, OpenAlex, OpenAlexError, load_accounts
 from tests._paper_fakes import Article, FakeWeb, Reply, fixture_build, work
@@ -280,6 +281,27 @@ def test_a_doi_only_paper_that_gains_a_pmid_moves_to_the_pmid_layout(
     ]
     assert [a["paper"] for a in tables.read(root, tables.ATTEMPTS)] == [REKEY_PMID]
     assert by_key(root, tables.PAPER_INFO)[REKEY_PMID]["title"] == "Rekeyed paper"
+
+
+def test_a_sampled_sync_is_not_the_months_sync_and_a_full_one_is(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = paper_store(tmp_path, LINKS)
+    use(monkeypatch, web())
+    after_0030 = dt.datetime(2026, 11, 7, 1, 0, tzinfo=dt.UTC)
+
+    sync(root, "--sample", "0.5")
+    status = json.loads((root / "paper-status.json").read_text())
+    assert status["last_pmc_sync_success"] is None
+    assert status["last_pass"]["outcome"] == "success"
+    assert status["last_pass"]["sample"] == 0.5
+    assert "pmc-sync" in job_mod.due(open_paper_store(root), after_0030)
+
+    sync(root)
+    status = json.loads((root / "paper-status.json").read_text())
+    assert status["last_pmc_sync_success"] == TODAY
+    assert status["last_pass"]["sample"] is None
+    assert "pmc-sync" not in job_mod.due(open_paper_store(root), after_0030)
 
 
 def test_only_target_series_and_held_bioprojects_bring_papers_in(

@@ -51,6 +51,13 @@ def test_a_build_writes_the_root_readme_for_the_build_it_switched_to(root: Path)
     assert str(root) not in text
 
 
+def test_the_readme_says_to_keep_the_extracts_when_cleaning_work(root: Path) -> None:
+    text = (root / "README.md").read_text(encoding="utf-8")
+    work = text.split("\n## work/\n", 1)[1].split("\n## ", 1)[0]
+    assert "Keep `work/extract/`" in work
+    assert "delete everything else in `work/`" in work
+
+
 def test_the_readme_command_rewrites_it_with_this_copys_sizes(root: Path) -> None:
     (root / "README.md").unlink()
     logs = root / "support" / "logs" / "jobs"

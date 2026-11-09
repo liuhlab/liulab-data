@@ -7,6 +7,7 @@ import gc
 import gzip
 import io
 import socket
+import ssl
 import threading
 import time
 import urllib.error
@@ -232,6 +233,19 @@ def test_a_timed_out_request_is_retried(sleeps: list[float]) -> None:
     assert client.esearch(db="gds", term="x") == ["42"]
     assert len(_calls(client)) == 2
     assert len(sleeps) == 1
+
+
+@pytest.mark.parametrize(
+    "drop",
+    [
+        ssl.SSLEOFError(8, "EOF occurred in violation of protocol (_ssl.c:2427)"),
+        ssl.SSLZeroReturnError(6, "TLS/SSL connection has been closed (EOF) (_ssl.c:1000)"),
+    ],
+)
+def test_a_tls_drop_is_retried(sleeps: list[float], drop: ssl.SSLError) -> None:
+    client = _client(drop, Reply(b"<PubmedArticleSet/>"))
+    assert client.efetch(db="pubmed", ids=["1"], rettype="xml") == "<PubmedArticleSet/>"
+    assert len(_calls(client)) == 2
 
 
 def test_a_drop_that_never_clears_gives_up_as_entrez_error(sleeps: list[float]) -> None:

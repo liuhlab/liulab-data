@@ -24,7 +24,8 @@ scratch="$(mktemp -d "$out/tmp.XXXXXX")"
 trap 'rm -rf "$scratch"' EXIT
 export TMPDIR="$scratch" XDG_CACHE_HOME="$scratch/cache"
 
-echo "$(date -u +%FT%TZ) job ${SLURM_JOB_ID:-local} on $(hostname)"
+echo "$(date -u +%FT%TZ) job ${SLURM_JOB_ID:-local} on $(hostname)," \
+  "load average $(cut -d ' ' -f 1-3 /proc/loadavg 2>/dev/null || uptime)"
 pixi="$(command -v pixi || echo "$HOME/.pixi/bin/pixi")"
 cd "$scratch"
 "$pixi" run --manifest-path "$repo/pyproject.toml" python "$repo/scripts/store/benchmark.py" \

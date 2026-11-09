@@ -51,13 +51,14 @@ _RECORD_TYPES = ("GEO Series", "BioProject")
 
 @dataclass
 class SyncReport:
-    """What one PMC sync did: papers added and looked up, and lookups that failed."""
+    """What one PMC sync did: papers added and looked up, lookups that failed, bucket replies."""
 
     added: int = 0
     looked_up: int = 0
     failed: int = 0
     rekeyed: int = 0
     counts: dict[str, dict[str, int]] = field(default_factory=dict)
+    bucket: pmc.Replies = field(default_factory=lambda: pmc.Replies({}, {}))
 
 
 def linked_papers(build: Path, target_series: Collection[str]) -> dict[str, set[str]]:
@@ -182,6 +183,7 @@ def pmc_sync(
         Sends the PMC bucket's requests; kept-open connections by default.
     sample : float or None
         Take only this seeded share of the linked papers, for a trial; ``None`` takes all.
+        Only a sync over all papers sets the date of the last successful PMC sync.
     log : callable
         Takes one progress line.
 
@@ -194,19 +196,40 @@ def pmc_sync(
     root = store.root
     with paper_lock(root):
         start = _now()
-        _record(root, {"kind": "pmc-sync", "start": start, "end": None, "outcome": "running"})
+
+        def last_pass(end: str | None, outcome: str) -> dict[str, Any]:
+            return {
+                "kind": "pmc-sync",
+                "start": start,
+                "end": end,
+                "outcome": outcome,
+                "sample": sample,
+            }
+
+        def with_bucket(record: dict[str, Any]) -> dict[str, Any]:
+            return {
+                **record,
+                "bucket_retries": report.bucket.retries,
+                "bucket_throttled": report.bucket.throttled,
+            }
+
+        _record(root, last_pass(None, "running"))
+        report = SyncReport()
         try:
-            report = _sync(store, client, openalex, today, transport, sample, log)
+            _sync(store, client, openalex, today, transport, sample, log, report)
         except BaseException:
-            _record(root, {"kind": "pmc-sync", "start": start, "end": _now(), "outcome": "failed"})
+            _record(root, with_bucket(last_pass(_now(), "failed")))
             raise
         status = read_status(root)
         write_status(
             root,
             replace(
                 status,
-                last_pass={"kind": "pmc-sync", "start": start, "end": _now(), "outcome": "success"},
-                last_pmc_sync_success=today.isoformat(),
+                last_pass=with_bucket(last_pass(_now(), "success")),
+                # A sampled sync is a backfill round, never the month's sync.
+                last_pmc_sync_success=(
+                    today.isoformat() if sample is None else status.last_pmc_sync_success
+                ),
                 counts=report.counts,
             ),
         )
@@ -221,9 +244,9 @@ def _sync(
     transport: Transport | None,
     sample: float | None,
     log: Callable[[str], None],
-) -> SyncReport:
+    report: SyncReport,
+) -> None:
     root = store.root
-    report = SyncReport()
     state = PaperTables.load(root)
     linked = store_links(store, state)
     if sample is not None:
@@ -258,13 +281,14 @@ def _sync(
             f"looked up {min(i + CHUNK, len(todo))}/{len(todo)} papers "
             f"in {time.monotonic() - clock:.0f} s; {report.failed} failed"
         )
-    pmc.fetch(
+    report.bucket = pmc.fetch(
         state,
         [k for k in linked if k not in placeholders],
         root=root,
         transport=transport or HttpTransport(),
         today=today,
         log=log,
+        on_failure=lambda replies: setattr(report, "bucket", replies),
     )
     held = state.held()
     for key in linked:
@@ -277,7 +301,6 @@ def _sync(
     for row in state.papers.values():
         counts.setdefault(row["status"] or "", Counter())[row["reason"] or ""] += 1
     report.counts = {s: dict(c) for s, c in counts.items()}
-    return report
 
 
 def _new_row(key: str, today: dt.date) -> dict[str, Any]:

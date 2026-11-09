@@ -21,9 +21,11 @@ import hashlib
 import json
 import re
 import tempfile
+import threading
 import time
 import urllib.parse
 import xml.etree.ElementTree as ET
+from collections import Counter
 from collections.abc import Callable, Collection
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -89,6 +91,10 @@ TRIES = 3
 _TIER = "pmc"
 _TIMEOUT = 60.0
 _CHUNK = 2**20
+# Most file systems cap one name at 255 bytes; this leaves room for ``.zst``.
+_NAME_MAX = 200
+# A longer "suffix" is part of the name, not an extension, so a shortened name drops it.
+_SUFFIX_MAX = 16
 _SAVE_EVERY = 300.0
 _LOG_EVERY = 60.0
 _S3 = "{http://s3.amazonaws.com/doc/2006-03-01/}"
@@ -98,12 +104,31 @@ _IMAGES = frozenset(
 )
 _RECORD = re.compile(r"metadata/(PMC\d+)\.(\d+)\.json")
 
+#: HTTP statuses by which the bucket asks a client to slow down.
+THROTTLE_STATUSES = frozenset({429, 503})
+
 # Bound at import, so tests may stub it.
 _sleep = time.sleep
 
 
 class PmcError(LabdataError):
     """A PMC bucket request failed after its retries, or a file kept failing its MD5."""
+
+
+@dataclass(frozen=True)
+class Replies:
+    """One pass's bucket retries, by HTTP status or failure, and throttling replies, by status."""
+
+    retries: dict[str, int]
+    throttled: dict[str, int]
+
+    def __str__(self) -> str:
+        """Return the counts as one log phrase."""
+        return f"retries {_counts(self.retries)}; throttling replies {_counts(self.throttled)}"
+
+
+def _counts(counts: dict[str, int]) -> str:
+    return ", ".join(f"{k}: {n}" for k, n in counts.items()) or "none"
 
 
 class _VideoError(Exception):
@@ -118,7 +143,8 @@ def fetch(
     transport: Transport,
     today: dt.date,
     log: Callable[[str], None],
-) -> None:
+    on_failure: Callable[[Replies], None] = lambda _replies: None,
+) -> Replies:
     """Fetch what the PMC bucket holds for ``papers`` into the store, changing ``state``.
 
     It adds or renews ``files`` rows, writes the files under each paper's folder, sets
@@ -141,6 +167,13 @@ def fetch(
         The UTC date of the pass.
     log : callable
         Takes one progress line.
+    on_failure : callable
+        Takes the bucket retries and throttling replies so far if the pass raises.
+
+    Returns
+    -------
+    Replies
+        The pass's bucket retries and throttling replies.
 
     Raises
     ------
@@ -153,92 +186,105 @@ def fetch(
         if state.papers[k].get("pmcid") and not state.papers[k].get("retracted")
     }
     if not pmcids:
-        return
+        return Replies({}, {})
     bucket = _Bucket(transport, RateLimiter(RATE, WORKERS))
-    clock = time.monotonic()
-    newest = bucket.inventory(set(pmcids.values()), today, root)
-    log(
-        f"PMC inventory read in {time.monotonic() - clock:.0f} s: "
-        f"{len(newest)} of {len(pmcids)} papers with a PMCID are in the bucket"
-    )
-    last = _last_fetch(state.attempts)
-    outcome = _last_outcome(state.attempts)
-    by_paper: dict[str, list[dict[str, Any]]] = {}
-    for row in state.files:
-        by_paper.setdefault(row["paper"], []).append(row)
-    tally = _Tally()
-    todo: list[tuple[str, str, str]] = []
-    for key, pmcid in pmcids.items():
-        entry = newest.get(pmcid)
-        if entry is None:
-            if outcome.get(key) != "absent":
-                state.attempts.append(
-                    {"paper": key, "tier": _TIER, "date": today, "outcome": "absent"}
-                )
-            for row in by_paper.get(key, []):
-                if row["tier"] == _TIER and row["gone"] is None:
-                    row["gone"] = today
-                    tally.gone += 1
-        elif last.get(key) != _fetch_detail(*entry):
-            todo.append((key, *entry))
-    log(f"PMC bucket: {len(todo)} papers to sync, {len(pmcids) - len(todo)} unchanged or absent")
-
-    def save() -> None:
-        state.files[:] = [row for rows in by_paper.values() for row in rows]
-        state.save(root)
-
-    pool = ThreadPoolExecutor(WORKERS)
-    saved = logged = time.monotonic()
     try:
-        futures: list[Future[_Outcome]] = [
-            pool.submit(
-                _article,
-                bucket,
-                root,
-                key,
-                folder,
-                [r for r in by_paper.get(key, []) if r["tier"] == _TIER],
-                any(
-                    r["kind"] == "pdf" and r["path"] and r["tier"] != _TIER
-                    for r in by_paper.get(key, [])
-                ),
-                today,
-            )
-            for key, folder, _etag in todo
-        ]
-        etags = {key: _fetch_detail(folder, etag) for key, folder, etag in todo}
-        for done, future in enumerate(as_completed(futures), 1):
-            out = future.result()
-            other = [r for r in by_paper.get(out.paper, []) if r["tier"] != _TIER]
-            by_paper[out.paper] = other + out.rows
-            _set_tiers(state.papers[out.paper], out.rows)
-            if out.retracted:
-                state.papers[out.paper]["retracted"] = True
-            state.attempts.append(
-                {
-                    "paper": out.paper,
-                    "tier": _TIER,
-                    "date": today,
-                    "outcome": "failed"
-                    if out.error
-                    else "retracted"
-                    if out.retracted
-                    else "fetched",
-                    "detail": out.error or etags[out.paper],
-                }
-            )
-            tally.add(out)
-            now = time.monotonic()
-            if now - saved >= _SAVE_EVERY:
-                save()
-                saved = now
-            if now - logged >= _LOG_EVERY:
-                log(f"PMC bucket: {done}/{len(todo)} papers, {tally}")
-                logged = now
-    finally:
-        pool.shutdown(wait=True, cancel_futures=True)
-    save()
-    log(f"PMC bucket: {len(todo)} papers synced in {time.monotonic() - clock:.0f} s, {tally}")
+        clock = time.monotonic()
+        newest = bucket.inventory(set(pmcids.values()), today, root)
+        log(
+            f"PMC inventory read in {time.monotonic() - clock:.0f} s: "
+            f"{len(newest)} of {len(pmcids)} papers with a PMCID are in the bucket"
+        )
+        last = _last_fetch(state.attempts)
+        outcome = _last_outcome(state.attempts)
+        by_paper: dict[str, list[dict[str, Any]]] = {}
+        for row in state.files:
+            by_paper.setdefault(row["paper"], []).append(row)
+        tally = _Tally()
+        todo: list[tuple[str, str, str]] = []
+        for key, pmcid in pmcids.items():
+            entry = newest.get(pmcid)
+            if entry is None:
+                if outcome.get(key) != "absent":
+                    state.attempts.append(
+                        {"paper": key, "tier": _TIER, "date": today, "outcome": "absent"}
+                    )
+                for row in by_paper.get(key, []):
+                    if row["tier"] == _TIER and row["gone"] is None:
+                        row["gone"] = today
+                        tally.gone += 1
+            elif last.get(key) != _fetch_detail(*entry):
+                todo.append((key, *entry))
+        log(
+            f"PMC bucket: {len(todo)} papers to sync, {len(pmcids) - len(todo)} unchanged or absent"
+        )
+
+        def save() -> None:
+            state.files[:] = [row for rows in by_paper.values() for row in rows]
+            state.save(root)
+
+        pool = ThreadPoolExecutor(WORKERS)
+        saved = logged = time.monotonic()
+        try:
+            futures: list[Future[_Outcome]] = [
+                pool.submit(
+                    _article,
+                    bucket,
+                    root,
+                    key,
+                    folder,
+                    [r for r in by_paper.get(key, []) if r["tier"] == _TIER],
+                    any(
+                        r["kind"] == "pdf" and r["path"] and r["tier"] != _TIER
+                        for r in by_paper.get(key, [])
+                    ),
+                    today,
+                )
+                for key, folder, _etag in todo
+            ]
+            etags = {key: _fetch_detail(folder, etag) for key, folder, etag in todo}
+            for done, future in enumerate(as_completed(futures), 1):
+                out = future.result()
+                other = [r for r in by_paper.get(out.paper, []) if r["tier"] != _TIER]
+                by_paper[out.paper] = other + out.rows
+                _set_tiers(state.papers[out.paper], out.rows)
+                if out.retracted:
+                    state.papers[out.paper]["retracted"] = True
+                state.attempts.append(
+                    {
+                        "paper": out.paper,
+                        "tier": _TIER,
+                        "date": today,
+                        "outcome": "failed"
+                        if out.error
+                        else "retracted"
+                        if out.retracted
+                        else "fetched",
+                        "detail": out.error or etags[out.paper],
+                    }
+                )
+                tally.add(out)
+                now = time.monotonic()
+                if now - saved >= _SAVE_EVERY:
+                    save()
+                    saved = now
+                if now - logged >= _LOG_EVERY:
+                    log(f"PMC bucket: {done}/{len(todo)} papers, {tally}")
+                    logged = now
+        finally:
+            pool.shutdown(wait=True, cancel_futures=True)
+        save()
+        replies = bucket.replies()
+        log(
+            f"PMC bucket: {len(todo)} papers synced in {time.monotonic() - clock:.0f} s, {tally}; "
+            f"{replies}"
+        )
+        return replies
+    except BaseException:
+        replies = bucket.replies()
+        log(f"PMC bucket: pass failed; {replies}")
+        on_failure(replies)
+        raise
 
 
 @dataclass
@@ -425,7 +471,23 @@ def _article(
 
 def _capped(folder: Path, name: str, size: int) -> Path | None:
     """Return where a supplement or figure goes, or ``None`` when it is only listed."""
-    return folder / name if size <= SUPPLEMENT_MAX and _safe(name) else None
+    return folder / _stored_name(name) if size <= SUPPLEMENT_MAX and _safe(name) else None
+
+
+def _stored_name(name: str) -> str:
+    """Return ``name``, or a stable shorter form of it that leaves room for ``.zst``.
+
+    A shortened name keeps its start and extension, with a hash of the whole name between.
+    """
+    if len(name.encode()) <= _NAME_MAX:
+        return name
+    suffix = Path(name).suffix
+    if len(suffix.encode()) > _SUFFIX_MAX:
+        suffix = ""
+    tag = "~" + hashlib.sha256(name.encode()).hexdigest()[:16]
+    room = _NAME_MAX - len(tag) - len(suffix.encode())
+    stem = name[: len(name) - len(suffix)].encode()[:room].decode(errors="ignore")
+    return stem + tag + suffix
 
 
 def _file(
@@ -444,7 +506,8 @@ def _file(
 ) -> dict[str, Any]:
     """Return one file's row, downloading it unless the copy held is current.
 
-    ``path`` is where the file goes as the publisher names it; a file stored compressed
+    ``path`` is where the file goes, named as the publisher names it unless that name is
+    too long for the file system; a file stored compressed
     gets ``.zst`` added. A file only listed (``path`` is ``None``, or a video) loses any
     copy an earlier layout kept.
     """
@@ -680,6 +743,16 @@ class _Bucket:
     def __init__(self, transport: Transport, limiter: RateLimiter) -> None:
         self.transport = transport
         self.limiter = limiter
+        self._retries: Counter[str] = Counter()
+        self._throttled: Counter[str] = Counter()
+        self._counting = threading.Lock()
+
+    def replies(self) -> Replies:
+        """Return the retries and throttling replies so far."""
+        with self._counting:
+            return Replies(
+                dict(sorted(self._retries.items())), dict(sorted(self._throttled.items()))
+            )
 
     def get(self, key: str) -> bytes:
         """Return one small object whole."""
@@ -761,7 +834,7 @@ class _Bucket:
                                 digest.update(chunk)
                                 out.write(chunk)
                                 size += len(chunk)
-                _check(status)
+                self._check(status)
                 if md5s and digest.hexdigest() not in md5s:
                     raise TryAgain("MD5 mismatch")
                 tmp.replace(target)
@@ -770,7 +843,7 @@ class _Bucket:
                 tmp.unlink(missing_ok=True)
 
         try:
-            return retry(once, tries=TRIES, cap=30.0, sleep=_sleep)
+            return retry(once, tries=TRIES, cap=30.0, sleep=_sleep, retried=self._retried)
         except GaveUp as err:
             raise PmcError(f"{key}: {err}") from None
 
@@ -816,13 +889,23 @@ class _Bucket:
             ):
                 body = response.read()
                 status = response.status
-            _check(status)
+            self._check(status)
             return body
 
         try:
-            return retry(once, tries=TRIES, cap=30.0, sleep=_sleep)
+            return retry(once, tries=TRIES, cap=30.0, sleep=_sleep, retried=self._retried)
         except GaveUp as err:
             raise PmcError(f"{what}: {err}") from None
+
+    def _retried(self, how: str) -> None:
+        with self._counting:
+            self._retries[how.removeprefix("HTTP ")] += 1
+
+    def _check(self, status: int) -> None:
+        if status in THROTTLE_STATUSES:
+            with self._counting:
+                self._throttled[str(status)] += 1
+        _check(status)
 
 
 def _check(status: int) -> None:

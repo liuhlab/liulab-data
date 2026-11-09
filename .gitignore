@@ -49,6 +49,10 @@ site/
 # Claude Code machine-local files (project-wide settings.json may be committed)
 .claude/settings.local.json
 .claude/worktrees/
+# Skill installer output for other agent products; `.claude/skills/` and `.agents/skills/` are
+# tracked.
+/.codex/
+/.gemini/
 
 # playground contains manual test code
 playground/

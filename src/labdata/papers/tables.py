@@ -1,6 +1,7 @@
 """The paper store's four tables: their declarations, and the only code that writes them.
 
-Each table is one Parquet file at the paper store root, sorted by its key columns. A step
+Each table is one Parquet file at the paper store root, sorted by its key columns, in row
+groups of :data:`ROW_GROUP_ROWS` rows. A step
 reads a table whole, changes its rows and writes it back through :func:`write`, which
 replaces the file by a rename, so a reader sees the old table or the new one, never a part.
 """
@@ -23,6 +24,10 @@ STATUSES = ("fetched", "waiting", "manual", "skipped")
 
 #: File kinds in ``files``.
 KINDS = ("xml", "pdf", "figure", "supplement")
+
+#: Rows per Parquet row group. Rows are sorted by ``paper``, so a key lookup decodes the
+#: one or two groups whose statistics can hold the key, not the whole table.
+ROW_GROUP_ROWS = 10_000
 
 _AUTHOR = pa.struct([("name", pa.string()), ("affiliations", pa.list_(pa.string()))])
 
@@ -226,7 +231,9 @@ def write(root: Path, table: PaperTable, rows: Iterable[Mapping[str, Any]]) -> P
     path = table.path(root)
     tmp = temp_beside(path)
     try:
-        pq.write_table(data, tmp, compression="zstd", compression_level=3)
+        pq.write_table(
+            data, tmp, row_group_size=ROW_GROUP_ROWS, compression="zstd", compression_level=3
+        )
         tmp.replace(path)
     finally:
         tmp.unlink(missing_ok=True)

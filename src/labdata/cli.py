@@ -877,7 +877,43 @@ def store_confirm(
         f"Removal candidates: {report.asked} asked, {report.gone} confirmed gone, "
         f"{report.kept} still served, {report.failed} failed and kept"
     )
-    for source, count in sorted(report.removals.items()):
+    _echo_removals(report.removals)
+
+
+@store_app.command("remove-sra")
+def store_remove_sra(
+    root: Path | None = typer.Option(
+        None, help="Store root; default: LABDATA_STORE, then pointer."
+    ),
+) -> None:
+    """Remove withdrawn SRA experiments and runs: the yearly maintenance step.
+
+    It writes removal parts: run `labdata store pack`, then `labdata store build`, to
+    apply them. Rerun it to resume a cut-off run. The candidate and confirm rules are in
+    docs/adr/0008-yearly-sra-removal.md.
+    """
+    import logging
+
+    from labdata.store import sra_removal
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    store = open_store(root)
+    report = sra_removal.remove(store.root, client=_store_client())
+    typer.echo(
+        f"SRA removal: {report.candidates} candidates ({report.non_public} non-public, "
+        f"{report.with_runs} with a non-public run, {report.unreached} reached by no live "
+        f"Series); {report.asked} asked"
+    )
+    typer.echo(
+        f"{report.gone} confirmed gone, {report.runs_gone} runs gone, {report.kept} still "
+        f"served, {report.failed} failed and kept"
+    )
+    _echo_removals(report.removals)
+
+
+def _echo_removals(removals: dict[str, int]) -> None:
+    """Echo the accessions each source's removal parts list."""
+    for source, count in sorted(removals.items()):
         typer.echo(f"{source}: {count} to remove")
 
 

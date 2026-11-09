@@ -25,11 +25,13 @@ class PaperStatus:
     ----------
     last_pass : dict
         The last pass run: ``kind`` (``daily`` or ``pmc-sync``), ``start`` and ``end`` (UTC,
-        ISO 8601) and ``outcome`` (``running``, ``success`` or ``failed``).
+        ISO 8601) and ``outcome`` (``running``, ``success`` or ``failed``); a PMC sync also
+        gives its ``sample`` share, ``None`` for all papers, and on success its PMC bucket
+        ``bucket_retries`` by HTTP status or failure and ``bucket_throttled`` by status.
     last_daily_success : str or None
         The UTC date of the last daily pass that succeeded.
     last_pmc_sync_success : str or None
-        The UTC date of the last PMC sync that succeeded.
+        The UTC date of the last PMC sync over all papers that succeeded.
     fetches : dict
         ``date`` and, under ``by_tier``, the papers fetched that day per tier.
     quota : dict

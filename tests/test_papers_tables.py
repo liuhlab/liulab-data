@@ -6,6 +6,7 @@ import datetime as dt
 from collections.abc import Iterator
 from pathlib import Path
 
+import pyarrow.dataset as ds
 import pytest
 
 from labdata.papers import tables
@@ -56,3 +57,18 @@ def test_a_missing_table_reads_empty_and_a_bad_row_is_refused(tmp_path: Path) ->
         tables.write(tmp_path, tables.ATTEMPTS, [{"paper": "1", "nope": 1}])
     with pytest.raises(ValueError, match="twice"):
         tables.write(tmp_path, tables.PAPER_INFO, [{"paper": "1"}, {"paper": "1"}])
+
+
+def test_a_key_lookup_touches_only_the_row_group_that_can_hold_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(tables, "ROW_GROUP_ROWS", 2)
+    rows = [{"paper": str(n), "kind": "xml", "name": f"{n}.xml"} for n in range(10, 16)]
+    path = tables.write(tmp_path, tables.FILES, reversed(rows))
+    fragment = next(ds.dataset(path).get_fragments())
+    assert fragment.metadata.num_row_groups == 3
+    held = fragment.subset(ds.field("paper") == "13").row_groups
+    assert [g.id for g in held] == [1]
+    assert tables.read(tmp_path, tables.FILES) == [
+        {c: r.get(c) for c in tables.FILES.schema.names} for r in rows
+    ]

@@ -24,7 +24,7 @@ _Avoid_: snapshot (a dated copy of one bulk source, which a build reads)
 
 One pass that brings the store to the sources' current state: it adds new records, replaces
 changed ones, removes withdrawn GEO Series, renews the snapshots and ends in a new current build.
-SRA records stay once held.
+A refresh never removes an SRA record; only a yearly maintenance run may.
 
 _Avoid_: update, sync (each says less than the whole pass)
 
@@ -76,6 +76,14 @@ The step that merges parts into bucket files. It is the only writer of `raw/`.
 
 _Avoid_: write, save (for `raw/` itself)
 
+### Extract
+
+The Parquet copy of one snapshot under `work/extract/<source>-<date>/`. Every build reads the
+extracts of its snapshots, so the current snapshots' extracts are kept with the store, not
+treated as scratch. Prune deletes an extract with its snapshot.
+
+_Avoid_: scratch, cache (both say it can be deleted)
+
 ### Removal candidate
 
 A GEO Series `raw/` holds that may be withdrawn: GEO's current Series list no longer names it,
@@ -96,6 +104,21 @@ It also names the refresh DAG version that started the refresh; a refresh anothe
 started is not resumed.
 
 _Avoid_: status file, refresh log
+
+### Maintenance run
+
+One pass of upkeep on the stores, monthly or yearly, done by one written procedure. A monthly run is
+the refresh and its light checks; a yearly run adds the heavy checks and the removal of withdrawn
+SRA records.
+
+_Avoid_: refresh (one step of a monthly maintenance run, not the whole of it)
+
+### Maintenance log
+
+The file in the repository with one entry per maintenance run: its date, period, build, each
+check's outcome and its time against budget.
+
+_Avoid_: status record (the refresh's own file in the store root)
 
 ### Gap
 

@@ -39,7 +39,9 @@ src/labdata/
                        declaration, the only writer of build tables);
                        pipeline.py + pipeline.smk (the full-run DAG);
                        changes.py (a refresh's re-fetch list), removals.py
-                       (confirm and remove withdrawn Series),
+                       (confirm and remove withdrawn Series), sra_removal.py
+                       (the yearly removal of withdrawn SRA records),
+                       _removal.py (the helpers both removals share),
                        refresh.py + refresh.smk (the refresh DAG, its status
                        record; runs from a checkout, as it calls scripts/bulk/)
   papers/            the paper store: root.py (marker, pointer, lock, paper folders);
@@ -54,9 +56,11 @@ scripts/check.sh     the gate runner
 scripts/conformance.py  the lab template's rules, checked against this repo
 scripts/bulk/        the NCBI bulk snapshot downloader
 scripts/store/       the store full-run job script and its checks
+skills/              repo-local agent skills; install.py links them into .claude/ and .agents/
 ```
 
-Running the store on a cluster: follow `docs/how-to/store-run.md`.
+Running the store on a cluster: follow `docs/how-to/store-run.md`. A monthly or yearly
+maintenance run: the user invokes `/store-maintenance`.
 Changing the store's code or table layout: try it small first, per `docs/agents/store-dev.md`.
 
 ## Quality gates (all green before commit)
@@ -152,6 +156,7 @@ A fact that must survive lives where it is checked:
 | A decision and its trade-off | an ADR in `docs/adr/` |
 | Vocabulary | `GLOSSARY.md` |
 | What is still open | an issue |
+| A maintenance run's record | the maintenance log, `docs/maintenance-log.md` |
 | A measurement | nowhere: delete it |
 
 Keep a docstring to its contract: Parameters, Returns, Raises, one example if it earns its
