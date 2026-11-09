@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import errno
 import json
 from pathlib import Path
 
@@ -548,3 +549,53 @@ def test_a_retracted_paper_is_skipped_keeps_what_it_holds_and_gets_no_downloads(
     assert (papers[OA]["status"], papers[OA]["reason"]) == ("skipped", "retracted")
     assert sorted(p for p in (root / paper_dir(OA)).rglob("*") if p.is_file()) == held
     assert bucket_gets(b, gets) == []
+
+
+def test_a_supplement_with_a_250_character_name_is_stored_and_opens_through_the_reader(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    long_xlsx = ("NIHMS1-supplement-" + "Table_S2_" * 30)[:245] + ".xlsx"
+    long_txt = ("NIHMS1-supplement-" + "Notes_S3_" * 30)[:246] + ".txt"
+    assert len(long_xlsx) == len(long_txt) == 250
+    b = bucket()
+    b.put(
+        "PMC200",
+        1,
+        {"PMC200.1.xml": AM_XML, long_xlsx: b"long table", long_txt: b"long notes"},
+        manuscript=True,
+    )
+    root = store(tmp_path, web(b), monkeypatch)
+    sync(root)
+
+    rows = files(root)
+    held = {f.name: f for f in open_paper_store(root).reader.paper(AM).files}
+    for name, data in ((long_xlsx, b"long table"), (long_txt, b"long notes")):
+        assert rows[(AM, "supplement", name)]["fetched"] == dt.date(2026, 11, 7)
+        with held[name].open() as fh:
+            assert fh.read() == data
+    # The stored name is the same on every pass, so a rerun downloads nothing again.
+    b.put("PMC200", 1, {"PMC200.1.xml": AM_XML + b" "}, manuscript=True)
+    gets = len(b.gets)
+    sync(root, "2026-12-03")
+    assert bucket_gets(b, gets) == ["PMC200.1/PMC200.1.xml"]
+    assert files(root)[(AM, "supplement", long_xlsx)] == rows[(AM, "supplement", long_xlsx)]
+
+
+def test_a_name_the_file_system_refuses_fails_once_without_a_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    b = bucket()
+    tries: list[str] = []
+
+    def refuse(key: str) -> None:
+        if key == "PMC100.2/table.csv":
+            tries.append(key)
+            raise OSError(errno.ENAMETOOLONG, "File name too long")
+
+    b.fail = refuse
+    root = store(tmp_path, web(b), monkeypatch)
+    sync(root)
+
+    assert len(tries) == 1
+    attempts = tables.read(root, tables.ATTEMPTS)
+    assert "File name too long" in next(a["detail"] for a in attempts if a["paper"] == OA)
