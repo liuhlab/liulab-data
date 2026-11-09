@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import http.client
 import json
 import os
 import time
@@ -438,6 +439,7 @@ def _download(transport: Transport, url: str, dest: Path, headers: dict[str, str
     """
     headers = {"User-Agent": USER_AGENT, "Accept": "application/pdf", **headers}
     for _ in range(_REDIRECTS + 1):
+        url = _quoted(url)
         try:
             with transport.open("GET", url, body=None, headers=headers, timeout=_TIMEOUT) as r:
                 if r.status in (301, 302, 303, 307, 308):
@@ -458,9 +460,17 @@ def _download(transport: Transport, url: str, dest: Path, headers: dict[str, str
                         retry_after=_seconds(r.getheader("Retry-After")),
                     )
                 return _save_pdf(r, dest)
-        except (OSError, ValueError) as err:
+        except (OSError, ValueError, http.client.HTTPException) as err:
             return _Got(detail=type(err).__name__)
     return _Got(status=310, detail="too many redirects")
+
+
+def _quoted(url: str) -> str:
+    """Percent-encode a URL's path and query, leaving ``%XX`` as is; drop its fragment."""
+    parts = urllib.parse.urlsplit(url)
+    path = urllib.parse.quote(parts.path, safe="/%:@!$&'()*+,;=~")
+    query = urllib.parse.quote(parts.query, safe="/%:@!$&'()*+,;=~?")
+    return urllib.parse.urlunsplit((parts.scheme, parts.netloc, path, query, ""))
 
 
 def _save_pdf(response: Any, dest: Path) -> _Got:
