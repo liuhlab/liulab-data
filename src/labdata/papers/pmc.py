@@ -91,6 +91,8 @@ TRIES = 3
 _TIER = "pmc"
 _TIMEOUT = 60.0
 _CHUNK = 2**20
+# Most file systems cap one name at 255 bytes; this leaves room for ``.zst``.
+_NAME_MAX = 200
 _SAVE_EVERY = 300.0
 _LOG_EVERY = 60.0
 _S3 = "{http://s3.amazonaws.com/doc/2006-03-01/}"
@@ -456,7 +458,23 @@ def _article(
 
 def _capped(folder: Path, name: str, size: int) -> Path | None:
     """Return where a supplement or figure goes, or ``None`` when it is only listed."""
-    return folder / name if size <= SUPPLEMENT_MAX and _safe(name) else None
+    return folder / _stored_name(name) if size <= SUPPLEMENT_MAX and _safe(name) else None
+
+
+def _stored_name(name: str) -> str:
+    """Return ``name``, or a stable shorter form of it that leaves room for ``.zst``.
+
+    A shortened name keeps its start and extension, with a hash of the whole name between.
+    """
+    if len(name.encode()) <= _NAME_MAX:
+        return name
+    suffix = Path(name).suffix
+    if len(suffix.encode()) > 16:
+        suffix = ""
+    tag = "~" + hashlib.sha256(name.encode()).hexdigest()[:16]
+    room = _NAME_MAX - len(tag) - len(suffix.encode())
+    stem = name[: len(name) - len(suffix)].encode()[:room].decode(errors="ignore")
+    return stem + tag + suffix
 
 
 def _file(
@@ -475,7 +493,8 @@ def _file(
 ) -> dict[str, Any]:
     """Return one file's row, downloading it unless the copy held is current.
 
-    ``path`` is where the file goes as the publisher names it; a file stored compressed
+    ``path`` is where the file goes, named as the publisher names it unless that name is
+    too long for the file system; a file stored compressed
     gets ``.zst`` added. A file only listed (``path`` is ``None``, or a video) loses any
     copy an earlier layout kept.
     """
