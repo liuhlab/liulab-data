@@ -1,0 +1,1417 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Data curation, download, and organization utilities for the Liu Lab.">
+      
+      
+      
+        <link rel="canonical" href="https://liuhlab.github.io/liulab-data/how-to/store-run/">
+      
+      
+        <link rel="prev" href="../../tutorials/tenx-bam/">
+      
+      
+        <link rel="next" href="../store-gcs/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="zensical-0.0.57">
+    
+    
+      
+        <title>Run the full download - liulab-data</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../../assets/stylesheets/modern/main.5da3a30f.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/modern/palette.812a03bb.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+  
+
+
+  
+  
+
+<script id="__analytics">function __md_analytics(){function e(){dataLayer.push(arguments)}window.dataLayer=window.dataLayer||[],e("js",new Date),e("config","G-6M1CJF9WXY"),document.addEventListener("DOMContentLoaded",(function(){document.forms.search&&document.forms.search.query.addEventListener("blur",(function(){this.value&&e("event","search",{search_term:this.value})}));document$.subscribe((function(){var t=document.forms.feedback;if(void 0!==t)for(var a of t.querySelectorAll("[type=submit]"))a.addEventListener("click",(function(a){a.preventDefault();var n=document.location.pathname,d=this.getAttribute("data-md-value");e("event","feedback",{page:n,data:d}),t.firstElementChild.disabled=!0;var r=t.querySelector(".md-feedback__note [data-md-value='"+d+"']");r&&(r.hidden=!1)})),t.hidden=!1})),location$.subscribe((function(t){e("config","G-6M1CJF9WXY",{page_path:t.pathname})}))}));var t=document.createElement("script");t.async=!0,t.src="https://www.googletagmanager.com/gtag/js?id=G-6M1CJF9WXY",document.getElementById("__analytics").insertAdjacentElement("afterEnd",t)}</script>
+  
+    <script>"undefined"!=typeof __md_analytics&&__md_analytics()</script>
+  
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-label="Navigation"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#run-the-full-download" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="liulab-data" class="md-header__button md-logo" aria-label="liulab-data" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer" aria-label="Navigation">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            liulab-data
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Run the full download
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search" aria-label="Search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/liuhlab/liulab-data" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M216.5 362.5c-66-8-112.5-55.5-112.5-117 0-25 9-52 24-70-6.5-16.5-5.5-51.5 2-66 20-2.5 47 8 63 22.5 19-6 39-9 63.5-9s44.5 3 62.5 8.5c15.5-14 43-24.5 63-22 7 13.5 8 48.5 1.5 65.5 16 19 24.5 44.5 24.5 70.5 0 61.5-46.5 108-113.5 116.5 17 11 28.5 35 28.5 62.5v52c0 15 12.5 23.5 27.5 17.5C441 459.5 512 369 512 257 512 115.5 397 0 255.5 0S0 115.5 0 257c0 111 70.5 203 165.5 237.5 13.5 5 26.5-4 26.5-17.5v-40c-7 3-16 5-24 5-33 0-52.5-18-66.5-51.5-5.5-13.5-11.5-21.5-23-23-6-.5-8-3-8-6 0-6 10-10.5 20-10.5 14.5 0 27 9 40 27.5 10 14.5 20.5 21 33 21s20.5-4.5 32-16c8.5-8.5 15-16 21-21"/></svg>
+  </div>
+  <div class="md-source__repository">
+    liuhlab/liulab-data
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="liulab-data" class="md-nav__button md-logo" aria-label="liulab-data" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    liulab-data
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/liuhlab/liulab-data" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M216.5 362.5c-66-8-112.5-55.5-112.5-117 0-25 9-52 24-70-6.5-16.5-5.5-51.5 2-66 20-2.5 47 8 63 22.5 19-6 39-9 63.5-9s44.5 3 62.5 8.5c15.5-14 43-24.5 63-22 7 13.5 8 48.5 1.5 65.5 16 19 24.5 44.5 24.5 70.5 0 61.5-46.5 108-113.5 116.5 17 11 28.5 35 28.5 62.5v52c0 15 12.5 23.5 27.5 17.5C441 459.5 512 369 512 257 512 115.5 397 0 255.5 0S0 115.5 0 257c0 111 70.5 203 165.5 237.5 13.5 5 26.5-4 26.5-17.5v-40c-7 3-16 5-24 5-33 0-52.5-18-66.5-51.5-5.5-13.5-11.5-21.5-23-23-6-.5-8-3-8-6 0-6 10-10.5 20-10.5 14.5 0 27 9 40 27.5 10 14.5 20.5 21 33 21s20.5-4.5 32-16c8.5-8.5 15-16 21-21"/></svg>
+  </div>
+  <div class="md-source__repository">
+    liuhlab/liulab-data
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Home
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Tutorials
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+  Tutorials
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/understanding-geo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Understanding GEO & SRA
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/geo-series/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  GEO Series
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/tenx-bam/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  10x cellranger BAM → FASTQ
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  How-to
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+  How-to
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Run the full download
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="././" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Run the full download
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#before-you-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Before you start
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#start-a-round" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Start a round
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#watch-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Watch it
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#resume" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Resume
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#after-the-last-round" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        After the last round
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#refresh-the-store" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Refresh the store
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Refresh the store">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-a-refresh-needs" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What a refresh needs
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#yearly" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Yearly
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Yearly">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-a-yearly-run-adds" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What a yearly run adds
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#make-a-sample-build" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Make a sample build
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#go-deeper" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Go deeper
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../store-gcs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Copy the store to GCS
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../papers-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Run the paper store
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../maintenance-log/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Maintenance log
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API reference
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#before-you-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Before you start
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#start-a-round" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Start a round
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#watch-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Watch it
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#resume" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Resume
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#after-the-last-round" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        After the last round
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#refresh-the-store" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Refresh the store
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Refresh the store">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-a-refresh-needs" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What a refresh needs
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#yearly" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Yearly
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Yearly">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-a-yearly-run-adds" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What a yearly run adds
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#make-a-sample-build" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Make a sample build
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#go-deeper" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Go deeper
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+  
+    <a href="https://github.com/liuhlab/liulab-data/edit/main/docs/how-to/store-run.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-file-pen" viewBox="0 0 24 24"><path d="M12.659 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v9.34"/><path d="M14 2v5a1 1 0 0 0 1 1h5M10.378 12.622a1 1 0 0 1 3 3.003L8.36 20.637a2 2 0 0 1-.854.506l-2.867.837a.5.5 0 0 1-.62-.62l.836-2.869a2 2 0 0 1 .506-.853z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="run-the-full-download">Run the full download<a class="headerlink" href="#run-the-full-download" title="Permanent link">&para;</a></h1>
+<p>One command fetches every target GEO Series and the records it links to, builds the tables,
+switches the store to the new build, deletes old builds and copies the store to the bucket.
+It runs on the cluster as one Slurm job, and you can stop and restart it at any time.</p>
+<h2 id="before-you-start">Before you start<a class="headerlink" href="#before-you-start" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Download the bulk snapshots with <code>scripts/bulk/download_ncbi_bulk.py</code>. The run uses the
+  newest snapshot of each source.</li>
+<li>Save your NCBI email and API key with <code>labdata ncbi configure</code>.</li>
+<li>To copy the store at the end, set <code>copy_to</code> in <code>labdata-store.toml</code> and log in to rclone
+  that day. See <a href="../store-gcs/">Copy the store to GCS</a>. Without <code>copy_to</code>, the run skips the
+  copy and says so.</li>
+</ul>
+<h2 id="start-a-round">Start a round<a class="headerlink" href="#start-a-round" title="Permanent link">&para;</a></h2>
+<p>Run the download in three rounds: 1%, then 10%, then all of the target list. Each round's
+Series are a fixed random sample, and a smaller round's Series are all inside the next one.
+A larger round never fetches again what a smaller round saved.</p>
+<p>From the repository folder on the cluster:</p>
+<div class="language-bash highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">LABDATA_STORE</span><span class="o">=</span>/path/to/store
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>sbatch<span class="w"> </span>scripts/store/run.sbatch<span class="w"> </span><span class="m">0</span>.01<span class="w">   </span><span class="c1"># round 1</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>sbatch<span class="w"> </span>scripts/store/run.sbatch<span class="w"> </span><span class="m">0</span>.1<span class="w">    </span><span class="c1"># round 2</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>sbatch<span class="w"> </span>scripts/store/run.sbatch<span class="w">        </span><span class="c1"># round 3: every target Series</span>
+</code></pre></div>
+<p>Start the next round only when the last one looks right. Off a cluster, or for a quick try,
+run the same steps straight away:</p>
+<div class="language-bash highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>labdata<span class="w"> </span>store<span class="w"> </span>run<span class="w"> </span>--fraction<span class="w"> </span><span class="m">0</span>.01
+</code></pre></div>
+<h2 id="watch-it">Watch it<a class="headerlink" href="#watch-it" title="Permanent link">&para;</a></h2>
+<p>The job log, <code>labdata-run.&lt;job id&gt;.log</code>, shows each step as it starts and ends. The fetch
+steps print a line at least once a minute:</p>
+<div class="language-text highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>2026-10-15 21:04:10 labdata.store.geo_lane 1,204/1,985 Series SOFT, round 1 (60.7%), 26.8/s, errors: timeout 3, finish ~2026-10-15 21:05 UTC
+</code></pre></div>
+<p>Each step also writes its own log under <code>work/run/&lt;snapshot date&gt;-&lt;fraction&gt;/logs/</code> in the
+store. That folder holds the round's markers too: one file per finished step.</p>
+<p>At the end, the coverage step checks that every Series in the round is held or explained:</p>
+<div class="language-text highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>Target Series: 1985 (geo-series snapshot 2026-10-14)
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>Held: 1983
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>Gaps: 2
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>  soft-missing: 2
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>  fetch-failed: 0
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>  unexplained: 0
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>SRA experiments fetch-failed: 0 (not Series gaps)
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>Coverage passes.
+</code></pre></div>
+<p>If coverage fails, the run stops there: it does not delete old builds or copy the store.</p>
+<h2 id="resume">Resume<a class="headerlink" href="#resume" title="Permanent link">&para;</a></h2>
+<p>Submit the same command again. The run starts at the first step that did not finish, and the
+fetch steps skip every Series and experiment already saved. A job that the cluster stops to
+make room is put back in the queue and resumes by itself.</p>
+<p>The fetch steps ask once more for every item that failed before they finish. A Series that
+still fails is a <code>fetch-failed</code> gap, and an SRA experiment that still fails is counted on the
+<code>SRA experiments fetch-failed</code> line. To ask for those again, submit the same round again:
+the fetch steps ask only for what failed, and the steps after them run again. Nothing saved
+is fetched twice.</p>
+<h2 id="after-the-last-round">After the last round<a class="headerlink" href="#after-the-last-round" title="Permanent link">&para;</a></h2>
+<p>To keep each round's logs with the store, copy them into <code>support/</code>. <code>&lt;round&gt;</code> is the round's
+folder under <code>work/run/</code>, such as <code>2026-10-14-all</code>:</p>
+<div class="language-bash highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>scripts/store/keep_run_logs.sh<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$LABDATA_STORE</span><span class="s2">&quot;</span><span class="w"> </span>&lt;round&gt;
+</code></pre></div>
+<p>The build writes <code>README.md</code> at the store root. It says what each folder holds, how it was
+made, and how to open the store as a database. After you copy logs into <code>support/</code> or clean
+<code>work/</code>, write it again with fresh folder sizes:</p>
+<div class="language-bash highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>labdata<span class="w"> </span>store<span class="w"> </span>readme
+</code></pre></div>
+<p>The run keeps the old build for a grace period after the switch, so a reader that opened it
+can finish; the <a href="../../reference/#labdata.store.prune">API reference</a> gives its length.
+<code>labdata store prune --grace 0</code> deletes it and the snapshots only it read at once. Use that
+only as a one-off to tidy a store nobody is reading, not as a refresh step. Prune never
+deletes the current build or anything it reads.</p>
+<h2 id="refresh-the-store">Refresh the store<a class="headerlink" href="#refresh-the-store" title="Permanent link">&para;</a></h2>
+<p>Once the full download is done, one command a month keeps the store current. It downloads new
+snapshots, fetches the GEO Series that changed or appeared since the last successful refresh,
+removes the GEO Series that a fetch confirms are withdrawn, builds, switches, prunes and
+copies. Run it from the repository folder:</p>
+<div class="language-bash highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>labdata<span class="w"> </span>store<span class="w"> </span>refresh
+</code></pre></div>
+<p>On a Slurm cluster, run it as one job:</p>
+<div class="language-bash highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">LABDATA_STORE</span><span class="o">=</span>/path/to/store
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>sbatch<span class="w"> </span>scripts/store/refresh.sbatch
+</code></pre></div>
+<p>The first refresh searches for changes from the date of the <code>geo-series</code> snapshot the current
+build read; each later one, from the last successful refresh, less a few days of overlap
+(<code>labdata store refresh --help</code> gives the number). To search from another date, add
+<code>--since YYYY-MM-DD</code>.</p>
+<p>If it stops, run the same command again. It goes on in the same folder,
+<code>work/refresh/&lt;start time&gt;/</code>, from the first unfinished step, and asks for nothing it saved.
+That folder holds the refresh's markers and logs.</p>
+<p>A refresh removes a GEO Series only when GEO no longer lists it, or the refresh got no record
+for it, and a fetch of it alone then says it is gone. It keeps every SRA record.</p>
+<p>A refresh that an older version of liulab-data started is not resumed: the next run starts a
+new one from the same date and leaves the old folder in place.</p>
+<p><code>refresh-status.json</code> in the store root shows the outcome:</p>
+<div class="language-json highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="p">{</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span><span class="nt">&quot;started&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-11-07T02:00:00Z&quot;</span><span class="p">,</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">  </span><span class="nt">&quot;ended&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-11-07T03:24:10Z&quot;</span><span class="p">,</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">  </span><span class="nt">&quot;outcome&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;succeeded&quot;</span><span class="p">,</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="w">  </span><span class="nt">&quot;since&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-10-14&quot;</span><span class="p">,</span>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="w">  </span><span class="nt">&quot;last_success&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-11-07&quot;</span><span class="p">,</span>
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="w">  </span><span class="nt">&quot;folder&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;work/refresh/2026-11-07T020000Z&quot;</span><span class="p">,</span>
+<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="w">  </span><span class="nt">&quot;counts&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;geo-soft&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;added&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">2410</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;replaced&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">4180</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;removed&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">12</span><span class="p">}},</span>
+<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a><span class="w">  </span><span class="nt">&quot;copy_pending&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span>
+<a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="p">}</span>
+</code></pre></div>
+<p><code>last_success</code> changes only once the store has switched to the new build. When rclone's login
+has expired, the refresh still succeeds and <code>copy_pending</code> is <code>true</code>. Log in, then run
+<code>labdata store copy</code>: it copies the store and sets <code>copy_pending</code> back to <code>false</code>.</p>
+<p>To keep the refresh's step logs with the store, copy them into <code>support/</code>. <code>&lt;started&gt;</code> is the
+refresh's folder under <code>work/refresh/</code>, which <code>refresh-status.json</code> names:</p>
+<div class="language-bash highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>scripts/store/keep_run_logs.sh<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$LABDATA_STORE</span><span class="s2">&quot;</span><span class="w"> </span>refresh/&lt;started&gt;
+</code></pre></div>
+<p>Then you may delete everything in <code>work/</code> except <code>work/extract/</code>. That folder holds the
+Parquet extracts of the current snapshots, and every build reads them, a sample build
+(<code>labdata store build --sample-of</code>) and a rebuild of the store included. <code>labdata store prune</code>
+deletes an old snapshot's extract with the snapshot. If you lose an extract,
+<code>labdata store extract --source &lt;source&gt;</code> makes it again, slowly. The store's <code>README.md</code> lists
+the <code>work/</code> folders that are safe to delete.</p>
+<h3 id="what-a-refresh-needs">What a refresh needs<a class="headerlink" href="#what-a-refresh-needs" title="Permanent link">&para;</a></h3>
+<p>Every step can be killed and run again. The figures below come from the first full-store
+refresh, a month after the last fetch, with 32 CPUs and 90 GB. A dash means no load worth
+counting; "not measured" means the step did not run in that refresh.</p>
+<table>
+<thead>
+<tr>
+<th>Step</th>
+<th>CPU</th>
+<th>Memory</th>
+<th>Scratch disk</th>
+<th>Network (NCBI, GEO, GCS)</th>
+<th>Wall time</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>snapshots</td>
+<td>1 core</td>
+<td>1 GB</td>
+<td>43 GB new</td>
+<td>45 GB from NCBI FTP</td>
+<td>5 min</td>
+</tr>
+<tr>
+<td>geo-series</td>
+<td>1 core</td>
+<td>not measured</td>
+<td>0.2 GB new</td>
+<td>33 E-utilities calls</td>
+<td>1 min, measured alone</td>
+</tr>
+<tr>
+<td>targets</td>
+<td>1 core</td>
+<td>1 GB</td>
+<td>–</td>
+<td>–</td>
+<td>1 min</td>
+</tr>
+<tr>
+<td>changes</td>
+<td>1 core</td>
+<td>1 GB</td>
+<td>–</td>
+<td>1 E-utilities search</td>
+<td>2 min</td>
+</tr>
+<tr>
+<td>geo</td>
+<td>1 core</td>
+<td>4 GB</td>
+<td>2 GB</td>
+<td>6,500 GEO FTP requests, 1.6 GB</td>
+<td>9 min</td>
+</tr>
+<tr>
+<td>eutils (beside and after the GEO lane)</td>
+<td>1 core</td>
+<td>4 GB</td>
+<td>1 GB</td>
+<td>320 E-utilities calls, 0.7 GB</td>
+<td>12 min, then 4 min</td>
+</tr>
+<tr>
+<td>extract (each source)</td>
+<td>up to 37 cores</td>
+<td>up to 38 GB</td>
+<td>18 GB</td>
+<td>–</td>
+<td>10 min (biosample), under 1 min (others)</td>
+</tr>
+<tr>
+<td>confirm</td>
+<td>1 core</td>
+<td>1 GB</td>
+<td>–</td>
+<td>one E-utilities call per removal candidate</td>
+<td>not measured</td>
+</tr>
+<tr>
+<td>pack</td>
+<td>1 core</td>
+<td>3 GB</td>
+<td>rewrites the raw buckets it touches</td>
+<td>–</td>
+<td>7 min</td>
+</tr>
+<tr>
+<td>build</td>
+<td>not measured</td>
+<td>not measured</td>
+<td>22 GB, one build</td>
+<td>–</td>
+<td>44 min in the last full build</td>
+</tr>
+<tr>
+<td>status</td>
+<td>not measured</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>prune</td>
+<td>not measured</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>copy</td>
+<td>not measured</td>
+<td></td>
+<td></td>
+<td>the store, to GCS</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h2 id="yearly">Yearly<a class="headerlink" href="#yearly" title="Permanent link">&para;</a></h2>
+<p>Once a year, add five heavy steps to that month's refresh. Each one either takes hours or
+loads NCBI more than a refresh does, so none of them runs in a normal month. Run them in this
+order. The first two check the current build, so run them before the refresh:</p>
+<ol>
+<li>
+<p><strong>Open every record.</strong> Check the current build with the network blocked:</p>
+<div class="language-bash highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>pixi<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>scripts/store/check_stage1.py<span class="w"> </span>--every-record
+</code></pre></div>
+<p>Without <code>--every-record</code>, the script runs only the thin-slice checks of a few chosen
+records, as after a normal refresh. The flag adds two passes over every record held: each
+one opens, and its hash matches its raw text.</p>
+</li>
+<li>
+<p><strong>Rebuild with no network and compare.</strong> Make a scratch store from the store's raw files
+    and snapshots, build it, and compare it with the current build. Hard links cost no extra
+    disk, and the store itself is only read:</p>
+<div class="language-bash highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="nv">scratch</span><span class="o">=</span>/path/to/scratch
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>mkdir<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$scratch</span><span class="s2">&quot;</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>cp<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$LABDATA_STORE</span><span class="s2">/labdata-store.toml&quot;</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$scratch</span><span class="s2">/&quot;</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>cp<span class="w"> </span>-al<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$LABDATA_STORE</span><span class="s2">/raw&quot;</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$LABDATA_STORE</span><span class="s2">/snapshots&quot;</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$scratch</span><span class="s2">/&quot;</span>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="k">for</span><span class="w"> </span><span class="nb">source</span><span class="w"> </span><span class="k">in</span><span class="w"> </span>geo-series<span class="w"> </span>sra-accessions<span class="w"> </span>bioproject<span class="w"> </span>biosample<span class="p">;</span><span class="w"> </span><span class="k">do</span>
+<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="w">  </span>labdata<span class="w"> </span>store<span class="w"> </span>extract<span class="w"> </span>--root<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$scratch</span><span class="s2">&quot;</span><span class="w"> </span>--source<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$source</span><span class="s2">&quot;</span>
+<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="k">done</span>
+<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a>unshare<span class="w"> </span>-rn<span class="w"> </span>labdata<span class="w"> </span>store<span class="w"> </span>build<span class="w"> </span>--root<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$scratch</span><span class="s2">&quot;</span><span class="w"> </span>--build-id<span class="w"> </span>offline
+<a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a>pixi<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>scripts/store/compare_builds.py<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a><span class="w">  </span><span class="s2">&quot;</span><span class="nv">$LABDATA_STORE</span><span class="s2">/builds/&lt;current build&gt;&quot;</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$scratch</span><span class="s2">/builds/offline&quot;</span>
+</code></pre></div>
+<p><code>unshare -rn</code> blocks the network; leave it out where the node does not allow it. The
+compare prints each difference and ends with <code>the builds match</code> when there is none.
+Delete the scratch store after.</p>
+</li>
+<li>
+<p><strong>Fetch the whole Series list again.</strong> A monthly refresh patches the <code>geo-series</code>
+    snapshot: it fetches only the Series GEO marks as new or changed. GEO sometimes changes a
+    Series without moving its update date, so once a year fetch every summary. Do it on the
+    day of the refresh, before it starts, so the refresh uses this snapshot:</p>
+<div class="language-bash highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>python<span class="w"> </span>-I<span class="w"> </span>scripts/bulk/download_ncbi_bulk.py<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$LABDATA_STORE</span><span class="s2">/snapshots&quot;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">  </span>--date<span class="w"> </span>YYYY-MM-DD<span class="w"> </span>--full<span class="w"> </span>geo-series
+</code></pre></div>
+<p>Then run the refresh as usual.</p>
+</li>
+<li>
+<p><strong>Remove withdrawn SRA records.</strong> After the refresh, remove the SRA experiments and runs
+    that NCBI no longer serves. Each one goes only after a fetch of it alone confirms it gone.
+    Then pack and build to apply the removals, and copy the store:</p>
+<div class="language-bash highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>labdata<span class="w"> </span>store<span class="w"> </span>remove-sra<span class="w"> </span>--root<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$LABDATA_STORE</span><span class="s2">&quot;</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>labdata<span class="w"> </span>store<span class="w"> </span>pack
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>labdata<span class="w"> </span>store<span class="w"> </span>build
+<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>labdata<span class="w"> </span>store<span class="w"> </span>copy
+</code></pre></div>
+<p>If it stops, run it again: it goes on where it stopped and asks again for any that failed.
+The <a href="../../adr/0008-yearly-sra-removal/">decision record</a> says why this runs once a year.</p>
+</li>
+<li>
+<p><strong>Time the queries on a quiet node.</strong> Run the full benchmark on the new build, on the
+    least loaded node. Other jobs on the node slow the reads, so keep the node's load with the
+    timings. The partition may not give a whole node, so ask for 16 CPUs and 64 GB on it:</p>
+<div class="language-bash highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>sinfo<span class="w"> </span>-N<span class="w"> </span>-o<span class="w"> </span><span class="s2">&quot;%N %O&quot;</span><span class="w"> </span>--sort<span class="o">=</span>O
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="nv">LABDATA_STORE</span><span class="o">=</span>/path/to/store<span class="w"> </span>sbatch<span class="w"> </span>--nodelist<span class="o">=</span>NODE<span class="w"> </span>--cpus-per-task<span class="o">=</span><span class="m">16</span><span class="w"> </span>--mem<span class="o">=</span>64G<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="w">  </span>--output<span class="o">=</span>OUT/bench.%j.log<span class="w"> </span>scripts/store/benchmark.sbatch<span class="w"> </span>OUT
+</code></pre></div>
+<p><code>sinfo</code> lists each node with its load, lowest first; put the first one for <code>NODE</code>. The
+job prints the node's load average, then each query's wall time and memory against its
+limit.</p>
+</li>
+</ol>
+<h3 id="what-a-yearly-run-adds">What a yearly run adds<a class="headerlink" href="#what-a-yearly-run-adds" title="Permanent link">&para;</a></h3>
+<p>Rough figures, measured on the full store in 2026. The rebuild and the removal each add a
+full build, about an hour. "Not measured" means no full-store run has timed it yet.</p>
+<table>
+<thead>
+<tr>
+<th>Step</th>
+<th>CPU</th>
+<th>Memory</th>
+<th>Network</th>
+<th>Wall time</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Open every record</td>
+<td>1 core</td>
+<td>about 60 GB</td>
+<td>none</td>
+<td>about 3 h</td>
+</tr>
+<tr>
+<td>Rebuild and compare</td>
+<td>up to 32 cores</td>
+<td>about 60 GB, with DuckDB's share capped</td>
+<td>none</td>
+<td>about 1 h to build; the compare is not measured</td>
+</tr>
+<tr>
+<td>Whole Series list</td>
+<td>1 core</td>
+<td>1 GB</td>
+<td>about 600 E-utilities calls</td>
+<td>about 40 min</td>
+</tr>
+<tr>
+<td>SRA removal</td>
+<td>1 core</td>
+<td>not measured</td>
+<td>one E-utilities call per batch of candidates</td>
+<td>not measured; inferred about 1 h, then an hour to pack and build</td>
+</tr>
+<tr>
+<td>Benchmark</td>
+<td>a whole node</td>
+<td>up to 128 GB</td>
+<td>none</td>
+<td>not measured; the job asks for up to 4 h</td>
+</tr>
+</tbody>
+</table>
+<h2 id="make-a-sample-build">Make a sample build<a class="headerlink" href="#make-a-sample-build" title="Permanent link">&para;</a></h2>
+<p>A sample build is a small copy of a full store's tables, for trying a change before you
+build the whole store. It holds a fixed random share of each record type, made by the same
+code that makes a full build. Give it the full store, an empty folder for the sample and the
+share:</p>
+<div class="language-bash highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>labdata<span class="w"> </span>store<span class="w"> </span>build<span class="w"> </span>--sample-of<span class="w"> </span>/path/to/store<span class="w"> </span>--root<span class="w"> </span>/path/to/scratch<span class="w"> </span>--fraction<span class="w"> </span><span class="m">0</span>.01
+</code></pre></div>
+<p>The full store is only read: its raw files, snapshots and current build stay as they are.
+The sample is built in the scratch folder, which becomes a store of its own, so
+<code>open_store("/path/to/scratch")</code> opens it. A scratch folder takes samples of one store only.
+The same share always picks the same records, and a smaller share's records are all inside a
+larger one's. Notes are the exception: they can differ between shares.</p>
+<p>Series and SRA experiments hold about the share you asked for. Samples, platforms,
+BioProjects and BioSamples hold more, because they also hold what the sampled records link to.</p>
+<p>To time queries on the sample:</p>
+<div class="language-bash highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>pixi<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>scripts/store/benchmark.py<span class="w"> </span>/path/to/scratch
+</code></pre></div>
+<p>The benchmark also prints the share of links whose far end the sample holds. Most links
+point outside a sample, so its link-query timings are indicative only.</p>
+<h2 id="go-deeper">Go deeper<a class="headerlink" href="#go-deeper" title="Permanent link">&para;</a></h2>
+<p>The steps are also commands of their own: <code>labdata store pack</code>, <code>build</code>, <code>coverage</code>, <code>prune</code>
+and <code>copy</code>. Run <code>labdata store --help</code> to list them, and see the
+<a href="../../reference/">API reference</a> for the modules behind them.</p>
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate":null,"base":"../..","features":["navigation.sections","navigation.expand","content.code.copy","content.code.annotate","content.action.edit","toc.follow"],"search":"../../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.49251538.min.js"></script>
+      
+    
+  </body>
+</html>
