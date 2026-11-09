@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import datetime as dt
+import http.client
 import json
+import re
 import urllib.parse
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
@@ -69,6 +71,9 @@ class DailyWeb(FakeWeb):
         headers: Mapping[str, str],
         timeout: float,
     ) -> Iterator[Reply]:
+        if re.search(r"[\x00-\x20\x7f]", url):
+            # As http.client does, for the host and the path alike.
+            raise http.client.InvalidURL(f"URL can't contain control characters. {url!r}")
         parts = urllib.parse.urlsplit(url)
         self.urls_seen.append(url)
         self.headers_seen.append(headers)
@@ -368,6 +373,49 @@ def test_a_host_link_serves_a_paper_openalex_has_no_copy_of(
     assert (row["status"], row["pdf_tier"]) == ("fetched", "host")
     assert (root / paper_dir("10.1101/c") / "10.1101%2Fc.pdf").read_bytes() == PDF
     assert status_file(root)["fetches"]["by_tier"] == {"host": 1}
+
+
+def test_a_host_link_with_a_space_is_fetched(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = paper_store(
+        tmp_path, [paper("41000030", pdf=False, hosts=("https://r.org/1/AQP5 paper%2Bv2.pdf",))]
+    )
+    fake = DailyWeb(hosts={"https://r.org/1/AQP5%20paper%2Bv2.pdf": Headed(PDF, 200)})
+    use(monkeypatch, fake, [])
+    daily(root)
+    assert by_key(root, tables.PAPERS)["41000030"]["pdf_tier"] == "host"
+
+
+def test_a_redirect_to_a_location_with_a_space_is_followed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    link = "https://r.org/handle/155846"
+    root = paper_store(tmp_path, [paper("41000031", pdf=False, hosts=(link,))])
+    fake = DailyWeb(
+        hosts={
+            link: Headed("", 302, location="/155846/1/AQP5 paper_accepted.pdf"),
+            "https://r.org/155846/1/AQP5%20paper_accepted.pdf": Headed(PDF, 200),
+        }
+    )
+    use(monkeypatch, fake, [])
+    daily(root)
+    assert by_key(root, tables.PAPERS)["41000031"]["pdf_tier"] == "host"
+
+
+def test_a_link_http_client_rejects_is_a_failed_try_and_the_pass_goes_on(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bad, good = "https://bad host.org/a.pdf", "https://r.org/b.pdf"
+    root = paper_store(
+        tmp_path,
+        [paper("41000032", pdf=False, hosts=(bad,)), paper("41000033", pdf=False, hosts=(good,))],
+    )
+    use(monkeypatch, DailyWeb(hosts={good: Headed(PDF, 200)}), [])
+    daily(root)
+    tried = [a for a in tables.read(root, tables.ATTEMPTS) if a["paper"] == "41000032"]
+    assert [(a["outcome"], a["detail"]) for a in tried] == [("failed", f"InvalidURL: {bad}")]
+    assert by_key(root, tables.PAPERS)["41000033"]["pdf_tier"] == "host"
 
 
 def test_a_paper_with_a_pmcid_spends_quota_only_after_the_pmc_bucket_failed(
