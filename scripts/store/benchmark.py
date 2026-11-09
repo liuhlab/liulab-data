@@ -37,6 +37,7 @@ BENCHMARK_THREADS = 8
 #: The agreed limits of each query on a full build, warm: wall seconds and peak MiB, with
 #: ``BENCHMARK_THREADS`` threads. A name ending in `` *`` covers every query it starts. A
 #: query with no limit is only reported.
+# The limits are set from the latest measured benchmark on a full build.
 LIMITS: dict[str, tuple[float, float]] = {
     "get 1": (1, 1024),
     "get 1000": (4, 2048),

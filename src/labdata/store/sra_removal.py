@@ -36,6 +36,7 @@ _NOT_PUBLIC = r"<ERROR[^>]*>SRA Experiment {acc} is not public</ERROR>"
 _EMPTY_IDS = r"<ERROR[^>]*>ID list is empty![^<]*</ERROR>"
 _SRA_LINK = r"\tsra\t[^\t\n]*\t([^\t\n]+)"
 _RUN_ACCESSION = r'<RUN\b[^>]*\baccession="([^"]+)"'
+_EFETCH = {"db": "sra", "rettype": "full", "retmode": "xml"}
 _TAB_SCHEMA = pa.schema([("accession", pa.string()), ("kind", pa.string())])
 _LIVE_SCHEMA = pa.schema([("accession", pa.string())])
 _CANDIDATE_SCHEMA = pa.schema(
@@ -46,7 +47,10 @@ _CANDIDATE_SCHEMA = pa.schema(
         ("runs", pa.list_(pa.string())),
     ]
 )
+#: Tab rows held in memory between writes, so the spill never holds the whole tab.
 _ROWS = 500_000
+#: Candidate rows decoded at a time from the candidate list.
+_READ_ROWS = 10_000
 logger = logging.getLogger(__name__)
 
 
@@ -278,11 +282,14 @@ def _batch_kept(
 
     def one(chunk: list[_Candidate]) -> set[str]:
         ids = [c.accession for c in chunk]
-        params = {"db": "sra", "id": ",".join(ids), "rettype": "full", "retmode": "xml"}
         try:
-            packages = split_packages(client.eutil_text("efetch", params))
+            text = client.eutil_text("efetch", {**_EFETCH, "id": ",".join(ids)})
         except EntrezError:
+            logger.warning(
+                "batched efetch failed; %d candidates fall back to one-by-one", len(chunk)
+            )
             return set()
+        packages = split_packages(text)
         return {
             c.accession
             for c in chunk
@@ -303,14 +310,14 @@ def _alone(client: EntrezClient, accession: str) -> tuple[State, str]:
         client,
         accession,
         "efetch",
-        {"db": "sra", "id": accession, "rettype": "full", "retmode": "xml"},
+        {**_EFETCH, "id": accession},
         served=lambda text: split_packages(text).get(accession),
         gone=lambda text: bool(re.search(_EMPTY_IDS, text) or re.search(not_public, text)),
     )
 
 
 def _has_run(package: str, run: str) -> bool:
-    return re.search(rf'<RUN\b[^>]*\baccession="{re.escape(run)}"', package) is not None
+    return run in re.findall(_RUN_ACCESSION, package)
 
 
 def _count(listing: Path) -> SraRemovalReport:
@@ -325,7 +332,7 @@ def _count(listing: Path) -> SraRemovalReport:
 
 def _read(listing: Path) -> Iterator[_Candidate]:
     """Yield the candidates, a batch of rows at a time."""
-    for chunk in pq.ParquetFile(listing).iter_batches(batch_size=BATCH):
+    for chunk in pq.ParquetFile(listing).iter_batches(batch_size=_READ_ROWS):
         values = chunk.to_pydict()
         for accession, non_public, unreached, runs in zip(
             values["accession"],
@@ -357,6 +364,13 @@ def _tab_non_public(snap: snapshots.Snapshot, folder: Path) -> Path:
     out = folder / "tab.parquet"
     if out.is_file():
         return out
+    with snap.path.open(encoding="utf-8") as fh:
+        status = fh.readline().rstrip("\n").split("\t").index("Status")
+
+    def maybe_not_live(line: str) -> bool:
+        cells = line.split("\t", status + 1)
+        return len(cells) <= status or cells[status] != "live"
+
     tmp = temp_beside(out)
     try:
         with pq.ParquetWriter(tmp, _TAB_SCHEMA) as writer:
@@ -367,7 +381,7 @@ def _tab_non_public(snap: snapshots.Snapshot, folder: Path) -> Path:
                     r.get("Status", "") not in ("", "live")
                     and r.get("Type") in ("EXPERIMENT", "RUN")
                 ),
-                line_filter=lambda line: "\tlive\t" not in line,
+                line_filter=maybe_not_live,
             ):
                 rows.append((row["Accession"], row["Type"]))
                 if len(rows) >= _ROWS:

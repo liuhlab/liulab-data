@@ -63,8 +63,8 @@ from NCBI, stop the run's jobs and report; the user decides what comes next.
 ## 5. Log
 
 Add one entry to `docs/maintenance-log.md`, newest first, in the shape of the entries already
-there: the date, the period, the build ID, each check's outcome, wall time against budget, and
-links to the issues filed. The repo is public: the entry names no hostname, username, absolute
+there: the date, the period, the build ID, each check's outcome, wall time against budget (with
+the page's step-time table when it has one), and links to the issues filed. The repo is public: the entry names no hostname, username, absolute
 path or bucket. Write the same way in every issue and comment of the run.
 
 Commit the entry on a branch named `maintenance-YYYY-MM-DD`, run `pixi run check`, push, and

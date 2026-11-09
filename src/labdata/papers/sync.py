@@ -206,22 +206,26 @@ def pmc_sync(
                 "sample": sample,
             }
 
+        def with_bucket(record: dict[str, Any]) -> dict[str, Any]:
+            return {
+                **record,
+                "bucket_retries": report.bucket.retries,
+                "bucket_throttled": report.bucket.throttled,
+            }
+
         _record(root, last_pass(None, "running"))
+        report = SyncReport()
         try:
-            report = _sync(store, client, openalex, today, transport, sample, log)
+            _sync(store, client, openalex, today, transport, sample, log, report)
         except BaseException:
-            _record(root, last_pass(_now(), "failed"))
+            _record(root, with_bucket(last_pass(_now(), "failed")))
             raise
         status = read_status(root)
         write_status(
             root,
             replace(
                 status,
-                last_pass={
-                    **last_pass(_now(), "success"),
-                    "bucket_retries": report.bucket.retries,
-                    "bucket_throttled": report.bucket.throttled,
-                },
+                last_pass=with_bucket(last_pass(_now(), "success")),
                 # A sampled sync is a backfill round, never the month's sync.
                 last_pmc_sync_success=(
                     today.isoformat() if sample is None else status.last_pmc_sync_success
@@ -240,9 +244,9 @@ def _sync(
     transport: Transport | None,
     sample: float | None,
     log: Callable[[str], None],
-) -> SyncReport:
+    report: SyncReport,
+) -> None:
     root = store.root
-    report = SyncReport()
     state = PaperTables.load(root)
     linked = store_links(store, state)
     if sample is not None:
@@ -284,6 +288,7 @@ def _sync(
         transport=transport or HttpTransport(),
         today=today,
         log=log,
+        on_failure=lambda replies: setattr(report, "bucket", replies),
     )
     held = state.held()
     for key in linked:
@@ -296,7 +301,6 @@ def _sync(
     for row in state.papers.values():
         counts.setdefault(row["status"] or "", Counter())[row["reason"] or ""] += 1
     report.counts = {s: dict(c) for s, c in counts.items()}
-    return report
 
 
 def _new_row(key: str, today: dt.date) -> dict[str, Any]:

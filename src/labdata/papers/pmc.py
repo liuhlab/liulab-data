@@ -93,6 +93,8 @@ _TIMEOUT = 60.0
 _CHUNK = 2**20
 # Most file systems cap one name at 255 bytes; this leaves room for ``.zst``.
 _NAME_MAX = 200
+# A longer "suffix" is part of the name, not an extension, so a shortened name drops it.
+_SUFFIX_MAX = 16
 _SAVE_EVERY = 300.0
 _LOG_EVERY = 60.0
 _S3 = "{http://s3.amazonaws.com/doc/2006-03-01/}"
@@ -141,6 +143,7 @@ def fetch(
     transport: Transport,
     today: dt.date,
     log: Callable[[str], None],
+    on_failure: Callable[[Replies], None] = lambda _replies: None,
 ) -> Replies:
     """Fetch what the PMC bucket holds for ``papers`` into the store, changing ``state``.
 
@@ -164,6 +167,8 @@ def fetch(
         The UTC date of the pass.
     log : callable
         Takes one progress line.
+    on_failure : callable
+        Takes the bucket retries and throttling replies so far if the pass raises.
 
     Returns
     -------
@@ -183,95 +188,103 @@ def fetch(
     if not pmcids:
         return Replies({}, {})
     bucket = _Bucket(transport, RateLimiter(RATE, WORKERS))
-    clock = time.monotonic()
-    newest = bucket.inventory(set(pmcids.values()), today, root)
-    log(
-        f"PMC inventory read in {time.monotonic() - clock:.0f} s: "
-        f"{len(newest)} of {len(pmcids)} papers with a PMCID are in the bucket"
-    )
-    last = _last_fetch(state.attempts)
-    outcome = _last_outcome(state.attempts)
-    by_paper: dict[str, list[dict[str, Any]]] = {}
-    for row in state.files:
-        by_paper.setdefault(row["paper"], []).append(row)
-    tally = _Tally()
-    todo: list[tuple[str, str, str]] = []
-    for key, pmcid in pmcids.items():
-        entry = newest.get(pmcid)
-        if entry is None:
-            if outcome.get(key) != "absent":
-                state.attempts.append(
-                    {"paper": key, "tier": _TIER, "date": today, "outcome": "absent"}
-                )
-            for row in by_paper.get(key, []):
-                if row["tier"] == _TIER and row["gone"] is None:
-                    row["gone"] = today
-                    tally.gone += 1
-        elif last.get(key) != _fetch_detail(*entry):
-            todo.append((key, *entry))
-    log(f"PMC bucket: {len(todo)} papers to sync, {len(pmcids) - len(todo)} unchanged or absent")
-
-    def save() -> None:
-        state.files[:] = [row for rows in by_paper.values() for row in rows]
-        state.save(root)
-
-    pool = ThreadPoolExecutor(WORKERS)
-    saved = logged = time.monotonic()
     try:
-        futures: list[Future[_Outcome]] = [
-            pool.submit(
-                _article,
-                bucket,
-                root,
-                key,
-                folder,
-                [r for r in by_paper.get(key, []) if r["tier"] == _TIER],
-                any(
-                    r["kind"] == "pdf" and r["path"] and r["tier"] != _TIER
-                    for r in by_paper.get(key, [])
-                ),
-                today,
-            )
-            for key, folder, _etag in todo
-        ]
-        etags = {key: _fetch_detail(folder, etag) for key, folder, etag in todo}
-        for done, future in enumerate(as_completed(futures), 1):
-            out = future.result()
-            other = [r for r in by_paper.get(out.paper, []) if r["tier"] != _TIER]
-            by_paper[out.paper] = other + out.rows
-            _set_tiers(state.papers[out.paper], out.rows)
-            if out.retracted:
-                state.papers[out.paper]["retracted"] = True
-            state.attempts.append(
-                {
-                    "paper": out.paper,
-                    "tier": _TIER,
-                    "date": today,
-                    "outcome": "failed"
-                    if out.error
-                    else "retracted"
-                    if out.retracted
-                    else "fetched",
-                    "detail": out.error or etags[out.paper],
-                }
-            )
-            tally.add(out)
-            now = time.monotonic()
-            if now - saved >= _SAVE_EVERY:
-                save()
-                saved = now
-            if now - logged >= _LOG_EVERY:
-                log(f"PMC bucket: {done}/{len(todo)} papers, {tally}")
-                logged = now
-    finally:
-        pool.shutdown(wait=True, cancel_futures=True)
-    save()
-    replies = bucket.replies()
-    log(
-        f"PMC bucket: {len(todo)} papers synced in {time.monotonic() - clock:.0f} s, {tally}; "
-        f"{replies}"
-    )
-    return replies
+        clock = time.monotonic()
+        newest = bucket.inventory(set(pmcids.values()), today, root)
+        log(
+            f"PMC inventory read in {time.monotonic() - clock:.0f} s: "
+            f"{len(newest)} of {len(pmcids)} papers with a PMCID are in the bucket"
+        )
+        last = _last_fetch(state.attempts)
+        outcome = _last_outcome(state.attempts)
+        by_paper: dict[str, list[dict[str, Any]]] = {}
+        for row in state.files:
+            by_paper.setdefault(row["paper"], []).append(row)
+        tally = _Tally()
+        todo: list[tuple[str, str, str]] = []
+        for key, pmcid in pmcids.items():
+            entry = newest.get(pmcid)
+            if entry is None:
+                if outcome.get(key) != "absent":
+                    state.attempts.append(
+                        {"paper": key, "tier": _TIER, "date": today, "outcome": "absent"}
+                    )
+                for row in by_paper.get(key, []):
+                    if row["tier"] == _TIER and row["gone"] is None:
+                        row["gone"] = today
+                        tally.gone += 1
+            elif last.get(key) != _fetch_detail(*entry):
+                todo.append((key, *entry))
+        log(
+            f"PMC bucket: {len(todo)} papers to sync, {len(pmcids) - len(todo)} unchanged or absent"
+        )
+
+        def save() -> None:
+            state.files[:] = [row for rows in by_paper.values() for row in rows]
+            state.save(root)
+
+        pool = ThreadPoolExecutor(WORKERS)
+        saved = logged = time.monotonic()
+        try:
+            futures: list[Future[_Outcome]] = [
+                pool.submit(
+                    _article,
+                    bucket,
+                    root,
+                    key,
+                    folder,
+                    [r for r in by_paper.get(key, []) if r["tier"] == _TIER],
+                    any(
+                        r["kind"] == "pdf" and r["path"] and r["tier"] != _TIER
+                        for r in by_paper.get(key, [])
+                    ),
+                    today,
+                )
+                for key, folder, _etag in todo
+            ]
+            etags = {key: _fetch_detail(folder, etag) for key, folder, etag in todo}
+            for done, future in enumerate(as_completed(futures), 1):
+                out = future.result()
+                other = [r for r in by_paper.get(out.paper, []) if r["tier"] != _TIER]
+                by_paper[out.paper] = other + out.rows
+                _set_tiers(state.papers[out.paper], out.rows)
+                if out.retracted:
+                    state.papers[out.paper]["retracted"] = True
+                state.attempts.append(
+                    {
+                        "paper": out.paper,
+                        "tier": _TIER,
+                        "date": today,
+                        "outcome": "failed"
+                        if out.error
+                        else "retracted"
+                        if out.retracted
+                        else "fetched",
+                        "detail": out.error or etags[out.paper],
+                    }
+                )
+                tally.add(out)
+                now = time.monotonic()
+                if now - saved >= _SAVE_EVERY:
+                    save()
+                    saved = now
+                if now - logged >= _LOG_EVERY:
+                    log(f"PMC bucket: {done}/{len(todo)} papers, {tally}")
+                    logged = now
+        finally:
+            pool.shutdown(wait=True, cancel_futures=True)
+        save()
+        replies = bucket.replies()
+        log(
+            f"PMC bucket: {len(todo)} papers synced in {time.monotonic() - clock:.0f} s, {tally}; "
+            f"{replies}"
+        )
+        return replies
+    except BaseException:
+        replies = bucket.replies()
+        log(f"PMC bucket: pass failed; {replies}")
+        on_failure(replies)
+        raise
 
 
 @dataclass
@@ -469,7 +482,7 @@ def _stored_name(name: str) -> str:
     if len(name.encode()) <= _NAME_MAX:
         return name
     suffix = Path(name).suffix
-    if len(suffix.encode()) > 16:
+    if len(suffix.encode()) > _SUFFIX_MAX:
         suffix = ""
     tag = "~" + hashlib.sha256(name.encode()).hexdigest()[:16]
     room = _NAME_MAX - len(tag) - len(suffix.encode())

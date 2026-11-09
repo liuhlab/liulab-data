@@ -20,10 +20,13 @@ Follow "Refresh the store" in `docs/how-to/store-run.md`.
 4. **Thin-slice checks.** `pixi run python scripts/store/check_stage1.py` on the held node:
    the thin-slice checks pass with the network blocked. Its `--every-record` flag belongs to the
    yearly page, or to a run the user said yes to.
-5. **Refresh logs.** `scripts/store/keep_run_logs.sh "$LABDATA_STORE" refresh/<started>`, with
+5. **Step times.** A table with one row per refresh step: its wall time, from the first and
+   last timestamps in its `logs/<step>.log` under the status record's `folder`, then the total
+   against the 2 h budget. Put the table in the report and the log entry.
+6. **Refresh logs.** `scripts/store/keep_run_logs.sh "$LABDATA_STORE" refresh/<started>`, with
    `<started>` from the status record's `folder`. Deleting `work/` after that needs the user's
    yes.
-6. **GCS copy.** "Check the copy" in `docs/how-to/store-gcs.md` reports 0 differences.
+7. **GCS copy.** "Check the copy" in `docs/how-to/store-gcs.md` reports 0 differences.
 
 ## Paper store
 

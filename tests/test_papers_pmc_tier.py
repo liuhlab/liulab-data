@@ -327,6 +327,32 @@ def test_bucket_retries_and_throttling_replies_are_counted_by_status_in_the_pass
     assert "retries 429: 1, 500: 1, 503: 2; throttling replies 429: 1, 503: 2" in output
 
 
+def test_a_failed_pass_still_records_and_logs_its_bucket_retries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    b = bucket()
+    calls: list[str] = []
+
+    def busy_then_killed(key: str) -> Reply | None:
+        if key != "PMC100.2/gr1.jpg":
+            return None
+        calls.append(key)
+        if len(calls) == 1:
+            return Reply("busy", status=503)
+        raise KilledError
+
+    b.fail = busy_then_killed
+    root = store(tmp_path, web(b), monkeypatch)
+    result = CliRunner().invoke(app, ["papers", "pmc-sync", "--root", str(root), "--today", TODAY])
+
+    assert isinstance(result.exception, KilledError)
+    last = json.loads((root / "paper-status.json").read_text())["last_pass"]
+    assert last["outcome"] == "failed"
+    assert last["bucket_retries"] == {"503": 1}
+    assert last["bucket_throttled"] == {"503": 1}
+    assert "retries 503: 1; throttling replies 503: 1" in result.output
+
+
 def test_a_file_rewritten_after_its_record_passes_by_its_own_etag(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

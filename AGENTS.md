@@ -41,6 +41,7 @@ src/labdata/
                        changes.py (a refresh's re-fetch list), removals.py
                        (confirm and remove withdrawn Series), sra_removal.py
                        (the yearly removal of withdrawn SRA records),
+                       _removal.py (the helpers both removals share),
                        refresh.py + refresh.smk (the refresh DAG, its status
                        record; runs from a checkout, as it calls scripts/bulk/)
   papers/            the paper store: root.py (marker, pointer, lock, paper folders);

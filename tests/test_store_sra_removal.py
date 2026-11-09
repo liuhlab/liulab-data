@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import duckdb
+import pyarrow.parquet as pq
 import pytest
 from typer.testing import CliRunner
 
@@ -233,3 +234,32 @@ def test_a_series_removal_and_an_sra_removal_go_in_the_same_pack(
     assert WITHDRAWN_GSE not in _held(root, raw.GEO_SOFT)
     assert DROPPED_GSE in _held(root, raw.GEO_SOFT)
     assert not {SUPPRESSED, DROPPED_SRX} & set(_held(root, raw.SRA_XML))
+
+
+def test_a_non_public_row_with_live_in_another_column_is_still_a_candidate(
+    tmp_path: Path,
+) -> None:
+    root = _store(tmp_path)
+    tab = root / "snapshots" / "sra-accessions" / _NEW / "SRA_Accessions.tab"
+    with tab.open("a", encoding="utf-8") as fh:
+        # Alias reads "live"; the status is suppressed.
+        fh.write("SRX017371\tSRA1\tsuppressed\t-\t-\t-\tEXPERIMENT\tGEO\tpublic\tlive\t-")
+        fh.write("\t-\t-\t-\t-\t-\t-\t-\t-\t-\n")
+
+    listing = pq.read_table(sra_removal.candidates(root)).to_pylist()
+
+    assert {r["accession"]: r["non_public"] for r in listing}["SRX017371"] is True
+
+
+def test_a_failed_batched_fetch_logs_how_many_fall_back_to_one_by_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    root = _store(tmp_path)
+    ncbi = _ncbi()
+    ncbi.failing = {SUPPRESSED}
+    _use(monkeypatch, ncbi)
+
+    with caplog.at_level("WARNING"):
+        _step(root, "remove-sra")
+
+    assert "batched efetch failed; 4 candidates fall back to one-by-one" in caplog.text

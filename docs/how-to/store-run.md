@@ -248,16 +248,19 @@ order. The first two check the current build, so run them before the refresh:
     If it stops, run it again: it goes on where it stopped and asks again for any that failed.
     The [decision record](../adr/0008-yearly-sra-removal.md) says why this runs once a year.
 
-5. **Time the queries on a quiet node.** Run the full benchmark on the new build, on a whole
-    node with no other jobs. Other jobs on the node slow the reads and make the timings
-    useless:
+5. **Time the queries on a quiet node.** Run the full benchmark on the new build, on the
+    least loaded node. Other jobs on the node slow the reads, so keep the node's load with the
+    timings. The partition may not give a whole node, so ask for 16 CPUs and 64 GB on it:
 
     ```bash
-    LABDATA_STORE=/path/to/store sbatch --exclusive --output=OUT/bench.%j.log \
-      scripts/store/benchmark.sbatch OUT
+    sinfo -N -o "%N %O" --sort=O
+    LABDATA_STORE=/path/to/store sbatch --nodelist=NODE --cpus-per-task=16 --mem=64G \
+      --output=OUT/bench.%j.log scripts/store/benchmark.sbatch OUT
     ```
 
-    It prints each query's wall time and memory against its limit.
+    `sinfo` lists each node with its load, lowest first; put the first one for `NODE`. The
+    job prints the node's load average, then each query's wall time and memory against its
+    limit.
 
 ### What a yearly run adds
 

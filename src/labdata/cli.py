@@ -877,8 +877,7 @@ def store_confirm(
         f"Removal candidates: {report.asked} asked, {report.gone} confirmed gone, "
         f"{report.kept} still served, {report.failed} failed and kept"
     )
-    for source, count in sorted(report.removals.items()):
-        typer.echo(f"{source}: {count} to remove")
+    _echo_removals(report.removals)
 
 
 @store_app.command("remove-sra")
@@ -909,7 +908,12 @@ def store_remove_sra(
         f"{report.gone} confirmed gone, {report.runs_gone} runs gone, {report.kept} still "
         f"served, {report.failed} failed and kept"
     )
-    for source, count in sorted(report.removals.items()):
+    _echo_removals(report.removals)
+
+
+def _echo_removals(removals: dict[str, int]) -> None:
+    """Echo the accessions each source's removal parts list."""
+    for source, count in sorted(removals.items()):
         typer.echo(f"{source}: {count} to remove")
 
 
