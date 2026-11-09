@@ -76,6 +76,10 @@ The job asks for 2 CPUs and 8 GB on `cpu_batch`, for the 14 days that partition 
 It runs the daily pass each day after 00:30 UTC, and the PMC sync on the 3rd of each month.
 Each pass ends with a copy of new and changed files to GCS.
 
+PMC gives the article text, figures and supplements, while OpenAlex and host links give a PDF
+only. So when a paper fetched from OpenAlex or a host link later appears in PMC, the PMC sync
+takes its PMC files and then deletes the old PDF.
+
 At start, the job submits the next job, which waits for this one to end and then takes over.
 So the chain goes on by itself: Slurm on arc accepts a job submitted from inside a running job.
 

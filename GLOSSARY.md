@@ -165,7 +165,8 @@ _Avoid_: paper state
 
 One source the paper job tries for a paper, in a fixed order: the PMC bucket, OpenAlex's paid
 copy, a free host link, then the manual queue in Paperpile. A paper moves to the next tier only
-when the one before cannot serve it.
+when the one before cannot serve it. If PMC later serves a paper, its copy replaces the PDF a
+later tier gave.
 
 ### Paper job
 

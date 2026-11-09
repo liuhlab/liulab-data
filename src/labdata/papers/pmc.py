@@ -8,7 +8,8 @@ place, so a killed pass leaves no partial file, and a rerun takes a file already
 when its MD5 matches.
 
 The PDF of an article with XML, videos, and files over the size cap are listed, not
-downloaded. XML and plain-text files are stored zstd-compressed as ``<name>.zst``; MD5s are
+downloaded. Once PMC holds a paper's XML, it replaces a PDF the OpenAlex or host tier
+supplied. XML and plain-text files are stored zstd-compressed as ``<name>.zst``; MD5s are
 of the plain bytes. A retracted article gets no downloads.
 """
 
@@ -149,9 +150,11 @@ def fetch(
 
     It adds or renews ``files`` rows, writes the files under each paper's folder, sets
     ``xml_tier`` and ``pdf_tier`` on ``papers`` rows and adds one ``attempts`` row per paper
-    tried. A file the bucket no longer serves keeps its copy and gets a ``gone`` date. A PDF
-    another tier supplied stays; PMC's PDF is then listed as ``<PMCID>.pdf``. The tables are saved every few minutes; the caller
-    recomputes status and saves at the end. Papers with no PMCID are passed over.
+    tried. A file the bucket no longer serves keeps its copy and gets a ``gone`` date. Once
+    PMC holds a paper's XML, the PDF another tier supplied is removed, after the PMC files are
+    saved; until then PMC's PDF is listed as ``<PMCID>.pdf``. The tables are saved every few
+    minutes; the caller recomputes status and saves at the end. Papers with no PMCID are
+    passed over.
 
     Parameters
     ----------
@@ -274,10 +277,13 @@ def fetch(
         finally:
             pool.shutdown(wait=True, cancel_futures=True)
         save()
+        replaced = _replace_other_pdfs(state, by_paper, pmcids, root)
+        if replaced:
+            save()
         replies = bucket.replies()
         log(
             f"PMC bucket: {len(todo)} papers synced in {time.monotonic() - clock:.0f} s, {tally}; "
-            f"{replies}"
+            f"{replaced} PDFs from other tiers replaced; {replies}"
         )
         return replies
     except BaseException:
@@ -378,6 +384,47 @@ def _set_tiers(row: dict[str, Any], files: list[dict[str, Any]]) -> None:
         row["pdf_tier"] = _TIER
     elif row.get("pdf_tier") == _TIER:
         row["pdf_tier"] = None
+
+
+def _replace_other_pdfs(
+    state: PaperTables,
+    by_paper: dict[str, list[dict[str, Any]]],
+    papers: Collection[str],
+    root: Path,
+) -> int:
+    """Remove the PDFs other tiers supplied for papers whose XML PMC holds; return how many.
+
+    The caller saves the PMC files first, so a kill here leaves both copies and the next
+    sync finishes. A file another remaining row points at is kept.
+    """
+    pointing = Counter(r["path"] for rows in by_paper.values() for r in rows if r["path"])
+    replaced = 0
+    for key in papers:
+        rows = by_paper.get(key, [])
+        if not any(r["tier"] == _TIER and r["kind"] == "xml" and r["path"] for r in rows):
+            continue
+        other = [r for r in rows if r["kind"] == "pdf" and r["tier"] != _TIER]
+        if not other:
+            continue
+        for r in other:
+            if r["path"]:
+                pointing[r["path"]] -= 1
+        for r in other:
+            if r["path"] and pointing[r["path"]] <= 0:
+                (root / r["path"]).unlink(missing_ok=True)
+        kept = [r for r in rows if r["kind"] != "pdf" or r["tier"] == _TIER]
+        # PMC's PDF takes the paper's name, as for any PMC paper.
+        name = f"{urllib.parse.quote(key, safe='')}.pdf"
+        if not any(r["kind"] == "pdf" and r["name"] == name for r in kept):
+            pmc_pdfs = [r for r in kept if r["kind"] == "pdf" and r["gone"] is None]
+            if pmc_pdfs:
+                pmc_pdfs[0]["name"] = name
+        by_paper[key] = kept
+        row = state.papers[key]
+        row["xml_tier"] = _TIER
+        row["pdf_tier"] = _TIER if any(r["kind"] == "pdf" and r["path"] for r in kept) else None
+        replaced += len(other)
+    return replaced
 
 
 def _article(

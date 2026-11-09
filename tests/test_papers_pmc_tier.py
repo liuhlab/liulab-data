@@ -436,34 +436,63 @@ def bucket_gets(b: FakeBucket, since: int) -> list[str]:
     return sorted(g for g in b.gets[since:] if g.startswith("PMC") and not g.endswith(".json"))
 
 
-def test_a_pdf_from_another_tier_stays(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    b = bucket()
-    root = store(tmp_path, web(b), monkeypatch)
+def held_pdf(root: Path, tier: str) -> Path:
+    """Put a PDF another tier supplied into the store, as the daily pass writes it."""
     pdf = paper_dir(OA) / f"{OA}.pdf"
     (root / pdf).parent.mkdir(parents=True)
-    (root / pdf).write_bytes(b"%PDF from OpenAlex")
-    paid = {
+    (root / pdf).write_bytes(b"%PDF from " + tier.encode())
+    row = {
         "paper": OA,
         "kind": "pdf",
         "name": f"{OA}.pdf",
         "path": pdf.as_posix(),
         "size": 18,
-        "md5": md5(b"%PDF from OpenAlex"),
+        "md5": md5(b"%PDF from " + tier.encode()),
         "url": "https://content.openalex.org/works/W1.pdf",
-        "tier": "openalex",
+        "tier": tier,
     }
-    tables.write(root, tables.FILES, [paid])
+    tables.write(root, tables.FILES, [row])
+    papers = tables.read(root, tables.PAPERS)
+    for p in papers:
+        if p["paper"] == OA:
+            p["pdf_tier"] = tier
+    tables.write(root, tables.PAPERS, papers)
+    return pdf
+
+
+def pmc_only(root: Path) -> None:
+    """Assert the open-access paper holds what any PMC paper holds, and no other tier's PDF."""
+    rows = {k: f for k, f in files(root).items() if k[0] == OA}
+    assert {f["tier"] for f in rows.values()} == {"pmc"}
+    assert rows[(OA, "xml", f"{OA}.xml")]["path"]
+    assert rows[(OA, "figure", "gr1.jpg")]["path"]
+    assert rows[(OA, "supplement", "mmc1.xlsx")]["path"]
+    listed = rows[(OA, "pdf", f"{OA}.pdf")]
+    assert (listed["path"], listed["url"]) == (
+        None,
+        "https://pmc-oa-opendata.s3.amazonaws.com/PMC100.2/PMC100.2.pdf",
+    )
+    assert not (root / paper_dir(OA) / f"{OA}.pdf").exists()
+    papers = {r["paper"]: r for r in tables.read(root, tables.PAPERS)}
+    assert (papers[OA]["status"], papers[OA]["xml_tier"], papers[OA]["pdf_tier"]) == (
+        "fetched",
+        "pmc",
+        None,
+    )
+
+
+@pytest.mark.parametrize("tier", ["openalex", "host"])
+def test_pmc_replaces_a_pdf_another_tier_supplied(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tier: str
+) -> None:
+    b = bucket()
+    root = store(tmp_path, web(b), monkeypatch)
+    held_pdf(root, tier)
     sync(root)
 
-    assert (root / pdf).read_bytes() == b"%PDF from OpenAlex"
-    row = files(root)[(OA, "pdf", f"{OA}.pdf")]
-    assert (row["tier"], row["path"], row["md5"]) == ("openalex", pdf.as_posix(), paid["md5"])
-    assert (OA, "xml", f"{OA}.xml") in files(root)
+    pmc_only(root)
     assert b.fetched("PMC100.2/PMC100.2.pdf") == 0
-    listed = files(root)[(OA, "pdf", "PMC100.pdf")]
-    assert (listed["tier"], listed["path"], listed["gone"]) == ("pmc", None, None)
-    assert listed["url"].endswith("/PMC100.2/PMC100.2.pdf")
-
+    # A later sync of a changed article keeps the paper as it is.
     held = {
         k.split("/", 1)[1]: v
         for k, v in b.objects.items()
@@ -472,8 +501,53 @@ def test_a_pdf_from_another_tier_stays(tmp_path: Path, monkeypatch: pytest.Monke
     b.put("PMC100", 2, {**held, "mmc1.xlsx": b"xlsx table, corrected"})
     b.day = "2026-12-02"
     sync(root, "2026-12-03")
-    assert files(root)[(OA, "pdf", "PMC100.pdf")]["gone"] is None
+    pmc_only(root)
+    assert not [f for f in files(root).values() if f["gone"]]
+
+
+def test_a_sync_killed_before_the_swap_keeps_both_copies_and_the_next_sync_swaps(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    b = bucket()
+    root = store(tmp_path, web(b), monkeypatch)
+    pdf = held_pdf(root, "openalex")
+    unlink = Path.unlink
+
+    def killed(self: Path, missing_ok: bool = False) -> None:
+        if self == root / pdf:
+            raise KilledError
+        unlink(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", killed)
+    result = CliRunner().invoke(app, ["papers", "pmc-sync", "--root", str(root), "--today", TODAY])
+    assert isinstance(result.exception, KilledError)
+    assert (root / pdf).read_bytes() == b"%PDF from openalex"
+    rows = files(root)
+    assert rows[(OA, "pdf", f"{OA}.pdf")]["tier"] == "openalex"
+    assert (root / rows[(OA, "xml", f"{OA}.xml")]["path"]).is_file()
+    assert (root / rows[(OA, "figure", "gr1.jpg")]["path"]).is_file()
+
+    monkeypatch.setattr(Path, "unlink", unlink)
+    gets = len(b.gets)
+    sync(root)
+    pmc_only(root)
+    assert bucket_gets(b, gets) == []
+
+
+def test_a_pdf_another_tier_supplied_stays_while_pmc_has_no_xml(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    b = FakeBucket(page=4)
+    b.put("PMC100", 1, {"PMC100.1.pdf": b"%PDF-1.7 article"})
+    root = store(tmp_path, web(b), monkeypatch)
+    pdf = held_pdf(root, "openalex")
+    sync(root)
+
+    assert (root / pdf).read_bytes() == b"%PDF from openalex"
     assert files(root)[(OA, "pdf", f"{OA}.pdf")]["tier"] == "openalex"
+    listed = files(root)[(OA, "pdf", "PMC100.pdf")]
+    assert (listed["tier"], listed["path"]) == ("pmc", None)
+    assert b.fetched("PMC100.1/PMC100.1.pdf") == 0
 
 
 def test_a_listed_pmc_pdf_is_downloaded_once_the_article_has_no_xml(

@@ -94,7 +94,8 @@ Four Parquet tables at the root, each sorted by `paper`. Query them with DuckDB,
 - `kind` is `xml`, `pdf`, `figure` or `supplement`. `path` is relative to the root, and
   empty for a file only listed. Figures and supplementary files up to 10 MB are downloaded;
   larger ones are listed with their URL. Videos are always only listed. When PMC has a
-  paper's XML, its PDF from PMC is only listed too: the XML and figures replace it.
+  paper's XML, its PDF from PMC is only listed too: the XML and figures replace it. They
+  also replace a PDF from OpenAlex or a host link, which is then deleted.
 - XML and plain-text files are stored compressed with zstd, one file at a time, with `.zst`
   added to the name: `zstd -d` or Python's `compression.zstd` reads them. `size` and `md5`
   are of the file before compression.
