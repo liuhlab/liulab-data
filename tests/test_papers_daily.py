@@ -436,6 +436,31 @@ def test_a_paper_with_a_pmcid_spends_quota_only_after_the_pmc_bucket_failed(
     assert fake.downloads == ["W41000002"]
 
 
+def test_a_paper_pmc_holds_gets_no_openalex_or_host_try(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    host = "https://journal.org/p.pdf"
+    row = paper("41000003", hosts=(host,))
+    row["pmcid"] = "PMC41000003"
+    root = paper_store(tmp_path, [row])
+    tables.write(
+        root,
+        tables.ATTEMPTS,
+        [{"paper": "41000003", "tier": "pmc", "date": dt.date(2026, 11, 3), "outcome": "fetched"}],
+    )
+    xml = (paper_dir("41000003") / "41000003.xml.zst").as_posix()
+    tables.write(
+        root,
+        tables.FILES,
+        [{"paper": "41000003", "kind": "xml", "name": "41000003.xml", "path": xml, "tier": "pmc"}],
+    )
+    fake = DailyWeb(hosts={host: Headed(PDF, 200)})
+    use(monkeypatch, fake, KEYS)
+    daily(root)
+    assert fake.spent == {}
+    assert fake.count("host") == 0
+
+
 def test_a_killed_pass_rerun_downloads_nothing_twice_and_spends_no_quota_twice(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
