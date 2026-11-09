@@ -302,20 +302,26 @@ def papers_serve(
 ) -> None:
     """Run the paper job: the daily pass after 00:30 UTC, the PMC sync on the 3rd.
 
+    Each pass reads the OpenAlex accounts afresh, so saved accounts count from the next pass.
     Runs only what paper-status.json shows is due, one pass at a time, each followed by the
     GCS copy. Inside a Slurm job, with --successor, it first submits the next job with
     --dependency=afterany on this one.
     """
     import os
 
+    from labdata.papers import open_paper_store
     from labdata.papers.job import serve
 
     stop = dt.datetime.fromisoformat(until).replace(tzinfo=dt.UTC) if until else None
-    store, client, openalex = _paper_setup(root)
+    try:
+        store, client = open_paper_store(root), _store_client()
+    except LabdataError as err:
+        typer.echo(str(err), err=True)
+        raise typer.Exit(1) from err
     serve(
         store,
         client=client,
-        openalex=openalex,
+        openalex=_openalex_client,
         transport=_paper_transport(),
         clock=lambda: dt.datetime.now(dt.UTC),
         until=stop,
