@@ -79,7 +79,7 @@ def serve(
     store: PaperStore,
     *,
     client: EntrezClient,
-    openalex: OpenAlex,
+    openalex: Callable[[], OpenAlex],
     clock: Callable[[], dt.datetime],
     transport: Transport | None = None,
     sleep: Callable[[float], None] = time.sleep,
@@ -96,8 +96,9 @@ def serve(
         The paper store.
     client : EntrezClient
         The NCBI client the passes use.
-    openalex : OpenAlex
-        The OpenAlex client the passes use.
+    openalex : callable
+        Returns the OpenAlex client for one pass; called at each pass, so saved accounts
+        count from the next pass.
     clock : callable
         Returns the time, in UTC.
     transport : Transport or None
@@ -128,11 +129,12 @@ def serve(
         stamp, today = _stamp(now), now.date()
         try:
             with _ticker(kind, log):
+                alex = openalex()
                 if kind == "daily":
                     daily_pass(
                         store,
                         client=client,
-                        openalex=openalex,
+                        openalex=alex,
                         today=today,
                         transport=transport,
                         log=log,
@@ -141,7 +143,7 @@ def serve(
                     pmc_sync(
                         store,
                         client=client,
-                        openalex=openalex,
+                        openalex=alex,
                         today=today,
                         transport=transport,
                         log=log,
