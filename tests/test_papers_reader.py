@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import datetime as dt
 from pathlib import Path
+from typing import Any
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 from labdata.exceptions import NotMirrored
@@ -78,6 +81,26 @@ def test_paper_gives_details_status_and_files(tmp_path: Path) -> None:
     assert reader.paper("38114495").info is None
     with pytest.raises(NotMirrored, match="12345678"):
         reader.paper("12345678")
+
+
+def test_a_batch_lookup_reads_each_table_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reader = paper_store(tmp_path, "geo_slice")
+    read = []
+    real = pq.read_table
+
+    def counted(path: Path, **kwargs: Any) -> pa.Table:
+        read.append(Path(path).name)
+        return real(path, **kwargs)
+
+    monkeypatch.setattr(pq, "read_table", counted)
+    found = reader.papers(["40167329", "PMID:38114495", "30115783", "12345678"])
+    assert sorted(read) == ["files.parquet", "paper_info.parquet", "papers.parquet"]
+    assert list(found) == ["40167329", "38114495", "30115783"]
+    assert found["40167329"] == reader.paper("40167329")
+    assert [f.name for f in found["40167329"].files] == ["big.zip", "40167329.xml"]
+    assert (found["30115783"].status, found["30115783"].files) == ("manual", ())
 
 
 def test_series_papers_joined_from_the_build(tmp_path: Path) -> None:
