@@ -45,7 +45,8 @@ def _compile(name: str) -> None:
             dist = metadata.distribution(key)
         except metadata.PackageNotFoundError:
             continue
-        todo += [re.split(r"[^A-Za-z0-9_.-]", r, maxsplit=1)[0] for r in dist.requires or []]
+        requires = [r for r in dist.requires or [] if "extra ==" not in r]
+        todo += [re.split(r"[^A-Za-z0-9_.-]", r, maxsplit=1)[0] for r in requires]
         for file in dist.files or []:
             if file.suffix == ".py":
                 compileall.compile_file(Path(str(dist.locate_file(file))), quiet=2)
