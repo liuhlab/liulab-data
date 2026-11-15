@@ -270,15 +270,17 @@ def papers_copy(
     full: bool = typer.Option(
         False,
         "--full",
-        help="Mirror the whole store, listing both sides: a first copy or a repair.",
+        help="Upload every file, listing both sides, and delete nothing: a first copy or a repair.",
     ),
 ) -> None:
     """Send the paper store's changes since the last successful copy to a bucket with rclone.
 
-    Lists neither the paper folders nor the bucket; with no earlier copy it does nothing and
-    asks for --full. Leaves out paper-status.json and hidden files. When rclone's Google login
-    has expired, it sets copy_pending in paper-status.json and exits 0; rerun after
-    `rclone config reconnect`.
+    Lists neither the paper folders nor the bucket. With no record of an earlier copy, on the
+    disk or in the bucket, it does nothing and asks for --full. It refuses, exiting 1, when the
+    files table is missing or empty, or when it would delete more than a small share of the
+    copied files.
+    Leaves out paper-status.json and hidden files. When rclone's Google login has expired, it
+    sets copy_pending in paper-status.json and exits 0; rerun after `rclone config reconnect`.
     Holds the paper store's lock.
     """
     from labdata.papers import open_paper_store

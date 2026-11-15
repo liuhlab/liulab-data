@@ -55,7 +55,8 @@ does not count as the month's PMC sync: `paper-status.json` records it as the la
 its `sample` share, but only a sync over all papers sets `last_pmc_sync_success`. So the paper
 job still runs the month's PMC sync after a sampled round.
 
-The first copy to GCS sends all of it, with `--full`. Run it once by hand, as its own job,
+The first copy to GCS sends all of it, with `--full`. It uploads every file and deletes
+nothing in the bucket. Run it once by hand, as its own job,
 after the first sync ends, so the paper job's daily pass does not wait behind it:
 
 ```bash
@@ -67,8 +68,10 @@ sbatch --job-name=labdata-papers-copy --partition=cpu_batch \
 
 Log in to rclone first: the login lasts one day. Later copies send only the files added,
 changed or deleted since the last copy that worked, so their cost follows the day's changes,
-not the size of the store. Until a full copy has worked once, the job's copies do nothing and
-the log asks for `--full`.
+not the size of the store. Each copy ends by sending its record of what the bucket holds, a
+hidden file at the paper store root. A new work disk without that file fetches it from the
+bucket. Until a full copy has worked once, the job's copies do nothing and the log asks for
+`--full`.
 
 ## Start the paper job
 
@@ -139,16 +142,22 @@ The file at the paper store root says what the job did last and where the papers
   leaves it alone.
 - `quota` shows the copies each OpenAlex account bought today.
 - `counts` gives the papers per status, then per reason.
-- `copy_pending: true` means the bucket is behind: the GCS login had expired, a copy failed,
-  or no full copy has worked yet. Log in, then run `labdata papers copy`, or
+- `copy_pending: true` means the bucket is behind: the GCS login had expired, a copy failed
+  or refused, or no full copy has worked yet. Log in, then run `labdata papers copy`, or
   `labdata papers copy --full` if the log asks for it. A copy that works sets it back to
   `false`.
 - `last_copy_success` is when the last copy that worked started. The next copy sends what
   changed after it.
 
 The copy reads the changes from the `files` table, so it lists only the top level of the
-paper store and the bucket. It leaves out `paper-status.json`, the lock file and the files a pass writes while
-it runs.
+paper store and the bucket. It leaves out `paper-status.json`, the lock file and the files a
+pass writes while it runs.
+
+GCS keeps the paper store for good; the cluster disk is a work area. So a copy deletes in the
+bucket only the files that left the `files` table. It refuses, sending nothing, when the table
+is missing or empty, or when more than 5% of the copied files left it at once: the table may be
+damaged. The log says why. Check the table. If the files left on purpose, run
+`labdata papers copy --full`: it sends the store and leaves those files in the bucket.
 
 ## Check the copy
 
@@ -162,4 +171,4 @@ pixi run rclone check "$LABDATA_PAPERS" <copy_to> --one-way \
 
 It should report 0 differences. It lists every file on both sides, so run it only to check
 or repair, and between passes: a pass that runs beside it changes files under it. If it finds
-differences, `labdata papers copy --full` repairs them.
+differences, `labdata papers copy --full` repairs them. It deletes nothing.
