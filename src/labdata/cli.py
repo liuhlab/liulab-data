@@ -267,11 +267,17 @@ def papers_copy(
     to: str | None = typer.Option(
         None, help="rclone destination <remote>:<bucket>/<path>; default: copy_to in the marker."
     ),
+    full: bool = typer.Option(
+        False,
+        "--full",
+        help="Mirror the whole store, listing both sides: a first copy or a repair.",
+    ),
 ) -> None:
-    """Make a bucket match the paper store with rclone: new files first, then deletes.
+    """Send the paper store's changes since the last successful copy to a bucket with rclone.
 
-    Leaves out paper-status.json and hidden files. When rclone's Google login has expired,
-    it sets copy_pending in paper-status.json and exits 0; rerun after
+    Lists neither the paper folders nor the bucket; with no earlier copy it does nothing and
+    asks for --full. Leaves out paper-status.json and hidden files. When rclone's Google login
+    has expired, it sets copy_pending in paper-status.json and exits 0; rerun after
     `rclone config reconnect`.
     Holds the paper store's lock.
     """
@@ -279,7 +285,7 @@ def papers_copy(
     from labdata.papers.copy import copy
 
     try:
-        result = copy(open_paper_store(root), to)
+        result = copy(open_paper_store(root), to, full=full)
     except LabdataError as err:
         typer.echo(str(err), err=True)
         raise typer.Exit(1) from err

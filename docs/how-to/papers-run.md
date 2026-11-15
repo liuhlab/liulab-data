@@ -55,18 +55,20 @@ does not count as the month's PMC sync: `paper-status.json` records it as the la
 its `sample` share, but only a sync over all papers sets `last_pmc_sync_success`. So the paper
 job still runs the month's PMC sync after a sampled round.
 
-The first copy to GCS sends all of it. Run it once by hand, as its own job, after the first
-sync ends, so the paper job's daily pass does not wait behind it:
+The first copy to GCS sends all of it, with `--full`. Run it once by hand, as its own job,
+after the first sync ends, so the paper job's daily pass does not wait behind it:
 
 ```bash
 sbatch --job-name=labdata-papers-copy --partition=cpu_batch \
   --cpus-per-task=2 --mem=8G --time=1-00:00:00 \
   --output=labdata-papers-copy.%j.log \
-  --wrap "pixi run labdata papers copy"
+  --wrap "pixi run labdata papers copy --full"
 ```
 
-Log in to rclone first: the login lasts one day. Later copies send only new and changed files,
-and delete from the bucket what the paper store no longer holds.
+Log in to rclone first: the login lasts one day. Later copies send only the files added,
+changed or deleted since the last copy that worked, so their cost follows the day's changes,
+not the size of the store. Until a full copy has worked once, the job's copies do nothing and
+the log asks for `--full`.
 
 ## Start the paper job
 
@@ -77,7 +79,7 @@ sbatch scripts/papers/serve.sbatch
 
 The job asks for 2 CPUs and 8 GB on `cpu_batch`, for the 14 days that partition allows.
 It runs the daily pass each day after 00:30 UTC, and the PMC sync on the 3rd of each month.
-Each pass ends with a copy of new and changed files to GCS.
+Each pass ends with a copy of its changes to GCS. The job never runs a full copy.
 
 PMC gives the article text, figures and supplements, while OpenAlex and host links give a PDF
 only. So when a paper fetched from OpenAlex or a host link later appears in PMC, the PMC sync
@@ -127,6 +129,7 @@ The file at the paper store root says what the job did last and where the papers
   "counts": {"fetched": {"": 80512}, "waiting": {"openalex-backlog": 7690, "pmc-embargo": 1204},
              "manual": {"no-route": 9300, "host-blocked": 120}, "skipped": {"placeholder": 41}},
   "copy_pending": false,
+  "last_copy_success": "2026-11-05T01:12:41Z",
   "paperpile_pending": false
 }
 ```
@@ -136,11 +139,16 @@ The file at the paper store root says what the job did last and where the papers
   leaves it alone.
 - `quota` shows the copies each OpenAlex account bought today.
 - `counts` gives the papers per status, then per reason.
-- `copy_pending: true` means the GCS login had expired and the bucket is behind. Log in, then
-  run `labdata papers copy`. A copy that works sets it back to `false`.
+- `copy_pending: true` means the bucket is behind: the GCS login had expired, a copy failed,
+  or no full copy has worked yet. Log in, then run `labdata papers copy`, or
+  `labdata papers copy --full` if the log asks for it. A copy that works sets it back to
+  `false`.
+- `last_copy_success` is when the last copy that worked started. The next copy sends what
+  changed after it.
 
-The copy makes the bucket match the paper store. It leaves out `paper-status.json`, the lock
-file and the files a pass writes while it runs.
+The copy reads the changes from the `files` table, so it lists only the top level of the
+paper store and the bucket. It leaves out `paper-status.json`, the lock file and the files a pass writes while
+it runs.
 
 ## Check the copy
 
@@ -152,5 +160,6 @@ pixi run rclone check "$LABDATA_PAPERS" <copy_to> --one-way \
   --filter "- .*" --filter "- .*/**" --filter "- /paper-status.json"
 ```
 
-It should report 0 differences. Run it between passes: a pass that runs beside it changes
-files under it.
+It should report 0 differences. It lists every file on both sides, so run it only to check
+or repair, and between passes: a pass that runs beside it changes files under it. If it finds
+differences, `labdata papers copy --full` repairs them.
