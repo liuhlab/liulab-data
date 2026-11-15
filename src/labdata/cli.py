@@ -308,7 +308,7 @@ def papers_serve(
         None, help="Stop at this UTC time, YYYY-MM-DDTHH:MM; default: run until stopped."
     ),
 ) -> None:
-    """Run the paper job: the daily pass after 00:30 UTC, the PMC sync on the 3rd.
+    """Run the paper job: daily pass after 00:30 UTC, PMC sync on the 3rd and on a new build.
 
     Each pass reads the OpenAlex accounts afresh, so saved accounts count from the next pass.
     Runs only what paper-status.json shows is due, one pass at a time, each followed by the

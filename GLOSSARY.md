@@ -115,8 +115,8 @@ _Avoid_: refresh (one step of a monthly maintenance run, not the whole of it)
 
 ### Maintenance log
 
-The file in the repository with one entry per maintenance run: its date, period, build, each
-check's outcome and its time against budget.
+The file in the repository with one entry per maintenance run: its date, period, build, the
+commit it ran, each check's outcome and its time against budget.
 
 _Avoid_: status record (the refresh's own file in the store root)
 
@@ -181,7 +181,8 @@ later tier gave.
 ### Paper job
 
 The one long-running job that keeps the paper store current. It runs the daily pass every day and
-the PMC sync every month, one at a time, and never runs inside a refresh.
+the PMC sync every month and after each new build, one at a time, and never runs inside a
+refresh.
 
 _Avoid_: paper refresh (a refresh is the GEO/SRA store's pass)
 
@@ -192,9 +193,10 @@ links and the Paperpile folder. It ends by rewriting the manual queue.
 
 ### PMC sync
 
-The paper job's monthly run against the PMC bucket: it adds papers newly linked by the current
-build, renews changed PMC files and paper details, and releases papers whose PMC wait has ended.
-The first PMC sync is the backfill.
+The paper job's run against the PMC bucket, from the 3rd of each month and again whenever the
+current build differs from the one the last sync over all papers read: it adds papers newly
+linked by the current build, renews changed PMC files and paper details, and releases papers
+whose PMC wait has ended. The first PMC sync is the backfill.
 
 _Avoid_: PMC refresh
 
