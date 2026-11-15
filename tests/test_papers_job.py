@@ -272,6 +272,24 @@ def test_a_refresh_on_the_1st_starts_the_months_pmc_sync_and_none_follows_on_the
     assert status(root)["last_pmc_sync_build"] == "b2"
 
 
+def test_the_pmc_sync_logs_and_records_the_papers_it_moved_and_turned_away(
+    tmp_path: Path, sbatch: Sbatch, rclone: Rclone
+) -> None:
+    unknown = ("GSE2", "DOI:10.1000/unknown", "SOFT Series_citation")
+    store = fixture_build(tmp_path / "store", [("GSE1", f"PMID:{PMID}", "SOFT"), unknown])
+    root = tmp_path / "papers"
+    init_paper_store(root, store, copy_to=DEST)
+    lines = serve(root, Clock(utc("2026-11-03 07:00")), until=utc("2026-11-03 07:10"))
+
+    progress = [line for line in lines if line.startswith("looked up ")]
+    assert progress[-1].endswith("0 failed, 0 re-keyed, 1 DOIs turned away")
+    summary = [line for line in lines if line.startswith("2026-11-03T07:00Z pmc-sync pass")]
+    assert summary[0].endswith("0 failed, 0 re-keyed, 1 DOIs turned away")
+    assert summary[1].endswith(": success")
+    last = status(root)["last_pass"]
+    assert (last["kind"], last["rekeyed"], last["turned_away"]) == ("pmc-sync", 0, 1)
+
+
 def test_a_failed_successor_submission_is_logged_and_the_job_goes_on(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rclone: Rclone
 ) -> None:

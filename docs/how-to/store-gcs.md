@@ -88,7 +88,25 @@ until `labdata store copy` succeeds.
 
 ## Check the copy
 
-Compare the store with its `copy_to`, leaving out what the copy leaves out:
+The routine check reads the status record and the copy record, and lists no store folder. The
+copy is current when both of these hold:
+
+- In `refresh-status.json`, `copy_pending` is `false`: the copy after the last refresh worked.
+  If it is `true`, log in and run `labdata store copy`.
+- The copy record in the bucket matches the one on the disk. Each copy sends it last, after
+  the files it lists:
+
+  ```bash
+  pixi run rclone check "$LABDATA_STORE" <copy_to> --max-depth 1 \
+    --include "/.copied-files.json"
+  ```
+
+  It should report 0 differences and 1 matching file. It lists only the top level of each
+  side.
+
+A full check finds what differs when the copy record does not match, or after a change made
+in the bucket by hand. It reads every file on both sides, so run it only to repair the copy,
+and only when the maintainer says yes. It leaves out what the copy leaves out:
 
 ```bash
 pixi run rclone check "$LABDATA_STORE" <copy_to> \
@@ -99,8 +117,8 @@ pixi run rclone check "$LABDATA_STORE" <copy_to> \
 
 It should report 0 differences. A build or snapshot that prune keeps for its grace period is
 not in the bucket: add a filter for each one instead of counting it as a difference. A file
-found only in the bucket is one a copy should have deleted. The check lists every file on both
-sides, so run it only to check the copy.
+found only in the bucket is one a copy should have deleted. If it finds files missing from the
+bucket, `labdata store copy --full` sends them. It deletes nothing.
 
 ## Read the store on another computer
 

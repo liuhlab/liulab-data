@@ -64,6 +64,13 @@ class SyncReport:
     counts: dict[str, dict[str, int]] = field(default_factory=dict)
     bucket: pmc.Replies = field(default_factory=lambda: pmc.Replies({}, {}))
 
+    def summary(self) -> str:
+        """Return the counts of papers in one line, as the CLI and the job log print them."""
+        return (
+            f"{self.added} added, {self.looked_up} looked up, {self.failed} failed, "
+            f"{self.rekeyed} re-keyed, {self.turned_away} DOIs turned away"
+        )
+
 
 def linked_papers(build: Path, target_series: Collection[str]) -> dict[str, set[str]]:
     """Return every paper in scope of one build, mapped to the sources of its links.
@@ -200,9 +207,11 @@ def pmc_sync(
                 "sample": sample,
             }
 
-        def with_bucket(record: dict[str, Any]) -> dict[str, Any]:
+        def with_report(record: dict[str, Any]) -> dict[str, Any]:
             return {
                 **record,
+                "rekeyed": report.rekeyed,
+                "turned_away": report.turned_away,
                 "bucket_retries": report.bucket.retries,
                 "bucket_throttled": report.bucket.throttled,
             }
@@ -212,14 +221,14 @@ def pmc_sync(
         try:
             _sync(store, client, openalex, today, transport, sample, log, report)
         except BaseException:
-            _record(root, with_bucket(last_pass(_now(), "failed")))
+            _record(root, with_report(last_pass(_now(), "failed")))
             raise
         status = read_status(root)
         write_status(
             root,
             replace(
                 status,
-                last_pass=with_bucket(last_pass(_now(), "success")),
+                last_pass=with_report(last_pass(_now(), "success")),
                 # A sampled sync is a backfill round, never the month's sync.
                 last_pmc_sync_success=(
                     today.isoformat() if sample is None else status.last_pmc_sync_success
@@ -283,7 +292,7 @@ def _sync(
         log(
             f"looked up {min(i + CHUNK, len(todo))}/{len(todo)} papers "
             f"in {time.monotonic() - clock:.0f} s; {report.failed} failed, "
-            f"{report.turned_away} DOIs turned away"
+            f"{report.rekeyed} re-keyed, {report.turned_away} DOIs turned away"
         )
     linked = {k: v for k, v in linked.items() if k in state.papers}
     report.bucket = pmc.fetch(

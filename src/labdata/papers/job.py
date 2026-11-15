@@ -185,7 +185,7 @@ def serve(
                         log=log,
                     )
                 else:
-                    pmc_sync(
+                    report = pmc_sync(
                         store,
                         client=client,
                         openalex=alex,
@@ -193,6 +193,7 @@ def serve(
                         transport=transport,
                         log=log,
                     )
+                    log(f"{stamp} {kind} pass {today}: {report.summary()}")
         except Exception:
             log(traceback.format_exc().rstrip())
             log(f"{stamp} {kind} pass {today}: failed; tried again after {RETRY}")

@@ -211,11 +211,7 @@ def papers_pmc_sync(
     except LabdataError as err:
         typer.echo(str(err), err=True)
         raise typer.Exit(1) from err
-    typer.echo(
-        f"{report.added} added, {report.looked_up} looked up, {report.failed} failed, "
-        f"{report.rekeyed} re-keyed, {report.turned_away} DOIs turned away "
-        f"in {time.monotonic() - started:.0f} s"
-    )
+    typer.echo(f"{report.summary()} in {time.monotonic() - started:.0f} s")
     for status, reasons in sorted(report.counts.items()):
         each = ", ".join(f"{r or '-'}: {n}" for r, n in sorted(reasons.items()))
         typer.echo(f"{status}: {each}")
