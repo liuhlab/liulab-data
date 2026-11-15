@@ -503,7 +503,8 @@ def test_an_expired_login_leaves_the_copy_pending_and_a_later_copy_clears_it(
         "labdata.store.gcs._run_rclone",
         lambda args: subprocess.CompletedProcess(args, 0, "", ""),
     )
-    assert "Copied the store" in _cli("copy", "--root", str(root))
+    # The store's first copy: no copy record yet.
+    assert "Copied the store" in _cli("copy", "--root", str(root), "--full")
     assert refresh.read_status(root)["copy_pending"] is False
 
 

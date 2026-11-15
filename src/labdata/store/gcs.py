@@ -1,12 +1,20 @@
-"""Copy the store's current state to a bucket with ``rclone``.
+"""Copy the store's current state to GCS, which holds it for good: the changes since the last copy.
 
-The copy holds the marker, the root ``README.md``, the snapshots the current build read,
-``raw/`` and the current build; ``work/``, ``support/``, the status record and older builds
-are left out, and the bucket's copies of them are deleted.
-One listing call first checks that rclone's login has not expired.
-A first ``rclone copy`` uploads everything but the marker, then an ``rclone sync`` uploads
-the marker and deletes the rest, so the bucket's marker never names a build it lacks. rclone
-skips files already uploaded, so a cut-off copy resumes when rerun.
+The current state is the current build and the raw files and snapshot folders it read, as its
+manifest names them, with the README and manifest beside each, the marker and the root
+``README.md``. ``work/``, ``support/``, the status record and older builds stay behind.
+
+A routine copy compares it with the copy record, :data:`COPIED`, the files the last successful
+copy sent with their sha256. A new or changed file goes up by name, as does every file with no
+sha256, which are few and small; then the marker; then the files the record names that the
+current state no longer holds are deleted in the bucket by name; then the record goes up, and
+onto the disk. A work disk without it fetches the bucket's; with neither, a routine copy is
+skipped and asks for ``labdata store copy --full``, which uploads the current state and deletes
+nothing.
+
+No copy deletes by comparing the bucket with the disk. A copy refuses, sending nothing, when it
+would delete more than :data:`MAX_DELETE_SHARE` of the copy record's raw files. One listing call
+first checks rclone's login.
 """
 
 from __future__ import annotations
@@ -18,6 +26,7 @@ from pathlib import Path
 
 from labdata import _rclone
 from labdata.exceptions import LabdataError, NotAStoreError
+from labdata.store._files import temp_beside
 from labdata.store.build import build_lock
 from labdata.store.layout import MANIFEST, manifest_path
 from labdata.store.provenance import README
@@ -27,6 +36,20 @@ from labdata.store.root import MARKER, open_store
 #: The marker key naming the rclone destination, ``<remote>:<bucket>/<path>``.
 COPY_TO_KEY = "copy_to"
 
+#: The copy record: each file the bucket holds, as the last successful copy left it, with its
+#: sha256, or null for a file that goes up every time. Kept here on the disk and in the bucket.
+COPIED = ".copied-files.json"
+
+#: The largest share of :data:`COPIED`'s raw files one copy deletes in the bucket; past it the
+#: copy refuses.
+MAX_DELETE_SHARE = 0.05
+
+#: Sent after the rest: the marker, so the bucket's never names a build it lacks.
+_TOP = [README, MARKER]
+
+#: Paths from the store root to their sha256; None for a file that goes up every time.
+_Files = dict[str, str | None]
+
 
 class StoreCopyError(LabdataError):
     """The store cannot be copied: it does not open, has no destination, or rclone failed."""
@@ -34,15 +57,15 @@ class StoreCopyError(LabdataError):
 
 @dataclass(frozen=True, slots=True)
 class CopyResult:
-    """The outcome of one copy: done, or skipped because rclone's login expired."""
+    """The outcome of one copy: done, or skipped, with a message saying why."""
 
     destination: str
     skipped: bool = False
     message: str = ""
 
 
-def copy(root: Path, destination: str | None = None) -> CopyResult:
-    """Copy the store's current state to ``destination`` with rclone.
+def copy(root: Path, destination: str | None = None, *, full: bool = False) -> CopyResult:
+    """Send the store's changes since the last successful copy to ``destination``.
 
     Parameters
     ----------
@@ -50,17 +73,22 @@ def copy(root: Path, destination: str | None = None) -> CopyResult:
         The store root.
     destination : str or None
         An rclone path, ``<remote>:<bucket>/<path>``; defaults to the marker's ``copy_to``.
+    full : bool
+        Upload every file of the current state instead, and delete nothing. It lists every
+        file on both sides; for a first copy or a repair.
 
     Returns
     -------
     CopyResult
-        ``skipped`` is true, with a message, when rclone's Google login has expired.
+        ``skipped`` is true, with a message, when rclone's Google login has expired, or when a
+        routine copy finds no copy record, on the disk or in the bucket.
 
     Raises
     ------
     StoreCopyError
         If the store does not open, its current build is incomplete, no destination is set,
-        or rclone fails for another reason. rclone is not called when the store is refused.
+        more than :data:`MAX_DELETE_SHARE` of the copied raw files would be deleted, or rclone
+        fails for another reason. rclone is not called when the store is refused.
     StoreBuildError
         If a build, prune or copy of this store is running.
     """
@@ -68,30 +96,98 @@ def copy(root: Path, destination: str | None = None) -> CopyResult:
         store = open_store(root)
     except NotAStoreError as err:
         raise StoreCopyError(f"copy refused: {err}") from None
-    dest = destination or store.settings.get(COPY_TO_KEY)
+    dest = str(destination or store.settings.get(COPY_TO_KEY) or "")
     if not dest:
         raise StoreCopyError(
             f"no destination: pass --to <remote>:<bucket>/<path> or set "
             f"{COPY_TO_KEY} in {root / MARKER}"
         )
     with build_lock(root):
-        selected = _selected(root, store.settings.get("build"))
-        done = _rclone.mirror(
-            str(root),
-            str(dest),
-            [*selected, "--filter=- **"],
-            [*selected, f"--filter=+ /{MARKER}", "--filter=- **"],
-            run=_run_rclone,
-            error=StoreCopyError,
+        held = _current(root, store.settings.get("build"))
+        skipped = _send(root, dest, held, full=full)
+    if skipped:
+        return CopyResult(dest, skipped=True, message=skipped)
+    return CopyResult(dest)
+
+
+def _send(root: Path, dest: str, held: _Files, *, full: bool) -> str | None:
+    """Copy the current state to ``dest``; return why the copy was skipped, or None when done."""
+    expired = _rclone.expired_message(dest, "store", "labdata store copy")
+    if not _rclone.logged_in(dest, run=_run_rclone):
+        return expired
+    copied = None
+    if not full:
+        path = root / COPIED
+        fetch = ["copy", dest, str(root), "--no-traverse"]
+        if not path.is_file() and not _ok(root, fetch, [COPIED]):
+            return expired
+        if not path.is_file():
+            return (
+                "no copy record, on the disk or in the bucket, so the bucket is behind the "
+                "store. Run `labdata store copy --full` once: it uploads the current state "
+                "and deletes nothing. Later copies send changes."
+            )
+        copied = json.loads(path.read_text(encoding="utf-8"))
+        _check_deletes(held, copied)
+    if _changes(root, dest, held, copied) and _put_copied(root, dest, held):
+        return None
+    return expired
+
+
+def _changes(root: Path, dest: str, held: _Files, copied: _Files | None) -> bool:
+    """Upload new and changed files, then the marker, then delete what left the current state.
+
+    With no ``copied``, upload every file and delete none. Returns False when rclone's login
+    has expired.
+    """
+    files = sorted(set(held) - set(_TOP))
+    if copied is None:
+        first, put, gone = ["copy", str(root), dest], files, []
+    else:
+        first = ["copy", str(root), dest, "--no-traverse"]
+        put = [p for p in files if held[p] is None or copied.get(p) != held[p]]
+        gone = sorted(set(copied) - set(held))
+    steps = [
+        (first, put),
+        (["copy", str(root), dest, "--no-traverse"], [p for p in _TOP if p in held]),
+        (["delete", dest, "--no-traverse"], gone),
+    ]
+    # A step with no paths is left out: rclone given none would act on the whole store.
+    return all(_ok(root, [*args, *_rclone.PROGRESS], paths) for args, paths in steps if paths)
+
+
+def _check_deletes(held: _Files, copied: _Files) -> None:
+    raw = [p for p, sha in copied.items() if p.startswith("raw/") and sha]
+    gone = [p for p in raw if p not in held]
+    if len(gone) > MAX_DELETE_SHARE * len(raw):
+        raise StoreCopyError(
+            f"copy refused: {len(gone)} of the {len(raw)} raw files the last copy sent are "
+            f"not read by the current build, more than the {MAX_DELETE_SHARE:.0%} one copy "
+            "deletes, so nothing was copied: its manifest may be damaged. If the files left "
+            "on purpose, `labdata store copy --full` sends the store and deletes nothing; "
+            "those files then stay in the bucket."
         )
-    if not done:
-        message = _rclone.expired_message(str(dest), "store", "labdata store copy")
-        return CopyResult(str(dest), skipped=True, message=message)
-    return CopyResult(str(dest))
 
 
-def _selected(root: Path, build: object) -> list[str]:
-    """Return the include filters for the current state, after checking it is all there."""
+def _put_copied(root: Path, dest: str, held: _Files) -> bool:
+    """Save ``held`` as :data:`COPIED`, in the bucket first, then on the disk.
+
+    Returns False when rclone's login has expired.
+    """
+    path = root / COPIED
+    tmp = temp_beside(path)
+    try:
+        tmp.write_text(json.dumps(held, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+        if not _ok(root, ["copyto", str(tmp), f"{dest.rstrip('/')}/{COPIED}"], []):
+            return False
+        tmp.replace(path)
+    finally:
+        tmp.unlink(missing_ok=True)
+    return True
+
+
+def _current(root: Path, build: object) -> _Files:
+    """Return the current state's files with their sha256, after checking it is all there."""
     if not build:
         raise StoreCopyError(f"copy refused: {root / MARKER} names no build")
     folder = build_path(root, str(build))
@@ -106,31 +202,43 @@ def _selected(root: Path, build: object) -> list[str]:
         if not (folder / f["name"]).is_file()
         or (folder / f["name"]).stat().st_size != f.get("bytes")
     ]
+    held: _Files = {f"{rel}/{f['name']}": f.get("sha256") for f in data.get("files", [])}
     inputs = data.get("inputs", {})
     for source, files in inputs.get("raw", {}).items():
-        missing += [
-            f"raw/{source}/{f['name']}"
-            for f in files
-            if not (root / "raw" / source / f["name"]).is_file()
-        ]
-    snaps = sorted((s, v["date"], v["name"]) for s, v in inputs.get("snapshots", {}).items())
-    missing += [
-        f"snapshots/{s}/{date}/{name}"
-        for s, date, name in snaps
-        if not (root / "snapshots" / s / date / name).is_file()
-    ]
+        named = {f"raw/{source}/{f['name']}": f.get("sha256") for f in files}
+        missing += [p for p in named if not (root / p).is_file()]
+        held |= named | _small(root, f"raw/{source}")
+    for source, snap in sorted(inputs.get("snapshots", {}).items()):
+        date, name, sha = snap["date"], snap["name"], snap.get("sha256")
+        sub = f"snapshots/{source}/{date}"
+        if not (root / sub / name).is_file():
+            missing.append(f"{sub}/{name}")
+            continue
+        held |= {f"{sub}/{p}": None for p in _listing(root / sub)}
+        held[f"{sub}/{name}"] = sha
     if missing:
         raise StoreCopyError(
             "copy refused: the current build is incomplete; missing " + ", ".join(missing)
         )
-    return [
-        "--filter=- .*",
-        "--filter=- .*/**",
-        *(f"--filter=+ /snapshots/{s}/{date}/**" for s, date, _ in snaps),
-        "--filter=+ /raw/**",
-        f"--filter=+ /{rel}/**",
-        f"--filter=+ /{README}",
-    ]
+    return held | _small(root, rel) | {p: None for p in _TOP if (root / p).is_file()}
+
+
+def _small(root: Path, folder: str) -> _Files:
+    """Return a folder's README and manifest, those present, to go up every time."""
+    return {f"{folder}/{n}": None for n in (README, MANIFEST) if (root / folder / n).is_file()}
+
+
+def _listing(folder: Path) -> list[str]:
+    """Return every file under ``folder``, hidden ones aside, as paths from it."""
+    return sorted(
+        p.relative_to(folder).as_posix()
+        for p in folder.rglob("*")
+        if p.is_file() and not any(part.startswith(".") for part in p.relative_to(folder).parts)
+    )
+
+
+def _ok(root: Path, args: list[str], paths: list[str]) -> bool:
+    return _rclone.on_paths(args, paths, folder=root, run=_run_rclone, error=StoreCopyError)
 
 
 def _run_rclone(args: list[str]) -> subprocess.CompletedProcess[str]:

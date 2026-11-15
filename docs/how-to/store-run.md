@@ -146,8 +146,9 @@ new one from the same date and leaves the old folder in place.
 ```
 
 `last_success` changes only once the store has switched to the new build. When rclone's login
-has expired, the refresh still succeeds and `copy_pending` is `true`. Log in, then run
-`labdata store copy`: it copies the store and sets `copy_pending` back to `false`.
+has expired, or the store still needs its first `--full` copy, the refresh still succeeds and
+`copy_pending` is `true`. Log in, then run `labdata store copy`, or `labdata store copy --full` if it asks for
+it. It copies the store and sets `copy_pending` back to `false`.
 
 To keep the refresh's step logs with the store, copy them into `support/`. `<started>` is the
 refresh's folder under `work/refresh/`, which `refresh-status.json` names:

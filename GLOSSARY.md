@@ -204,8 +204,10 @@ The papers in manual status, newest first, handed to the maintainer to save in P
 
 ### Copy record
 
-`.copied-files.parquet`, at the paper store root and at the same path in its GCS copy: the
-`files` rows the bucket holds, as the last successful copy left them. A routine copy sends the
-difference between the `files` table and it, then sends it last.
+A hidden file at a store's root, and at the same path in its GCS copy: the files the bucket
+holds, as the last successful copy left them. The paper store's is `.copied-files.parquet`, the
+GEO/SRA store's `.copied-files.json`. A routine copy sends the difference between the store's
+own list of what it holds and it, then sends it last. That list is the `files` table for the
+paper store and the current build's manifest for the GEO/SRA store.
 
 _Avoid_: record (alone), which reads as a store record or the status record
