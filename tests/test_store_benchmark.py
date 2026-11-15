@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import subprocess
 import sys
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from typing import Any
 
 import pyarrow.parquet as pq
 import pytest
 
-from tests._slices import built_root
+from tests._slices import BuiltStore
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "store" / "benchmark.py"
 
@@ -27,35 +29,58 @@ def _files(root: Path) -> set[str]:
     return {p.relative_to(root).as_posix() for p in root.rglob("*")}
 
 
+def _load() -> Any:
+    spec = importlib.util.spec_from_file_location("benchmark", SCRIPT)
+    assert spec is not None
+    assert spec.loader is not None
+    benchmark = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(benchmark)
+    return benchmark
+
+
+#: How the benchmark runs: as the script with a child process per query, or its ``main`` here
+#: with each query run here too, at a canned cost of one second and one MiB.
+_MODES = ["here", pytest.param("processes", marks=pytest.mark.slow)]
+
+
+def _benchmark(
+    args: list[str], cwd: Path, mode: str, monkeypatch: pytest.MonkeyPatch
+) -> subprocess.CompletedProcess[str]:
+    if mode == "processes":
+        return subprocess.run(
+            [sys.executable, str(SCRIPT), *args],
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=cwd,
+        )
+    benchmark = _load()
+
+    def measure(name: str, root: Path, samples_file: Path, tmp: Path) -> dict[str, Any]:
+        rows = benchmark.run_query(name, root, json.loads(samples_file.read_text()), tmp)
+        return {"query": name, "peak_rss_mib": 1.0, "rows": rows, "wall_s": 1.0, "cpu_s": 1.0}
+
+    monkeypatch.setattr(benchmark, "measure", measure)
+    monkeypatch.chdir(cwd)
+    out, err = io.StringIO(), io.StringIO()
+    with redirect_stdout(out), redirect_stderr(err):
+        code = benchmark.main(args)
+    return subprocess.CompletedProcess(args, code, out.getvalue(), err.getvalue())
+
+
+@pytest.mark.parametrize("mode", _MODES)
 def test_it_reports_each_query_and_each_table_and_writes_nothing_in_the_store(
-    tmp_path: Path,
+    built_store: BuiltStore, tmp_path: Path, mode: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    root = built_root(tmp_path / "store", "geo_slice")
+    root = built_store(tmp_path / "store", "geo_slice")
     before = _files(root)
     out = tmp_path / "result.json"
     # The agreed limits are for a full build on a cluster node; this run sets none.
     no_limits = tmp_path / "limits.json"
     no_limits.write_text("{}")
+    args = [str(root), "--sizes", "1,5", "--seed", "7", "--out", str(out)]
 
-    done = subprocess.run(
-        [
-            sys.executable,
-            str(SCRIPT),
-            str(root),
-            "--sizes",
-            "1,5",
-            "--seed",
-            "7",
-            "--out",
-            str(out),
-            "--limits",
-            str(no_limits),
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-        cwd=tmp_path,
-    )
+    done = _benchmark([*args, "--limits", str(no_limits)], tmp_path, mode, monkeypatch)
 
     assert done.returncode == 0, done.stderr
     result = json.loads(out.read_text())
@@ -88,16 +113,15 @@ def test_it_reports_each_query_and_each_table_and_writes_nothing_in_the_store(
     assert _files(root) == before
 
 
-def test_a_query_over_its_limit_fails_the_run_naming_the_query(tmp_path: Path) -> None:
-    root = built_root(tmp_path / "store", "geo_slice")
+@pytest.mark.parametrize("mode", _MODES)
+def test_a_query_over_its_limit_fails_the_run_naming_the_query(
+    built_store: BuiltStore, tmp_path: Path, mode: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = built_store(tmp_path / "store", "geo_slice")
     limits = tmp_path / "limits.json"
     limits.write_text(json.dumps({"get 1": [0, 100_000], "readme *": [100, 0]}))
-    done = subprocess.run(
-        [sys.executable, str(SCRIPT), str(root), "--sizes", "1,5", "--limits", str(limits)],
-        capture_output=True,
-        text=True,
-        check=False,
-        cwd=tmp_path,
+    done = _benchmark(
+        [str(root), "--sizes", "1,5", "--limits", str(limits)], tmp_path, mode, monkeypatch
     )
     assert done.returncode == 1, done.stderr
     breaches = [line for line in done.stdout.splitlines() if line.startswith("over the limit")]
@@ -113,11 +137,7 @@ class _StartedError(Exception):
 def test_every_query_runs_with_the_pinned_thread_count(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    spec = importlib.util.spec_from_file_location("benchmark", SCRIPT)
-    assert spec is not None
-    assert spec.loader is not None
-    benchmark = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(benchmark)
+    benchmark = _load()
     monkeypatch.setenv("LABDATA_THREADS", "64")
     seen: dict[str, Any] = {}
 
@@ -133,16 +153,12 @@ def test_every_query_runs_with_the_pinned_thread_count(
 
 
 def test_the_readme_queries_run_with_the_pinned_thread_count(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    built_store: BuiltStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import duckdb
 
-    spec = importlib.util.spec_from_file_location("benchmark", SCRIPT)
-    assert spec is not None
-    assert spec.loader is not None
-    benchmark = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(benchmark)
-    root = built_root(tmp_path / "store", "geo_slice")
+    benchmark = _load()
+    root = built_store(tmp_path / "store", "geo_slice")
     seen: dict[str, Any] = {}
     connect = duckdb.connect
 

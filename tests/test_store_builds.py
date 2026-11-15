@@ -6,6 +6,8 @@ import hashlib
 import json
 import shutil
 import socket
+import sys
+import types
 from pathlib import Path
 from typing import Any
 
@@ -21,12 +23,10 @@ from labdata.store._limits import duckdb_memory, step_threads
 from labdata.store.build import build, build_lock
 from labdata.store.fetch import fetch
 from labdata.store.reader import BuildReader
-from tests._fakes import FakeEntrezClient
-from tests._slices import copy_snapshots
+from tests._slices import BuiltStore, copy_snapshots
 
 _DATA = Path(__file__).parent / "data"
 _PROJECT = "PRJNA1027859"
-_SRX = [f"SRX2428313{i}" for i in range(6)]
 
 
 @pytest.fixture(autouse=True)
@@ -36,18 +36,9 @@ def _isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
 
 @pytest.fixture
-def root(tmp_path: Path) -> Path:
+def root(built_store: BuiltStore, tmp_path: Path) -> Path:
     """A store holding PRJNA1027859, fetched and built once as ``b1``."""
-    root = tmp_path / "store"
-    copy_snapshots(_DATA / "prjna1027859" / "snapshots", root)
-    init_store(root)
-    client = FakeEntrezClient(
-        esearch={f"{_PROJECT}[si]": ["39637862"]},
-        packages={srx: (_DATA / "sra_package" / f"{srx}.xml").read_text() for srx in _SRX},
-    )
-    fetch(root, [_PROJECT], client=client, today="2026-10-14")
-    build(root, "b1")
-    return root
+    return built_store(tmp_path / "store", "prjna1027859")
 
 
 def _tables(build_dir: Path) -> dict[str, object]:
@@ -216,11 +207,11 @@ def test_a_pipeline_steps_duckdb_and_ray_stay_inside_its_memory_and_threads(
         ).fetchone()  # type: ignore[misc]
     assert threads == 3
     seen: dict[str, Any] = {}
-    import ray
-
-    monkeypatch.setattr(ray, "is_initialized", lambda: False)
-    monkeypatch.setattr(ray, "init", lambda **kw: seen.update(kw))
-    monkeypatch.setattr(ray, "shutdown", lambda: None)
+    ray = types.ModuleType("ray")  # Ray itself is never started here, nor imported
+    ray.__dict__.update(
+        is_initialized=lambda: False, init=lambda **kw: seen.update(kw), shutdown=lambda: None
+    )
+    monkeypatch.setitem(sys.modules, "ray", ray)
     with extract.parallel(4):
         pass
     duckdb_mb = float(limit.split()[0]) * {"MiB": 1.048576, "GiB": 1073.741824}[limit.split()[1]]
