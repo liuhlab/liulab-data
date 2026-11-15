@@ -213,7 +213,8 @@ def papers_pmc_sync(
         raise typer.Exit(1) from err
     typer.echo(
         f"{report.added} added, {report.looked_up} looked up, {report.failed} failed, "
-        f"{report.rekeyed} re-keyed in {time.monotonic() - started:.0f} s"
+        f"{report.rekeyed} re-keyed, {report.turned_away} DOIs turned away "
+        f"in {time.monotonic() - started:.0f} s"
     )
     for status, reasons in sorted(report.counts.items()):
         each = ", ".join(f"{r or '-'}: {n}" for r, n in sorted(reasons.items()))

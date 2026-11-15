@@ -19,7 +19,7 @@ import pyarrow.parquet as pq
 from labdata.store._files import temp_beside
 
 #: Paper statuses: the store holds its XML or PDF; a tier serves it later; only a Paperpile
-#: save can serve it; it is not a real paper.
+#: save can serve it; it is retracted.
 STATUSES = ("fetched", "waiting", "manual", "skipped")
 
 #: File kinds in ``files``.
@@ -64,7 +64,8 @@ class PaperTable:
 #: One row per paper: its IDs, status and which tier supplied its XML and PDF. ``added`` is
 #: the day it entered the store, ``looked_up`` the day its IDs, details and OpenAlex lookup
 #: were last renewed; ``work_type``, ``openalex_pdf`` and ``host_pdf_urls`` come from that
-#: lookup. ``retracted`` is true once any source calls the paper retracted.
+#: lookup. ``retracted`` is true once any source calls the paper retracted. ``other_dois``
+#: are DOIs a record may link for the paper besides ``doi``, such as its preprint's.
 PAPERS = PaperTable(
     "papers",
     pa.schema(
@@ -73,6 +74,7 @@ PAPERS = PaperTable(
             ("pmid", pa.int64()),
             ("pmcid", pa.string()),
             ("doi", pa.string()),
+            ("other_dois", pa.list_(pa.string())),
             ("openalex", pa.string()),
             ("published", pa.date32()),
             ("status", pa.string()),
