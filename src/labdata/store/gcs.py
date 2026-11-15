@@ -14,8 +14,8 @@ otherwise it is skipped and asks for ``labdata store copy --full``, which upload
 state and deletes nothing.
 
 No copy deletes by comparing the bucket with the disk. A copy refuses, sending nothing, when it
-would delete more than :data:`MAX_DELETE_SHARE` of the copy record's raw files. One listing call
-first checks rclone's login.
+would delete more of the copy record's raw files than :func:`labdata._rclone.delete_limit`
+allows, unless the deletes are accepted by hand. One listing call first checks rclone's login.
 """
 
 from __future__ import annotations
@@ -44,10 +44,6 @@ COPY_TO_KEY = "copy_to"
 #: sha256, or null for a file that goes up every time. Kept here on the disk and in the bucket.
 COPIED = ".copied-files.json"
 
-#: The largest share of :data:`COPIED`'s raw files one copy deletes in the bucket; past it the
-#: copy refuses.
-MAX_DELETE_SHARE = 0.05
-
 #: Sent after the rest: the marker, so the bucket's never names a build it lacks.
 _TOP = [README, MARKER]
 
@@ -69,7 +65,12 @@ class CopyResult:
 
 
 def copy(
-    root: Path, destination: str | None = None, *, full: bool = False, in_step: bool = False
+    root: Path,
+    destination: str | None = None,
+    *,
+    full: bool = False,
+    accept_deletes: int = 0,
+    in_step: bool = False,
 ) -> CopyResult:
     """Send the store's changes since the last successful copy to ``destination``.
 
@@ -82,6 +83,9 @@ def copy(
     full : bool
         Upload every file of the current state instead, and delete nothing. It lists every
         file on both sides; for a first copy or a repair.
+    accept_deletes : int
+        Delete up to this many raw files the current build no longer reads, even past the
+        usual bound: for files removed on purpose.
     in_step : bool
         Whether the bucket holds exactly the build its marker names and what that build read.
         A routine copy with no copy record, on the disk or in the bucket, then seeds one from
@@ -91,14 +95,17 @@ def copy(
     -------
     CopyResult
         ``skipped`` is true, with a message, when rclone's Google login has expired, or when a
-        routine copy finds no copy record and cannot seed one.
+        routine copy finds no copy record and cannot seed one. Past the destination checks,
+        the status record then marks the copy pending, as it does on any failure; a success
+        clears it.
 
     Raises
     ------
     StoreCopyError
         If the store does not open, its current build is incomplete, no destination is set,
-        more than :data:`MAX_DELETE_SHARE` of the copied raw files would be deleted, or rclone
-        fails for another reason. rclone is not called when the store is refused.
+        ``full`` comes with ``accept_deletes``, more of the copied raw files would be deleted
+        than this copy deletes, or rclone fails for another reason. rclone is not called when
+        the store is refused.
     StoreBuildError
         If a build, prune or copy of this store is running.
     """
@@ -112,15 +119,29 @@ def copy(
             f"no destination: pass --to <remote>:<bucket>/<path> or set "
             f"{COPY_TO_KEY} in {root / MARKER}"
         )
-    with build_lock(root):
-        held = _current(root, store.settings.get(BUILD_KEY))
-        skipped = _send(root, dest, held, full=full, in_step=in_step)
+    if full and accept_deletes:
+        raise StoreCopyError("--full deletes nothing, so it takes no --accept-deletes")
+    # Imported here: the refresh imports this module.
+    from labdata.store.refresh import note_copy
+
+    try:
+        with build_lock(root):
+            held = _current(root, store.settings.get(BUILD_KEY))
+            skipped = _send(
+                root, dest, held, full=full, accept_deletes=accept_deletes, in_step=in_step
+            )
+    except BaseException:
+        note_copy(root, pending=True)
+        raise
+    note_copy(root, pending=skipped is not None)
     if skipped:
         return CopyResult(dest, skipped=True, message=skipped)
     return CopyResult(dest)
 
 
-def _send(root: Path, dest: str, held: _Files, *, full: bool, in_step: bool) -> str | None:
+def _send(
+    root: Path, dest: str, held: _Files, *, full: bool, accept_deletes: int, in_step: bool
+) -> str | None:
     """Copy the current state to ``dest``; return why the copy was skipped, or None when done."""
     expired = _rclone.expired_message(dest, "store", "labdata store copy")
     if not _rclone.logged_in(dest, run=_run_rclone):
@@ -147,8 +168,12 @@ def _send(root: Path, dest: str, held: _Files, *, full: bool, in_step: bool) -> 
                 # Up first, so a copy cut off after it never has to trust the marker again.
                 if not _put_copied(root, dest, copied):
                     return expired
-        _check_deletes(held, copied)
-    if _changes(root, dest, held, copied) and _put_copied(root, dest, held):
+        _check_deletes(held, copied, accept_deletes)
+    if not _changes(root, dest, held, copied):
+        return expired
+    # A side file missing on the disk stays in the bucket, so the record keeps naming it.
+    kept = {} if copied is None else {p: copied[p] for p in copied if p not in _gone(held, copied)}
+    if _put_copied(root, dest, kept | held):
         return None
     return expired
 
@@ -189,7 +214,7 @@ def _changes(root: Path, dest: str, held: _Files, copied: _Files | None) -> bool
     else:
         first = ["copy", str(root), dest, "--no-traverse"]
         put = [p for p in files if held[p] is None or copied.get(p) != held[p]]
-        gone = sorted(set(copied) - set(held))
+        gone = _gone(held, copied)
     steps = [
         (first, put),
         (["copy", str(root), dest, "--no-traverse"], [p for p in _TOP if p in held]),
@@ -199,16 +224,37 @@ def _changes(root: Path, dest: str, held: _Files, copied: _Files | None) -> bool
     return all(_ok(root, [*args, *_rclone.PROGRESS], paths) for args, paths in steps if paths)
 
 
-def _check_deletes(held: _Files, copied: _Files) -> None:
-    raw = [p for p, sha in copied.items() if p.startswith("raw/") and sha]
-    gone = [p for p in raw if p not in held]
-    if len(gone) > MAX_DELETE_SHARE * len(raw):
+def _gone(held: _Files, copied: _Files) -> list[str]:
+    """Return the recorded paths the current state left, as its manifest says.
+
+    A path goes when what holds it, a build, a raw source or a snapshot, is no longer read,
+    or when it carries a sha256 the manifest no longer names. A file with no sha256 under a
+    folder still read is a side file that is missing on the disk: it stays.
+    """
+    units = {_unit(p) for p in held}
+    return sorted(
+        p
+        for p, sha in copied.items()
+        if p not in held and (_unit(p) not in units or sha is not None)
+    )
+
+
+def _unit(path: str) -> str:
+    """Return the folder that holds ``path`` in the current state, ``""`` for the top level."""
+    parts = path.split("/")
+    return "/".join(parts[: {"builds": 2, "raw": 2, "snapshots": 3}.get(parts[0], 0)])
+
+
+def _check_deletes(held: _Files, copied: _Files, accepted: int) -> None:
+    raw = {p for p, sha in copied.items() if p.startswith("raw/") and sha}
+    gone = [p for p in _gone(held, copied) if p in raw]
+    limit = _rclone.delete_limit(len(raw), accepted)
+    if len(gone) > limit:
         raise StoreCopyError(
             f"copy refused: {len(gone)} of the {len(raw)} raw files the last copy sent are "
-            f"not read by the current build, more than the {MAX_DELETE_SHARE:.0%} one copy "
-            "deletes, so nothing was copied: its manifest may be damaged. If the files left "
-            "on purpose, `labdata store copy --full` sends the store and deletes nothing; "
-            "those files then stay in the bucket."
+            f"not read by the current build, more than the {limit} this copy deletes, so "
+            "nothing was copied: its manifest may be damaged. If the files left on purpose, "
+            f"`labdata store copy --accept-deletes {len(gone)}` deletes them in the bucket."
         )
 
 

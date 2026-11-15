@@ -287,6 +287,37 @@ def test_a_routine_copy_sends_the_new_build_then_deletes_the_old_one_by_name(
     assert rclone.lists == [[*small, *every_time], _TOP]
 
 
+def test_a_side_file_leaves_the_bucket_only_with_its_build_raw_source_or_snapshot(
+    root: Path, rclone: _Rclone
+) -> None:
+    _copy_to(root)
+    extra = "snapshots/bioproject/2026-10-14/bioproject.xml.sha256"
+    (root / extra).write_text("x")
+    _full(root)
+    # Side files the manifest does not name, missing on the disk while what holds them stays.
+    missing = ["raw/pubmed-si/README.md", "builds/b1/README.md", extra]
+    for path in missing:
+        (root / path).unlink()
+    rclone.calls.clear()
+
+    assert _copy(root).exit_code == 0
+    assert "delete" not in rclone.commands()
+    assert set(missing) <= set(rclone.record())
+
+    # The build and the snapshot leave the current state, and their side files the bucket.
+    _snapshot(root, "bioproject", "2026-11-01")
+    extract.extract(root, "bioproject", workers=1)
+    build(root, "b2")
+    rclone.lists.clear()
+
+    assert _copy(root).exit_code == 0
+    deleted = rclone.lists[-1]
+    assert {"builds/b1/README.md", extra} <= set(deleted)
+    assert "raw/pubmed-si/README.md" not in deleted
+    assert "raw/pubmed-si/README.md" in rclone.record()
+    assert not {"builds/b1/README.md", extra} & set(rclone.record())
+
+
 def test_a_copy_record_that_fails_to_go_up_leaves_the_disks_so_the_next_copy_deletes_again(
     root: Path, rclone: _Rclone
 ) -> None:
@@ -304,46 +335,57 @@ def test_a_copy_record_that_fails_to_go_up_leaves_the_disks_so_the_next_copy_del
     assert "builds/b1/manifest.json" in rclone.lists[2]
 
 
-def _drop_bucket(root: Path) -> str:
-    """Remove every record of one raw bucket file, so pack deletes it; build ``b2``."""
-    gone = "raw/pubmed-si/SRPnnnnnn.parquet"
-    rows = pq.read_table(root / gone, columns=["accession"]).column(0).to_pylist()
-    raw.write_removals(root, "pubmed-si", rows)
+def _drop_bucket(root: Path, *names: str) -> list[str]:
+    """Remove every record of raw ``pubmed-si`` files, so pack deletes them; build ``b2``."""
+    gone = [f"raw/pubmed-si/{name}" for name in names or ["SRPnnnnnn.parquet"]]
+    for path in gone:
+        rows = pq.read_table(root / path, columns=["accession"]).column(0).to_pylist()
+        raw.write_removals(root, "pubmed-si", rows)
     pack(root, ["pubmed-si"])
     build(root, "b2")
-    assert not (root / gone).exists()
+    assert not any((root / path).exists() for path in gone)
     return gone
 
 
 def test_a_raw_file_pack_dropped_is_deleted_in_the_bucket_by_name(
-    root: Path, rclone: _Rclone, monkeypatch: pytest.MonkeyPatch
+    root: Path, rclone: _Rclone
 ) -> None:
     _copy_to(root)
     _full(root)
     rclone.lists.clear()
+    # The fixture holds three raw files; a copy may always delete one.
     gone = _drop_bucket(root)
-    # The fixture holds three raw files: let one copy delete one of them.
-    monkeypatch.setattr("labdata.store.gcs.MAX_DELETE_SHARE", 0.5)
 
     assert _copy(root).exit_code == 0
 
-    assert rclone.lists[2] == sorted([*_files(root, "builds/b1"), gone])
-    assert gone not in rclone.record()
+    assert rclone.lists[2] == sorted([*_files(root, "builds/b1"), *gone])
+    assert not set(gone) & set(rclone.record())
 
 
-def test_a_copy_that_would_delete_more_than_one_raw_file_in_20_sends_nothing_and_says_why(
+def test_a_copy_that_would_delete_too_many_raw_files_sends_nothing_unless_accepted(
     root: Path, rclone: _Rclone
 ) -> None:
     _copy_to(root)
     _full(root)
     rclone.calls.clear()
-    _drop_bucket(root)
+    gone = _drop_bucket(root, "SRPnnnnnn.parquet", "PRJNA1nnnnnn.parquet")
 
-    result = _copy(root)
-
-    assert result.exit_code == 1
-    assert "1 of the 3 raw files" in result.output
+    refused = _copy(root)
+    assert refused.exit_code == 1
+    assert "2 of the 3 raw files" in refused.output
+    assert "labdata store copy --accept-deletes 2" in refused.output
+    assert "--full" not in refused.output
     assert rclone.commands() == ["lsjson"]
+    assert _copy(root, "--accept-deletes", "1").exit_code == 1
+    full = _copy(root, "--full", "--accept-deletes", "2")
+    assert full.exit_code == 1
+    assert "--full deletes nothing" in full.output
+    assert rclone.commands() == ["lsjson", "lsjson"]
+
+    rclone.lists.clear()
+    assert _copy(root, "--accept-deletes", "2").exit_code == 0
+    assert set(gone) <= set(rclone.lists[2])
+    assert not set(gone) & set(rclone.record())
 
 
 def test_with_no_record_on_disk_a_copy_fetches_the_buckets_and_sends_only_changes(
@@ -502,3 +544,19 @@ def test_another_rclone_failure_fails_the_copy(root: Path, rclone: _Rclone) -> N
     result = _copy(root, "--to", _DEST)
     assert result.exit_code == 1
     assert "directory not found" in result.output
+
+
+@pytest.mark.parametrize("fault", ["rclone", "record"])
+def test_any_failure_past_the_destination_marks_the_copy_pending(
+    root: Path, rclone: _Rclone, fault: str
+) -> None:
+    _copy_to(root)
+    _full(root)
+    _status(root, copy_pending=False)
+    if fault == "rclone":
+        rclone.returncode, rclone.stderr = 3, "ERROR : bucket not found\n"
+    else:
+        (root / COPIED).write_text("not json")
+
+    assert _copy(root).exit_code == 1
+    assert refresh.read_status(root)["copy_pending"] is True

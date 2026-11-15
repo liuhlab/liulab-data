@@ -232,6 +232,34 @@ def test_a_new_build_makes_the_pmc_sync_due_within_the_month(tmp_path: Path) -> 
     assert job_mod.due(store, mid_month) == ["daily"]
 
 
+@pytest.mark.parametrize(
+    "breaks",
+    [
+        lambda store: (store / "labdata-store.toml").unlink(),
+        lambda store: (store / "labdata-store.toml").write_text("not toml ["),
+        lambda store: shutil.rmtree(store),
+    ],
+    ids=["no marker", "unreadable marker", "no store folder"],
+)
+def test_a_store_that_will_not_open_does_not_end_the_job(
+    tmp_path: Path, sbatch: Sbatch, rclone: Rclone, breaks: Callable[[Path], object]
+) -> None:
+    root = synced(paper_store(tmp_path), build="b1")
+    breaks(tmp_path / "store")
+    lines = serve(root, Clock(utc("2026-11-05 07:00")), until=utc("2026-11-05 08:01"))
+
+    # The daily pass, which reads the store's links, fails and is tried again an hour later.
+    assert [line for line in lines if "daily pass 2026-11-05: failed" in line] == [
+        "2026-11-05T07:00Z daily pass 2026-11-05: failed; tried again after 1:00:00",
+        "2026-11-05T08:00Z daily pass 2026-11-05: failed; tried again after 1:00:00",
+    ]
+    # One line per check: before each of the two passes, and each idle minute.
+    unreadable = [line for line in lines if "GEO/SRA store not readable" in line]
+    assert len(unreadable) == len([line for line in lines if " idle;" in line]) + 2
+    # On the 3rd the date rule still makes the PMC sync due.
+    assert job_mod.due(open_paper_store(root), utc("2026-12-03 07:00")) == ["daily", "pmc-sync"]
+
+
 def test_a_refresh_on_the_1st_starts_the_months_pmc_sync_and_none_follows_on_the_3rd(
     tmp_path: Path, sbatch: Sbatch, rclone: Rclone
 ) -> None:

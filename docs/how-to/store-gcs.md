@@ -66,10 +66,14 @@ labdata store copy --full
 It sends the whole current state and deletes nothing. It lists every file on both sides, so
 keep it for a first copy or a repair. Later copies send only the changes.
 
-A copy refuses, sending nothing, when it would delete more than a small share of the raw files:
-the build's manifest may be damaged. The message says why, with the numbers. If the files left
-on purpose, run `labdata store copy --full`: it sends the store and leaves those files in the
-bucket.
+A copy may always delete one raw file. It refuses, sending nothing, when it would delete more
+than that and more than a small share of the raw files: the build's manifest may be damaged.
+The message says why, with the numbers. If the files left on purpose, run the copy again with
+the count the message gives:
+
+```bash
+labdata store copy --accept-deletes <count>
+```
 
 A copy first checks the login with one listing call. When the login has expired, it stops and
 exits cleanly:

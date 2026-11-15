@@ -267,6 +267,43 @@ def test_only_papers_enter_and_rows_for_non_papers_go(
     assert set(by_key(root, tables.PAPERS)) == {PREPRINT, HELD_UNKNOWN}
 
 
+def test_a_paper_holding_any_file_keeps_its_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A DOI OpenAlex no longer finds, and an earlier sync's dataset row no build links: each
+    # holds only a supplement, which a dropped row would leave on disk for the copy to delete.
+    old_dataset = "10.5281/zenodo.2"
+    root = paper_store(tmp_path, [("GSE7", f"DOI:{UNKNOWN}", "SOFT Series_citation")])
+    files = []
+    for key in (UNKNOWN, old_dataset):
+        path = paper_dir(key) / "supplementary" / "table.xlsx"
+        (root / path).parent.mkdir(parents=True)
+        (root / path).write_bytes(b"xlsx")
+        files.append({"paper": key, "kind": "supplement", "name": "table.xlsx", "path": str(path)})
+    tables.write(root, tables.FILES, files)
+    tables.write(
+        root,
+        tables.PAPERS,
+        [
+            {"paper": UNKNOWN, "doi": UNKNOWN, "status": "manual", "reason": "no-route"},
+            {
+                "paper": old_dataset,
+                "doi": old_dataset,
+                "status": "skipped",
+                "reason": "not-article",
+            },
+        ],
+    )
+    use(monkeypatch, web())
+    out = sync(root)
+
+    assert set(by_key(root, tables.PAPERS)) == {UNKNOWN, old_dataset}
+    kept = [(f["paper"], f["path"]) for f in tables.read(root, tables.FILES)]
+    assert kept == [(f["paper"], f["path"]) for f in files]
+    assert all((root / f["path"]).is_file() for f in files)
+    assert "0 DOIs turned away" in out
+
+
 def test_a_rerun_the_same_month_asks_only_for_the_dois_it_turned_away(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -68,11 +68,14 @@ def _show_job(job_id: str) -> str:
     return done.stdout if done.returncode == 0 else ""
 
 
-def due(store: PaperStore, now: dt.datetime) -> list[str]:
+def due(
+    store: PaperStore, now: dt.datetime, log: Callable[[str], None] = lambda _line: None
+) -> list[str]:
     """Return the passes due at ``now``, daily first: ``daily``, ``pmc-sync``, or both.
 
     A new GEO/SRA build makes the PMC sync due only when the last full sync recorded the
-    build it read. Only the GEO/SRA store's marker is read, never a build.
+    build it read. Only the GEO/SRA store's marker is read, never a build. A store that
+    will not open makes no new build: ``log`` gets one line, and the date rule still holds.
 
     Parameters
     ----------
@@ -80,6 +83,8 @@ def due(store: PaperStore, now: dt.datetime) -> list[str]:
         The paper store; its ``paper-status.json`` says what last succeeded.
     now : datetime.datetime
         The time, in UTC.
+    log : callable
+        Takes the line that says the GEO/SRA store will not open.
 
     Returns
     -------
@@ -93,16 +98,20 @@ def due(store: PaperStore, now: dt.datetime) -> list[str]:
         out.append("daily")
     last_sync = status.last_pmc_sync_success or ""
     monthly = today.day >= SYNC_DAY and last_sync[:7] != today.isoformat()[:7]
-    if now.time() >= DAILY_AT and (monthly or _new_build(store, status.last_pmc_sync_build)):
+    if now.time() >= DAILY_AT and (monthly or _new_build(store, status.last_pmc_sync_build, log)):
         out.append("pmc-sync")
     return out
 
 
-def _new_build(store: PaperStore, synced: str | None) -> bool:
+def _new_build(store: PaperStore, synced: str | None, log: Callable[[str], None]) -> bool:
     """Return whether the GEO/SRA store's marker names a build other than ``synced``."""
     if synced is None:
         return False
-    current = current_build(store.store.root)
+    try:
+        current = current_build(store.store.root)
+    except Exception as err:  # the job outlives a store it cannot open
+        log(f"GEO/SRA store not readable, so no new build is seen: {err}")
+        return False
     return current is not None and current != synced
 
 
@@ -152,13 +161,17 @@ def serve(
     retry_at: dict[str, dt.datetime] = {}
     while until is None or clock() < until:
         now = clock()
-        ready = [k for k in due(store, now) if retry_at.get(k, now) <= now]
+        stamp, today = _stamp(now), now.date()
+        ready = [
+            k
+            for k in due(store, now, lambda line, stamp=stamp: log(f"{stamp} {line}"))
+            if retry_at.get(k, now) <= now
+        ]
         if not ready:
             _idle(store, now, log)
             sleep(TICK)
             continue
         kind = ready[0]
-        stamp, today = _stamp(now), now.date()
         try:
             with _ticker(kind, log):
                 alex = openalex()

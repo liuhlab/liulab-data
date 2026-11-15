@@ -386,3 +386,13 @@ def test_an_empty_files_table_copies_nothing(root: Path, rclone: Rclone, full_co
         copy(open_paper_store(root), full=full_copy)
     assert rclone.calls == []
     assert status(root)["copy_pending"] is True
+
+
+def test_any_failure_past_the_destination_sets_copy_pending(root: Path, rclone: Rclone) -> None:
+    hold(root, "1", "pdf", "host")
+    full(root, rclone)
+    (root / COPIED).write_bytes(b"not parquet")
+
+    with pytest.raises(pa.ArrowInvalid):
+        copy(open_paper_store(root))
+    assert status(root)["copy_pending"] is True

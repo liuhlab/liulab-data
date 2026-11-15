@@ -1,7 +1,7 @@
 """The rclone seam: run one rclone command and tell an expired login from other faults.
 
 Every copy to or listing of a remote (a GCS bucket, a Drive folder) goes through :func:`run`,
-which tests replace.
+which tests replace. Both GCS copies also take their delete bound from here.
 """
 
 from __future__ import annotations
@@ -16,6 +16,10 @@ from pathlib import Path
 
 #: rclone flags that print a one-line progress summary a minute.
 PROGRESS = ["--stats=1m", "--stats-one-line", "--stats-log-level=NOTICE"]
+
+#: The largest share of a copy record's paths one GCS copy deletes in the bucket, unless one
+#: path is more or more are accepted by hand; past it the copy refuses.
+MAX_DELETE_SHARE = 0.05
 
 _EXPIRED = re.compile(r"invalid_grant|maybe it has expired|expired or revoked")
 
@@ -45,6 +49,14 @@ def run(args: list[str]) -> subprocess.CompletedProcess[str]:
         sys.stderr.write(line)
         lines.append(line)
     return subprocess.CompletedProcess(args, proc.wait(), "", "".join(lines))
+
+
+def delete_limit(recorded: int, accepted: int = 0) -> int:
+    """Return how many of ``recorded`` paths one copy may delete in the bucket.
+
+    It is the largest of one, :data:`MAX_DELETE_SHARE` of ``recorded`` and ``accepted``.
+    """
+    return int(max(1, MAX_DELETE_SHARE * recorded, accepted))
 
 
 def login_expired(stderr: str) -> bool:

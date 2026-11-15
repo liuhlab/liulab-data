@@ -552,6 +552,12 @@ def store_copy(
         "--full",
         help="Upload the whole current state and delete nothing; for a first copy or a repair.",
     ),
+    accept_deletes: int = typer.Option(
+        0,
+        "--accept-deletes",
+        min=0,
+        help="Delete up to this many raw files the current build no longer reads, on purpose.",
+    ),
 ) -> None:
     """Send the store's changes since the last copy to a bucket with rclone.
 
@@ -566,11 +572,16 @@ def store_copy(
 
     where = root if root is not None else open_store().root
     try:
-        result = copy(where, to, full=full, in_step=refresh.bucket_in_step(where))
+        result = copy(
+            where,
+            to,
+            full=full,
+            accept_deletes=accept_deletes,
+            in_step=refresh.bucket_in_step(where),
+        )
     except LabdataError as err:
         typer.echo(str(err), err=True)
         raise typer.Exit(1) from err
-    refresh.note_copy(where, pending=result.skipped)
     typer.echo(result.message if result.skipped else f"Copied the store to {result.destination}")
 
 

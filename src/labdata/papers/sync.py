@@ -5,7 +5,7 @@ the GEO/SRA store's current build; a DOI counts only for a record that links no 
 papers enter: a placeholder PMID never does, and a DOI only once OpenAlex finds an article
 for it. A paper is looked up at most once a month: its PMCID (if it has none), its PubMed
 details and, while it is not fetched, its OpenAlex work. A paper no build links any more
-keeps its rows.
+keeps its rows, and so does one the store holds any file for.
 """
 
 from __future__ import annotations
@@ -323,7 +323,7 @@ def _look_up(
 ) -> dict[str, str]:
     """Look one chunk of papers up, changing ``state``; return the DOI papers re-keyed.
 
-    A DOI OpenAlex finds no article for leaves no row, unless the store holds its file.
+    A DOI OpenAlex finds no article for leaves no row, unless the store holds a file of it.
     """
     failed: set[str] = set()
     away: set[str] = set()
@@ -336,13 +336,13 @@ def _look_up(
             log(f"OpenAlex DOI lookup failed: {err}")
             failed.update(dois)
             works = {}
-        held = state.held()
+        filed = {f["paper"] for f in state.files}
         for doi in dois:
             if doi in failed:
                 continue
             work = works.get(doi)
             if work is None or not work.is_article:
-                if doi in held:
+                if doi in filed and doi in state.papers:
                     _set_work(state.papers[doi], work)
                 else:
                     away.add(doi)
@@ -503,7 +503,11 @@ def _rekey(state: PaperTables, root: Path, doi: str, key: str, own_doi: str) -> 
 
 
 def _drop(state: PaperTables, keys: set[str]) -> None:
-    """Remove ``keys`` from every table."""
+    """Remove ``keys`` from every table, except a paper the ``files`` table lists.
+
+    Its files stay on disk, so its rows stay too: the GCS copy deletes a file its row left.
+    """
+    keys = keys - {f["paper"] for f in state.files}
     if not keys:
         return
     for key in keys:

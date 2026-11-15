@@ -10,8 +10,8 @@ bucket's copy record first, and refuses when the disk's table lacks more of its 
 routine copy deletes: the disk does not hold the whole store.
 
 No copy deletes by comparing the bucket with the disk. A copy refuses, sending nothing, when the
-``files`` table is missing or empty, or when it would delete more than :data:`MAX_DELETE_SHARE`
-of the copied paths, and more than one, unless the deletes are accepted by hand.
+``files`` table is missing or empty, or when it would delete more of the copied paths than
+:func:`labdata._rclone.delete_limit` allows, unless the deletes are accepted by hand.
 
 Hidden files stay behind, :data:`COPIED` aside: the lock, the daily pass's journal and every
 temp file; so does ``paper-status.json``, which the copy itself updates. A skipped or refused
@@ -46,10 +46,6 @@ COPY_TO_KEY = "copy_to"
 #: them, each held path with its MD5, size and fetch date. Kept here on the disk and in the
 #: bucket.
 COPIED = ".copied-files.parquet"
-
-#: The largest share of :data:`COPIED`'s paths one copy deletes in the bucket, or one path if
-#: that is more; past it the copy refuses.
-MAX_DELETE_SHARE = 0.05
 
 #: Left out of the copy: hidden files and folders, and the status record, which the copy
 #: itself changes.
@@ -97,8 +93,8 @@ def copy(
         Upload every file instead, and delete nothing. It lists every file on both sides; for
         a first copy or a repair.
     accept_deletes : int
-        Delete up to this many paths that left the ``files`` table, even past
-        :data:`MAX_DELETE_SHARE`: for files moved or removed on purpose.
+        Delete up to this many paths that left the ``files`` table, even past the usual
+        bound: for files moved or removed on purpose.
 
     Returns
     -------
@@ -111,8 +107,8 @@ def copy(
     PaperCopyError
         If no destination is set; if ``full`` comes with ``accept_deletes``; if the ``files``
         table is missing or empty, or more of the copied paths left it than this copy deletes;
-        or if rclone fails for another reason. Past the first two checks, ``copy_pending`` is
-        then set.
+        or if rclone fails for another reason. Any failure past the first two checks sets
+        ``copy_pending``.
     """
     root = store.root
     dest = to or destination(store)
@@ -127,14 +123,14 @@ def copy(
         start = dt.datetime.now(dt.UTC)
         try:
             skipped = _send(root, dest, full=full, accept_deletes=accept_deletes)
-        except PaperCopyError:
-            _pending(root, True)
-            raise
         except OSError as err:
             _pending(root, True)
             raise PaperCopyError(
                 f"cannot run rclone: {err}; run inside the pixi environment"
             ) from err
+        except BaseException:
+            _pending(root, True)
+            raise
         if skipped:
             _pending(root, True)
             return CopyResult(dest, skipped=True, message=skipped)
@@ -178,7 +174,7 @@ def _held(root: Path) -> _Held:
 
 def _check_deletes(root: Path, held: _Held, copied: _Held, accepted: int, *, full: bool) -> None:
     gone = len(copied.keys() - held.keys())
-    limit = int(max(1, MAX_DELETE_SHARE * len(copied), accepted))
+    limit = _rclone.delete_limit(len(copied), accepted)
     if gone > limit and full:
         raise PaperCopyError(
             f"{gone} of the {len(copied)} files the bucket's copy record lists are missing "
