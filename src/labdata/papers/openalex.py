@@ -46,7 +46,7 @@ API = "https://api.openalex.org"
 #: IDs per batch filter call.
 BATCH = 100
 
-#: Work types the paper job takes for a paper; any other is ``not-article``.
+#: Work types the paper job takes for a paper; a DOI whose work has any other type is turned away.
 #: A ``data-paper`` is an article that describes a dataset, so it counts.
 ARTICLE_TYPES = (
     "article",

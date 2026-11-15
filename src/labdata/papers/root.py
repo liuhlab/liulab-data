@@ -12,7 +12,7 @@ import os
 import re
 import sys
 import urllib.parse
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from functools import cached_property
 from pathlib import Path
@@ -30,6 +30,7 @@ from labdata.store.root import (
     resolve_root,
     write_pointer,
 )
+from labdata.store.sources import BIOPROJECT_XML
 
 if TYPE_CHECKING:
     from labdata.papers.reader import PaperReader
@@ -51,6 +52,9 @@ FORMAT_VERSION = 1
 
 #: The folder under the root that holds one folder per paper.
 PAPERS_DIR = "papers"
+
+#: PMIDs below this, linked only from BioProject XML, are placeholders.
+PLACEHOLDER_BELOW = 100_000
 
 _PMID = re.compile(r"(?:PMID:)?(\d+)")
 
@@ -219,6 +223,11 @@ def paper_key(text: str) -> str:
     if not doi.startswith("10.") or "/" not in doi:
         raise ValueError(f"not a PMID or a DOI: {text!r}")
     return doi
+
+
+def is_placeholder(key: str, sources: Iterable[str]) -> bool:
+    """Return whether a linked PMID is a placeholder: small, and only BioProject XML gives it."""
+    return key.isdigit() and int(key) < PLACEHOLDER_BELOW and set(sources) <= {BIOPROJECT_XML}
 
 
 def paper_dir(key: str) -> Path:

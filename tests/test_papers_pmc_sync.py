@@ -36,12 +36,22 @@ PLACEHOLDER = "12345"
 #: Linked by no build, from an earlier sync.
 UNLINKED = "39999999"
 DATASET = "10.5281/zenodo.1"
+#: DOIs OpenAlex does not know; the store holds the second's PDF.
+UNKNOWN = "10.1000/unknown"
+HELD_UNKNOWN = "10.1000/held"
 PREPRINT = "10.1101/2024.01.01.000001"
 #: A DOI on a Series that also links a PMID: out of scope.
 EXTRA_DOI = "10.1000/extra"
 #: A DOI-only paper whose OpenAlex work has a PMID.
 REKEY_DOI = "10.1000/rekey"
 REKEY_PMID = "41000005"
+#: Preprints OpenAlex merged into their journal versions: the first version has a PMID, the
+#: second only a DOI.
+MERGED = "10.1101/2024.01.01.000002"
+JOURNAL = "10.1000/journal"
+JOURNAL_PMID = "41000006"
+MERGED_NO_PMID = "10.1101/2024.01.01.000003"
+JOURNAL_NO_PMID = "10.1000/journal-only"
 
 LINKS = [
     ("GSE1", f"PMID:{OLD_PMC}", "SOFT"),
@@ -152,8 +162,6 @@ def test_linked_papers_enter_with_ids_details_and_every_status(
         RECENT: ("waiting", "pmc-embargo"),
         NO_ROUTE: ("manual", "no-route"),
         HOST: ("waiting", "host-link"),
-        PLACEHOLDER: ("skipped", "placeholder"),
-        DATASET: ("skipped", "not-article"),
         PREPRINT: ("waiting", "host-link"),
         REKEY_PMID: ("manual", "no-route"),
         UNLINKED: ("manual", "no-route"),
@@ -176,7 +184,7 @@ def test_linked_papers_enter_with_ids_details_and_every_status(
     assert papers[UNLINKED]["looked_up"] is None
 
     info = by_key(root, tables.PAPER_INFO)
-    assert set(info) == {OLD_PMC, RECENT, NO_ROUTE, HOST, PREPRINT, REKEY_PMID, DATASET}
+    assert set(info) == {OLD_PMC, RECENT, NO_ROUTE, HOST, PREPRINT, REKEY_PMID}
     host = info[HOST]
     assert host["title"] == "Host paper"
     assert host["journal"] == "J Test"
@@ -201,11 +209,65 @@ def test_linked_papers_enter_with_ids_details_and_every_status(
     assert status["counts"] == {
         "waiting": {"openalex-backlog": 1, "pmc-embargo": 1, "host-link": 2},
         "manual": {"no-route": 3},
-        "skipped": {"placeholder": 1, "not-article": 1},
     }
 
 
-def test_a_rerun_the_same_month_asks_nothing(
+def test_only_papers_enter_and_rows_for_non_papers_go(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = paper_store(
+        tmp_path,
+        [
+            ("GSE5", f"DOI:{DATASET}", "SOFT Series_web_link"),
+            ("GSE7", f"DOI:{UNKNOWN}", "SOFT Series_citation"),
+            ("PRJNA1", f"PMID:{PLACEHOLDER}", "BioProject XML"),
+            ("GSE6", f"DOI:{PREPRINT}", "SOFT Series_citation"),
+            ("GSE8", f"DOI:{HELD_UNKNOWN}", "SOFT Series_citation"),
+        ],
+    )
+    pdf = paper_dir(HELD_UNKNOWN) / "10.1000%2Fheld.pdf"
+    (root / pdf).parent.mkdir(parents=True)
+    (root / pdf).write_bytes(b"%PDF")
+    tables.write(
+        root, tables.FILES, [{"paper": HELD_UNKNOWN, "kind": "pdf", "path": pdf.as_posix()}]
+    )
+    # An earlier sync's rows: a held paper, a placeholder and a dataset.
+    tables.write(
+        root,
+        tables.PAPERS,
+        [
+            {"paper": HELD_UNKNOWN, "doi": HELD_UNKNOWN, "status": "fetched"},
+            {"paper": PLACEHOLDER, "pmid": 12345, "status": "skipped", "reason": "placeholder"},
+            {
+                "paper": DATASET,
+                "doi": DATASET,
+                "status": "skipped",
+                "reason": "not-article",
+                "looked_up": dt.date(2026, 11, 1),
+            },
+        ],
+    )
+    tables.write(root, tables.PAPER_INFO, [{"paper": DATASET, "doi": DATASET, "title": "Data"}])
+    fake = web()
+    use(monkeypatch, fake)
+    out = sync(root)
+
+    papers = by_key(root, tables.PAPERS)
+    # A paper whose file the store holds is kept.
+    assert {k: r["status"] for k, r in papers.items()} == {
+        PREPRINT: "waiting",
+        HELD_UNKNOWN: "fetched",
+    }
+    assert set(by_key(root, tables.PAPER_INFO)) == {PREPRINT}
+    assert "2 DOIs turned away" in out
+    asked = len(fake.calls)
+    sync(root)
+    # Nothing is kept for a DOI turned away, so the next sync asks OpenAlex again.
+    assert fake.calls[asked:] == ["openalex-batch", "openalex-single"]
+    assert set(by_key(root, tables.PAPERS)) == {PREPRINT, HELD_UNKNOWN}
+
+
+def test_a_rerun_the_same_month_asks_only_for_the_dois_it_turned_away(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = paper_store(tmp_path, LINKS)
@@ -217,7 +279,7 @@ def test_a_rerun_the_same_month_asks_nothing(
     assert fake.count("efetch") == 1
     assert fake.count("idconv") == 1
     sync(root)
-    assert len(fake.calls) == asked
+    assert fake.calls[asked:] == ["openalex-batch"]
     assert by_key(root, tables.PAPERS) == first
 
 
@@ -234,7 +296,6 @@ def test_a_new_month_renews_details_and_releases_a_pmc_wait(
     papers = by_key(root, tables.PAPERS)
     assert papers[RECENT]["pmcid"] == "PMC2"
     assert papers[RECENT]["looked_up"] == dt.date(2026, 12, 3)
-    assert papers[PLACEHOLDER]["looked_up"] is None
     assert fake.count("efetch") == 1
     assert fake.count("idconv") == 1
 
@@ -281,6 +342,69 @@ def test_a_doi_only_paper_that_gains_a_pmid_moves_to_the_pmid_layout(
     ]
     assert [a["paper"] for a in tables.read(root, tables.ATTEMPTS)] == [REKEY_PMID]
     assert by_key(root, tables.PAPER_INFO)[REKEY_PMID]["title"] == "Rekeyed paper"
+
+
+def test_a_preprint_merged_into_its_journal_version_is_that_paper(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = paper_store(
+        tmp_path,
+        [
+            ("GSE10", f"DOI:{MERGED}", "SOFT Series_citation"),
+            ("GSE11", f"DOI:{MERGED_NO_PMID}", "SOFT Series_citation"),
+        ],
+    )
+    old = paper_dir(MERGED_NO_PMID) / "10.1101%2F2024.01.01.000003.pdf"
+    (root / old).parent.mkdir(parents=True)
+    (root / old).write_bytes(b"%PDF")
+    tables.write(
+        root,
+        tables.PAPERS,
+        [{"paper": MERGED_NO_PMID, "doi": MERGED_NO_PMID, "status": "fetched", "pdf_tier": "host"}],
+    )
+    tables.write(
+        root,
+        tables.FILES,
+        [
+            {
+                "paper": MERGED_NO_PMID,
+                "kind": "pdf",
+                "name": old.name,
+                "path": old.as_posix(),
+                "tier": "host",
+            }
+        ],
+    )
+    fake = web()
+    fake.articles = {JOURNAL_PMID: Article(JOURNAL_PMID, "Journal paper", 2025, doi=JOURNAL)}
+    fake.works = [
+        work("W8", doi=JOURNAL, pmid=JOURNAL_PMID),
+        work("W9", doi=JOURNAL_NO_PMID, title="Journal version"),
+    ]
+    fake.merged = {MERGED: JOURNAL, MERGED_NO_PMID: JOURNAL_NO_PMID}
+    use(monkeypatch, fake)
+    out = sync(root)
+
+    papers = by_key(root, tables.PAPERS)
+    assert {k: (r["doi"], r["other_dois"], r["status"]) for k, r in papers.items()} == {
+        JOURNAL_PMID: (JOURNAL, [MERGED], "manual"),
+        JOURNAL_NO_PMID: (JOURNAL_NO_PMID, [MERGED_NO_PMID], "fetched"),
+    }
+    new = paper_dir(JOURNAL_NO_PMID) / "10.1000%2Fjournal-only.pdf"
+    assert (root / new).read_bytes() == b"%PDF"
+    assert [(f["paper"], f["path"]) for f in tables.read(root, tables.FILES)] == [
+        (JOURNAL_NO_PMID, new.as_posix())
+    ]
+    info = by_key(root, tables.PAPER_INFO)
+    assert (info[JOURNAL_PMID]["title"], info[JOURNAL_NO_PMID]["title"]) == (
+        "Journal paper",
+        "Journal version",
+    )
+    assert "2 re-keyed" in out
+    # Each preprint DOI now leads to its paper, so a rerun asks nothing.
+    asked = len(fake.calls)
+    sync(root)
+    assert len(fake.calls) == asked
 
 
 def test_a_sampled_sync_is_not_the_months_sync_and_a_full_one_is(
