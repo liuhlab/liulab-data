@@ -17,7 +17,7 @@ from labdata.cli import app
 from labdata.exceptions import StoreBuildError
 from labdata.store import extract, snapshots
 from labdata.store.build import build
-from tests.conftest import Decompressor as _Decompressor
+from tests._slices import Decompressor as _Decompressor
 
 _DATA = Path(__file__).parent / "data"
 _SLICES = ["prjna1027859", "geo_slice", "sra_slice"]
@@ -88,7 +88,7 @@ def test_tiny_byte_ranges_neither_drop_nor_repeat_a_record(
 ) -> None:
     root = _root(tmp_path, "sra_slice")
     monkeypatch.setattr(extract, "_CHUNK", 5)
-    out = extract.extract(root, source, workers=1, part_bytes=7)
+    out = extract.extract(root, source, workers=1, part_bytes=64)  # shorter than any record
     assert len(list(out.glob("part-*.parquet"))) > 20
     assert _rows(out) == _serial(root, source)
 
@@ -129,6 +129,7 @@ def test_a_part_already_written_is_skipped_and_a_rerun_finishes(
 
 # Ray leaves a log file handle open at shutdown.
 @pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")
+@pytest.mark.slow
 def test_ray_with_two_workers_gives_the_same_parts(tmp_path: Path) -> None:
     root = _root(tmp_path)
     out = extract.extract(root, "biosample", workers=2, part_bytes=2000)

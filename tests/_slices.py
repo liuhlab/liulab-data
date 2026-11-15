@@ -6,10 +6,17 @@ Three fixture folders under ``tests/data/`` hold the thin-slice records:
 
 from __future__ import annotations
 
+import gzip
 import json
 import shutil
+import subprocess
+import sys
+import tempfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 from labdata.store import extract
 from labdata.store.build import build
@@ -31,6 +38,9 @@ GEO_SERIES = [
     "GSE15556",
 ]
 SRA_PROJECTS = ["PRJNA436361", "PRJNA530347"]
+
+#: The ``built_store`` fixture: ``built_store(path, slice_name)`` copies a prebuilt store there.
+BuiltStore = Callable[[Path, str], Path]
 
 
 def _soft_url(gse: str) -> str:
@@ -114,3 +124,132 @@ def built_root(path: Path, slice_name: str) -> Path:
     fetch(path, accessions, client=client(), today=TODAY)
     build(path, "b1")
     return path
+
+
+#: Each fixture fetched and built once by :func:`prebuild`, kept for :func:`copy_built`.
+_BUILT: dict[str, Path] = {}
+#: The folder :func:`start_prebuild` builds in, and the process building there.
+_folder: Path | None = None
+_builder: subprocess.Popen[bytes] | None = None
+#: Why the build failed, raised again on every later :func:`prebuild`.
+_failed: str | None = None
+
+
+class Decompressor:
+    """Stands in for rapidgzip or pigz: a gzip file's bytes on ``stdout``, then ``code``."""
+
+    def __init__(self, command: list[str], code: int = 0) -> None:
+        self.stdout = gzip.open(command[-1], "rb")  # noqa: SIM115 - the caller closes the pipe
+        self._code = code
+
+    def kill(self) -> None:
+        pass
+
+    def wait(self) -> int:
+        return self._code
+
+
+def defaults(patch: pytest.MonkeyPatch) -> None:
+    """Set what every test runs under: one worker per parallel step, and no decompressor binary.
+
+    One worker means no test starts Ray unasked; snapshots decompress in Python at the
+    extract's subprocess seam.
+    """
+    patch.setenv("SLURM_CPUS_ON_NODE", "1")
+    patch.setattr(extract, "_popen", Decompressor)
+
+
+def _build_all(folder: str) -> None:
+    """Fetch and build every fixture under ``folder``, under the test defaults."""
+    with pytest.MonkeyPatch.context() as patch:
+        defaults(patch)
+        for name in SLICES:
+            built_root(Path(folder) / name, name)
+
+
+def start_prebuild() -> None:
+    """Start fetching and building every fixture once, in a child process, in a new folder."""
+    global _folder, _builder
+    if _folder is None:
+        _folder = Path(tempfile.mkdtemp(prefix="labdata-slices-"))
+        try:
+            with (_folder / "log.txt").open("wb") as log:
+                _builder = subprocess.Popen(
+                    [
+                        sys.executable,
+                        "-c",
+                        f"from tests import _slices; _slices._build_all({str(_folder)!r})",
+                    ],
+                    cwd=Path(__file__).parents[1],
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                )
+        except BaseException:
+            remove_prebuilt()
+            raise
+
+
+def prebuild() -> None:
+    """Wait for the fixtures :func:`start_prebuild` builds, starting it if it has not started.
+
+    A failed build removes the folder and raises with the child's output, then and on every
+    later call.
+    """
+    global _builder, _failed
+    if _failed is not None:
+        raise RuntimeError(_failed)
+    if _BUILT:
+        return
+    start_prebuild()
+    assert _folder is not None
+    assert _builder is not None
+    try:
+        code = _builder.wait()
+    except BaseException:
+        remove_prebuilt()
+        raise
+    _builder = None
+    if code:
+        log = (_folder / "log.txt").read_text(encoding="utf-8", errors="replace")
+        remove_prebuilt()
+        _failed = f"building the thin slices failed:\n{log}"
+        raise RuntimeError(_failed)
+    _BUILT.update((name, _folder / name) for name in SLICES)
+
+
+def copy_built(path: Path, slice_name: str) -> Path:
+    """Copy a prebuilt fixture's store to ``path``: what :func:`built_root` makes there."""
+    return copy_store(_BUILT[slice_name], path)
+
+
+def copy_store(root: Path, path: Path) -> Path:
+    """Copy the store at ``root`` to ``path``.
+
+    Files hard-linked to each other in the store, as a build links its known table, stay so.
+    """
+    copied: dict[int, str] = {}
+
+    def copy(src: str, dst: str) -> str:
+        stat = Path(src).stat()
+        if stat.st_nlink > 1 and stat.st_ino in copied:
+            Path(dst).hardlink_to(copied[stat.st_ino])
+        else:
+            shutil.copy2(src, dst)
+            copied[stat.st_ino] = dst
+        return dst
+
+    shutil.copytree(root, path, copy_function=copy)
+    return path
+
+
+def remove_prebuilt() -> None:
+    """Stop the build :func:`start_prebuild` started, if it runs, and delete its folder."""
+    global _folder, _builder
+    if _builder is not None:
+        _builder.kill()
+        _builder.wait()
+        _builder = None
+    if _folder is not None:
+        shutil.rmtree(_folder, ignore_errors=True)
+        _folder = None
+    _BUILT.clear()

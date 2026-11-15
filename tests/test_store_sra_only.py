@@ -35,7 +35,7 @@ from labdata.store import Store, open_store, pack, raw
 from labdata.store.build import build
 from labdata.store.fetch import fetch
 from tests._fakes import ExplodingEntrezClient, FakeEntrezClient
-from tests._slices import copy_snapshots
+from tests._slices import BuiltStore, copy_snapshots
 
 _DATA = Path(__file__).parent / "data"
 _SNAPSHOTS = _DATA / "prjna1027859" / "snapshots"
@@ -83,11 +83,9 @@ def no_network(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture
-def store(root: Path) -> Store:
+def store(built_store: BuiltStore, tmp_path: Path) -> Store:
     """The store after a fetch and a build, opened fresh."""
-    fetch(root, [_PROJECT], client=_client(), today="2026-10-14")
-    build(root, "b1")
-    return open_store(root)
+    return open_store(built_store(tmp_path / "store", "prjna1027859"))
 
 
 def _rows(path: Path) -> list[dict[str, Any]]:

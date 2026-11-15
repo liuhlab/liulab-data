@@ -12,9 +12,8 @@ import pyarrow.parquet as pq
 import pytest
 
 from labdata.store import layout
-from tests._slices import built_root
-
-SCRIPT = Path(__file__).parents[1] / "scripts" / "store" / "compare_builds.py"
+from tests._scripts import COMPARE_BUILDS, compare
+from tests._slices import BuiltStore
 
 
 @pytest.fixture(autouse=True)
@@ -24,8 +23,8 @@ def _isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
 
 @pytest.fixture(scope="module")
-def _built(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return built_root(tmp_path_factory.mktemp("compare") / "store", "geo_slice") / "builds" / "b1"
+def _built(built_store: BuiltStore, tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return built_store(tmp_path_factory.mktemp("compare") / "store", "geo_slice") / "builds" / "b1"
 
 
 @pytest.fixture
@@ -35,15 +34,6 @@ def builds(_built: Path, tmp_path: Path) -> tuple[Path, Path]:
     shutil.copytree(_built, old)
     shutil.copytree(_built, new)
     return old, new
-
-
-def _compare(old: Path, new: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [sys.executable, str(SCRIPT), str(old), str(new)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
 
 
 def _rewrite(path: Path, select: str, where: str = "true") -> None:
@@ -58,9 +48,17 @@ def _rewrite(path: Path, select: str, where: str = "true") -> None:
     kept.unlink()
 
 
-def test_identical_builds_match(builds: tuple[Path, Path]) -> None:
-    done = _compare(*builds)
+def test_identical_builds_match_run_as_a_script(builds: tuple[Path, Path]) -> None:
+    old, new = builds
+    done = subprocess.run(
+        [sys.executable, str(COMPARE_BUILDS), str(old), str(new)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
     assert done.returncode == 0, done.stdout + done.stderr
+    here = compare(old, new)
+    assert (here.returncode, here.stdout, here.stderr) == (0, done.stdout, done.stderr)
 
 
 def test_a_build_with_text_dates_matches_its_typed_twin(builds: tuple[Path, Path]) -> None:
@@ -77,7 +75,7 @@ def test_a_build_with_text_dates_matches_its_typed_twin(builds: tuple[Path, Path
     assert str(pq.read_schema(layout.records_path(old, "GEO Series")).field("published").type) == (
         "string"
     )
-    done = _compare(old, new)
+    done = compare(old, new)
     assert done.returncode == 0, done.stdout + done.stderr
 
 
@@ -90,7 +88,7 @@ def test_a_one_cell_change_fails_naming_the_cell(builds: tuple[Path, Path]) -> N
         f"* REPLACE (CASE WHEN accession = '{accession}' THEN raw_text || 'x' "
         "ELSE raw_text END AS raw_text)",
     )
-    done = _compare(old, new)
+    done = compare(old, new)
     assert done.returncode == 1
     assert "records/geo-sample.parquet" in done.stdout
     assert "raw_text" in done.stdout
@@ -122,7 +120,7 @@ def test_a_changed_or_dropped_field_fails_naming_the_column_and_accession(
         path,
         f"* REPLACE (CASE WHEN accession = '{accession}' THEN {fields} ELSE fields END AS fields)",
     )
-    done = _compare(old, new)
+    done = compare(old, new)
     assert done.returncode == 1
     line = next(x for x in done.stdout.splitlines() if "column fields" in x)
     assert line.startswith("records/geo-sample.parquet: column fields: 1 row differs")
@@ -134,7 +132,7 @@ def test_a_dropped_row_fails_naming_the_table_and_accession(builds: tuple[Path, 
     path = layout.records_path(new, "GEO Sample")
     accession = pq.read_table(path, columns=["accession"]).column(0)[3].as_py()
     _rewrite(path, "*", f"accession <> '{accession}'")
-    done = _compare(old, new)
+    done = compare(old, new)
     assert done.returncode == 1
     lines = done.stdout.splitlines()
     rows = pq.read_metadata(layout.records_path(old, "GEO Sample")).num_rows

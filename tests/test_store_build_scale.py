@@ -29,7 +29,7 @@ from labdata.exceptions import StoreBuildError
 from labdata.store import _parse, extract, init_store, layout, open_store
 from labdata.store import build as build_module
 from labdata.store.build import build
-from tests._slices import DATA, SLICES, built_root, copy_snapshots
+from tests._slices import DATA, SLICES, BuiltStore, copy_snapshots
 
 _STAGE1 = json.loads((DATA / "stage1_tables.json").read_text())
 _RAW_SCHEMA = pa.schema(
@@ -79,28 +79,38 @@ def _write_raw(root: Path, source: str, bucket: str, rows: list[tuple[str, str]]
 
 
 @pytest.mark.parametrize("slice_name", sorted(SLICES))
-def test_tables_equal_those_of_the_stage_1_builder(tmp_path: Path, slice_name: str) -> None:
-    root = built_root(tmp_path / "store", slice_name)
+def test_tables_equal_those_of_the_stage_1_builder(
+    built_store: BuiltStore, tmp_path: Path, slice_name: str
+) -> None:
+    root = built_store(tmp_path / "store", slice_name)
     assert _digest(root / "builds" / "b1") == _STAGE1[slice_name]
 
 
 # Ray leaves a log file handle open at shutdown.
 @pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")
-def test_parsing_on_two_workers_gives_the_same_tables(tmp_path: Path) -> None:
-    root = built_root(tmp_path / "store", "geo_slice")
+@pytest.mark.slow
+def test_parsing_on_two_workers_gives_the_same_tables(
+    built_store: BuiltStore, tmp_path: Path
+) -> None:
+    root = built_store(tmp_path / "store", "geo_slice")
     build(root, "b2", workers=2)
     assert _digest(root / "builds" / "b2") == _STAGE1["geo_slice"]
 
 
-# Ray leaves a log file handle open at shutdown.
+# Ray leaves a log file handle open at shutdown. Two workers start Ray, so they are slow.
 @pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")
+@pytest.mark.parametrize("workers", [1, pytest.param(2, marks=pytest.mark.slow)])
 def test_records_written_in_accession_ranges_equal_one_pass(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    built_store: BuiltStore,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    workers: int,
 ) -> None:
-    root = built_root(tmp_path / "store", "geo_slice")
-    monkeypatch.setattr(build_module, "_range_bytes", lambda con: 1 << 10)
+    root = built_store(tmp_path / "store", "geo_slice")
+    monkeypatch.setattr(build_module, "_range_bytes", lambda con: 1 << 14)
     with caplog.at_level("INFO", logger=build_module.__name__):
-        build(root, "b2", workers=2)
+        build(root, "b2", workers=workers)
     assert _digest(root / "builds" / "b2") == _STAGE1["geo_slice"]
     assert any(
         m.startswith("wrote geo-sample in") and not m.endswith(" 1 accession ranges")
@@ -119,24 +129,34 @@ def _package(n: int, padding: int) -> str:
     )
 
 
-def test_peak_memory_is_bounded_by_the_chunk_not_the_store(tmp_path: Path) -> None:
-    root = tmp_path / "store"
+def _padded_store(root: Path, experiments: int, padding: int, per_bucket: int) -> Path:
+    """A store of ``experiments`` packages padded to ``padding`` characters, and no build."""
     copy_snapshots(SLICES["prjna1027859"][0], root)
     init_store(root)
-    chunk = 1 << 18
-    experiments, padding, per_bucket = 4000, 4000, 1000
     for start in range(0, experiments, per_bucket):
         rows = [(f"SRX{n}", _package(n, padding)) for n in range(start + 1, start + per_bucket + 1)]
         _write_raw(root, "sra-xml", f"SRX{start}", rows)
-    raw_bytes = experiments * padding
-    assert raw_bytes > 50 * chunk
+    return root
 
+
+def _peak(root: Path, chunk: int) -> int:
+    """Return the peak Python memory of a one-worker build of ``root``."""
     tracemalloc.start()
     try:
         build(root, "big", workers=1, chunk_bytes=chunk)
-        _, peak = tracemalloc.get_traced_memory()
+        return tracemalloc.get_traced_memory()[1]
     finally:
         tracemalloc.stop()
+
+
+@pytest.mark.slow
+def test_peak_memory_is_bounded_by_the_chunk_not_the_store(tmp_path: Path) -> None:
+    chunk = 1 << 18
+    experiments, padding = 4000, 4000
+    root = _padded_store(tmp_path / "store", experiments, padding, 1000)
+    assert experiments * padding > 50 * chunk
+
+    peak = _peak(root, chunk)
 
     assert peak < 16 * chunk, f"peak {peak} bytes for a {chunk}-byte chunk"
     store = open_store(root)
@@ -146,6 +166,16 @@ def test_peak_memory_is_bounded_by_the_chunk_not_the_store(tmp_path: Path) -> No
     )
 
 
+def test_four_times_the_raw_text_leaves_the_peak_memory_nearly_the_same(tmp_path: Path) -> None:
+    padding, chunk = 4000, 1 << 15
+    small = _peak(_padded_store(tmp_path / "small", 100, padding, 100), chunk)
+    large = _peak(_padded_store(tmp_path / "large", 400, padding, 100), chunk)
+    # A build that held the raw text would peak higher by all the text the large store adds.
+    added = 300 * padding
+    assert large - small < added / 4
+
+
+@pytest.mark.slow
 def test_text_that_expands_many_times_writes_under_a_small_cap_on_many_threads(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -166,8 +196,10 @@ def test_text_that_expands_many_times_writes_under_a_small_cap_on_many_threads(
     assert layout.check(out) == []
 
 
-def test_an_experiment_with_no_package_is_a_build_note(tmp_path: Path) -> None:
-    root = built_root(tmp_path / "store", "prjna1027859")
+def test_an_experiment_with_no_package_is_a_build_note(
+    built_store: BuiltStore, tmp_path: Path
+) -> None:
+    root = built_store(tmp_path / "store", "prjna1027859")
     _write_raw(root, "sra-xml", "SRX9999nnnn", [("SRX99999999", "")])
     out = build(root, "b2")
     notes = pq.read_table(out / "notes.parquet").to_pylist()
@@ -179,8 +211,10 @@ def test_an_experiment_with_no_package_is_a_build_note(tmp_path: Path) -> None:
     assert json.loads((out / "manifest.json").read_text())["notes"]["no SRA package"] == 1
 
 
-def test_an_unparsable_package_is_a_build_note_and_adds_no_record(tmp_path: Path) -> None:
-    root = built_root(tmp_path / "store", "prjna1027859")
+def test_an_unparsable_package_is_a_build_note_and_adds_no_record(
+    built_store: BuiltStore, tmp_path: Path
+) -> None:
+    root = built_store(tmp_path / "store", "prjna1027859")
     spliced = (DATA / "sra_package" / "SRX10340496-spliced.xml").read_text()
     _write_raw(root, "sra-xml", "SRX10nnnnnn", [("SRX10340496", spliced)])
     out = build(root, "b2")

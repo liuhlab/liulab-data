@@ -14,7 +14,7 @@ from labdata.exceptions import StoreBuildError
 from labdata.store import build as build_module
 from labdata.store import extract, layout
 from labdata.store.build import build
-from tests._slices import built_root
+from tests._slices import BuiltStore
 
 
 @pytest.fixture(autouse=True)
@@ -37,8 +37,8 @@ def _layout(build_dir: Path) -> dict[str, tuple[object, ...]]:
     return out
 
 
-def test_every_built_table_matches_its_declaration(tmp_path: Path) -> None:
-    build_dir = built_root(tmp_path / "store", "geo_slice") / "builds" / "b1"
+def test_every_built_table_matches_its_declaration(built_store: BuiltStore, tmp_path: Path) -> None:
+    build_dir = built_store(tmp_path / "store", "geo_slice") / "builds" / "b1"
     assert sorted(p.name for p in build_dir.glob("records/*.parquet"))
     assert layout.check(build_dir) == []
 
@@ -51,8 +51,10 @@ def test_the_layout_is_the_approved_declaration() -> None:
     assert set(settings.values()) == {("zstd", 3, 122_880)}
 
 
-def test_nearly_unique_columns_are_plain_and_the_rest_keep_a_dictionary(tmp_path: Path) -> None:
-    build_dir = built_root(tmp_path / "store", "geo_slice") / "builds" / "b1"
+def test_nearly_unique_columns_are_plain_and_the_rest_keep_a_dictionary(
+    built_store: BuiltStore, tmp_path: Path
+) -> None:
+    build_dir = built_store(tmp_path / "store", "geo_slice") / "builds" / "b1"
     seen = set()
     for table in layout.TABLES:
         path = table.path(build_dir)
@@ -95,8 +97,8 @@ def test_a_column_of_only_nulls_needs_no_dictionary(tmp_path: Path) -> None:
     assert layout.check(build_dir) == []
 
 
-def test_dates_are_written_typed(tmp_path: Path) -> None:
-    build_dir = built_root(tmp_path / "store", "geo_slice") / "builds" / "b1"
+def test_dates_are_written_typed(built_store: BuiltStore, tmp_path: Path) -> None:
+    build_dir = built_store(tmp_path / "store", "geo_slice") / "builds" / "b1"
     types = {
         path.name: {f.name: str(f.type) for f in pq.read_schema(path)}
         for path in (
@@ -117,12 +119,17 @@ def test_dates_are_written_typed(tmp_path: Path) -> None:
 _SMALL_GROUP = 3
 
 
-# Ray leaves a log file handle open at shutdown.
+# Ray leaves a log file handle open at shutdown. Two workers start Ray, so they are slow.
 @pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")
+@pytest.mark.parametrize("workers", [1, pytest.param(2, marks=pytest.mark.slow)])
 def test_two_builds_under_different_memory_have_the_same_layout(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    built_store: BuiltStore,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    workers: int,
 ) -> None:
-    root = built_root(tmp_path / "store", "geo_slice")
+    root = built_store(tmp_path / "store", "geo_slice")
     write = layout.write
 
     def small_groups(
@@ -131,10 +138,14 @@ def test_two_builds_under_different_memory_have_the_same_layout(
         write(con, replace(table, row_group_rows=_SMALL_GROUP), out, queries, metadata)  # type: ignore[arg-type]
 
     monkeypatch.setattr(layout, "write", small_groups)
-    build(root, "roomy", workers=2)
+    build(root, "roomy", workers=workers)
     monkeypatch.setenv("LABDATA_DUCKDB_MEMORY", "256MB")
-    monkeypatch.setattr(build_module, "_range_bytes", lambda con: 1 << 10)
-    build(root, "small", workers=2)
+    monkeypatch.setattr(build_module, "_range_bytes", lambda con: 1 << 14)
+    with caplog.at_level("INFO", logger=build_module.__name__):
+        build(root, "small", workers=workers)
+    assert any(
+        m.startswith("wrote ") and not m.endswith(" 1 accession ranges") for m in caplog.messages
+    )
     roomy = _layout(root / "builds" / "roomy")
     assert max(len(groups) for _, _, groups in roomy.values()) > 1  # type: ignore[arg-type]
     assert _layout(root / "builds" / "small") == roomy

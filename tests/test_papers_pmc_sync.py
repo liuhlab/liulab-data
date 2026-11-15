@@ -19,7 +19,7 @@ from labdata.papers import job as job_mod
 from labdata.papers import openalex as openalex_mod
 from labdata.papers.openalex import Account, OpenAlex, OpenAlexError, load_accounts
 from tests._paper_fakes import Article, FakeWeb, Reply, fixture_build, work
-from tests._slices import built_root
+from tests._slices import BuiltStore
 
 TODAY = "2026-11-07"
 
@@ -501,9 +501,9 @@ def test_an_openalex_retraction_skips_the_paper(
 
 
 def test_the_thin_slice_takes_in_its_papers(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    built_store: BuiltStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    store = built_root(tmp_path / "store", "geo_slice")
+    store = built_store(tmp_path / "store", "geo_slice")
     root = tmp_path / "papers"
     init_paper_store(root, store)
     use(monkeypatch, FakeWeb())

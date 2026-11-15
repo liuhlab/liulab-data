@@ -20,7 +20,7 @@ from labdata.store.build import build
 from labdata.store.gcs import COPIED
 from labdata.store.pack import pack
 from labdata.store.prune import GRACE, prune
-from tests._slices import built_root
+from tests._slices import BuiltStore
 
 _HOUR = dt.timedelta(hours=1)
 _DEST = "gcs:lab-bucket/geo-sra-store"
@@ -40,8 +40,8 @@ def _isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
 
 @pytest.fixture(scope="module")
-def _built(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return built_root(tmp_path_factory.mktemp("built") / "store", "prjna1027859")
+def _built(built_store: BuiltStore, tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return built_store(tmp_path_factory.mktemp("built") / "store", "prjna1027859")
 
 
 @pytest.fixture

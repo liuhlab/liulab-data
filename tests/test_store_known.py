@@ -19,7 +19,7 @@ from labdata.store import Partial, Store, extract, known, open_store
 from labdata.store.build import build
 from labdata.store.fetch import fetch
 from tests._fakes import FakeEntrezClient
-from tests._slices import copy_snapshots
+from tests._slices import BuiltStore, copy_snapshots
 
 _DATA = Path(__file__).parent / "data"
 _SNAPSHOTS = _DATA / "prjna1027859" / "snapshots"
@@ -52,8 +52,8 @@ def _store(tmp_path: Path, accessions: list[str], snapshots: Path = _SNAPSHOTS) 
 
 
 @pytest.fixture
-def store(tmp_path: Path) -> Store:
-    return _store(tmp_path, [_PROJECT])
+def store(built_store: BuiltStore, tmp_path: Path) -> Store:
+    return open_store(built_store(tmp_path / "store", "prjna1027859"))
 
 
 # ---------------------------------------------------------------- open

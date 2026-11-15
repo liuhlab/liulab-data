@@ -108,7 +108,7 @@ python = "3.13.*"
 [tool.pixi.feature.test.dependencies]
 pytest = "*"
 pytest-cov = "*"
-hypothesis = "*"
+pytest-timeout = "*"
 
 # Dev tooling feature
 [tool.pixi.feature.dev.dependencies]
@@ -135,9 +135,10 @@ ruff = "*"   # used by mkdocstrings to format rendered signatures
 docs = "zensical serve"
 docs-build = "zensical build --clean --strict"
 
+# `default` takes `test` so pyright can resolve pytest, and not `docs`, so `pixi run check`
+# never installs the site builder.
 [tool.pixi.environments]
 default = { features = ["py313", "dev", "test"], solve-group = "default" }
-test    = { features = ["py313", "test"], solve-group = "default" }
 docs    = { features = ["py313", "docs"], solve-group = "default" }
 
 [tool.pixi.tasks]
@@ -146,6 +147,7 @@ fmt       = "ruff format ."
 fmt-check = "ruff format --check ."
 typecheck = "pyright"
 test      = "pytest"
+test-slow = "pytest -m slow"
 test-cov  = "pytest --cov=labdata --cov-report=term-missing"
 # `.`, never an absolute path: an absolute path matches no `.vale.ini` section and exits 0.
 # The globs stop vale walking trees it never lints — check.sh runs steps concurrently, and a
@@ -155,7 +157,10 @@ markdownlint = "markdownlint-cli2"
 conformance = "python scripts/conformance.py"
 # The static step list lives here and nowhere else; `check.sh` takes it as arguments.
 check-static = "bash scripts/check.sh lint fmt-check typecheck vale markdownlint conformance"
-check     = { depends-on = ["check-static", "test"] }
+# `test` runs whatever `check-static` returned; `depends-on` would skip it. After it, not beside
+# it, so pytest's time limits and vale's walk of `tests/` never share the machine. pixi's task
+# shell has `$?` but no arithmetic.
+check     = "pixi run check-static; static=$?; pixi run test && exit $static"
 build     = "python -m build"
 # Register THIS env's Python as a Jupyter kernel (idempotent). Run once so a
 # standalone Jupyter Lab can pick the "Python (liulab-data)" kernel and import
@@ -210,7 +215,7 @@ extend-immutable-calls = ["typer.Argument", "typer.Option"]
 
 [tool.pyright]
 # `scripts` included: CI and conformance execute those files.
-include = ["src", "tests", "scripts"]
+include = ["src", "tests", "scripts", "conftest.py"]
 exclude = ["**/__pycache__", "**/.pixi"]
 venvPath = ".pixi/envs"
 venv = "default"
@@ -234,9 +239,14 @@ reportMissingParameterType = "none"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = ["-ra", "--strict-markers", "--strict-config", "-m", "not network"]
+addopts = ["-ra", "--strict-markers", "--strict-config", "-m", "not network and not slow"]
 xfail_strict = true
 filterwarnings = ["error"]
+# The two time limits, here and nowhere else: conformance fails a copy in a workflow, a task or
+# a test. `conftest.py` reads `suite_budget`; pytest-timeout reads `timeout`, which covers a
+# test's setup, call and teardown. A test marked `slow` or `network` is held to neither.
+timeout = 2
+suite_budget = 45
 markers = [
     "network: hits live NCBI services (E-utilities, SDL) (deselected by default; run with `-m network`)",
 ]

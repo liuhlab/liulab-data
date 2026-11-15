@@ -20,7 +20,7 @@ from labdata.cli import app
 from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
 from labdata.store import raw, sra_removal
-from tests._slices import DATA, built_root
+from tests._slices import DATA, BuiltStore
 from tests.test_store_refresh_fetch import Ncbi, _Reply
 
 _NEW = "2026-11-01"
@@ -78,9 +78,9 @@ def _ncbi() -> _Sra:
     return ncbi
 
 
-def _store(tmp_path: Path) -> Path:
+def _store(built_store: BuiltStore, tmp_path: Path) -> Path:
     """The thin slice built, then snapshots renewed: two Series dropped, three SRA rows not live."""
-    root = built_root(tmp_path / "store", "geo_slice")
+    root = built_store(tmp_path / "store", "geo_slice")
     old = next((root / "snapshots" / "geo-series").iterdir())
     folder = root / "snapshots" / "geo-series" / _NEW
     folder.mkdir(parents=True)
@@ -133,9 +133,9 @@ def _runs(package: str) -> list[str]:
 
 
 def test_only_candidates_ncbi_confirms_gone_are_removed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    built_store: BuiltStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    root = _store(tmp_path)
+    root = _store(built_store, tmp_path)
     before = _held(root, raw.SRA_XML)
     ncbi = _ncbi()
     _use(monkeypatch, ncbi)
@@ -158,9 +158,9 @@ def test_only_candidates_ncbi_confirms_gone_are_removed(
 
 
 def test_a_non_public_run_is_a_candidate_though_its_tab_row_names_no_experiment(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    built_store: BuiltStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    root = _store(tmp_path)
+    root = _store(built_store, tmp_path)
     _use(monkeypatch, _ncbi())
 
     said = _step(root, "remove-sra")
@@ -170,9 +170,9 @@ def test_a_non_public_run_is_a_candidate_though_its_tab_row_names_no_experiment(
 
 
 def test_every_duckdb_the_step_opens_is_capped_and_spills_to_disk(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    built_store: BuiltStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    root = _store(tmp_path)
+    root = _store(built_store, tmp_path)
     _use(monkeypatch, _ncbi())
     monkeypatch.delenv("LABDATA_DUCKDB_MEMORY", raising=False)
     monkeypatch.setenv("LABDATA_MEMORY_MB", "1000")
@@ -192,9 +192,12 @@ def test_every_duckdb_the_step_opens_is_capped_and_spills_to_disk(
 
 
 def test_a_fetch_error_keeps_a_candidate_and_a_rerun_asks_only_it_again(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    built_store: BuiltStore,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    root = _store(tmp_path)
+    root = _store(built_store, tmp_path)
     ncbi = _ncbi()
     ncbi.failing = {SUPPRESSED}
     _use(monkeypatch, ncbi)
@@ -220,9 +223,9 @@ def test_a_fetch_error_keeps_a_candidate_and_a_rerun_asks_only_it_again(
 
 
 def test_a_series_removal_and_an_sra_removal_go_in_the_same_pack(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    built_store: BuiltStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    root = _store(tmp_path)
+    root = _store(built_store, tmp_path)
     ncbi = _ncbi()
     ncbi.gds_gone = {WITHDRAWN_GSE}
     _use(monkeypatch, ncbi)
@@ -237,9 +240,10 @@ def test_a_series_removal_and_an_sra_removal_go_in_the_same_pack(
 
 
 def test_a_non_public_row_with_live_in_another_column_is_still_a_candidate(
+    built_store: BuiltStore,
     tmp_path: Path,
 ) -> None:
-    root = _store(tmp_path)
+    root = _store(built_store, tmp_path)
     tab = root / "snapshots" / "sra-accessions" / _NEW / "SRA_Accessions.tab"
     with tab.open("a", encoding="utf-8") as fh:
         # Alias reads "live"; the status is suppressed.
@@ -252,9 +256,12 @@ def test_a_non_public_row_with_live_in_another_column_is_still_a_candidate(
 
 
 def test_a_failed_batched_fetch_logs_how_many_fall_back_to_one_by_one(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    built_store: BuiltStore,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    root = _store(tmp_path)
+    root = _store(built_store, tmp_path)
     ncbi = _ncbi()
     ncbi.failing = {SUPPRESSED}
     _use(monkeypatch, ncbi)
