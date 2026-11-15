@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import shutil
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -113,10 +114,17 @@ def holding(root: Path) -> Path:
     return root
 
 
-def synced(root: Path) -> Path:
-    """Record this month's PMC sync, so only the daily pass is due."""
-    (root / "paper-status.json").write_text(json.dumps({"last_pmc_sync_success": "2026-11-03"}))
+def synced(root: Path, build: str | None = None) -> Path:
+    """Record this month's PMC sync, and the build it read, so only the daily pass is due."""
+    record = {"last_pmc_sync_success": "2026-11-03", "last_pmc_sync_build": build}
+    (root / "paper-status.json").write_text(json.dumps(record))
     return root
+
+
+def refresh(store: Path, build: str = "b2") -> None:
+    """Make a copy of build ``b1`` the GEO/SRA store's current build, as a refresh does."""
+    shutil.copytree(store / "builds" / "b1", store / "builds" / build)
+    (store / "labdata-store.toml").write_text(f'format_version = 1\nbuild = "{build}"\n')
 
 
 def serve(
@@ -209,6 +217,77 @@ def test_after_a_restart_only_what_is_due_runs_and_no_more_successors_are_submit
     assert passes(first) == ["2026-11-05T07:00Z daily pass 2026-11-05: success"]
     assert passes(second) == []
     assert len(sbatch.calls) == 2
+
+
+def test_a_new_build_makes_the_pmc_sync_due_within_the_month(tmp_path: Path) -> None:
+    store = open_paper_store(synced(paper_store(tmp_path), build="b1"))
+    mid_month = utc("2026-11-20 07:00")
+    assert job_mod.due(store, mid_month) == ["daily"]
+
+    refresh(tmp_path / "store")
+    assert job_mod.due(store, mid_month) == ["daily", "pmc-sync"]
+
+    # A sync that recorded no build: only the date rule applies.
+    synced(store.root)
+    assert job_mod.due(store, mid_month) == ["daily"]
+
+
+@pytest.mark.parametrize(
+    "breaks",
+    [
+        lambda store: (store / "labdata-store.toml").unlink(),
+        lambda store: (store / "labdata-store.toml").write_text("not toml ["),
+        lambda store: shutil.rmtree(store),
+    ],
+    ids=["no marker", "unreadable marker", "no store folder"],
+)
+def test_a_store_that_will_not_open_does_not_end_the_job(
+    tmp_path: Path, sbatch: Sbatch, rclone: Rclone, breaks: Callable[[Path], object]
+) -> None:
+    root = synced(paper_store(tmp_path), build="b1")
+    breaks(tmp_path / "store")
+    lines = serve(root, Clock(utc("2026-11-05 07:00")), until=utc("2026-11-05 08:01"))
+
+    # The daily pass, which reads the store's links, fails and is tried again an hour later.
+    assert [line for line in lines if "daily pass 2026-11-05: failed" in line] == [
+        "2026-11-05T07:00Z daily pass 2026-11-05: failed; tried again after 1:00:00",
+        "2026-11-05T08:00Z daily pass 2026-11-05: failed; tried again after 1:00:00",
+    ]
+    # One line per check: before each of the two passes, and each idle minute.
+    unreadable = [line for line in lines if "GEO/SRA store not readable" in line]
+    assert len(unreadable) == len([line for line in lines if " idle;" in line]) + 2
+    # On the 3rd the date rule still makes the PMC sync due.
+    assert job_mod.due(open_paper_store(root), utc("2026-12-03 07:00")) == ["daily", "pmc-sync"]
+
+
+def test_a_refresh_on_the_1st_starts_the_months_pmc_sync_and_none_follows_on_the_3rd(
+    tmp_path: Path, sbatch: Sbatch, rclone: Rclone
+) -> None:
+    root = synced(paper_store(tmp_path), build="b1")
+    refresh(tmp_path / "store")
+    lines = serve(root, Clock(utc("2026-12-01 07:00")), until=utc("2026-12-03 01:00"))
+
+    syncs = [line for line in passes(lines) if "pmc-sync" in line]
+    assert syncs == ["2026-12-01T07:00Z pmc-sync pass 2026-12-01: success"]
+    assert status(root)["last_pmc_sync_build"] == "b2"
+
+
+def test_the_pmc_sync_logs_and_records_the_papers_it_moved_and_turned_away(
+    tmp_path: Path, sbatch: Sbatch, rclone: Rclone
+) -> None:
+    unknown = ("GSE2", "DOI:10.1000/unknown", "SOFT Series_citation")
+    store = fixture_build(tmp_path / "store", [("GSE1", f"PMID:{PMID}", "SOFT"), unknown])
+    root = tmp_path / "papers"
+    init_paper_store(root, store, copy_to=DEST)
+    lines = serve(root, Clock(utc("2026-11-03 07:00")), until=utc("2026-11-03 07:10"))
+
+    progress = [line for line in lines if line.startswith("looked up ")]
+    assert progress[-1].endswith("0 failed, 0 re-keyed, 1 DOIs turned away")
+    summary = [line for line in lines if line.startswith("2026-11-03T07:00Z pmc-sync pass")]
+    assert summary[0].endswith("0 failed, 0 re-keyed, 1 DOIs turned away")
+    assert summary[1].endswith(": success")
+    last = status(root)["last_pass"]
+    assert (last["kind"], last["rekeyed"], last["turned_away"]) == ("pmc-sync", 0, 1)
 
 
 def test_a_failed_successor_submission_is_logged_and_the_job_goes_on(

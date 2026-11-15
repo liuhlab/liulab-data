@@ -1,18 +1,19 @@
 """The PMC sync: linked papers enter the store with IDs, details and status; PMC files follow.
 
 Papers in scope are the PMIDs and DOIs that target GEO Series and held BioProjects link in
-the GEO/SRA store's current build; a DOI counts only for a record that links no PMID. A paper
-is looked up at most once a month: its PMCID (if it has none), its PubMed details and, while
-it is not fetched, its OpenAlex work. A paper no build links any more keeps its rows.
+the GEO/SRA store's current build; a DOI counts only for a record that links no PMID. Only
+papers enter: a placeholder PMID never does, and a DOI only once OpenAlex finds an article
+for it. A paper is looked up at most once a month: its PMCID (if it has none), its PubMed
+details and, while it is not fetched, its OpenAlex work. A paper no build links any more
+keeps its rows, and so does one the store holds any file for.
 """
 
 from __future__ import annotations
 
 import datetime as dt
 import time
-import urllib.parse
 from collections import Counter
-from collections.abc import Callable, Collection, Iterable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -23,19 +24,15 @@ from labdata._http import HttpTransport, Transport
 from labdata.exceptions import LabdataError
 from labdata.ncbi.entrez import EntrezClient
 from labdata.papers import pmc
-from labdata.papers.openalex import ARTICLE_TYPES, OpenAlex, Work
+from labdata.papers.openalex import OpenAlex, Work
 from labdata.papers.pubmed import Details, details, pmc_ids
-from labdata.papers.root import PaperStore, paper_dir, paper_key, paper_lock
+from labdata.papers.root import PaperStore, is_placeholder, paper_dir, paper_key, paper_lock
 from labdata.papers.status import read_status, write_status
 from labdata.papers.tables import PaperTables
 from labdata.store.gaps import build_targets
 from labdata.store.layout import HOLDINGS, LINKS_BY_TO, sql_string
-from labdata.store.reader import current_path
-from labdata.store.sources import BIOPROJECT_XML
+from labdata.store.reader import current_build, current_path
 from labdata.store.targets import check_fraction, in_sample
-
-#: PMIDs below this, linked only from BioProject XML, are placeholders.
-PLACEHOLDER_BELOW = 100_000
 
 #: The PubMed publication type of a retracted paper.
 RETRACTED_TYPE = "Retracted Publication"
@@ -46,19 +43,33 @@ EMBARGO_DAYS = 365
 #: Papers looked up between two saves of the tables.
 CHUNK = 1000
 
+#: The reasons a row for a non-paper may carry; the sync removes such rows.
+_NOT_PAPERS = ("placeholder", "not-article")
+
 _RECORD_TYPES = ("GEO Series", "BioProject")
 
 
 @dataclass
 class SyncReport:
-    """What one PMC sync did: papers added and looked up, lookups that failed, bucket replies."""
+    """What one PMC sync did: papers added and looked up, lookups that failed, bucket replies.
+
+    ``turned_away`` counts the DOIs OpenAlex found no article for.
+    """
 
     added: int = 0
     looked_up: int = 0
     failed: int = 0
     rekeyed: int = 0
+    turned_away: int = 0
     counts: dict[str, dict[str, int]] = field(default_factory=dict)
     bucket: pmc.Replies = field(default_factory=lambda: pmc.Replies({}, {}))
+
+    def summary(self) -> str:
+        """Return the counts of papers in one line, as the CLI and the job log print them."""
+        return (
+            f"{self.added} added, {self.looked_up} looked up, {self.failed} failed, "
+            f"{self.rekeyed} re-keyed, {self.turned_away} DOIs turned away"
+        )
 
 
 def linked_papers(build: Path, target_series: Collection[str]) -> dict[str, set[str]]:
@@ -104,40 +115,27 @@ def linked_papers(build: Path, target_series: Collection[str]) -> dict[str, set[
 def store_links(store: PaperStore, state: PaperTables) -> dict[str, set[str]]:
     """Return :func:`linked_papers` of the paper store's current GEO/SRA build.
 
-    A DOI link to a paper the store keys by its PMID counts for that paper.
+    A DOI link to a paper the store keys by its PMID, or lists among a paper's
+    ``other_dois``, counts for that paper.
     """
     geo = store.store.root
     build = current_path(geo)
     linked = linked_papers(build, build_targets(geo, build))
     by_doi = {r["doi"]: k for k, r in state.papers.items() if r.get("doi") and k.isdigit()}
+    by_doi |= {d: k for k, r in state.papers.items() for d in r.get("other_dois") or ()}
     out: dict[str, set[str]] = {}
     for key, sources in linked.items():
         out.setdefault(by_doi.get(key, key), set()).update(sources)
     return out
 
 
-def is_placeholder(key: str, sources: Iterable[str]) -> bool:
-    """Return whether a linked PMID is a placeholder: small, and only BioProject XML gives it."""
-    return key.isdigit() and int(key) < PLACEHOLDER_BELOW and set(sources) <= {BIOPROJECT_XML}
-
-
-def status_of(
-    row: dict[str, Any], *, held: bool, placeholder: bool, today: dt.date
-) -> tuple[str, str | None]:
+def status_of(row: dict[str, Any], *, held: bool, today: dt.date) -> tuple[str, str | None]:
     """Return a paper's status and reason from its ``papers`` row and whether files are held.
 
     A ``manual`` paper whose reason is a failure a tier recorded keeps it until fetched.
     """
-    if placeholder:
-        return "skipped", "placeholder"
     if row.get("retracted"):
         return "skipped", "retracted"
-    if (
-        not row["paper"].isdigit()
-        and row.get("work_type")
-        and row["work_type"] not in ARTICLE_TYPES
-    ):
-        return "skipped", "not-article"
     if held:
         return "fetched", None
     if row.get("status") == "manual" and row.get("reason") not in (None, "no-route"):
@@ -183,7 +181,8 @@ def pmc_sync(
         Sends the PMC bucket's requests; kept-open connections by default.
     sample : float or None
         Take only this seeded share of the linked papers, for a trial; ``None`` takes all.
-        Only a sync over all papers sets the date of the last successful PMC sync.
+        Only a sync over all papers records its date and the build it read as the last
+        successful PMC sync.
     log : callable
         Takes one progress line.
 
@@ -196,6 +195,8 @@ def pmc_sync(
     root = store.root
     with paper_lock(root):
         start = _now()
+        # Read before the sync: a build that becomes current during it makes the next one due.
+        build = current_build(store.store.root)
 
         def last_pass(end: str | None, outcome: str) -> dict[str, Any]:
             return {
@@ -206,9 +207,11 @@ def pmc_sync(
                 "sample": sample,
             }
 
-        def with_bucket(record: dict[str, Any]) -> dict[str, Any]:
+        def with_report(record: dict[str, Any]) -> dict[str, Any]:
             return {
                 **record,
+                "rekeyed": report.rekeyed,
+                "turned_away": report.turned_away,
                 "bucket_retries": report.bucket.retries,
                 "bucket_throttled": report.bucket.throttled,
             }
@@ -218,18 +221,19 @@ def pmc_sync(
         try:
             _sync(store, client, openalex, today, transport, sample, log, report)
         except BaseException:
-            _record(root, with_bucket(last_pass(_now(), "failed")))
+            _record(root, with_report(last_pass(_now(), "failed")))
             raise
         status = read_status(root)
         write_status(
             root,
             replace(
                 status,
-                last_pass=with_bucket(last_pass(_now(), "success")),
+                last_pass=with_report(last_pass(_now(), "success")),
                 # A sampled sync is a backfill round, never the month's sync.
                 last_pmc_sync_success=(
                     today.isoformat() if sample is None else status.last_pmc_sync_success
                 ),
+                last_pmc_sync_build=build if sample is None else status.last_pmc_sync_build,
                 counts=report.counts,
             ),
         )
@@ -248,27 +252,35 @@ def _sync(
 ) -> None:
     root = store.root
     state = PaperTables.load(root)
+    _drop(
+        state,
+        {
+            k
+            for k, r in state.papers.items()
+            if r.get("status") == "skipped" and r.get("reason") in _NOT_PAPERS
+        },
+    )
     linked = store_links(store, state)
     if sample is not None:
         linked = {k: v for k, v in linked.items() if in_sample(k, sample)}
+    placeholders = {k for k, sources in linked.items() if is_placeholder(k, sources)}
+    linked = {k: v for k, v in linked.items() if k not in placeholders}
+    # A DOI enters only once OpenAlex finds an article for it.
     for key in linked:
-        if key not in state.papers:
+        if key.isdigit() and key not in state.papers:
             state.papers[key] = _new_row(key, today)
             report.added += 1
-    placeholders = {k for k, sources in linked.items() if is_placeholder(k, sources)}
     month = (today.year, today.month)
     todo = [
         k
         for k in linked
-        if k not in placeholders
-        and (
-            state.papers[k].get("looked_up") is None
-            or (state.papers[k]["looked_up"].year, state.papers[k]["looked_up"].month) != month
-        )
+        if k not in state.papers
+        or state.papers[k].get("looked_up") is None
+        or (state.papers[k]["looked_up"].year, state.papers[k]["looked_up"].month) != month
     ]
     log(
         f"{len(linked)} linked papers, {report.added} new, {len(todo)} to look up, "
-        f"{len(placeholders)} placeholders"
+        f"{len(placeholders)} placeholders left out"
     )
     clock = time.monotonic()
     for i in range(0, len(todo), CHUNK):
@@ -279,11 +291,13 @@ def _sync(
         state.save(root)
         log(
             f"looked up {min(i + CHUNK, len(todo))}/{len(todo)} papers "
-            f"in {time.monotonic() - clock:.0f} s; {report.failed} failed"
+            f"in {time.monotonic() - clock:.0f} s; {report.failed} failed, "
+            f"{report.rekeyed} re-keyed, {report.turned_away} DOIs turned away"
         )
+    linked = {k: v for k, v in linked.items() if k in state.papers}
     report.bucket = pmc.fetch(
         state,
-        [k for k in linked if k not in placeholders],
+        list(linked),
         root=root,
         transport=transport or HttpTransport(),
         today=today,
@@ -293,9 +307,7 @@ def _sync(
     held = state.held()
     for key in linked:
         row = state.papers[key]
-        row["status"], row["reason"] = status_of(
-            row, held=key in held, placeholder=key in placeholders, today=today
-        )
+        row["status"], row["reason"] = status_of(row, held=key in held, today=today)
     state.save(root)
     counts: dict[str, Counter[str]] = {}
     for row in state.papers.values():
@@ -318,8 +330,12 @@ def _look_up(
     log: Callable[[str], None],
     root: Path,
 ) -> dict[str, str]:
-    """Look one chunk of papers up, changing ``state``; return the DOI papers re-keyed."""
+    """Look one chunk of papers up, changing ``state``; return the DOI papers re-keyed.
+
+    A DOI OpenAlex finds no article for leaves no row, unless the store holds a file of it.
+    """
     failed: set[str] = set()
+    away: set[str] = set()
     rekeyed: dict[str, str] = {}
     dois = [k for k in chunk if not k.isdigit()]
     if dois:
@@ -329,21 +345,36 @@ def _look_up(
             log(f"OpenAlex DOI lookup failed: {err}")
             failed.update(dois)
             works = {}
+        filed = {f["paper"] for f in state.files}
         for doi in dois:
             if doi in failed:
                 continue
             work = works.get(doi)
+            if work is None or not work.is_article:
+                if doi in filed and doi in state.papers:
+                    _set_work(state.papers[doi], work)
+                else:
+                    away.add(doi)
+                continue
+            # OpenAlex may answer with another work, such as the journal version it merged a
+            # preprint into: the paper is that work, under its PMID, else its DOI.
+            key = work.pmid or work.doi or doi
+            if doi not in state.papers:
+                if key not in state.papers:
+                    report.added += 1
+                state.papers[doi] = _new_row(doi, today)
             row = state.papers[doi]
             _set_work(row, work)
-            if work is not None:
-                row["published"] = work.published
-                state.info[doi] = _work_info(doi, work)
-                if work.pmid and work.doi == doi and work.is_article:
-                    new = _rekey(state, root, doi, work.pmid)
-                    rekeyed[doi] = new
-                    report.rekeyed += 1
-    pmids = [rekeyed.get(k, k) for k in chunk if k.isdigit() or k in rekeyed]
-    pmids = list(dict.fromkeys(pmids))
+            row["published"] = work.published
+            if key != doi:
+                _rekey(state, root, doi, key, work.doi or doi)
+                rekeyed[doi] = key
+                report.rekeyed += 1
+            if not key.isdigit():
+                _set_work(state.papers[key], work)
+                state.papers[key]["published"] = work.published
+                state.info[key] = _work_info(key, work)
+    pmids = list(dict.fromkeys(key for k in chunk if (key := rekeyed.get(k, k)).isdigit()))
     if pmids:
         ids: dict[str, tuple[str | None, str | None]] = {}
         try:
@@ -386,9 +417,12 @@ def _look_up(
                 state.info[key] = _pubmed_info(key, row, info)
                 if RETRACTED_TYPE in info.publication_type:
                     row["retracted"] = True
+    _drop(state, away)
     for key in (rekeyed.get(k, k) for k in chunk):
         if key in failed:
             report.failed += 1
+        elif key in away:
+            report.turned_away += 1
         else:
             state.papers[key]["looked_up"] = today
             report.looked_up += 1
@@ -432,32 +466,34 @@ def _work_info(key: str, work: Work) -> dict[str, Any]:
     }
 
 
-def _rekey(state: PaperTables, root: Path, doi: str, pmid: str) -> str:
-    """Move a DOI-only paper to its PMID: rows re-keyed, files renamed, nothing fetched again.
+def _rekey(state: PaperTables, root: Path, doi: str, key: str, own_doi: str) -> None:
+    """Move a DOI paper to ``key``, the PMID or DOI of the paper it is, whose DOI is ``own_doi``.
 
-    When the store already holds the PMID's paper, the DOI paper's files join it unless it
-    holds a file of the same kind and name.
+    Rows are re-keyed and files renamed; nothing is fetched again. ``doi`` joins the paper's
+    ``other_dois`` unless it is the paper's DOI. When the store already holds ``key``'s
+    paper, the DOI paper's files join it unless it holds a file of the same kind and name.
     """
     old_row = state.papers.pop(doi)
     state.info.pop(doi, None)
-    if pmid not in state.papers:
-        state.papers[pmid] = {**old_row, "paper": pmid, "pmid": int(pmid), "doi": doi}
-    else:
-        target = state.papers[pmid]
-        target["doi"] = target.get("doi") or doi
-        for tier in ("xml_tier", "pdf_tier"):
-            target[tier] = target.get(tier) or old_row.get(tier)
-    old_dir, new_dir = paper_dir(doi), paper_dir(pmid)
-    old_prefix = urllib.parse.quote(doi, safe="")
-    taken = {(f["kind"], f["name"]) for f in state.files if f["paper"] == pmid}
+    if key not in state.papers:
+        pmid = int(key) if key.isdigit() else None
+        state.papers[key] = {**old_row, "paper": key, "pmid": pmid, "doi": own_doi}
+    target = state.papers[key]
+    target["doi"] = target.get("doi") or own_doi
+    for tier in ("xml_tier", "pdf_tier"):
+        target[tier] = target.get(tier) or old_row.get(tier)
+    others = {*(target.get("other_dois") or ()), *(old_row.get("other_dois") or ()), doi}
+    target["other_dois"] = sorted(others - {target["doi"]}) or None
+    old_dir, new_dir = paper_dir(doi), paper_dir(key)
+    taken = {(f["kind"], f["name"]) for f in state.files if f["paper"] == key}
     kept = []
     for f in state.files:
         if f["paper"] != doi:
             kept.append(f)
             continue
         name = f["name"]
-        if f["kind"] in ("xml", "pdf") and name.startswith(old_prefix):
-            name = pmid + name[len(old_prefix) :]
+        if f["kind"] in ("xml", "pdf") and name.startswith(old_dir.name):
+            name = new_dir.name + name[len(old_dir.name) :]
         if (f["kind"], name) in taken:
             continue
         path = f["path"]
@@ -467,13 +503,27 @@ def _rekey(state: PaperTables, root: Path, doi: str, pmid: str) -> str:
             (root / new_path).parent.mkdir(parents=True, exist_ok=True)
             (root / path).replace(root / new_path)
             path = new_path.as_posix()
-        kept.append({**f, "paper": pmid, "name": name, "path": path})
+        kept.append({**f, "paper": key, "name": name, "path": path})
     state.files[:] = kept
     for attempt in state.attempts:
         if attempt["paper"] == doi:
-            attempt["paper"] = pmid
+            attempt["paper"] = key
     _remove_empty(root / old_dir)
-    return pmid
+
+
+def _drop(state: PaperTables, keys: set[str]) -> None:
+    """Remove ``keys`` from every table, except a paper the ``files`` table lists.
+
+    Its files stay on disk, so its rows stay too: the GCS copy deletes a file its row left.
+    """
+    keys = keys - {f["paper"] for f in state.files}
+    if not keys:
+        return
+    for key in keys:
+        state.papers.pop(key, None)
+        state.info.pop(key, None)
+    state.files[:] = [f for f in state.files if f["paper"] not in keys]
+    state.attempts[:] = [a for a in state.attempts if a["paper"] not in keys]
 
 
 def _remove_empty(folder: Path) -> None:

@@ -33,6 +33,8 @@ from labdata.store.root import open_store
 
 #: The status record's file name in the store root.
 STATUS = "refresh-status.json"
+#: The status key keeping ``copy_pending`` as it stood when the refresh switched builds.
+AT_SWITCH = "copy_pending_at_switch"
 #: Outcomes the status record names.
 RUNNING, SUCCEEDED, FAILED = "running", "succeeded", "failed"
 #: The file in a refresh's folder each pack appends its per-bucket counts to.
@@ -233,10 +235,22 @@ def switched(root: Path) -> dict[str, Any]:
     status |= {
         "last_success": status["started"][:10],
         "counts": pack.read_counts(store.root / status["folder"] / PACK_COUNTS),
+        # Kept when a resumed refresh records its switch again.
+        AT_SWITCH: bool(status.get(AT_SWITCH, status.get("copy_pending"))),
         "copy_pending": bool(store.settings.get(gcs.COPY_TO_KEY)),
     }
     write_status(store.root, status)
     return status
+
+
+def bucket_matches_marker(root: Path) -> bool:
+    """Return whether the bucket held exactly the build its marker names, by the status record.
+
+    That is, the copy was not pending when the last refresh switched builds, or, with no switch
+    recorded, it is not pending now. False when the store has no status record.
+    """
+    status = read_status(root)
+    return bool(status) and not status.get(AT_SWITCH, status.get("copy_pending"))
 
 
 def note_copy(root: Path, *, pending: bool) -> None:

@@ -5,6 +5,10 @@ search:
 
 # GCS holds the paper store, so no copy deletes by mirroring
 
+Amended by [ADR 0012](0012-gcs-holds-the-store.md): a copy may always delete one path,
+`--accept-deletes` deletes past the bound by hand, and a full copy refuses on a disk without
+the whole store.
+
 This amends [ADR 0010](0010-paper-copy-sends-changes.md). GCS keeps the paper store for good.
 The cluster disk is a work area that will not be kept. So the bucket is the source of truth: a
 delete in it is only a change the store recorded, never the result of comparing the bucket with

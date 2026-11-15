@@ -211,10 +211,7 @@ def papers_pmc_sync(
     except LabdataError as err:
         typer.echo(str(err), err=True)
         raise typer.Exit(1) from err
-    typer.echo(
-        f"{report.added} added, {report.looked_up} looked up, {report.failed} failed, "
-        f"{report.rekeyed} re-keyed in {time.monotonic() - started:.0f} s"
-    )
+    typer.echo(f"{report.summary()} in {time.monotonic() - started:.0f} s")
     for status, reasons in sorted(report.counts.items()):
         each = ", ".join(f"{r or '-'}: {n}" for r, n in sorted(reasons.items()))
         typer.echo(f"{status}: {each}")
@@ -270,7 +267,14 @@ def papers_copy(
     full: bool = typer.Option(
         False,
         "--full",
-        help="Upload every file, listing both sides, and delete nothing: a first copy or a repair.",
+        help="Upload every file, listing both sides, and delete nothing: a first copy or a "
+        "repair. Refused on a disk that lacks many of the files the bucket holds.",
+    ),
+    accept_deletes: int = typer.Option(
+        0,
+        "--accept-deletes",
+        min=0,
+        help="Delete up to this many files that left the files table on purpose.",
     ),
 ) -> None:
     """Send the paper store's changes since the last successful copy to a bucket with rclone.
@@ -278,7 +282,8 @@ def papers_copy(
     Lists neither the paper folders nor the bucket. With no copy record, on the disk or in the
     bucket, it does nothing and asks for --full. It refuses, exiting 1, when the
     files table is missing or empty, or when it would delete more than a small share of the
-    copied files.
+    copied files and more than --accept-deletes; with --full, when the disk lacks more than
+    that share of the files the bucket's copy record lists.
     Leaves out paper-status.json and hidden files. When rclone's Google login has expired, it
     sets copy_pending in paper-status.json and exits 0; rerun after `rclone config reconnect`.
     Holds the paper store's lock.
@@ -287,7 +292,7 @@ def papers_copy(
     from labdata.papers.copy import copy
 
     try:
-        result = copy(open_paper_store(root), to, full=full)
+        result = copy(open_paper_store(root), to, full=full, accept_deletes=accept_deletes)
     except LabdataError as err:
         typer.echo(str(err), err=True)
         raise typer.Exit(1) from err
@@ -308,7 +313,7 @@ def papers_serve(
         None, help="Stop at this UTC time, YYYY-MM-DDTHH:MM; default: run until stopped."
     ),
 ) -> None:
-    """Run the paper job: the daily pass after 00:30 UTC, the PMC sync on the 3rd.
+    """Run the paper job: daily pass after 00:30 UTC, PMC sync on the 3rd and on a new build.
 
     Each pass reads the OpenAlex accounts afresh, so saved accounts count from the next pass.
     Runs only what paper-status.json shows is due, one pass at a time, each followed by the
@@ -538,23 +543,44 @@ def store_copy(
     to: str | None = typer.Option(
         None, help="rclone destination <remote>:<bucket>/<path>; default: copy_to in the marker."
     ),
+    full: bool = typer.Option(
+        False,
+        "--full",
+        help="Upload the whole current state and delete nothing; for a first copy or a repair.",
+    ),
+    accept_deletes: int = typer.Option(
+        0,
+        "--accept-deletes",
+        min=0,
+        help="Delete up to this many raw files the current build no longer reads, on purpose.",
+    ),
 ) -> None:
-    """Copy the marker, current snapshots, raw/ and current build to a bucket with rclone.
+    """Send the store's changes since the last copy to a bucket with rclone.
 
-    Refused unless the current build is complete. When rclone's Google login has expired,
-    it skips with a message and exits 0; rerun after `rclone config reconnect`. The status
-    record marks the copy pending until one succeeds.
+    It sends the current build and the raw files and snapshots it read, and deletes in the
+    bucket, by name, the files the last copy sent that the current build no longer reads. It
+    refuses, exiting 1, unless the current build is complete, or when it would delete more
+    than a small share of the copied raw files and more than --accept-deletes. With no copy
+    record, on the disk or in the bucket, it seeds one from the build the bucket's marker
+    names when the status record shows the bucket holds that build; otherwise, or when
+    rclone's Google login has expired, it skips with a message and exits 0. The status record
+    marks the copy pending until one succeeds.
     """
     from labdata.store import refresh
     from labdata.store.gcs import copy
 
     where = root if root is not None else open_store().root
     try:
-        result = copy(where, to)
+        result = copy(
+            where,
+            to,
+            full=full,
+            accept_deletes=accept_deletes,
+            bucket_matches_marker=refresh.bucket_matches_marker(where),
+        )
     except LabdataError as err:
         typer.echo(str(err), err=True)
         raise typer.Exit(1) from err
-    refresh.note_copy(where, pending=result.skipped)
     typer.echo(result.message if result.skipped else f"Copied the store to {result.destination}")
 
 

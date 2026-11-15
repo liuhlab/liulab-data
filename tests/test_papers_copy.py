@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -98,9 +99,12 @@ def drop(root: Path, path: str) -> None:
     tables.write(root, tables.FILES, rows)
 
 
-def full(root: Path) -> None:
+def full(root: Path, rclone: Rclone) -> None:
+    """Run a full copy, then forget its rclone commands."""
     result = CliRunner().invoke(app, ["papers", "copy", "--root", str(root), "--full"])
     assert result.exit_code == 0, result.output
+    rclone.calls.clear()
+    rclone.lists.clear()
 
 
 def status(root: Path) -> dict:
@@ -112,13 +116,16 @@ def test_full_uploads_every_file_then_the_record_and_deletes_nothing(
 ) -> None:
     path = hold(root, "1", "pdf", "host")
 
-    full(root)
+    copy(open_paper_store(root), full=True)
 
     up = ["rclone", "copy", str(root), DEST]
     hidden = ["--filter=- .*", "--filter=- .*/**", "--filter=- /paper-status.json"]
     progress = ["--stats=1m", "--stats-one-line", "--stats-log-level=NOTICE"]
-    assert rclone.commands() == ["lsjson", "copy", "copy", "copyto"]
-    probe, files, top, record = rclone.calls
+    assert rclone.commands() == ["copy", "lsjson", "copy", "copy", "copyto"]
+    fetch, probe, files, top, record = rclone.calls
+    # It first looks for the bucket's copy record, to check the disk against it.
+    assert fetch[:4] == ["rclone", "copy", DEST, str(root)]
+    assert rclone.lists == [[COPIED]]
     assert probe == ["rclone", "lsjson", DEST, "--max-depth", "1"]
     # The paper files first; the top level, tables and marker among it, after them.
     assert files == [*up, *hidden, "--filter=- /*", *progress]
@@ -130,12 +137,32 @@ def test_full_uploads_every_file_then_the_record_and_deletes_nothing(
     assert status(root)["last_copy_success"]
 
 
+def test_a_full_copy_from_a_disk_without_the_whole_store_uploads_nothing(
+    root: Path, rclone: Rclone
+) -> None:
+    paths = [hold(root, str(paper), "pdf", "host") for paper in range(1, 21)]
+    full(root, rclone)
+    # A disk that was not restored: it lacks files the bucket holds, and the copy record.
+    drop(root, paths[0])
+    drop(root, paths[1])
+    (root / COPIED).unlink()
+
+    result = CliRunner().invoke(app, ["papers", "copy", "--root", str(root), "--full"])
+
+    assert result.exit_code == 1
+    assert "Restore the store from the bucket first" in result.output
+    # It only fetched the bucket's copy record, which stays as it was.
+    assert rclone.commands() == ["copy"]
+    assert rclone.lists == [[COPIED]]
+    assert rclone.record() == sorted(paths)
+    assert status(root)["copy_pending"] is True
+
+
 def test_a_routine_copy_sends_only_the_new_rows_and_lists_no_paper_folder(
     root: Path, rclone: Rclone
 ) -> None:
     hold(root, "1", "pdf", "openalex")
-    full(root)
-    rclone.calls.clear()
+    full(root, rclone)
     new = hold(root, "2", "pdf", "host")
 
     copy(open_paper_store(root))
@@ -158,8 +185,7 @@ def test_a_pdf_pmc_replaced_is_deleted_in_the_bucket_by_the_next_copy(
     for paper in range(2, 21):
         hold(root, str(paper), "pdf", "host")
     pdf = hold(root, "1", "pdf", "openalex")
-    full(root)
-    rclone.calls.clear()
+    full(root, rclone)
     xml = hold(root, "1", "xml", "pmc", b"<article/>")
     drop(root, pdf)
 
@@ -182,8 +208,7 @@ def test_a_copy_that_would_delete_more_than_one_file_in_20_copies_nothing_and_sa
     root: Path, rclone: Rclone
 ) -> None:
     paths = [hold(root, str(paper), "pdf", "host") for paper in range(1, 21)]
-    full(root)
-    rclone.calls.clear()
+    full(root, rclone)
     drop(root, paths[0])
     drop(root, paths[1])
 
@@ -195,11 +220,52 @@ def test_a_copy_that_would_delete_more_than_one_file_in_20_copies_nothing_and_sa
     assert status(root)["copy_pending"] is True
 
 
+def test_files_moved_on_purpose_are_deleted_in_the_bucket_up_to_the_accepted_count(
+    root: Path, rclone: Rclone
+) -> None:
+    paths = [hold(root, str(paper), "pdf", "host") for paper in range(1, 21)]
+    full(root, rclone)
+    drop(root, paths[0])
+    drop(root, paths[1])
+    run = CliRunner().invoke
+
+    refused = run(app, ["papers", "copy", "--root", str(root)])
+    assert refused.exit_code == 1
+    assert "--accept-deletes 2" in refused.output
+    too_few = run(app, ["papers", "copy", "--root", str(root), "--accept-deletes", "1"])
+    assert too_few.exit_code == 1
+    assert rclone.lists == []
+
+    done = run(app, ["papers", "copy", "--root", str(root), "--accept-deletes", "2"])
+
+    assert done.exit_code == 0, done.output
+    assert rclone.lists == [paths[:2]]
+    assert rclone.record() == sorted(paths[2:])
+    assert status(root)["copy_pending"] is False
+    # A full copy deletes nothing, so it takes no accepted deletes.
+    with pytest.raises(PaperCopyError, match="--full"):
+        copy(open_paper_store(root), full=True, accept_deletes=2)
+
+
+def test_a_store_of_fewer_than_20_files_still_deletes_one_dropped_file(
+    root: Path, rclone: Rclone
+) -> None:
+    hold(root, "2", "pdf", "host")
+    pdf = hold(root, "1", "pdf", "openalex")
+    full(root, rclone)
+    drop(root, pdf)
+
+    copy(open_paper_store(root))
+
+    assert rclone.lists == [[pdf]]
+    assert rclone.record() == ["papers/2/2.pdf"]
+
+
 def test_a_copy_skipped_on_an_expired_login_sends_its_files_on_the_next_success(
     root: Path, rclone: Rclone
 ) -> None:
     hold(root, "0", "pdf", "host")
-    full(root)
+    full(root, rclone)
     first = hold(root, "1", "pdf", "openalex")
     rclone.returncode, rclone.stderr = 1, EXPIRED
     before = status(root)["last_copy_success"]
@@ -221,7 +287,7 @@ def test_a_copy_record_that_fails_to_go_up_leaves_the_disks_so_the_files_go_agai
     root: Path, rclone: Rclone
 ) -> None:
     hold(root, "0", "pdf", "host")
-    full(root)
+    full(root, rclone)
     new = hold(root, "1", "pdf", "host")
     rclone.expiring = "copyto"
 
@@ -240,7 +306,7 @@ def test_with_no_record_on_disk_a_copy_fetches_the_buckets_and_sends_only_change
     root: Path, rclone: Rclone
 ) -> None:
     hold(root, "1", "pdf", "host")
-    full(root)
+    full(root, rclone)
     (root / COPIED).unlink()
     rclone.calls.clear()
     new = hold(root, "2", "pdf", "host")
@@ -252,6 +318,25 @@ def test_with_no_record_on_disk_a_copy_fetches_the_buckets_and_sends_only_change
     assert fetch[:4] == ["rclone", "copy", DEST, str(root)]
     assert "--no-traverse" in fetch
     assert status(root)["copy_pending"] is False
+
+
+def test_a_work_disk_restored_from_the_bucket_sends_no_paper_file_and_deletes_nothing(
+    root: Path, rclone: Rclone, tmp_path: Path
+) -> None:
+    for paper in range(1, 4):
+        hold(root, str(paper), "pdf", "host")
+    full(root, rclone)
+    # The restore: what the bucket holds, its copy record among it, on a new disk.
+    restored = tmp_path / "restored"
+    shutil.copytree(root, restored, ignore=shutil.ignore_patterns(".*", "paper-status.json"))
+    (restored / COPIED).write_bytes(rclone.bucket[COPIED])
+    rclone.calls.clear()
+
+    copy(open_paper_store(restored))
+
+    assert rclone.lists == []
+    assert rclone.commands() == ["lsjson", "copy", "copyto"]
+    assert status(restored)["copy_pending"] is False
 
 
 def test_with_no_record_on_disk_or_in_the_bucket_a_copy_sends_nothing_and_asks_for_full(
@@ -271,7 +356,7 @@ def test_with_no_record_on_disk_or_in_the_bucket_a_copy_sends_nothing_and_asks_f
 
 def test_a_file_fetched_again_at_the_same_path_goes_up_again(root: Path, rclone: Rclone) -> None:
     path = hold(root, "1", "pdf", "host")
-    full(root)
+    full(root, rclone)
     hold(root, "1", "pdf", "host", b"%PDF-1.7 newer")
 
     copy(open_paper_store(root))
@@ -281,8 +366,7 @@ def test_a_file_fetched_again_at_the_same_path_goes_up_again(root: Path, rclone:
 
 def test_a_missing_files_table_never_deletes_the_bucket(root: Path, rclone: Rclone) -> None:
     hold(root, "1", "pdf", "host")
-    full(root)
-    rclone.calls.clear()
+    full(root, rclone)
     tables.FILES.path(root).unlink()
 
     with pytest.raises(PaperCopyError, match="is missing or empty"):
@@ -294,12 +378,21 @@ def test_a_missing_files_table_never_deletes_the_bucket(root: Path, rclone: Rclo
 @pytest.mark.parametrize("full_copy", [False, True], ids=["routine", "full"])
 def test_an_empty_files_table_copies_nothing(root: Path, rclone: Rclone, full_copy: bool) -> None:
     hold(root, "1", "pdf", "host")
-    full(root)
-    rclone.calls.clear()
+    full(root, rclone)
     tables.write(root, tables.FILES, [])
 
     # Its tables would replace the bucket's, and its copy record would drop every file.
     with pytest.raises(PaperCopyError, match="is missing or empty"):
         copy(open_paper_store(root), full=full_copy)
     assert rclone.calls == []
+    assert status(root)["copy_pending"] is True
+
+
+def test_any_failure_past_the_destination_sets_copy_pending(root: Path, rclone: Rclone) -> None:
+    hold(root, "1", "pdf", "host")
+    full(root, rclone)
+    (root / COPIED).write_bytes(b"not parquet")
+
+    with pytest.raises(pa.ArrowInvalid):
+        copy(open_paper_store(root))
     assert status(root)["copy_pending"] is True

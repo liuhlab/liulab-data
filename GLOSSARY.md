@@ -115,8 +115,8 @@ _Avoid_: refresh (one step of a monthly maintenance run, not the whole of it)
 
 ### Maintenance log
 
-The file in the repository with one entry per maintenance run: its date, period, build, each
-check's outcome and its time against budget.
+The file in the repository with one entry per maintenance run: its date, period, build, the
+commit it ran, each check's outcome and its time against budget.
 
 _Avoid_: status record (the refresh's own file in the store root)
 
@@ -151,13 +151,23 @@ _Avoid_: paper cache
 ### Paper
 
 A publication linked to a Series or BioProject, preprints included, identified by its PMID, or by
-its DOI when it has no PMID. A paper that later gets a PMID is the same paper under its PMID.
+its DOI when it has no PMID. A paper that later gets a PMID is the same paper under its PMID. A
+preprint a record links alone is its published version, once that is known. A DOI that names
+anything other than one article, such as a dataset, a thesis, a conference abstract or a peer
+review, is not a paper, nor is a placeholder PMID that only BioProject records give. The paper
+store holds nothing for them.
+
+### DOI-only paper
+
+A paper the store knows by its DOI alone, because no PMID is known for it. It comes in through a
+DOI that a Series or BioProject links when that record links no PMID. Once a PMID is found, it is
+the same paper under its PMID and is no longer DOI-only.
 
 ### Paper status
 
 Where a paper stands in the paper store: fetched (the store holds its XML or PDF), waiting (a tier
-will serve it later), manual (only a save in Paperpile can serve it) or skipped (not a real
-paper). A paper that is not fetched is missing.
+will serve it later), manual (only a save in Paperpile can serve it) or skipped (retracted, so
+nothing more is fetched). A paper that is not fetched is missing.
 
 _Avoid_: paper state
 
@@ -171,7 +181,8 @@ later tier gave.
 ### Paper job
 
 The one long-running job that keeps the paper store current. It runs the daily pass every day and
-the PMC sync every month, one at a time, and never runs inside a refresh.
+the PMC sync every month and after each new build, one at a time, and never runs inside a
+refresh.
 
 _Avoid_: paper refresh (a refresh is the GEO/SRA store's pass)
 
@@ -182,9 +193,9 @@ links and the Paperpile folder. It ends by rewriting the manual queue.
 
 ### PMC sync
 
-The paper job's monthly run against the PMC bucket: it adds papers newly linked by the current
-build, renews changed PMC files and paper details, and releases papers whose PMC wait has ended.
-The first PMC sync is the backfill.
+The paper job's monthly run against the PMC bucket, which a new build also starts: it adds
+papers newly linked by the current build, renews changed PMC files and paper details, and
+releases papers whose PMC wait has ended. The first PMC sync is the backfill.
 
 _Avoid_: PMC refresh
 
@@ -194,8 +205,9 @@ The papers in manual status, newest first, handed to the maintainer to save in P
 
 ### Copy record
 
-`.copied-files.parquet`, at the paper store root and at the same path in its GCS copy: the
-`files` rows the bucket holds, as the last successful copy left them. A routine copy sends the
-difference between the `files` table and it, then sends it last.
+A store's list of what its GCS copy holds, as the last successful copy left it, kept in the
+store and in the bucket. A routine copy compares it with what the store holds now, so it sends
+only the changes and deletes in the bucket only what left the store, never what the work disk
+lacks.
 
 _Avoid_: record (alone), which reads as a store record or the status record

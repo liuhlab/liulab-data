@@ -5,11 +5,13 @@ table with the copy record, :data:`COPIED`, the paths, MD5s, sizes and fetch dat
 successful copy sent: a new or changed row is uploaded by name, a path gone from the table is
 deleted in the bucket, and the small top-level files go up every time. The copy record goes up
 last; a work disk without it fetches the bucket's. With neither, a routine copy is skipped and
-asks for ``labdata papers copy --full``, which uploads every file.
+asks for ``labdata papers copy --full``, which uploads every file. A full copy fetches the
+bucket's copy record first, and refuses when the disk's table lacks more of its paths than a
+routine copy deletes: the disk does not hold the whole store.
 
 No copy deletes by comparing the bucket with the disk. A copy refuses, sending nothing, when the
-``files`` table is missing or empty, or when it would delete more than :data:`MAX_DELETE_SHARE`
-of the copied paths.
+``files`` table is missing or empty, or when it would delete more of the copied paths than
+:func:`labdata._rclone.delete_limit` allows, unless the deletes are accepted by hand.
 
 Hidden files stay behind, :data:`COPIED` aside: the lock, the daily pass's journal and every
 temp file; so does ``paper-status.json``, which the copy itself updates. A skipped or refused
@@ -19,11 +21,7 @@ copy sets ``copy_pending``; a later success clears it.
 from __future__ import annotations
 
 import datetime as dt
-import os
 import subprocess
-import tempfile
-from collections.abc import Iterator
-from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -44,10 +42,6 @@ COPY_TO_KEY = "copy_to"
 #: them, each held path with its MD5, size and fetch date. Kept here on the disk and in the
 #: bucket.
 COPIED = ".copied-files.parquet"
-
-#: The largest share of :data:`COPIED`'s paths one copy deletes in the bucket; past it the
-#: copy refuses.
-MAX_DELETE_SHARE = 0.05
 
 #: Left out of the copy: hidden files and folders, and the status record, which the copy
 #: itself changes.
@@ -78,7 +72,9 @@ def destination(store: PaperStore) -> str:
     return str(store.settings.get(COPY_TO_KEY) or "")
 
 
-def copy(store: PaperStore, to: str | None = None, *, full: bool = False) -> CopyResult:
+def copy(
+    store: PaperStore, to: str | None = None, *, full: bool = False, accept_deletes: int = 0
+) -> CopyResult:
     """Send the paper store's changes since the last successful copy to ``to``.
 
     Holds the paper store's lock, so a copy never runs beside a pass.
@@ -92,6 +88,9 @@ def copy(store: PaperStore, to: str | None = None, *, full: bool = False) -> Cop
     full : bool
         Upload every file instead, and delete nothing. It lists every file on both sides; for
         a first copy or a repair.
+    accept_deletes : int
+        Delete up to this many paths that left the ``files`` table, even past the usual
+        bound: for files moved or removed on purpose.
 
     Returns
     -------
@@ -102,9 +101,10 @@ def copy(store: PaperStore, to: str | None = None, *, full: bool = False) -> Cop
     Raises
     ------
     PaperCopyError
-        If no destination is set; if the ``files`` table is missing or empty, or more than
-        :data:`MAX_DELETE_SHARE` of the copied paths left it; or if rclone fails for another
-        reason. Past the destination check, ``copy_pending`` is then set.
+        If no destination is set; if ``full`` comes with ``accept_deletes``; if the ``files``
+        table is missing or empty, or more of the copied paths left it than this copy deletes;
+        or if rclone fails for another reason. Any failure past the first two checks sets
+        ``copy_pending``.
     """
     root = store.root
     dest = to or destination(store)
@@ -113,18 +113,20 @@ def copy(store: PaperStore, to: str | None = None, *, full: bool = False) -> Cop
             f"no destination: pass --to <remote>:<bucket>/<path> or set "
             f"{COPY_TO_KEY} in {root / MARKER}"
         )
+    if full and accept_deletes:
+        raise PaperCopyError("--full deletes nothing, so it takes no --accept-deletes")
     with paper_lock(root):
         start = dt.datetime.now(dt.UTC)
         try:
-            skipped = _send(root, dest, full=full)
-        except PaperCopyError:
-            _pending(root, True)
-            raise
+            skipped = _send(root, dest, full=full, accept_deletes=accept_deletes)
         except OSError as err:
             _pending(root, True)
             raise PaperCopyError(
                 f"cannot run rclone: {err}; run inside the pixi environment"
             ) from err
+        except BaseException:
+            _pending(root, True)
+            raise
         if skipped:
             _pending(root, True)
             return CopyResult(dest, skipped=True, message=skipped)
@@ -133,25 +135,26 @@ def copy(store: PaperStore, to: str | None = None, *, full: bool = False) -> Cop
     return CopyResult(dest)
 
 
-def _send(root: Path, dest: str, *, full: bool) -> str | None:
+def _send(root: Path, dest: str, *, full: bool, accept_deletes: int) -> str | None:
     """Copy the store to ``dest``; return why the copy was skipped, or None when it is done."""
     expired = _rclone.expired_message(dest, "paper store", "labdata papers copy")
     held = _held(root)
-    copied = None
-    if not full:
-        path = root / COPIED
-        fetch = ["copy", dest, str(root), "--no-traverse"]
-        if not path.is_file() and not _rclone_ok(root, fetch, [COPIED]):
-            return expired
-        if not path.is_file():
-            return (
-                "no copy record, on the disk or in the bucket, so the bucket is behind the "
-                "paper store. Run `labdata papers copy --full` once: it uploads "
-                "every file and deletes nothing. Later copies send changes."
-            )
-        copied = _signatures(path)
-        _check_deletes(root, held, copied)
-    if _changes(root, dest, held, copied) and _put_copied(root, dest, held):
+    path = root / COPIED
+    fetch = ["copy", dest, str(root), "--no-traverse"]
+    # The bucket's copy record is never older than the disk's: it goes up first.
+    if (full or not path.is_file()) and not _rclone.run_on_paths(
+        fetch, [COPIED], folder=root, run=_run_rclone, error=PaperCopyError
+    ):
+        return expired
+    if not full and not path.is_file():
+        return (
+            "no copy record, on the disk or in the bucket, so the bucket is behind the "
+            "paper store. Run `labdata papers copy --full` once: it uploads "
+            "every file and deletes nothing. Later copies send changes."
+        )
+    copied = _signatures(path)
+    _check_deletes(root, held, copied, accept_deletes, full=full)
+    if _changes(root, dest, held, None if full else copied) and _put_copied(root, dest, held):
         return None
     return expired
 
@@ -167,15 +170,24 @@ def _held(root: Path) -> _Held:
     return held
 
 
-def _check_deletes(root: Path, held: _Held, copied: _Held) -> None:
+def _check_deletes(root: Path, held: _Held, copied: _Held, accepted: int, *, full: bool) -> None:
     gone = len(copied.keys() - held.keys())
-    if gone > MAX_DELETE_SHARE * len(copied):
+    limit = _rclone.delete_limit(len(copied), accepted)
+    if gone > limit and full:
+        raise PaperCopyError(
+            f"{gone} of the {len(copied)} files the bucket's copy record lists are missing "
+            f"from {FILES.path(root)}, more than the {limit} a full copy allows, so nothing "
+            "was copied: this work disk does not hold the whole store, and a full copy would "
+            "replace the bucket's tables with its own. Restore the store from the bucket "
+            "first. If the files left the store on purpose, run the copy without --full."
+        )
+    if gone > limit:
         raise PaperCopyError(
             f"{gone} of the {len(copied)} files the last copy sent have left "
-            f"{FILES.path(root)}, more than the {MAX_DELETE_SHARE:.0%} one copy deletes, so "
-            "nothing was copied: the table may be damaged. If the files left the store on "
-            "purpose, `labdata papers copy --full` sends the store and deletes nothing; "
-            "those files then stay in the bucket."
+            f"{FILES.path(root)}, more than the {limit} this copy deletes, so nothing was "
+            "copied: the table may be damaged, or this work disk was not restored from the "
+            "bucket. If the files left the store on purpose, "
+            f"`labdata papers copy --accept-deletes {gone}` deletes them in the bucket."
         )
 
 
@@ -192,8 +204,7 @@ def _changes(root: Path, dest: str, held: _Held, copied: _Held | None) -> bool:
     With no ``copied``, upload every file and delete none. Returns False when rclone's login
     has expired.
     """
-    probe = _run_rclone(["rclone", "lsjson", dest, "--max-depth", "1"])
-    if probe.returncode and _rclone.login_expired(probe.stderr):
+    if not _rclone.logged_in(dest, run=_run_rclone):
         return False
     steps: list[tuple[list[str], list[str]]] = []
     gone: list[str] = []
@@ -208,7 +219,12 @@ def _changes(root: Path, dest: str, held: _Held, copied: _Held | None) -> bool:
     steps.append((["copy", str(root), dest, "--max-depth=1", *_LEFT_OUT], []))
     if gone:
         steps.append((["delete", dest, "--no-traverse"], gone))
-    return all(_rclone_ok(root, [*args, *_rclone.PROGRESS], paths) for args, paths in steps)
+    return all(
+        _rclone.run_on_paths(
+            [*args, *_rclone.PROGRESS], paths, folder=root, run=_run_rclone, error=PaperCopyError
+        )
+        for args, paths in steps
+    )
 
 
 def _put_copied(root: Path, dest: str, held: _Held) -> bool:
@@ -221,41 +237,15 @@ def _put_copied(root: Path, dest: str, held: _Held) -> bool:
     tmp = temp_beside(path)
     try:
         pq.write_table(pa.Table.from_pylist(rows, schema=_SCHEMA), tmp, compression="zstd")
-        if not _rclone_ok(root, ["copyto", str(tmp), f"{dest.rstrip('/')}/{COPIED}"]):
+        to = f"{dest.rstrip('/')}/{COPIED}"
+        if not _rclone.run_on_paths(
+            ["copyto", str(tmp), to], [], folder=root, run=_run_rclone, error=PaperCopyError
+        ):
             return False
         tmp.replace(path)
     finally:
         tmp.unlink(missing_ok=True)
     return True
-
-
-def _rclone_ok(root: Path, args: list[str], paths: list[str] | None = None) -> bool:
-    """Run ``rclone <args>`` on ``paths`` only, if given; False when the login has expired.
-
-    Raises :class:`PaperCopyError` when rclone fails for another reason.
-    """
-    with _file_list(root, paths or []) as listed:
-        done = _run_rclone(["rclone", *args, *listed])
-    if done.returncode == 0:
-        return True
-    if _rclone.login_expired(done.stderr):
-        return False
-    raise PaperCopyError(f"rclone {args[0]} failed ({done.returncode}): {done.stderr}")
-
-
-@contextmanager
-def _file_list(root: Path, paths: list[str]) -> Iterator[list[str]]:
-    """Yield the rclone flag naming a hidden file that lists ``paths``; none for no paths."""
-    if not paths:
-        yield []
-        return
-    fd, name = tempfile.mkstemp(prefix=".copy-list.", dir=root)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.writelines(p + "\n" for p in paths)
-        yield [f"--files-from-raw={name}"]
-    finally:
-        Path(name).unlink(missing_ok=True)
 
 
 def _pending(root: Path, pending: bool) -> None:
