@@ -283,20 +283,20 @@ def test_the_client_counts_its_requests_by_host_and_status_and_the_bytes_read(
 
 
 def test_a_429_waits_for_retry_after_then_halves_the_rate(sleeps: list[float]) -> None:
-    client = _client(Reply(b"", 429, {"Retry-After": "7"}), Reply(_esearch("1")), rate=4.0)
+    client = _client(Reply(b"", 429, {"Retry-After": "7"}), Reply(_esearch("1")), rate=400.0)
     assert client.esearch(db="gds", term="x") == ["1"]
     assert 7.0 in sleeps
-    assert client._limiter.rate == 2.0
+    assert client._limiter.rate == 200.0
 
 
 def test_a_503_backs_off_with_jitter_and_halves_the_rate(
     sleeps: list[float], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(entrez_mod.random, "uniform", lambda lo, hi: lo)
-    client = _client(Reply(b"", 503), Reply(_esearch("1")), rate=4.0)
+    client = _client(Reply(b"", 503), Reply(_esearch("1")), rate=400.0)
     client.esearch(db="gds", term="x")
     assert sleeps == [0.5]  # half the first backoff step: the low end of the jitter
-    assert client._limiter.rate == 2.0
+    assert client._limiter.rate == 200.0
 
 
 def test_the_rate_never_exceeds_the_cap_under_concurrent_callers() -> None:
