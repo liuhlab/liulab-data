@@ -33,6 +33,7 @@ from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
 from labdata.store import geo_lane, init_store, open_store, pipeline, raw, refresh
 from labdata.store.fetch import soft_url
+from tests import _snakemake
 from tests.test_store_compare_builds import compare
 from tests.test_store_refresh_fetch import Ncbi, _Reply
 
@@ -146,9 +147,8 @@ def _built(root: Path, monkeypatch: pytest.MonkeyPatch, ncbi: Ncbi) -> Path:
 
 def _jobs(argv: list[str]) -> list[tuple[str, list[str], list[str], str]]:
     """Return the jobs Snakemake's dry run plans: rule, inputs, outputs and shell command."""
-    done = subprocess.run(
-        ["snakemake", *argv, "--dry-run"], capture_output=True, text=True, check=True
-    )
+    done = _snakemake.run([*argv, "--dry-run"])
+    done.check_returncode()
     jobs = []
     for block in done.stdout.split("\nrule ")[1:]:
         rule = block.split(":", 1)[0]
@@ -383,8 +383,6 @@ def built(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, _Geo]:
     return _built(tmp_path / "store", monkeypatch, ncbi), ncbi
 
 
-# A refresh run end to end starts a Snakemake process for its DAG, then builds.
-@pytest.mark.slow
 def test_a_refresh_adds_replaces_removes_and_switches_while_an_open_store_keeps_its_build(
     built: tuple[Path, _Geo], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -420,6 +418,7 @@ def test_a_refresh_adds_replaces_removes_and_switches_while_an_open_store_keeps_
     assert status["copy_pending"] is False
 
 
+# Builds two stores and refreshes three times: the slow lane, like the next test.
 @pytest.mark.slow
 def test_a_refresh_killed_after_pack_and_rerun_gives_the_uninterrupted_build(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -478,7 +477,6 @@ def test_a_second_refresh_asks_only_for_the_overlap_window(
     _same_build(first, _current(root))
 
 
-@pytest.mark.slow
 def test_an_expired_login_leaves_the_copy_pending_and_a_later_copy_clears_it(
     built: tuple[Path, _Geo], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -549,7 +547,6 @@ def test_an_accession_only_a_pending_removal_lists_is_fetched_again(
     assert set(_held(root, raw.GEO_SOFT)) == {KEPT}
 
 
-@pytest.mark.slow
 def test_a_refresh_removes_no_sra_record_ncbi_no_longer_serves(
     built: tuple[Path, _Geo], monkeypatch: pytest.MonkeyPatch
 ) -> None:

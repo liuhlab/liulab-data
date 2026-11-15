@@ -21,7 +21,7 @@ import pytest
 
 from labdata.store import extract
 from tests import _geodata as g
-from tests import _slices
+from tests import _slices, _snakemake
 from tests._fakes import FakeEntrezClient
 
 # Imported here, at collection, so a cold import is never inside a test's time limit.
@@ -96,17 +96,20 @@ def _prebuild() -> None:
 
 
 def pytest_collection_finish(session: pytest.Session) -> None:
-    """Build the slices before the first test, when a selected one copies them.
+    """Build the slices, and start the Snakemake server, when a selected test needs them.
 
     A shared fixture's setup counts toward the time limit of the first test that uses it.
     """
     if any("built_store" in getattr(item, "fixturenames", ()) for item in session.items):
         _prebuild()
+    if any(hasattr(getattr(item, "module", None), "_snakemake") for item in session.items):
+        _snakemake.start()
 
 
 def pytest_sessionfinish() -> None:
-    """Remove the prebuilt slices."""
+    """Remove the prebuilt slices and stop the Snakemake server."""
     _slices.remove_prebuilt()
+    _snakemake.stop()
 
 
 @pytest.fixture(scope="session")

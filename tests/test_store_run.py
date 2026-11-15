@@ -6,7 +6,6 @@ import gzip
 import json
 import re
 import shutil
-import subprocess
 from pathlib import Path
 
 import pyarrow.parquet as pq
@@ -17,6 +16,7 @@ from labdata import cli
 from labdata.cli import app
 from labdata.store import pipeline, targets
 from labdata.store.fetch import soft_url
+from tests import _snakemake
 from tests.test_store_geo_lane import Site, client, soft
 
 _DATA = Path(__file__).parent / "data" / "geo_slice"
@@ -102,12 +102,8 @@ def store(tmp_path: Path) -> Path:
 
 def _dry_run(argv: list[str]) -> dict[str, int]:
     """Return the jobs per rule Snakemake plans for ``argv``, without running one."""
-    done = subprocess.run(
-        ["snakemake", *argv, "--dry-run", "--quiet", "rules"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
+    done = _snakemake.run([*argv, "--dry-run", "--quiet", "rules"])
+    done.check_returncode()
     jobs = {}
     for line in done.stdout.splitlines():
         cells = line.split()
@@ -183,9 +179,8 @@ def test_steps_that_can_run_together_fit_in_the_jobs_memory(
 
     def fake(argv: list[str], *, verbose: bool) -> int:
         seen["resources"] = argv[argv.index("--resources") + 2]
-        done = subprocess.run(
-            ["snakemake", *argv, "--dry-run"], capture_output=True, text=True, check=True
-        )
+        done = _snakemake.run([*argv, "--dry-run"])
+        done.check_returncode()
         for block in done.stdout.split("\nrule ")[1:]:
             rule = block.split(":", 1)[0]
             if rule == "all":
