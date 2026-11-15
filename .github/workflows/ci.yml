@@ -1,74 +1,86 @@
-name: CI
+# The gate, run on the pull request rather than on the branch.
+#
+# ONE job, because GitHub bills every job rounded up to a whole minute: several short jobs bill
+# far more than one longer one, and on a private repo the minutes are shared by every repo the
+# account owns. Every step after the first gate step runs even when one before it failed, so
+# a run still reports every failure.
+#
+# Every step invokes `pixi run <task>` and never a command line. The step list lives in
+# `pyproject.toml` — `check-static` names it once — so adding a step is one more word
+# there and nothing here. Conformance rule `workflow-step-tasks` holds every workflow in
+# the repo to it, and what it checks is that the command came from the task table: a step
+# may pass arguments after `--`, and the rule prints them rather than forbidding them.
+# It reads the `run:` line only, so `env:`, `working-directory:`, `shell:` and a local
+# composite action can still make a step do something no `pixi run` does here. Keeping
+# CI and a laptop the same is a habit this file keeps, not a property anything proves.
+#
+# Not shipped, deliberately: a `claude.yml`, because on a public repo anyone who can
+# comment could spend the API budget; container and benchmark workflows, because nothing
+# here needs them.
+name: ci
 
 on:
-  push:
-    branches: [main]
+  # `pull_request` tests the MERGE commit — the code that will exist after the merge, not the
+  # branch tip — and it is the only event that produces a run for a pull request from a fork.
+  # Nothing runs on a push to `main`: it would test again what the pull request just tested.
+  # `workflow_dispatch` is for checking `main` by hand.
+  #
+  # `ready_for_review` is listed because a draft runs nothing (the job's `if:` below): open a
+  # pull request as a draft, pass the local gate, then mark it ready to run CI once.
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
 
+# Keyed on the workflow and the ref, so pushing again to a pull request cancels the run it
+# supersedes. A run started by hand is never cancelled.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
 jobs:
-  # ruff, pyright and conformance, all at once, all reported.
   check:
+    # Skipped on a draft, which bills nothing. A run by hand has no pull request, so it runs.
+    if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
     steps:
-      # A real checkout, not a source archive: `conformance` shells out to `git ls-files`.
-      - uses: actions/checkout@v7
-      - uses: prefix-dev/setup-pixi@v0.10.2
-        with:
-          environments: default
-          locked: true
-      # `check-static`, not `check`: pytest is the `test` job below, in its own environment.
-      - run: pixi run check-static
-
-  test:
-    name: test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: prefix-dev/setup-pixi@v0.10.2
-        with:
-          environments: test
-          locked: true
-      - name: pytest
-        run: pixi run -e test test
-
-  build:
-    name: build wheel + sdist
-    runs-on: ubuntu-latest
-    steps:
+      # A real checkout, not a source archive: `conformance` shells out to `git ls-files`
+      # and exits 2 without a `.git` — its "could not run", spelled apart from the 1 a
+      # broken rule exits, so a bad checkout never reads as a rule this repo failed.
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0   # hatch-vcs needs full history to derive a version
-      - uses: prefix-dev/setup-pixi@v0.10.2
-        with:
-          environments: default
-          locked: true
-      - name: pixi run build
-        run: pixi run -e default build
-      - uses: actions/upload-artifact@v7
-        with:
-          name: dist
-          path: dist/
-          if-no-files-found: error
-
-  docs:
-    name: docs build (no deploy)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-        with:
+          # Full history, because `build` needs the tags: the version is dynamic and
+          # hatch-vcs reads the newest tag, so a shallow clone would stamp a released commit
+          # as a dev build.
           fetch-depth: 0
       - uses: prefix-dev/setup-pixi@v0.10.2
         with:
-          environments: docs
+          # `docs` is the one environment `default` does not cover: it holds the site builder.
+          environments: default docs
+          # Fail if `pixi.lock` no longer matches `pyproject.toml`, rather than silently
+          # solving something else. This is what makes CI run the versions the laptop ran.
           locked: true
-      # `docs-build` is a task on the `docs` feature, so no `-e` flag is needed. It carries
-      # `--strict`. Publishing is `docs.yml`, on `main`.
-      - name: docs-build
-        run: pixi run docs-build
+      # `check-static` and `test` as two steps, not `check` as one, so each has its own
+      # verdict on the run page.
+      - run: pixi run check-static
+      - run: pixi run test
+        if: ${{ !cancelled() }}
+      - run: pixi run build
+        id: build
+        if: ${{ !cancelled() }}
+      - uses: actions/upload-artifact@v7
+        # Only a wheel that was built: a failed build would otherwise fail this step too.
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        with:
+          name: dist
+          path: dist/
+          # An empty upload is a green step that proved nothing.
+          if-no-files-found: error
+      # `--strict` is in the task, so a dead link or a bad reference fails here — but not
+      # every kind of broken link, and not a `nav:` entry naming a missing file. The comment
+      # above `validation:` in `mkdocs.yml` lists what this step catches and what it does
+      # not. Publishing the site is `docs.yml`, on `main`.
+      - run: pixi run docs-build
+        if: ${{ !cancelled() }}

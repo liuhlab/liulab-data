@@ -36,6 +36,9 @@ tags of the form `vYYYY.M.PATCH` (e.g. `v2026.6.0`).
 - The repository moved to `liuhlab/liulab-data`. Project URLs and the HTTP User-Agent
   point there.
 - The docs site is built with zensical instead of MkDocs.
+- The test suite has time limits: 2 seconds for one test and 45 seconds for the whole run.
+  A test marked `slow` is exempt and runs only with `pixi run test-slow`. CI is one job that
+  runs on pull requests only, and skips a draft.
 
 ### Fixed
 

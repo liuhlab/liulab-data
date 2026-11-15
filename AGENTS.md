@@ -69,7 +69,15 @@ Changing the store's code or table layout: try it small first, per `docs/agents/
 `lint`, `fmt-check`, `typecheck`, `vale`, `markdownlint` and `conformance`; the step list
 lives in that task alone.
 `check.sh` runs every step at once and reports **all** failures, so read to the bottom.
-CI runs `check-static` in one job and `test` in another.
+CI runs on pull requests only, and tests the merge commit. The docs build is not part of
+`check`; CI runs it as a step of its own.
+
+Test time has two limits, set in `[tool.pytest.ini_options]` and nowhere else:
+
+- **`timeout`** caps one test, setup and teardown included.
+- **`suite_budget`** caps the whole run; every run prints its time against it.
+- **The slow lane:** a test marked `slow` is held to neither, and runs only in
+  `pixi run test-slow`.
 
 - **ruff** (lint + format), NumPy docstring convention, 100-col lines.
 - **pyright** `standard` mode, pinned; Python 3.13 floor.

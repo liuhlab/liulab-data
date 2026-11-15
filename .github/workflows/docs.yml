@@ -27,6 +27,8 @@ concurrency:
 jobs:
   deploy:
     name: Build & deploy to gh-pages
+    # A private repo skips the deploy: on a free plan, GitHub Pages serves public repos only.
+    if: ${{ !github.event.repository.private }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
