@@ -12,7 +12,9 @@ the work disk.
 
 - `labdata papers copy --full` uploads every file with `rclone copy`, the paper files before
   the tables that name them, and writes the copy record, `.copied-files.parquet`. It deletes
-  nothing. No paper copy runs `rclone sync`.
+  nothing. It first fetches the bucket's copy record and refuses past the same bound, so a
+  disk that does not hold the whole store never replaces the bucket's tables. No paper copy
+  runs `rclone sync`.
 - A routine copy deletes only the paths that left the `files` table since the copy record. It
   refuses, sends nothing and sets `copy_pending` when the table is missing or empty, or when
   more than 5% of the copy record's paths, and more than one, left it. A pass drops far

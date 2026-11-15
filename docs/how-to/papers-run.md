@@ -211,5 +211,6 @@ The download brings the copy record, so the job's copies send only what changes 
 It does not bring `paper-status.json`, so the job starts with a daily pass, and with the
 month's PMC sync from the 3rd.
 
-Never run `labdata papers copy --full` from a disk that does not hold the whole store: it
-replaces the bucket's tables with the disk's.
+Restore before any copy by hand. A full copy, `labdata papers copy --full`, first reads the
+list of files the bucket holds. It refuses, and sends nothing, when the disk lacks more than a
+few of them, as a disk that was not restored does. Its tables would replace the bucket's.

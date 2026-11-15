@@ -271,7 +271,8 @@ def papers_copy(
     full: bool = typer.Option(
         False,
         "--full",
-        help="Upload every file, listing both sides, and delete nothing: a first copy or a repair.",
+        help="Upload every file, listing both sides, and delete nothing: a first copy or a "
+        "repair. Refused on a disk that lacks many of the files the bucket holds.",
     ),
     accept_deletes: int = typer.Option(
         0,
@@ -285,7 +286,8 @@ def papers_copy(
     Lists neither the paper folders nor the bucket. With no copy record, on the disk or in the
     bucket, it does nothing and asks for --full. It refuses, exiting 1, when the
     files table is missing or empty, or when it would delete more than a small share of the
-    copied files and more than --accept-deletes.
+    copied files and more than --accept-deletes; with --full, when the disk lacks more than
+    that share of the files the bucket's copy record lists.
     Leaves out paper-status.json and hidden files. When rclone's Google login has expired, it
     sets copy_pending in paper-status.json and exits 0; rerun after `rclone config reconnect`.
     Holds the paper store's lock.
