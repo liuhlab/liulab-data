@@ -151,13 +151,23 @@ _Avoid_: paper cache
 ### Paper
 
 A publication linked to a Series or BioProject, preprints included, identified by its PMID, or by
-its DOI when it has no PMID. A paper that later gets a PMID is the same paper under its PMID.
+its DOI when it has no PMID. A paper that later gets a PMID is the same paper under its PMID. A
+preprint a record links alone is its published version, once that is known. A DOI that names
+anything other than one article, such as a dataset, a thesis, a conference abstract or a peer
+review, is not a paper, nor is a placeholder PMID that only BioProject records give. The paper
+store holds nothing for them.
+
+### DOI-only paper
+
+A paper the store knows by its DOI alone, because no PMID is known for it. It comes in through a
+DOI that a Series or BioProject links when that record links no PMID. Once a PMID is found, it is
+the same paper under its PMID and is no longer DOI-only.
 
 ### Paper status
 
 Where a paper stands in the paper store: fetched (the store holds its XML or PDF), waiting (a tier
-will serve it later), manual (only a save in Paperpile can serve it) or skipped (not a real
-paper). A paper that is not fetched is missing.
+will serve it later), manual (only a save in Paperpile can serve it) or skipped (retracted, so
+nothing more is fetched). A paper that is not fetched is missing.
 
 _Avoid_: paper state
 
