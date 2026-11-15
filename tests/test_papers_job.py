@@ -16,7 +16,7 @@ from labdata.cli import app
 from labdata.ncbi import entrez as entrez_mod
 from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
-from labdata.papers import init_paper_store, open_paper_store
+from labdata.papers import init_paper_store, open_paper_store, tables
 from labdata.papers import job as job_mod
 from labdata.papers.openalex import Account, OpenAlex, accounts_path, load_accounts, save_accounts
 from tests._paper_fakes import Article, FakeWeb, fixture_build, work
@@ -104,6 +104,15 @@ def paper_store(tmp_path: Path) -> Path:
     return root
 
 
+def holding(root: Path) -> Path:
+    """Give the store one paper file and its ``files`` row: a copy refuses an empty table."""
+    (root / "papers" / "1").mkdir(parents=True)
+    (root / "papers" / "1" / "1.pdf").write_bytes(b"%PDF")
+    row = {"paper": "1", "kind": "pdf", "path": "papers/1/1.pdf", "size": 4, "md5": "a"}
+    tables.write(root, tables.FILES, [row])
+    return root
+
+
 def synced(root: Path) -> Path:
     """Record this month's PMC sync, so only the daily pass is due."""
     (root / "paper-status.json").write_text(json.dumps({"last_pmc_sync_success": "2026-11-03"}))
@@ -152,7 +161,7 @@ def status(root: Path) -> dict:
 def test_one_daily_pass_a_day_after_0030_and_the_pmc_sync_on_the_3rd(
     tmp_path: Path, sbatch: Sbatch, rclone: Rclone
 ) -> None:
-    root = paper_store(tmp_path)
+    root = holding(paper_store(tmp_path))
     full_copy(root)
     rclone.calls.clear()
     clock = Clock(utc("2026-11-01 23:00"))
@@ -362,7 +371,7 @@ def full_copy(root: Path) -> str:
 
 
 def test_a_failed_copy_sets_copy_pending(tmp_path: Path, rclone: Rclone) -> None:
-    root = paper_store(tmp_path)
+    root = holding(paper_store(tmp_path))
     rclone.returncode, rclone.stderr = 3, "ERROR : bucket not found\n"
     result = CliRunner().invoke(app, ["papers", "copy", "--root", str(root), "--full"])
     assert result.exit_code == 1
@@ -373,7 +382,7 @@ def test_a_failed_copy_sets_copy_pending(tmp_path: Path, rclone: Rclone) -> None
 def test_an_expired_login_sets_copy_pending_and_a_later_copy_clears_it(
     tmp_path: Path, rclone: Rclone
 ) -> None:
-    root = paper_store(tmp_path)
+    root = holding(paper_store(tmp_path))
     rclone.returncode, rclone.stderr = 1, "oauth2: cannot fetch token: invalid_grant"
     out = full_copy(root)
     assert "rclone config reconnect gcs:" in out
@@ -387,7 +396,7 @@ def test_an_expired_login_sets_copy_pending_and_a_later_copy_clears_it(
 def test_an_expired_login_does_not_fail_the_pass(
     tmp_path: Path, sbatch: Sbatch, rclone: Rclone
 ) -> None:
-    root = synced(paper_store(tmp_path))
+    root = holding(synced(paper_store(tmp_path)))
     full_copy(root)
     rclone.returncode, rclone.stderr = 1, "invalid_grant"
     lines = serve(root, Clock(utc("2026-11-05 07:00")), until=utc("2026-11-05 07:10"))

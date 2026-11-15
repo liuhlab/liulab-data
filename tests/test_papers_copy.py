@@ -7,12 +7,14 @@ import json
 import subprocess
 from pathlib import Path
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 from typer.testing import CliRunner
 
 from labdata.cli import app
 from labdata.papers import init_paper_store, open_paper_store, tables
-from labdata.papers.copy import PaperCopyError, copy
+from labdata.papers.copy import COPIED, PaperCopyError, copy
 from tests._paper_fakes import fixture_build
 
 DEST = "gcs:bucket/datalake/paper-store"
@@ -20,23 +22,44 @@ EXPIRED = "oauth2: cannot fetch token: invalid_grant"
 
 
 class Rclone:
-    """Stand-in for the rclone runner: records each command and the file list it reads."""
+    """Stand-in for the rclone runner: records each command and the file list it reads.
+
+    It keeps what a ``copyto`` sends to the bucket, and a ``copy`` from the bucket fetches it.
+    Every command fails with ``returncode``, or only the one named ``expiring``, on an
+    expired login.
+    """
 
     def __init__(self) -> None:
         self.calls: list[list[str]] = []
         self.lists: list[list[str]] = []
+        self.bucket: dict[str, bytes] = {}
         self.returncode, self.stderr = 0, ""
+        self.expiring = ""
 
     def __call__(self, args: list[str]) -> subprocess.CompletedProcess[str]:
         self.calls.append(args)
+        listed: list[str] = []
         for arg in args:
             if arg.startswith("--files-from-raw="):
                 path = Path(arg.split("=", 1)[1])
-                self.lists.append(path.read_text(encoding="utf-8").splitlines())
+                listed = path.read_text(encoding="utf-8").splitlines()
+                self.lists.append(listed)
+        if args[1] == self.expiring:
+            return subprocess.CompletedProcess(args, 1, "", EXPIRED)
+        if self.returncode == 0 and args[1] == "copyto" and args[3].startswith(f"{DEST}/"):
+            self.bucket[args[3].removeprefix(f"{DEST}/")] = Path(args[2]).read_bytes()
+        if self.returncode == 0 and args[1] == "copy" and args[2] == DEST:
+            for name in (n for n in listed if n in self.bucket):
+                (Path(args[3]) / name).write_bytes(self.bucket[name])
         return subprocess.CompletedProcess(args, self.returncode, "", self.stderr)
 
     def commands(self) -> list[str]:
         return [args[1] for args in self.calls]
+
+    def record(self) -> list[str]:
+        """The paths the copy record in the bucket names."""
+        data = pa.BufferReader(self.bucket[COPIED])
+        return pq.read_table(data).column("path").to_pylist()
 
 
 @pytest.fixture
@@ -84,16 +107,25 @@ def status(root: Path) -> dict:
     return json.loads((root / "paper-status.json").read_text())
 
 
-def test_full_mirrors_the_store_as_before(root: Path, rclone: Rclone) -> None:
+def test_full_uploads_every_file_then_the_record_and_deletes_nothing(
+    root: Path, rclone: Rclone
+) -> None:
+    path = hold(root, "1", "pdf", "host")
+
     full(root)
 
+    up = ["rclone", "copy", str(root), DEST]
     hidden = ["--filter=- .*", "--filter=- .*/**", "--filter=- /paper-status.json"]
     progress = ["--stats=1m", "--stats-one-line", "--stats-log-level=NOTICE"]
-    assert rclone.calls == [
-        ["rclone", "lsjson", DEST, "--max-depth", "1"],
-        ["rclone", "copy", str(root), DEST, *hidden, "--filter=- /labdata-papers.toml", *progress],
-        ["rclone", "sync", str(root), DEST, "--delete-excluded", *hidden, *progress],
-    ]
+    assert rclone.commands() == ["lsjson", "copy", "copy", "copyto"]
+    probe, files, top, record = rclone.calls
+    assert probe == ["rclone", "lsjson", DEST, "--max-depth", "1"]
+    # The paper files first; the top level, tables and marker among it, after them.
+    assert files == [*up, *hidden, "--filter=- /*", *progress]
+    assert top[:4] == up
+    assert "--max-depth=1" in top
+    assert record[3] == f"{DEST}/{COPIED}"
+    assert rclone.record() == [path]
     assert status(root)["copy_pending"] is False
     assert status(root)["last_copy_success"]
 
@@ -109,18 +141,22 @@ def test_a_routine_copy_sends_only_the_new_rows_and_lists_no_paper_folder(
     copy(open_paper_store(root))
 
     assert rclone.lists == [[new]]
-    assert rclone.commands() == ["lsjson", "copy", "copy"]
-    probe, files, top = rclone.calls
+    assert rclone.commands() == ["lsjson", "copy", "copy", "copyto"]
+    probe, files, top, _ = rclone.calls
     assert probe == ["rclone", "lsjson", DEST, "--max-depth", "1"]
     assert "--no-traverse" in files
     # The top level only: tables, README, manual queue and marker.
     assert top[:4] == ["rclone", "copy", str(root), DEST]
     assert "--max-depth=1" in top
+    assert rclone.record() == sorted([new, "papers/1/1.pdf"])
 
 
 def test_a_pdf_pmc_replaced_is_deleted_in_the_bucket_by_the_next_copy(
     root: Path, rclone: Rclone
 ) -> None:
+    # One file in 20 left the table: the most one copy deletes.
+    for paper in range(2, 21):
+        hold(root, str(paper), "pdf", "host")
     pdf = hold(root, "1", "pdf", "openalex")
     full(root)
     rclone.calls.clear()
@@ -129,10 +165,12 @@ def test_a_pdf_pmc_replaced_is_deleted_in_the_bucket_by_the_next_copy(
 
     copy(open_paper_store(root))
 
-    # The tables go up before the PDF they dropped is deleted.
-    assert rclone.commands() == ["lsjson", "copy", "copy", "delete"]
+    # The tables go up before the PDF they dropped is deleted, the record after it.
+    assert rclone.commands() == ["lsjson", "copy", "copy", "delete", "copyto"]
     assert rclone.lists == [[xml], [pdf]]
     assert rclone.calls[3][:4] == ["rclone", "delete", DEST, "--no-traverse"]
+    assert xml in rclone.record()
+    assert pdf not in rclone.record()
 
     rclone.calls.clear()
     rclone.lists.clear()
@@ -140,9 +178,27 @@ def test_a_pdf_pmc_replaced_is_deleted_in_the_bucket_by_the_next_copy(
     assert rclone.lists == []
 
 
+def test_a_copy_that_would_delete_more_than_one_file_in_20_copies_nothing_and_says_why(
+    root: Path, rclone: Rclone
+) -> None:
+    paths = [hold(root, str(paper), "pdf", "host") for paper in range(1, 21)]
+    full(root)
+    rclone.calls.clear()
+    drop(root, paths[0])
+    drop(root, paths[1])
+
+    with pytest.raises(PaperCopyError, match="2 of the 20 files"):
+        copy(open_paper_store(root))
+
+    # Not even the tables go up: the files table may be damaged.
+    assert rclone.calls == []
+    assert status(root)["copy_pending"] is True
+
+
 def test_a_copy_skipped_on_an_expired_login_sends_its_files_on_the_next_success(
     root: Path, rclone: Rclone
 ) -> None:
+    hold(root, "0", "pdf", "host")
     full(root)
     first = hold(root, "1", "pdf", "openalex")
     rclone.returncode, rclone.stderr = 1, EXPIRED
@@ -161,7 +217,44 @@ def test_a_copy_skipped_on_an_expired_login_sends_its_files_on_the_next_success(
     assert status(root)["copy_pending"] is False
 
 
-def test_with_no_earlier_copy_a_routine_copy_is_skipped_and_asks_for_full(
+def test_a_copy_record_that_fails_to_go_up_leaves_the_disks_so_the_files_go_again(
+    root: Path, rclone: Rclone
+) -> None:
+    hold(root, "0", "pdf", "host")
+    full(root)
+    new = hold(root, "1", "pdf", "host")
+    rclone.expiring = "copyto"
+
+    assert copy(open_paper_store(root)).skipped
+    assert status(root)["copy_pending"] is True
+
+    rclone.expiring = ""
+    rclone.lists.clear()
+    copy(open_paper_store(root))
+
+    assert rclone.lists == [[new]]
+    assert new in rclone.record()
+
+
+def test_with_no_record_on_disk_a_copy_fetches_the_buckets_and_sends_only_changes(
+    root: Path, rclone: Rclone
+) -> None:
+    hold(root, "1", "pdf", "host")
+    full(root)
+    (root / COPIED).unlink()
+    rclone.calls.clear()
+    new = hold(root, "2", "pdf", "host")
+
+    copy(open_paper_store(root))
+
+    assert rclone.lists == [[COPIED], [new]]
+    fetch = rclone.calls[0]
+    assert fetch[:4] == ["rclone", "copy", DEST, str(root)]
+    assert "--no-traverse" in fetch
+    assert status(root)["copy_pending"] is False
+
+
+def test_with_no_record_on_disk_or_in_the_bucket_a_copy_sends_nothing_and_asks_for_full(
     root: Path, rclone: Rclone
 ) -> None:
     hold(root, "1", "pdf", "openalex")
@@ -170,7 +263,9 @@ def test_with_no_earlier_copy_a_routine_copy_is_skipped_and_asks_for_full(
 
     assert result.skipped
     assert "--full" in result.message
-    assert rclone.calls == []
+    # It only looked for the bucket's record.
+    assert rclone.commands() == ["copy"]
+    assert rclone.lists == [[COPIED]]
     assert status(root)["copy_pending"] is True
 
 
@@ -190,6 +285,21 @@ def test_a_missing_files_table_never_deletes_the_bucket(root: Path, rclone: Rclo
     rclone.calls.clear()
     tables.FILES.path(root).unlink()
 
-    with pytest.raises(PaperCopyError, match="missing"):
+    with pytest.raises(PaperCopyError, match="is missing or empty"):
         copy(open_paper_store(root))
     assert rclone.calls == []
+    assert status(root)["copy_pending"] is True
+
+
+@pytest.mark.parametrize("full_copy", [False, True], ids=["routine", "full"])
+def test_an_empty_files_table_copies_nothing(root: Path, rclone: Rclone, full_copy: bool) -> None:
+    hold(root, "1", "pdf", "host")
+    full(root)
+    rclone.calls.clear()
+    tables.write(root, tables.FILES, [])
+
+    # Its tables would replace the bucket's, and its copy record would drop every file.
+    with pytest.raises(PaperCopyError, match="is missing or empty"):
+        copy(open_paper_store(root), full=full_copy)
+    assert rclone.calls == []
+    assert status(root)["copy_pending"] is True
