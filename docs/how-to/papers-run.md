@@ -68,9 +68,9 @@ sbatch --job-name=labdata-papers-copy --partition=cpu_batch \
 
 Log in to rclone first: the login lasts one day. Later copies send only the files added,
 changed or deleted since the last copy that worked, so their cost follows the day's changes,
-not the size of the store. Each copy ends by sending its record of what the bucket holds, a
-hidden file at the paper store root. A new work disk without that file fetches it from the
-bucket. Until a full copy has worked once, the job's copies do nothing and the log asks for
+not the size of the store. Each copy ends by sending its copy record, a hidden file at the
+paper store root that lists what the bucket holds. A new work disk without that file fetches
+it from the bucket. Until a full copy has worked once, the job's copies do nothing and the log asks for
 `--full`.
 
 ## Start the paper job
@@ -155,8 +155,8 @@ pass writes while it runs.
 
 GCS keeps the paper store for good; the cluster disk is a work area. So a copy deletes in the
 bucket only the files that left the `files` table. It refuses, sending nothing, when the table
-is missing or empty, or when more than 5% of the copied files left it at once: the table may be
-damaged. The log says why. Check the table. If the files left on purpose, run
+is missing or empty, or when more than a small share of the copied files left it at once: the
+table may be damaged. The log says why, with the numbers. Check the table. If the files left on purpose, run
 `labdata papers copy --full`: it sends the store and leaves those files in the bucket.
 
 ## Check the copy

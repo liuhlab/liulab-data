@@ -275,8 +275,8 @@ def papers_copy(
 ) -> None:
     """Send the paper store's changes since the last successful copy to a bucket with rclone.
 
-    Lists neither the paper folders nor the bucket. With no record of an earlier copy, on the
-    disk or in the bucket, it does nothing and asks for --full. It refuses, exiting 1, when the
+    Lists neither the paper folders nor the bucket. With no copy record, on the disk or in the
+    bucket, it does nothing and asks for --full. It refuses, exiting 1, when the
     files table is missing or empty, or when it would delete more than a small share of the
     copied files.
     Leaves out paper-status.json and hidden files. When rclone's Google login has expired, it

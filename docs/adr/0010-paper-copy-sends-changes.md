@@ -5,8 +5,9 @@ search:
 
 # The paper copy sends changes, read from the files table
 
-Amended by [ADR 0011](0011-gcs-holds-the-paper-store.md): the saved file also goes to the
-bucket, a work disk without it fetches it from there, and no copy deletes by mirroring.
+Amended by [ADR 0011](0011-gcs-holds-the-paper-store.md): the saved file, the copy record,
+also goes to the bucket, a work disk without it fetches it from there, and no copy deletes by
+mirroring.
 
 The paper job's copy to GCS sends only what changed since the last copy that worked. It lists
 only the top level of the store and of the bucket, so its cost follows the day's changes, not

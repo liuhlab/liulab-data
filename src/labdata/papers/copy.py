@@ -1,11 +1,11 @@
 """Copy the paper store to GCS, which holds it for good: the changes since the last copy.
 
 A routine copy lists only the top level of the store and the bucket. It compares the ``files``
-table with :data:`COPIED`, the paths, MD5s, sizes and fetch dates the last successful copy
-sent: a new or changed row is uploaded by name, a path gone from the table is deleted in the
-bucket, and the small top-level files go up every time. :data:`COPIED` goes up last; a work
-disk without it fetches the bucket's. With neither, a routine copy is skipped and asks for
-``labdata papers copy --full``, which uploads every file.
+table with the copy record, :data:`COPIED`, the paths, MD5s, sizes and fetch dates the last
+successful copy sent: a new or changed row is uploaded by name, a path gone from the table is
+deleted in the bucket, and the small top-level files go up every time. The copy record goes up
+last; a work disk without it fetches the bucket's. With neither, a routine copy is skipped and
+asks for ``labdata papers copy --full``, which uploads every file.
 
 No copy deletes by comparing the bucket with the disk. A copy refuses, sending nothing, when the
 ``files`` table is missing or empty, or when it would delete more than :data:`MAX_DELETE_SHARE`
@@ -40,12 +40,13 @@ from labdata.store._files import temp_beside
 #: The marker key naming the rclone destination, ``<remote>:<bucket>/<path>``.
 COPY_TO_KEY = "copy_to"
 
-#: The ``files`` rows the bucket holds, as the last successful copy left them: each held
-#: path with its MD5, size and fetch date. Kept at this path on the disk and in the bucket.
+#: The copy record: the ``files`` rows the bucket holds, as the last successful copy left
+#: them, each held path with its MD5, size and fetch date. Kept here on the disk and in the
+#: bucket.
 COPIED = ".copied-files.parquet"
 
-#: The largest share of :data:`COPIED`'s paths one copy deletes in the bucket. Past it the
-#: copy refuses: a damaged ``files`` table is likelier than so many files leaving at once.
+#: The largest share of :data:`COPIED`'s paths one copy deletes in the bucket; past it the
+#: copy refuses.
 MAX_DELETE_SHARE = 0.05
 
 #: Left out of the copy: hidden files and folders, and the status record, which the copy
@@ -96,7 +97,7 @@ def copy(store: PaperStore, to: str | None = None, *, full: bool = False) -> Cop
     -------
     CopyResult
         ``skipped`` is true, with a message, when rclone's login has expired, or when a
-        routine copy finds no record of an earlier copy, on the disk or in the bucket.
+        routine copy finds no copy record, on the disk or in the bucket.
 
     Raises
     ------
@@ -132,8 +133,8 @@ def copy(store: PaperStore, to: str | None = None, *, full: bool = False) -> Cop
     return CopyResult(dest)
 
 
-def _send(root: Path, dest: str, *, full: bool) -> str:
-    """Copy the store to ``dest``; return why the copy was skipped, or "" when it is done."""
+def _send(root: Path, dest: str, *, full: bool) -> str | None:
+    """Copy the store to ``dest``; return why the copy was skipped, or None when it is done."""
     expired = _rclone.expired_message(dest, "paper store", "labdata papers copy")
     held = _held(root)
     copied = None
@@ -144,14 +145,14 @@ def _send(root: Path, dest: str, *, full: bool) -> str:
             return expired
         if not path.is_file():
             return (
-                "no record of an earlier copy, on the disk or in the bucket, so the bucket is "
-                "behind the paper store. Run `labdata papers copy --full` once: it uploads "
+                "no copy record, on the disk or in the bucket, so the bucket is behind the "
+                "paper store. Run `labdata papers copy --full` once: it uploads "
                 "every file and deletes nothing. Later copies send changes."
             )
         copied = _signatures(path)
         _check_deletes(root, held, copied)
     if _changes(root, dest, held, copied) and _put_copied(root, dest, held):
-        return ""
+        return None
     return expired
 
 
@@ -160,8 +161,8 @@ def _held(root: Path) -> _Held:
     held = _signatures(path)
     if not held:
         raise PaperCopyError(
-            f"{path} is missing or empty, so nothing was copied: its tables would replace the "
-            "bucket's, and its record would delete the bucket's papers"
+            f"{path} is missing or empty, so nothing was copied: the copy would replace the "
+            "bucket's tables with it and delete the bucket's papers"
         )
     return held
 
@@ -197,7 +198,7 @@ def _changes(root: Path, dest: str, held: _Held, copied: _Held | None) -> bool:
     steps: list[tuple[list[str], list[str]]] = []
     gone: list[str] = []
     if copied is None:
-        steps.append((["copy", str(root), dest, *_LEFT_OUT, f"--filter=- /{MARKER}"], []))
+        steps.append((["copy", str(root), dest, *_LEFT_OUT, "--filter=- /*"], []))
     else:
         put = sorted(p for p, sig in held.items() if copied.get(p) != sig)
         gone = sorted(set(copied) - set(held))

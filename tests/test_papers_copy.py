@@ -25,6 +25,8 @@ class Rclone:
     """Stand-in for the rclone runner: records each command and the file list it reads.
 
     It keeps what a ``copyto`` sends to the bucket, and a ``copy`` from the bucket fetches it.
+    Every command fails with ``returncode``, or only the one named ``expiring``, on an
+    expired login.
     """
 
     def __init__(self) -> None:
@@ -32,6 +34,7 @@ class Rclone:
         self.lists: list[list[str]] = []
         self.bucket: dict[str, bytes] = {}
         self.returncode, self.stderr = 0, ""
+        self.expiring = ""
 
     def __call__(self, args: list[str]) -> subprocess.CompletedProcess[str]:
         self.calls.append(args)
@@ -41,6 +44,8 @@ class Rclone:
                 path = Path(arg.split("=", 1)[1])
                 listed = path.read_text(encoding="utf-8").splitlines()
                 self.lists.append(listed)
+        if args[1] == self.expiring:
+            return subprocess.CompletedProcess(args, 1, "", EXPIRED)
         if self.returncode == 0 and args[1] == "copyto" and args[3].startswith(f"{DEST}/"):
             self.bucket[args[3].removeprefix(f"{DEST}/")] = Path(args[2]).read_bytes()
         if self.returncode == 0 and args[1] == "copy" and args[2] == DEST:
@@ -52,7 +57,7 @@ class Rclone:
         return [args[1] for args in self.calls]
 
     def record(self) -> list[str]:
-        """The paths the record in the bucket names."""
+        """The paths the copy record in the bucket names."""
         data = pa.BufferReader(self.bucket[COPIED])
         return pq.read_table(data).column("path").to_pylist()
 
@@ -115,8 +120,8 @@ def test_full_uploads_every_file_then_the_record_and_deletes_nothing(
     assert rclone.commands() == ["lsjson", "copy", "copy", "copyto"]
     probe, files, top, record = rclone.calls
     assert probe == ["rclone", "lsjson", DEST, "--max-depth", "1"]
-    # Every file but the marker, which goes up with the top level after them.
-    assert files == [*up, *hidden, "--filter=- /labdata-papers.toml", *progress]
+    # The paper files first; the top level, tables and marker among it, after them.
+    assert files == [*up, *hidden, "--filter=- /*", *progress]
     assert top[:4] == up
     assert "--max-depth=1" in top
     assert record[3] == f"{DEST}/{COPIED}"
@@ -212,6 +217,25 @@ def test_a_copy_skipped_on_an_expired_login_sends_its_files_on_the_next_success(
     assert status(root)["copy_pending"] is False
 
 
+def test_a_copy_record_that_fails_to_go_up_leaves_the_disks_so_the_files_go_again(
+    root: Path, rclone: Rclone
+) -> None:
+    hold(root, "0", "pdf", "host")
+    full(root)
+    new = hold(root, "1", "pdf", "host")
+    rclone.expiring = "copyto"
+
+    assert copy(open_paper_store(root)).skipped
+    assert status(root)["copy_pending"] is True
+
+    rclone.expiring = ""
+    rclone.lists.clear()
+    copy(open_paper_store(root))
+
+    assert rclone.lists == [[new]]
+    assert new in rclone.record()
+
+
 def test_with_no_record_on_disk_a_copy_fetches_the_buckets_and_sends_only_changes(
     root: Path, rclone: Rclone
 ) -> None:
@@ -267,15 +291,15 @@ def test_a_missing_files_table_never_deletes_the_bucket(root: Path, rclone: Rclo
     assert status(root)["copy_pending"] is True
 
 
-@pytest.mark.parametrize("whole", [False, True], ids=["routine", "full"])
-def test_an_empty_files_table_copies_nothing(root: Path, rclone: Rclone, whole: bool) -> None:
+@pytest.mark.parametrize("full_copy", [False, True], ids=["routine", "full"])
+def test_an_empty_files_table_copies_nothing(root: Path, rclone: Rclone, full_copy: bool) -> None:
     hold(root, "1", "pdf", "host")
     full(root)
     rclone.calls.clear()
     tables.write(root, tables.FILES, [])
 
-    # Its tables would replace the bucket's, and its record would drop every file.
+    # Its tables would replace the bucket's, and its copy record would drop every file.
     with pytest.raises(PaperCopyError, match="is missing or empty"):
-        copy(open_paper_store(root), full=whole)
+        copy(open_paper_store(root), full=full_copy)
     assert rclone.calls == []
     assert status(root)["copy_pending"] is True
