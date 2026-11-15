@@ -141,14 +141,16 @@ new one from the same date and leaves the old folder in place.
   "last_success": "2026-11-07",
   "folder": "work/refresh/2026-11-07T020000Z",
   "counts": {"geo-soft": {"added": 2410, "replaced": 4180, "removed": 12}},
-  "copy_pending": false
+  "copy_pending": false,
+  "copy_pending_at_switch": false
 }
 ```
 
 `last_success` changes only once the store has switched to the new build. When rclone's login
 has expired, or the store still needs its first `--full` copy, the refresh still succeeds and
-`copy_pending` is `true`. Log in, then run `labdata store copy`, or `labdata store copy --full` if it asks for
-it. It copies the store and sets `copy_pending` back to `false`.
+`copy_pending` is `true`. Log in, then run `labdata store copy`, or `labdata store copy --full`
+if it asks for it. It copies the store and sets `copy_pending` back to `false`.
+`copy_pending_at_switch` keeps `copy_pending` as it was when the refresh switched builds.
 
 To keep the refresh's step logs with the store, copy them into `support/`. `<started>` is the
 refresh's folder under `work/refresh/`, which `refresh-status.json` names:

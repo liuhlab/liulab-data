@@ -557,7 +557,7 @@ def store_copy(
 
     where = root if root is not None else open_store().root
     try:
-        result = copy(where, to, full=full)
+        result = copy(where, to, full=full, in_step=refresh.bucket_in_step(where))
     except LabdataError as err:
         typer.echo(str(err), err=True)
         raise typer.Exit(1) from err

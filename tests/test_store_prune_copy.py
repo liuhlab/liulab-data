@@ -15,7 +15,7 @@ import pytest
 from typer.testing import CliRunner, Result
 
 from labdata.cli import app
-from labdata.store import extract, raw
+from labdata.store import extract, raw, refresh
 from labdata.store.build import build
 from labdata.store.gcs import COPIED
 from labdata.store.pack import pack
@@ -358,23 +358,97 @@ def test_with_no_record_on_disk_a_copy_fetches_the_buckets_and_sends_only_change
     assert _copy(root).exit_code == 0
 
     assert rclone.commands() == ["lsjson", "copy", "copy", "copy", "copyto"]
-    assert rclone.calls[1][:5] == ["rclone", "copy", _DEST, str(root), "--no-traverse"]
-    assert rclone.lists[0] == [COPIED]
+    assert rclone.calls[1][:3] == ["rclone", "copy", _DEST]
+    assert "--no-traverse" in rclone.calls[1]
+    assert rclone.lists[0] == [COPIED, "labdata-store.toml"]
     assert not any(p.endswith(".parquet") for p in rclone.lists[1])
+    # The local marker is never overwritten by the bucket's.
+    assert "copy_to" in (root / "labdata-store.toml").read_text()
+
+
+def _bucket_marker(rclone: _Rclone, root: Path, build_id: str) -> None:
+    """Put in the bucket a marker naming ``build_id``, as the last mirror left it."""
+    text = (root / "labdata-store.toml").read_text(encoding="utf-8")
+    current = tomllib.loads(text)["build"]
+    rclone.bucket["labdata-store.toml"] = text.replace(f'"{current}"', f'"{build_id}"').encode()
+
+
+def _status(root: Path, **status: object) -> None:
+    refresh.write_status(root, {"outcome": "succeeded", **status})
+
+
+def test_with_no_record_a_copy_seeds_one_from_the_build_the_buckets_marker_names(
+    root: Path, rclone: _Rclone
+) -> None:
+    _copy_to(root)
+    _status(root, copy_pending=False)
+    _bucket_marker(rclone, root, "b1")
+
+    assert _copy(root).exit_code == 0
+
+    # The seeded record goes up first, then only the small files: nothing is deleted.
+    assert rclone.commands() == ["lsjson", "copy", "copyto", "copy", "copy", "copyto"]
+    assert all(not p.endswith(".parquet") for p in rclone.lists[1])
+    assert rclone.lists[2] == _TOP
+    sent = _files(root, "builds/b1", "raw", *(f"snapshots/{s}/2026-10-14" for s in _SOURCES))
+    assert rclone.record() == sorted([*sent, *_TOP])
+
+
+def test_with_no_record_after_a_switch_a_copy_sends_the_new_build_and_deletes_the_old(
+    root: Path, rclone: _Rclone
+) -> None:
+    _copy_to(root)
+    _bucket_marker(rclone, root, "b1")
+    build(root, "b2")
+    # The switch raised copy_pending; the copy before it had worked.
+    _status(root, copy_pending=True, copy_pending_at_switch=False)
+
+    assert _copy(root).exit_code == 0
+
+    assert rclone.commands() == ["lsjson", "copy", "copyto", "copy", "copy", "delete", "copyto"]
+    assert set(_files(root, "builds/b2")) <= set(rclone.lists[1])
+    assert rclone.lists[3] == _files(root, "builds/b1")
+    assert not any(p.startswith("builds/b1/") for p in rclone.record())
+
+
+@pytest.mark.parametrize(
+    ("marker_build", "status"),
+    [
+        ("b0", {"copy_pending": False}),
+        ("b1", {"copy_pending": True, "copy_pending_at_switch": True}),
+        ("b1", {}),
+    ],
+    ids=["build-gone", "copy-was-pending", "no-status-record"],
+)
+def test_with_no_record_a_copy_that_cannot_trust_the_bucket_skips_and_asks_for_full(
+    root: Path, rclone: _Rclone, marker_build: str, status: dict[str, object]
+) -> None:
+    _copy_to(root)
+    if status:
+        _status(root, **status)
+    _bucket_marker(rclone, root, marker_build)
+
+    result = _copy(root)
+
+    assert result.exit_code == 0, result.output
+    assert "labdata store copy --full" in result.output
+    assert rclone.commands() == ["lsjson", "copy"]
+    assert COPIED not in rclone.bucket
 
 
 def test_with_no_record_on_disk_or_in_the_bucket_a_copy_sends_nothing_and_asks_for_full(
     root: Path, rclone: _Rclone
 ) -> None:
     _copy_to(root)
+    _status(root, copy_pending=False)
 
     result = _copy(root)
 
     assert result.exit_code == 0, result.output
     assert "labdata store copy --full" in result.output
-    # It only checked the login and looked for the bucket's record.
+    # It only checked the login and looked for the bucket's record and marker.
     assert rclone.commands() == ["lsjson", "copy"]
-    assert rclone.lists == [[COPIED]]
+    assert rclone.lists == [[COPIED, "labdata-store.toml"]]
 
 
 def test_copy_is_refused_on_a_folder_with_no_marker(tmp_path: Path, rclone: _Rclone) -> None:

@@ -25,15 +25,17 @@ not, and uploads the record last. No store copy runs `rclone sync`.
   delete. Pack also deletes raw files, so every step that deletes would need to log it, and one
   forgotten leaves a file in the bucket for good: the reason ADR 0010 reads the `files` table.
 - **The bucket's marker and manifest as the record.** No new file, but a copy cut off after
-  the marker and before the deletes loses track of the old build.
+  the marker loses track of the old build. They only seed the record, below.
 
 ## Consequences
 
 - An old build and the snapshots only it read leave the bucket at the first copy after the
   switch, as before. Prune's grace period applies to the disk only.
 - A copy refuses when it would delete more than 5% of the copied raw files, as the paper copy
-  bounds its deletes. A change of bucket width replaces all of a source's raw files at once:
-  `--full` then sends the store, and removing the old files from the bucket is a step by hand.
-- With no copy record on the disk or in the bucket, a routine copy is skipped and asks for
-  `--full`, which uploads the current state and deletes nothing. A file in the bucket that no
-  record names, such as one from before the first `--full`, stays until removed by hand.
+  does. A change of bucket width replaces all of a source's raw files at once: `--full` then
+  sends the store, and the old files leave the bucket by hand.
+- With no copy record on the disk or in the bucket, a routine copy seeds one from the build the
+  bucket's marker names, if that build is on the disk and the status record shows the last copy
+  worked, leaving the bucket an exact copy of it. The seeded record goes up first. Otherwise
+  the copy asks for `--full`, which uploads the current state and deletes nothing; a file no
+  record names then stays in the bucket.

@@ -491,6 +491,9 @@ def test_an_expired_login_leaves_the_copy_pending_and_a_later_copy_clears_it(
     monkeypatch.setattr("labdata.store.gcs._run_rclone", expired)
     _change(ncbi)
     _executor(monkeypatch)
+    # The bucket mirrors the build the refresh leaves, and has no copy record yet.
+    bucket = {"labdata-store.toml": marker.read_bytes()}
+    old = _current(root).name
 
     _refresh(root)
 
@@ -499,13 +502,28 @@ def test_an_expired_login_leaves_the_copy_pending_and_a_later_copy_clears_it(
     assert status["copy_pending"] is True
     assert calls == [["rclone", "lsjson", _DEST, "--max-depth", "1"]]
 
-    monkeypatch.setattr(
-        "labdata.store.gcs._run_rclone",
-        lambda args: subprocess.CompletedProcess(args, 0, "", ""),
-    )
-    # The store's first copy: no copy record yet.
-    assert "Copied the store" in _cli("copy", "--root", str(root), "--full")
+    deleted: list[str] = []
+
+    def gcs(args: list[str]) -> subprocess.CompletedProcess[str]:
+        listed = [
+            line
+            for arg in args
+            if arg.startswith("--files-from-raw=")
+            for line in Path(arg.split("=", 1)[1]).read_text(encoding="utf-8").splitlines()
+        ]
+        if args[1] == "copy" and args[2] == _DEST:
+            for name in (n for n in listed if n in bucket):
+                (Path(args[3]) / name).write_bytes(bucket[name])
+        if args[1] == "delete":
+            deleted.extend(listed)
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr("labdata.store.gcs._run_rclone", gcs)
+    # No --full: the copy seeds its record from the old build, then deletes it in the bucket.
+    assert "Copied the store" in _cli("copy", "--root", str(root))
     assert refresh.read_status(root)["copy_pending"] is False
+    assert f"builds/{old}/manifest.json" in deleted
+    assert not any(p.startswith(f"builds/{_current(root).name}/") for p in deleted)
 
 
 def test_an_accession_only_a_pending_removal_lists_is_fetched_again(

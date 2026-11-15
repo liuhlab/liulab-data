@@ -54,7 +54,9 @@ cluster disk is only a work area, so a copy never deletes a file because the dis
   current build is complete.
 
 To know what changed, the copy keeps a hidden list of the files the bucket holds,
-`.copied-files.json`, in the store and in the bucket. A store's first copy has no such list, so
+`.copied-files.json`, in the store and in the bucket. When neither has the list, the copy makes
+it from the build that the bucket's marker file names. It does so only if that build is still on
+the disk and the last copy had worked. Otherwise, as for a store's first copy,
 `labdata store copy` stops and asks you to run this once:
 
 ```bash
