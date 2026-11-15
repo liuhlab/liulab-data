@@ -146,8 +146,8 @@ The file at the paper store root says what the job did last and where the papers
 - `last_copy_success` is when the last copy that worked started. The next copy sends what
   changed after it.
 
-The copy reads the changes from the `files` table, so it lists neither the paper folders nor
-the bucket. It leaves out `paper-status.json`, the lock file and the files a pass writes while
+The copy reads the changes from the `files` table, so it lists only the top level of the
+paper store and the bucket. It leaves out `paper-status.json`, the lock file and the files a pass writes while
 it runs.
 
 ## Check the copy

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 from pathlib import Path
@@ -11,7 +12,7 @@ from typer.testing import CliRunner
 
 from labdata.cli import app
 from labdata.papers import init_paper_store, open_paper_store, tables
-from labdata.papers.copy import copy
+from labdata.papers.copy import PaperCopyError, copy
 from tests._paper_fakes import fixture_build
 
 DEST = "gcs:bucket/datalake/paper-store"
@@ -56,14 +57,13 @@ def root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def hold(root: Path, paper: str, kind: str, tier: str, data: bytes = b"%PDF") -> str:
-    """Write one paper file and its ``files`` row; return its path."""
+    """Write one paper file and its ``files`` row, replacing any row it had; return its path."""
     path = f"papers/{paper}/{paper}.{kind}"
     (root / path).parent.mkdir(parents=True, exist_ok=True)
     (root / path).write_bytes(data)
-    rows = tables.read(root, tables.FILES)
-    rows.append(
-        {"paper": paper, "kind": kind, "name": f"{paper}.{kind}", "path": path, "tier": tier}
-    )
+    rows = [r for r in tables.read(root, tables.FILES) if r["path"] != path]
+    row = {"paper": paper, "kind": kind, "name": f"{paper}.{kind}", "path": path, "tier": tier}
+    rows.append({**row, "size": len(data), "md5": hashlib.md5(data).hexdigest()})
     tables.write(root, tables.FILES, rows)
     return path
 
@@ -129,9 +129,10 @@ def test_a_pdf_pmc_replaced_is_deleted_in_the_bucket_by_the_next_copy(
 
     copy(open_paper_store(root))
 
-    assert rclone.commands() == ["lsjson", "copy", "delete", "copy"]
+    # The tables go up before the PDF they dropped is deleted.
+    assert rclone.commands() == ["lsjson", "copy", "copy", "delete"]
     assert rclone.lists == [[xml], [pdf]]
-    assert rclone.calls[2][:3] == ["rclone", "delete", DEST]
+    assert rclone.calls[3][:4] == ["rclone", "delete", DEST, "--no-traverse"]
 
     rclone.calls.clear()
     rclone.lists.clear()
@@ -171,3 +172,24 @@ def test_with_no_earlier_copy_a_routine_copy_is_skipped_and_asks_for_full(
     assert "--full" in result.message
     assert rclone.calls == []
     assert status(root)["copy_pending"] is True
+
+
+def test_a_file_fetched_again_at_the_same_path_goes_up_again(root: Path, rclone: Rclone) -> None:
+    path = hold(root, "1", "pdf", "host")
+    full(root)
+    hold(root, "1", "pdf", "host", b"%PDF-1.7 newer")
+
+    copy(open_paper_store(root))
+
+    assert rclone.lists == [[path]]
+
+
+def test_a_missing_files_table_never_deletes_the_bucket(root: Path, rclone: Rclone) -> None:
+    hold(root, "1", "pdf", "host")
+    full(root)
+    rclone.calls.clear()
+    tables.FILES.path(root).unlink()
+
+    with pytest.raises(PaperCopyError, match="missing"):
+        copy(open_paper_store(root))
+    assert rclone.calls == []

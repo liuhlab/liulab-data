@@ -1,6 +1,6 @@
 """Copy the paper store to GCS: the changes since the last copy, or on request a full mirror.
 
-A routine copy lists neither the paper folders nor the bucket. It compares the ``files``
+A routine copy lists only the top level of the store and the bucket. It compares the ``files``
 table with :data:`COPIED`, the paths, MD5s, sizes and fetch dates the last successful copy
 sent: a new or changed row is uploaded by name, a path gone from the table is deleted in the
 bucket, and the small top-level files go up every time. With no :data:`COPIED`, a routine copy
@@ -144,7 +144,11 @@ def copy(store: PaperStore, to: str | None = None, *, full: bool = False) -> Cop
 
 
 def _held(root: Path) -> _Held:
-    return _signatures(FILES.path(root))
+    path = FILES.path(root)
+    if not path.is_file() and (root / COPIED).is_file():
+        # Read as empty, it would delete every copied file in the bucket.
+        raise PaperCopyError(f"{path} is missing; the copy would delete the bucket's papers")
+    return _signatures(path)
 
 
 def _copied(root: Path) -> _Held | None:
@@ -171,7 +175,7 @@ def _write_copied(root: Path, held: _Held) -> None:
 
 
 def _changes(root: Path, dest: str, held: _Held, copied: _Held) -> bool:
-    """Upload new and changed files by name, delete dropped ones, then copy the top level.
+    """Upload new and changed files by name, then the top level, then delete dropped files.
 
     Returns False when rclone's login has expired.
     """
@@ -183,10 +187,10 @@ def _changes(root: Path, dest: str, held: _Held, copied: _Held) -> bool:
     steps: list[tuple[list[str], list[str]]] = []
     if put:
         steps.append((["copy", str(root), dest, "--no-traverse"], put))
-    if gone:
-        steps.append((["delete", dest], gone))
-    # Tables last, so the bucket's tables never name a file it lacks.
+    # The tables go up after the files they name and before the files they dropped go.
     steps.append((["copy", str(root), dest, "--max-depth=1", *_LEFT_OUT], []))
+    if gone:
+        steps.append((["delete", dest, "--no-traverse"], gone))
     for args, paths in steps:
         with _file_list(root, paths) as listed:
             done = _run_rclone(["rclone", *args, *listed, *_rclone.PROGRESS])

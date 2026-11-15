@@ -6,8 +6,8 @@ search:
 # The paper copy sends changes, read from the files table
 
 The paper job's copy to GCS sends only what changed since the last copy that worked. It lists
-neither the paper folders nor the bucket, so its cost follows the day's changes, not the size
-of the store. The bucket now matches the store because each change was applied, not because a
+only the top level of the store and of the bucket, so its cost follows the day's changes, not
+the size of the store. The bucket now matches the store because each change was applied, not because a
 full comparison found no difference.
 
 The changes come from the `files` table. Every paper file the store holds has a `files` row
@@ -17,8 +17,8 @@ The next copy compares the table with it:
 
 - a path that is new, or whose MD5, size or fetch date changed, goes up by name, with
   `rclone copy --files-from-raw <list> --no-traverse`;
-- a path that has left the table is deleted in the bucket, with `rclone delete --files-from-raw`;
-- the small top-level files, the tables last, go up every time, listing only the top level.
+- the small top-level files, the tables among them, go up every time;
+- a path that has left the table is deleted in the bucket, with `rclone delete --files-from-raw`.
 
 A copy that fails or is skipped on an expired login leaves the saved file and
 `last_copy_success` in `paper-status.json` as they were, so the next copy sends everything since
