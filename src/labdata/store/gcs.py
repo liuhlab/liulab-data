@@ -6,9 +6,8 @@ manifest names them, with the README and manifest beside each, the marker and th
 
 A routine copy compares it with the copy record, :data:`COPIED`, the files the last successful
 copy sent with their sha256. A new or changed file goes up by name, as does every file with no
-sha256, which are few and small; then the marker; then the files the record names that the
-current state no longer holds are deleted in the bucket by name; then the record goes up, and
-onto the disk. A work disk without it fetches the bucket's. With neither, a routine copy seeds it
+sha256; then the marker; then the files the record names that the current state left are
+deleted in the bucket by name; then the record goes up, and onto the disk. A work disk without it fetches the bucket's. With neither, a routine copy seeds it
 from the build the bucket's marker names, when the bucket is known to hold exactly that build;
 otherwise it is skipped and asks for ``labdata store copy --full``, which uploads the current
 state and deletes nothing.
@@ -194,7 +193,7 @@ def _fetch(root: Path, dest: str, names: list[str]) -> dict[str, str] | None:
 def _seed(root: Path, marker: str | None) -> _Files | None:
     """Return the files of the build the bucket's ``marker`` names, if it is on the disk.
 
-    The bucket held exactly that build and what it read, as the copy that sent it mirrored.
+    The caller vouches that the bucket holds exactly that build and what it read.
     """
     build = tomllib.loads(marker).get(BUILD_KEY) if marker else None
     if not build or not manifest_path(build_path(root, str(build))).is_file():

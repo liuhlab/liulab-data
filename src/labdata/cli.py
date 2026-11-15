@@ -558,10 +558,13 @@ def store_copy(
     """Send the store's changes since the last copy to a bucket with rclone.
 
     It sends the current build and the raw files and snapshots it read, and deletes in the
-    bucket, by name, the files the last copy sent that the current build no longer reads.
-    Refused unless the current build is complete. When rclone's Google login has expired, or
-    no copy record exists, it skips with a message and exits 0. The status record marks the
-    copy pending until one succeeds.
+    bucket, by name, the files the last copy sent that the current build no longer reads. It
+    refuses, exiting 1, unless the current build is complete, or when it would delete more
+    than a small share of the copied raw files and more than --accept-deletes. With no copy
+    record, on the disk or in the bucket, it seeds one from the build the bucket's marker
+    names when the status record shows the bucket holds that build; otherwise, or when
+    rclone's Google login has expired, it skips with a message and exits 0. The status record
+    marks the copy pending until one succeeds.
     """
     from labdata.store import refresh
     from labdata.store.gcs import copy

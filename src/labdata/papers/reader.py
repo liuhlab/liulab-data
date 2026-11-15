@@ -281,7 +281,6 @@ class PaperReader:
         rest = dois - set(_by_doi(rows))
         path = tables.PAPERS.path(self.root)
         if rest and path.is_file():
-            # Few papers have other DOIs, so this reads few rows.
             aliased = pq.read_table(
                 path, schema=tables.PAPERS.schema, filters=pc.field("other_dois").is_valid()
             ).to_pylist()

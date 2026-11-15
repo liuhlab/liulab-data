@@ -193,10 +193,9 @@ links and the Paperpile folder. It ends by rewriting the manual queue.
 
 ### PMC sync
 
-The paper job's run against the PMC bucket, from the 3rd of each month and again whenever the
-current build differs from the one the last sync over all papers read: it adds papers newly
-linked by the current build, renews changed PMC files and paper details, and releases papers
-whose PMC wait has ended. The first PMC sync is the backfill.
+The paper job's monthly run against the PMC bucket, which a new build also starts: it adds
+papers newly linked by the current build, renews changed PMC files and paper details, and
+releases papers whose PMC wait has ended. The first PMC sync is the backfill.
 
 _Avoid_: PMC refresh
 
@@ -206,10 +205,9 @@ The papers in manual status, newest first, handed to the maintainer to save in P
 
 ### Copy record
 
-A hidden file at a store's root, and at the same path in its GCS copy: the files the bucket
-holds, as the last successful copy left them. The paper store's is `.copied-files.parquet`, the
-GEO/SRA store's `.copied-files.json`. A routine copy sends the difference between the store's
-own list of what it holds and it, then sends it last. That list is the `files` table for the
-paper store and the current build's manifest for the GEO/SRA store.
+A store's list of what its GCS copy holds, as the last successful copy left it, kept in the
+store and in the bucket. A routine copy compares it with what the store holds now, so it sends
+only the changes and deletes in the bucket only what left the store, never what the work disk
+lacks.
 
 _Avoid_: record (alone), which reads as a store record or the status record
