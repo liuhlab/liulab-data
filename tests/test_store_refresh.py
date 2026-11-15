@@ -34,6 +34,7 @@ from labdata.ncbi.entrez import EntrezClient
 from labdata.store import geo_lane, init_store, open_store, pipeline, raw, refresh
 from labdata.store.fetch import soft_url
 from tests._scripts import compare
+from tests._slices import copy_store
 from tests._snakemake import Runner
 from tests.test_store_refresh_fetch import Ncbi, _Reply
 
@@ -377,10 +378,24 @@ def test_a_refresh_an_older_dag_opened_is_left_and_a_new_one_starts(
 # ---------------------------------------------------------------- a fixture refresh
 
 
+@pytest.fixture(scope="module")
+def full_run(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The store :func:`_built` makes, built once for the module; tests take copies."""
+    tmp = tmp_path_factory.mktemp("full-run")
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("XDG_CACHE_HOME", str(tmp / "cache"))
+        patch.delenv("LABDATA_STORE", raising=False)
+        patch.setattr(entrez_mod.time, "sleep", lambda _s: None)
+        patch.setattr(geo_lane, "_sleep", lambda _s: None)
+        return _built(tmp / "store", patch, _ncbi())
+
+
 @pytest.fixture
-def built(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, _Geo]:
+def built(full_run: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, _Geo]:
+    """A copy of :func:`full_run`, and NCBI as at its build, which the CLI asks."""
     ncbi = _ncbi()
-    return _built(tmp_path / "store", monkeypatch, ncbi), ncbi
+    _use(monkeypatch, ncbi)
+    return copy_store(full_run, tmp_path / "store"), ncbi
 
 
 def test_a_refresh_adds_replaces_removes_and_switches_while_an_open_store_keeps_its_build(
@@ -418,14 +433,38 @@ def test_a_refresh_adds_replaces_removes_and_switches_while_an_open_store_keeps_
     assert status["copy_pending"] is False
 
 
-# Builds two stores and refreshes three times: the slow lane, like the next test.
+def test_a_refresh_killed_after_pack_reruns_only_the_later_steps_and_asks_ncbi_nothing(
+    built: tuple[Path, _Geo], monkeypatch: pytest.MonkeyPatch, snakemake: Runner
+) -> None:
+    root, ncbi = built
+    _change(ncbi)
+    _executor(monkeypatch, snakemake, stop_after="pack")
+    result = CliRunner().invoke(app, ["store", "refresh", "--root", str(root), "--cores", "1"])
+    assert result.exit_code == 1
+    assert refresh.read_status(root)["outcome"] == "failed"
+    assert open_store(root).settings["build"] == "b1"
+    ncbi.fetched.clear()
+    ncbi.terms.clear()
+    _, ran = _executor(monkeypatch, snakemake)
+
+    _refresh(root)
+
+    assert ran == ["build", "status", "prune", "copy", "all"]
+    assert ncbi.fetched == []
+    assert ncbi.terms == []
+    assert "(revised)" in open_store(root).raw([CHANGED])[CHANGED].text
+    status = refresh.read_status(root)
+    assert status["outcome"] == "succeeded"
+    assert status["counts"][raw.GEO_SOFT] == {"added": 1, "replaced": 1, "removed": 1}
+
+
 @pytest.mark.slow
 def test_a_refresh_killed_after_pack_and_rerun_gives_the_uninterrupted_build(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, snakemake: Runner
+    full_run: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, snakemake: Runner
 ) -> None:
     whole_ncbi, cut_ncbi = _ncbi(), _ncbi()
-    whole = _built(tmp_path / "whole", monkeypatch, whole_ncbi)
-    cut = _built(tmp_path / "cut", monkeypatch, cut_ncbi)
+    whole = copy_store(full_run, tmp_path / "whole")
+    cut = copy_store(full_run, tmp_path / "cut")
     for ncbi in (whole_ncbi, cut_ncbi):
         _change(ncbi)
     _use(monkeypatch, whole_ncbi)
@@ -452,6 +491,34 @@ def test_a_refresh_killed_after_pack_and_rerun_gives_the_uninterrupted_build(
     status = refresh.read_status(cut)
     assert status["outcome"] == "succeeded"
     assert status["counts"] == refresh.read_status(whole)["counts"]
+
+
+def test_a_refresh_after_a_success_searches_from_that_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "store"
+    init_store(root)
+    done = {
+        "started": "2026-11-01T02:00:00Z",
+        "outcome": "succeeded",
+        "folder": "work/refresh/2026-11-01T020000Z",
+        "since": _OLD,
+        "last_success": "2026-11-01",
+        "dag": refresh.DAG,
+    }
+    refresh.write_status(root, done)
+    seen: list[str] = []
+
+    def fake(argv: list[str], *, verbose: bool) -> int:
+        seen.append(json.loads(Path(argv[argv.index("--configfile") + 1]).read_text())["since"])
+        return 0
+
+    monkeypatch.setattr(pipeline, "_run_snakemake", fake)
+    _refresh(root)
+
+    # `_changes` searches from this date less the overlap.
+    assert seen == ["2026-11-01"]
+    assert refresh.read_status(root)["last_success"] == "2026-11-01"
 
 
 @pytest.mark.slow

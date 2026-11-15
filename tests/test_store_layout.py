@@ -123,7 +123,11 @@ _SMALL_GROUP = 3
 @pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")
 @pytest.mark.parametrize("workers", [1, pytest.param(2, marks=pytest.mark.slow)])
 def test_two_builds_under_different_memory_have_the_same_layout(
-    built_store: BuiltStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, workers: int
+    built_store: BuiltStore,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    workers: int,
 ) -> None:
     root = built_store(tmp_path / "store", "geo_slice")
     write = layout.write
@@ -137,7 +141,11 @@ def test_two_builds_under_different_memory_have_the_same_layout(
     build(root, "roomy", workers=workers)
     monkeypatch.setenv("LABDATA_DUCKDB_MEMORY", "256MB")
     monkeypatch.setattr(build_module, "_range_bytes", lambda con: 1 << 14)
-    build(root, "small", workers=workers)
+    with caplog.at_level("INFO", logger=build_module.__name__):
+        build(root, "small", workers=workers)
+    assert any(
+        m.startswith("wrote ") and not m.endswith(" 1 accession ranges") for m in caplog.messages
+    )
     roomy = _layout(root / "builds" / "roomy")
     assert max(len(groups) for _, _, groups in roomy.values()) > 1  # type: ignore[arg-type]
     assert _layout(root / "builds" / "small") == roomy

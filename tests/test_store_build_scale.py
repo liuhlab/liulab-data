@@ -170,7 +170,9 @@ def test_four_times_the_raw_text_leaves_the_peak_memory_nearly_the_same(tmp_path
     padding, chunk = 4000, 1 << 15
     small = _peak(_padded_store(tmp_path / "small", 100, padding, 100), chunk)
     large = _peak(_padded_store(tmp_path / "large", 400, padding, 100), chunk)
-    assert large - small < 300 * padding / 4
+    # A build that held the raw text would peak higher by all the text the large store adds.
+    added = 300 * padding
+    assert large - small < added / 4
 
 
 @pytest.mark.slow
