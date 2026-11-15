@@ -115,8 +115,8 @@ _Avoid_: refresh (one step of a monthly maintenance run, not the whole of it)
 
 ### Maintenance log
 
-The file in the repository with one entry per maintenance run: its date, period, build, each
-check's outcome and its time against budget.
+The file in the repository with one entry per maintenance run: its date, period, build, the
+commit it ran, each check's outcome and its time against budget.
 
 _Avoid_: status record (the refresh's own file in the store root)
 
