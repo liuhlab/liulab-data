@@ -5,10 +5,14 @@ search:
 
 # The paper copy sends changes, read from the files table
 
+Amended by [ADR 0011](0011-gcs-holds-the-paper-store.md): the saved file, the copy record,
+also goes to the bucket, a work disk without it fetches it from there, and no copy deletes by
+mirroring.
+
 The paper job's copy to GCS sends only what changed since the last copy that worked. It lists
 only the top level of the store and of the bucket, so its cost follows the day's changes, not
-the size of the store. The bucket now matches the store because each change was applied, not because a
-full comparison found no difference.
+the size of the store. The bucket now matches the store because each change was applied, not
+because a full comparison found no difference.
 
 The changes come from the `files` table. Every paper file the store holds has a `files` row
 with its path, MD5 and size, and the table has one writer. A successful copy saves the held
@@ -23,10 +27,6 @@ The next copy compares the table with it:
 A copy that fails or is skipped on an expired login leaves the saved file and
 `last_copy_success` in `paper-status.json` as they were, so the next copy sends everything since
 the last success.
-
-With no saved file, a routine copy does nothing, sets `copy_pending` and asks for
-`labdata papers copy --full`. That full mirror, the old copy, lists both sides; it writes the
-saved file when it ends. The paper job never runs it.
 
 ## Considered options
 
@@ -45,5 +45,4 @@ saved file when it ends. The paper job never runs it.
 - A paper file without a `files` row would never be copied. Every tier writes a row for each
   file it holds.
 - A change made to the bucket by hand is not seen. `rclone check` finds it, and
-  `labdata papers copy --full` repairs it.
-- A top-level file deleted from the store stays in the bucket until a full copy.
+  `labdata papers copy --full` restores a missing or changed file.

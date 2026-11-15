@@ -191,3 +191,11 @@ _Avoid_: PMC refresh
 ### Manual queue
 
 The papers in manual status, newest first, handed to the maintainer to save in Paperpile.
+
+### Copy record
+
+`.copied-files.parquet`, at the paper store root and at the same path in its GCS copy: the
+`files` rows the bucket holds, as the last successful copy left them. A routine copy sends the
+difference between the `files` table and it, then sends it last.
+
+_Avoid_: record (alone), which reads as a store record or the status record
