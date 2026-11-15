@@ -27,6 +27,7 @@ def _files(root: Path) -> set[str]:
     return {p.relative_to(root).as_posix() for p in root.rglob("*")}
 
 
+@pytest.mark.slow
 def test_it_reports_each_query_and_each_table_and_writes_nothing_in_the_store(
     tmp_path: Path,
 ) -> None:
@@ -88,6 +89,7 @@ def test_it_reports_each_query_and_each_table_and_writes_nothing_in_the_store(
     assert _files(root) == before
 
 
+@pytest.mark.slow
 def test_a_query_over_its_limit_fails_the_run_naming_the_query(tmp_path: Path) -> None:
     root = built_root(tmp_path / "store", "geo_slice")
     limits = tmp_path / "limits.json"

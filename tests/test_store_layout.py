@@ -119,6 +119,7 @@ _SMALL_GROUP = 3
 
 # Ray leaves a log file handle open at shutdown.
 @pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")
+@pytest.mark.slow
 def test_two_builds_under_different_memory_have_the_same_layout(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

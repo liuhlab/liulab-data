@@ -86,6 +86,7 @@ def test_tables_equal_those_of_the_stage_1_builder(tmp_path: Path, slice_name: s
 
 # Ray leaves a log file handle open at shutdown.
 @pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")
+@pytest.mark.slow
 def test_parsing_on_two_workers_gives_the_same_tables(tmp_path: Path) -> None:
     root = built_root(tmp_path / "store", "geo_slice")
     build(root, "b2", workers=2)
@@ -94,6 +95,7 @@ def test_parsing_on_two_workers_gives_the_same_tables(tmp_path: Path) -> None:
 
 # Ray leaves a log file handle open at shutdown.
 @pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")
+@pytest.mark.slow
 def test_records_written_in_accession_ranges_equal_one_pass(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -146,6 +148,7 @@ def test_peak_memory_is_bounded_by_the_chunk_not_the_store(tmp_path: Path) -> No
     )
 
 
+@pytest.mark.slow
 def test_text_that_expands_many_times_writes_under_a_small_cap_on_many_threads(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

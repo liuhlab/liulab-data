@@ -420,6 +420,7 @@ def test_a_refresh_adds_replaces_removes_and_switches_while_an_open_store_keeps_
     assert status["copy_pending"] is False
 
 
+@pytest.mark.slow
 def test_a_refresh_killed_after_pack_and_rerun_gives_the_uninterrupted_build(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -454,6 +455,7 @@ def test_a_refresh_killed_after_pack_and_rerun_gives_the_uninterrupted_build(
     assert status["counts"] == refresh.read_status(whole)["counts"]
 
 
+@pytest.mark.slow
 def test_a_second_refresh_asks_only_for_the_overlap_window(
     built: tuple[Path, _Geo], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

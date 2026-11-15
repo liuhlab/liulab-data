@@ -129,6 +129,7 @@ def test_a_part_already_written_is_skipped_and_a_rerun_finishes(
 
 # Ray leaves a log file handle open at shutdown.
 @pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")
+@pytest.mark.slow
 def test_ray_with_two_workers_gives_the_same_parts(tmp_path: Path) -> None:
     root = _root(tmp_path)
     out = extract.extract(root, "biosample", workers=2, part_bytes=2000)

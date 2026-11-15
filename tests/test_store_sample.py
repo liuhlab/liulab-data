@@ -192,6 +192,7 @@ def test_a_scratch_root_takes_samples_of_one_store_only(source: Path, tmp_path: 
     assert open_store(scratch).settings["build"] == "s2"
 
 
+@pytest.mark.slow
 def test_the_cli_builds_a_sample_and_the_benchmark_runs_on_it(source: Path, tmp_path: Path) -> None:
     scratch = tmp_path / "scratch"
     result = CliRunner().invoke(
