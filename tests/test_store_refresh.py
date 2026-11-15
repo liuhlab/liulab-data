@@ -33,8 +33,8 @@ from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
 from labdata.store import geo_lane, init_store, open_store, pipeline, raw, refresh
 from labdata.store.fetch import soft_url
-from tests import _snakemake
 from tests._scripts import compare
+from tests._snakemake import Runner
 from tests.test_store_refresh_fetch import Ncbi, _Reply
 
 _DATA = Path(__file__).parent / "data" / "geo_slice"
@@ -145,9 +145,9 @@ def _built(root: Path, monkeypatch: pytest.MonkeyPatch, ncbi: Ncbi) -> Path:
     return root
 
 
-def _jobs(argv: list[str]) -> list[tuple[str, list[str], list[str], str]]:
+def _jobs(snakemake: Runner, argv: list[str]) -> list[tuple[str, list[str], list[str], str]]:
     """Return the jobs Snakemake's dry run plans: rule, inputs, outputs and shell command."""
-    done = _snakemake.run([*argv, "--dry-run"])
+    done = snakemake([*argv, "--dry-run"])
     done.check_returncode()
     jobs = []
     for block in done.stdout.split("\nrule ")[1:]:
@@ -174,7 +174,7 @@ def _step_log(rule: str, result: Result) -> str:
 
 
 def _executor(
-    monkeypatch: pytest.MonkeyPatch, *, stop_after: str | None = None
+    monkeypatch: pytest.MonkeyPatch, snakemake: Runner, *, stop_after: str | None = None
 ) -> tuple[Callable[..., int], list[str]]:
     """A stand-in for the Snakemake seam that runs the planned steps here, in DAG order.
 
@@ -185,7 +185,7 @@ def _executor(
     def run(argv: list[str], *, verbose: bool) -> int:
         work = Path(argv[argv.index("--directory") + 1])
         config = json.loads(Path(argv[argv.index("--configfile") + 1]).read_text())
-        todo = _jobs(argv)
+        todo = _jobs(snakemake, argv)
         cwd = Path.cwd()
         os.chdir(work)
         try:
@@ -245,7 +245,7 @@ def _same_build(one: Path, two: Path) -> None:
 
 
 def test_refresh_hands_snakemake_the_refresh_dag_in_step_order(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, snakemake: Runner
 ) -> None:
     monkeypatch.setenv("SLURM_MEM_PER_NODE", "100000")
     root = tmp_path / "store"
@@ -254,7 +254,7 @@ def test_refresh_hands_snakemake_the_refresh_dag_in_step_order(
 
     def fake(argv: list[str], *, verbose: bool) -> int:
         seen["argv"] = argv
-        seen["jobs"] = _jobs(argv)
+        seen["jobs"] = _jobs(snakemake, argv)
         return 0
 
     monkeypatch.setattr(pipeline, "_run_snakemake", fake)
@@ -384,13 +384,13 @@ def built(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, _Geo]:
 
 
 def test_a_refresh_adds_replaces_removes_and_switches_while_an_open_store_keeps_its_build(
-    built: tuple[Path, _Geo], monkeypatch: pytest.MonkeyPatch
+    built: tuple[Path, _Geo], monkeypatch: pytest.MonkeyPatch, snakemake: Runner
 ) -> None:
     root, ncbi = built
     before = open_store(root)
     assert "(revised)" not in before.raw([CHANGED])[CHANGED].text
     _change(ncbi)
-    _, ran = _executor(monkeypatch)
+    _, ran = _executor(monkeypatch, snakemake)
 
     said = _refresh(root)
 
@@ -421,7 +421,7 @@ def test_a_refresh_adds_replaces_removes_and_switches_while_an_open_store_keeps_
 # Builds two stores and refreshes three times: the slow lane, like the next test.
 @pytest.mark.slow
 def test_a_refresh_killed_after_pack_and_rerun_gives_the_uninterrupted_build(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, snakemake: Runner
 ) -> None:
     whole_ncbi, cut_ncbi = _ncbi(), _ncbi()
     whole = _built(tmp_path / "whole", monkeypatch, whole_ncbi)
@@ -429,18 +429,18 @@ def test_a_refresh_killed_after_pack_and_rerun_gives_the_uninterrupted_build(
     for ncbi in (whole_ncbi, cut_ncbi):
         _change(ncbi)
     _use(monkeypatch, whole_ncbi)
-    _executor(monkeypatch)
+    _executor(monkeypatch, snakemake)
     _refresh(whole)
 
     _use(monkeypatch, cut_ncbi)
-    _executor(monkeypatch, stop_after="pack")
+    _executor(monkeypatch, snakemake, stop_after="pack")
     result = CliRunner().invoke(app, ["store", "refresh", "--root", str(cut), "--cores", "1"])
     assert result.exit_code == 1
     assert refresh.read_status(cut)["outcome"] == "failed"
     assert open_store(cut).settings["build"] == "b1"
     cut_ncbi.fetched.clear()
     cut_ncbi.terms.clear()
-    _, ran = _executor(monkeypatch)
+    _, ran = _executor(monkeypatch, snakemake)
     _refresh(cut)
 
     assert ran == ["build", "status", "prune", "copy", "all"]
@@ -456,11 +456,11 @@ def test_a_refresh_killed_after_pack_and_rerun_gives_the_uninterrupted_build(
 
 @pytest.mark.slow
 def test_a_second_refresh_asks_only_for_the_overlap_window(
-    built: tuple[Path, _Geo], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    built: tuple[Path, _Geo], monkeypatch: pytest.MonkeyPatch, snakemake: Runner
 ) -> None:
     root, ncbi = built
     _change(ncbi)
-    _executor(monkeypatch)
+    _executor(monkeypatch, snakemake)
     _refresh(root)
     first = _current(root)
     ncbi.updated = []
@@ -478,7 +478,7 @@ def test_a_second_refresh_asks_only_for_the_overlap_window(
 
 
 def test_an_expired_login_leaves_the_copy_pending_and_a_later_copy_clears_it(
-    built: tuple[Path, _Geo], monkeypatch: pytest.MonkeyPatch
+    built: tuple[Path, _Geo], monkeypatch: pytest.MonkeyPatch, snakemake: Runner
 ) -> None:
     root, ncbi = built
     marker = root / "labdata-store.toml"
@@ -491,7 +491,7 @@ def test_an_expired_login_leaves_the_copy_pending_and_a_later_copy_clears_it(
 
     monkeypatch.setattr("labdata.store.gcs._run_rclone", expired)
     _change(ncbi)
-    _executor(monkeypatch)
+    _executor(monkeypatch, snakemake)
     # The bucket mirrors the build the refresh leaves, and has no copy record yet.
     bucket = {"labdata-store.toml": marker.read_bytes()}
     old = _current(root).name
@@ -548,7 +548,7 @@ def test_an_accession_only_a_pending_removal_lists_is_fetched_again(
 
 
 def test_a_refresh_removes_no_sra_record_ncbi_no_longer_serves(
-    built: tuple[Path, _Geo], monkeypatch: pytest.MonkeyPatch
+    built: tuple[Path, _Geo], monkeypatch: pytest.MonkeyPatch, snakemake: Runner
 ) -> None:
     root, ncbi = built
     held = _held(root, raw.SRA_XML)
@@ -564,7 +564,7 @@ def test_a_refresh_removes_no_sra_record_ncbi_no_longer_serves(
         tab.write_text(tab.read_text(encoding="utf-8") + row + "\n", encoding="utf-8")
 
     monkeypatch.setattr(sys.modules[__name__], "_renew", renew_suppressing)
-    _executor(monkeypatch)
+    _executor(monkeypatch, snakemake)
 
     _refresh(root)
 

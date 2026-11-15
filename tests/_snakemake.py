@@ -1,16 +1,20 @@
 """Snakemake's command line, run from one server process that imports Snakemake once.
 
-Each run is a fork of the server, with the caller's environment and folder, so it starts as a
-fresh ``snakemake`` process would, less starting Python and importing Snakemake.
+Each run is a fork of the server, given the caller's environment and folder. It starts as a
+fresh ``snakemake`` process would, less starting Python and importing Snakemake, with one
+difference: a module the server imported read the environment when the server started.
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
+import signal
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 
 _SERVER = """
@@ -47,47 +51,102 @@ for line in sys.stdin:
     print(os.waitstatus_to_exitcode(status), flush=True)
 """
 
+#: The ``snakemake`` fixture: :func:`run`.
+Runner = Callable[[list[str]], subprocess.CompletedProcess[str]]
+#: Seconds :func:`stop` waits for the server to exit before it kills it.
+STOP_WAIT = 5
+
 _server: subprocess.Popen[str] | None = None
+_ready = False
 
 
-def start() -> subprocess.Popen[str]:
-    """Start the server, if it has not started, and wait until it has imported Snakemake."""
-    global _server
+def start() -> None:
+    """Start the server, if it has not started; :func:`ready` waits for its imports."""
+    global _server, _ready
     if _server is None:
+        # Its own process group, so a kill reaches a run it has forked too.
         _server = subprocess.Popen(
             [sys.executable, "-c", _SERVER],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             text=True,
+            start_new_session=True,
         )
-        assert _server.stdout is not None
-        assert _server.stdout.readline() == "ready\n"
-    return _server
+        _ready = False
+
+
+def ready() -> None:
+    """Start the server, if it has not started, and wait until it has imported Snakemake."""
+    global _ready
+    start()
+    if _ready:
+        return
+    assert _server is not None
+    assert _server.stdout is not None
+    try:
+        line = _server.stdout.readline()
+    except BaseException:
+        _kill()
+        raise
+    if line != "ready\n":
+        _kill()
+        raise RuntimeError(f"the Snakemake server stopped before it was ready: {line!r}")
+    _ready = True
 
 
 def run(argv: list[str]) -> subprocess.CompletedProcess[str]:
-    """Run ``snakemake argv``; return its exit code and output, as ``subprocess.run`` would."""
-    server = start()
-    assert server.stdin is not None
-    assert server.stdout is not None
+    """Run ``snakemake argv``; return its exit code and output, as ``subprocess.run`` would.
+
+    A run cut off part-way, by a timeout or any other error, kills the server: the next run
+    starts a new one, and never reads the reply this one left unread.
+    """
+    ready()
+    assert _server is not None
+    assert _server.stdin is not None
+    assert _server.stdout is not None
     with tempfile.TemporaryDirectory() as tmp:
         out, err = Path(tmp) / "stdout", Path(tmp) / "stderr"
         request = [argv, dict(os.environ), str(Path.cwd()), str(out), str(err)]
-        server.stdin.write(json.dumps(request) + "\n")
-        server.stdin.flush()
-        code = int(server.stdout.readline())
+        try:
+            _server.stdin.write(json.dumps(request) + "\n")
+            _server.stdin.flush()
+            code = int(_server.stdout.readline())
+        except BaseException:
+            _kill()
+            raise
         return subprocess.CompletedProcess(
             ["snakemake", *argv], code, out.read_text(), err.read_text()
         )
 
 
-def stop() -> None:
-    """Stop the server, if one started."""
-    global _server
+def _kill() -> None:
+    """Kill the server and any run it forked, and forget them."""
     if _server is not None:
-        assert _server.stdin is not None
-        assert _server.stdout is not None
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(_server.pid, signal.SIGKILL)
+        _forget()
+
+
+def _forget() -> None:
+    global _server, _ready
+    assert _server is not None
+    _server.wait()
+    for pipe in (_server.stdin, _server.stdout):
+        if pipe is not None:
+            with contextlib.suppress(OSError):
+                pipe.close()
+    _server, _ready = None, False
+
+
+def stop() -> None:
+    """Stop the server, if one started: close its input, wait a little, then kill it."""
+    if _server is None:
+        return
+    assert _server.stdin is not None
+    try:
         _server.stdin.close()
-        _server.wait()
-        _server.stdout.close()
-        _server = None
+        _server.wait(STOP_WAIT)
+    except (OSError, subprocess.TimeoutExpired):
+        _kill()
+        return
+    _forget()

@@ -17,7 +17,7 @@ from labdata.cli import app
 from labdata.exceptions import StoreBuildError
 from labdata.store import extract, snapshots
 from labdata.store.build import build
-from tests.conftest import Decompressor as _Decompressor
+from tests._slices import Decompressor as _Decompressor
 
 _DATA = Path(__file__).parent / "data"
 _SLICES = ["prjna1027859", "geo_slice", "sra_slice"]

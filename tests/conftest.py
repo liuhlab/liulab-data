@@ -7,19 +7,13 @@ seeded with canned responses — and never touch the network.
 
 from __future__ import annotations
 
-import compileall
-import gzip
+import contextlib
 import importlib
-import importlib.util
-import re
-from collections.abc import Callable, Iterator
-from importlib import metadata
-from pathlib import Path
+from collections.abc import Callable, Generator
 from typing import Any
 
 import pytest
 
-from labdata.store import extract
 from tests import _geodata as g
 from tests import _slices, _snakemake
 from tests._fakes import FakeEntrezClient
@@ -28,83 +22,39 @@ from tests._fakes import FakeEntrezClient
 for _heavy in ("duckdb", "pandas", "pyarrow.parquet", "typer.rich_utils"):
     importlib.import_module(_heavy)
 
-
-def _compile(name: str) -> None:
-    """Compile a distribution and every one it requires, as a fresh environment lacks bytecode.
-
-    The tests that start a Snakemake process would otherwise pay for it inside their time limit.
-    """
-    seen: set[str] = set()
-    todo = [name]
-    while todo:
-        key = re.sub(r"[-_.]+", "-", todo.pop()).lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        try:
-            dist = metadata.distribution(key)
-        except metadata.PackageNotFoundError:
-            continue
-        requires = [r for r in dist.requires or [] if "extra ==" not in r]
-        todo += [re.split(r"[^A-Za-z0-9_.-]", r, maxsplit=1)[0] for r in requires]
-        for file in dist.files or []:
-            if file.suffix == ".py":
-                compileall.compile_file(Path(str(dist.locate_file(file))), quiet=2)
-
-
-if not Path(
-    importlib.util.cache_from_source(
-        str(metadata.distribution("snakemake").locate_file("snakemake/cli.py"))
-    )
-).is_file():
-    _compile("snakemake")
+#: Each setup tests share, by the fixture that hands it out: how it starts, and the wait for it.
+_SHARED: dict[str, tuple[Callable[[], None], Callable[[], None]]] = {
+    "built_store": (_slices.start_prebuild, _slices.prebuild),
+    "snakemake": (_snakemake.start, _snakemake.ready),
+}
 
 
 @pytest.fixture(autouse=True, scope="session")
-def _serial_workers() -> Iterator[None]:
-    """Default every parallel step to one worker, so no test starts Ray unasked."""
+def _test_defaults() -> Generator[None]:
+    """Run every test under :func:`tests._slices.defaults`."""
     with pytest.MonkeyPatch.context() as patch:
-        patch.setenv("SLURM_CPUS_ON_NODE", "1")
+        _slices.defaults(patch)
         yield
 
 
-class Decompressor:
-    """Stands in for rapidgzip or pigz: a gzip file's bytes on ``stdout``, then ``code``."""
-
-    def __init__(self, command: list[str], code: int = 0) -> None:
-        self.stdout = gzip.open(command[-1], "rb")  # noqa: SIM115 - the caller closes the pipe
-        self._code = code
-
-    def kill(self) -> None:
-        pass
-
-    def wait(self) -> int:
-        return self._code
-
-
-@pytest.fixture(autouse=True)
-def _no_decompressor_binaries(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Decompress snapshots in Python at the extract's subprocess seam."""
-    monkeypatch.setattr(extract, "_popen", Decompressor)
-
-
-def _prebuild() -> None:
-    """Build every thin slice once, under the test defaults no fixture has set yet."""
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setenv("SLURM_CPUS_ON_NODE", "1")
-        patch.setattr(extract, "_popen", Decompressor)
-        _slices.prebuild()
-
-
 def pytest_collection_finish(session: pytest.Session) -> None:
-    """Build the slices, and start the Snakemake server, when a selected test needs them.
+    """Start each shared setup a selected test needs, in its own process, beside the tests."""
+    for name, (start, _) in _SHARED.items():
+        if any(name in getattr(item, "fixturenames", ()) for item in session.items):
+            start()
 
-    A shared fixture's setup counts toward the time limit of the first test that uses it.
+
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_runtest_protocol(item: pytest.Item) -> Generator[None, object, object]:
+    """Wait for the shared setups a test needs before its time limit starts: not its cost.
+
+    A setup that fails here fails again in its fixture, as the test's error.
     """
-    if any("built_store" in getattr(item, "fixturenames", ()) for item in session.items):
-        _prebuild()
-    if any(hasattr(getattr(item, "module", None), "_snakemake") for item in session.items):
-        _snakemake.start()
+    for name, (_, wait) in _SHARED.items():
+        if name in getattr(item, "fixturenames", ()):
+            with contextlib.suppress(Exception):
+                wait()
+    return (yield)
 
 
 def pytest_sessionfinish() -> None:
@@ -114,14 +64,21 @@ def pytest_sessionfinish() -> None:
 
 
 @pytest.fixture(scope="session")
-def built_store() -> Callable[[Path, str], Path]:
+def built_store() -> _slices.BuiltStore:
     """Return ``copy(path, slice_name)``: the store :func:`tests._slices.built_root` makes.
 
     Each slice is fetched and built once a session; every call copies it, so a test may
     change its copy.
     """
-    _prebuild()
+    _slices.prebuild()
     return _slices.copy_built
+
+
+@pytest.fixture(scope="session")
+def snakemake() -> _snakemake.Runner:
+    """Return :func:`tests._snakemake.run`: ``snakemake argv`` from a server started once."""
+    _snakemake.ready()
+    return _snakemake.run
 
 
 @pytest.fixture
