@@ -17,6 +17,8 @@ import pytest
 import typer.main
 import typer.testing
 
+from labdata._http import RateLimiter
+from labdata.papers import pubmed
 from tests import _geodata as g
 from tests import _slices, _snakemake
 from tests._fakes import FakeEntrezClient
@@ -43,6 +45,16 @@ def _test_defaults() -> Generator[None]:
         _slices.defaults(patch)
         patch.setattr(typer.testing, "_get_command", functools.cache(typer.main.get_command))
         yield
+
+
+@pytest.fixture(autouse=True)
+def _own_id_converter_pace(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Give each test a fast PMC ID converter pace of its own.
+
+    The process shares one pace of three calls a second, so a test's first call would wait
+    for the last test's.
+    """
+    monkeypatch.setattr(pubmed, "IDCONV_LIMITER", RateLimiter(1000.0, 1))
 
 
 def pytest_collection_finish(session: pytest.Session) -> None:
