@@ -73,7 +73,7 @@ SCHEMA = pa.schema(
     ]
 )
 _ACCESSION = re.compile(r"^([A-Z]+)(\d+)$")
-#: Digits of the write stamp in a part's name, ``<bucket>.<stamp>.<rest>``.
+#: Digits of the write stamp in a part's name, ``<bucket>.<stamp>.<tag>.parquet``.
 _STAMP_DIGITS = 20
 _last_stamp = 0
 _stamp_lock = threading.Lock()
@@ -127,36 +127,50 @@ def parts_dir(root: Path, source: str) -> Path:
 
 
 def part_files(root: Path, source: str) -> list[Path]:
-    """Return a source's finished part files, oldest first, by the stamp in their names.
+    """Return a source's finished part files, oldest first.
 
-    Not by mtime: Linux gives files written within one clock tick the same mtime. A part
-    with no stamp sorts by its mtime.
+    Oldest is by the stamp in the name, and a part without one by its mtime. Across
+    processes, the order follows each writer's clock.
     """
     folder = parts_dir(root, source)
     if not folder.is_dir():
         return []
     files = [p for p in folder.glob("*.parquet") if not p.name.startswith(".")]
-    return sorted(files, key=lambda p: (_written(p), p.name))
+    return sorted(files, key=_order_key)
 
 
-def _written(path: Path) -> int:
-    stamp = path.name.split(".")[1]
-    if len(stamp) == _STAMP_DIGITS and stamp.isdigit():
-        return int(stamp)
-    return path.stat().st_mtime_ns
+def _order_key(path: Path) -> tuple[int, str]:
+    stamp = _name_fields(path)[1]
+    return (path.stat().st_mtime_ns if stamp is None else stamp, path.name)
 
 
-def _stamp() -> int:
-    """Return the time in nanoseconds, later than every stamp this process gave before."""
-    global _last_stamp
-    with _stamp_lock:
-        _last_stamp = max(time.time_ns(), _last_stamp + 1)
-        return _last_stamp
+def part_name(bucket: str, tag: str, stamp: int | None = None) -> str:
+    """Return a part's file name, ``<bucket>.<stamp>.<tag>.parquet``.
+
+    With no stamp it is ``<bucket>.<tag>.parquet``, and the part sorts by its mtime.
+    """
+    if stamp is None:
+        return f"{bucket}.{tag}.parquet"
+    return f"{bucket}.{stamp:0{_STAMP_DIGITS}d}.{tag}.parquet"
+
+
+def _name_fields(path: Path) -> tuple[str, int | None, str]:
+    """Return a part name's bucket, stamp (None when it has none) and tag."""
+    bucket, _, rest = path.name.removesuffix(".parquet").partition(".")
+    stamp, dot, tag = rest.partition(".")
+    if dot and len(stamp) == _STAMP_DIGITS and stamp.isdigit():
+        return bucket, int(stamp), tag
+    return bucket, None, rest
+
+
+def _parts_of(folder: Path, bucket: str, tag: str) -> list[Path]:
+    """Return the parts of one bucket and tag, stamped or not."""
+    return [p for p in folder.glob(f"{bucket}.*{tag}.parquet") if _name_fields(p)[2] == tag]
 
 
 def part_bucket(path: Path) -> str:
     """Return the bucket a part file belongs to (its name up to the first dot)."""
-    return path.name.split(".", 1)[0]
+    return _name_fields(path)[0]
 
 
 def pieces(
@@ -304,14 +318,13 @@ def write_removals(root: Path, source: str, accessions: Iterable[str]) -> list[P
     written = []
     for bucket, members in sorted(by_bucket.items()):
         listed = "\n".join(sorted(members))
-        tag = hashlib.sha256(listed.encode()).hexdigest()[:12]
+        tag = f"removed-{hashlib.sha256(listed.encode()).hexdigest()[:12]}"
         folder.mkdir(parents=True, exist_ok=True)
-        if kept := next(folder.glob(f"{bucket}.*removed-{tag}.parquet"), None):
-            written.append(kept)
+        if kept := _parts_of(folder, bucket, tag):
+            written += kept
             continue
-        path = folder / f"{bucket}.removed-{tag}.parquet"
         schema = SCHEMA.with_metadata({REMOVED_KEY: listed.encode()})
-        written.append(write_sorted_runs(path, [], schema, stamped=True))
+        written.append(_write_part_file(folder, bucket, tag, [], schema))
     return written
 
 
@@ -368,9 +381,10 @@ def write_part(
 ) -> Path:
     """Write one piece's rows as a part file, chunk by chunk, renamed into place when whole.
 
-    Each chunk is sorted by accession and written as one row group, so memory holds one
-    chunk. With ``record_asked``, the part records ``piece.todo`` as asked, so an accession
-    with no row is not fetched again before the next pack.
+    A part the same piece wrote before is then removed. Each chunk is sorted by accession and
+    written as one row group, so memory holds one chunk. With ``record_asked``, the part
+    records ``piece.todo`` as asked, so an accession with no row is not fetched again before
+    the next pack.
 
     Raises
     ------
@@ -380,7 +394,6 @@ def write_part(
     folder = parts_dir(root, piece.source)
     folder.mkdir(parents=True, exist_ok=True)
     tag = hashlib.sha256("\n".join(piece.todo).encode()).hexdigest()[:12]
-    path = folder / f"{piece.bucket}.{tag}.parquet"
 
     def checked() -> Iterator[RawRow]:
         for row in rows:
@@ -390,49 +403,67 @@ def write_part(
 
     listed = "\n".join(piece.todo) if record_asked else ""
     schema = SCHEMA.with_metadata({ASKED_KEY: listed.encode()})
-    return write_sorted_runs(path, checked(), schema, chunk_bytes=chunk_bytes, stamped=True)
+    return _write_part_file(folder, piece.bucket, tag, checked(), schema, chunk_bytes)
+
+
+def _write_part_file(
+    folder: Path,
+    bucket: str,
+    tag: str,
+    rows: Iterable[RawRow],
+    schema: pa.Schema,
+    chunk_bytes: int = SORT_CHUNK_BYTES,
+) -> Path:
+    """Write a part as :func:`write_sorted_runs` does, then remove its earlier copies.
+
+    Its stamp is taken with the rename, under one lock, so within a process stamp order is
+    rename order. An earlier copy is an older part of the same bucket and tag.
+    """
+    global _last_stamp
+    tmp = writer_temp(folder / part_name(bucket, tag))
+    try:
+        _write_runs(tmp, rows, schema, chunk_bytes)
+        with _stamp_lock:
+            _last_stamp = max(time.time_ns(), _last_stamp + 1)
+            path = folder / part_name(bucket, tag, _last_stamp)
+            tmp.replace(path)
+    finally:
+        tmp.unlink(missing_ok=True)
+    for other in _parts_of(folder, bucket, tag):
+        if _order_key(other) < _order_key(path):
+            other.unlink(missing_ok=True)
+    return path
 
 
 def write_sorted_runs(
-    path: Path,
-    rows: Iterable[RawRow],
-    schema: pa.Schema,
-    *,
-    chunk_bytes: int = SORT_CHUNK_BYTES,
-    stamped: bool = False,
-) -> Path:
+    path: Path, rows: Iterable[RawRow], schema: pa.Schema, *, chunk_bytes: int = SORT_CHUNK_BYTES
+) -> None:
     """Write rows to ``path`` one chunk at a time, each chunk sorted by accession.
 
     A chunk is written as :data:`GROUPS_PER_CHUNK` row groups, so a reader merging many
     sorted runs holds one small row group of each. The file appears by a rename once whole.
-    Rows already in order make a sorted file. With ``stamped``, the file is a part, and its
-    name gets the time of the rename after the bucket: ``<bucket>.<stamp>.<rest>``.
-
-    Returns
-    -------
-    pathlib.Path
-        The file written.
+    Rows already in order make a sorted file.
     """
     tmp = writer_temp(path)
     try:
-        with pq.ParquetWriter(tmp, schema) as writer:
-            chunk: list[RawRow] = []
-            size = 0
-            for row in rows:
-                chunk.append(row)
-                size += len(row.raw_text)
-                if size >= chunk_bytes or len(chunk) >= SORT_CHUNK_ROWS:
-                    _write_chunk(writer, chunk, schema, chunk_bytes)
-                    chunk, size = [], 0
-            if chunk:
-                _write_chunk(writer, chunk, schema, chunk_bytes)
-        if stamped:
-            bucket, rest = path.name.split(".", 1)
-            path = path.with_name(f"{bucket}.{_stamp():0{_STAMP_DIGITS}d}.{rest}")
+        _write_runs(tmp, rows, schema, chunk_bytes)
         tmp.replace(path)
     finally:
         tmp.unlink(missing_ok=True)
-    return path
+
+
+def _write_runs(path: Path, rows: Iterable[RawRow], schema: pa.Schema, chunk_bytes: int) -> None:
+    with pq.ParquetWriter(path, schema) as writer:
+        chunk: list[RawRow] = []
+        size = 0
+        for row in rows:
+            chunk.append(row)
+            size += len(row.raw_text)
+            if size >= chunk_bytes or len(chunk) >= SORT_CHUNK_ROWS:
+                _write_chunk(writer, chunk, schema, chunk_bytes)
+                chunk, size = [], 0
+        if chunk:
+            _write_chunk(writer, chunk, schema, chunk_bytes)
 
 
 def _write_chunk(

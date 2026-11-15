@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time
 import tracemalloc
 from pathlib import Path
 from typing import Any
@@ -81,6 +82,37 @@ def test_a_piece_with_no_row_for_an_accession_is_not_asked_again(tmp_path: Path)
     for _ in range(2):
         raw.fetch_pieces(tmp_path, raw.SRA_XML, ["SRX1", "SRX2", "SRX3000001"], get, TODAY)
     assert sorted(calls) == [["SRX1", "SRX2"], ["SRX3000001"]]
+
+
+def test_a_piece_written_again_keeps_one_part(tmp_path: Path) -> None:
+    for _ in range(3):
+        raw.fetch_pieces(
+            tmp_path, raw.SRA_XML, ["SRX1"], lambda _: [], TODAY, remember_misses=False
+        )
+    assert len(raw.part_files(tmp_path, raw.SRA_XML)) == 1
+
+
+def test_parts_go_oldest_first_and_an_unstamped_part_by_its_mtime(tmp_path: Path) -> None:
+    folder = raw.parts_dir(tmp_path, raw.GEO_SOFT)
+    folder.mkdir(parents=True)
+
+    def unstamped(tag: str, mtime: int) -> Path:
+        """A part with no stamp in its name, as pack's repack part, aged to ``mtime``."""
+        path = folder / raw.part_name("GSE1nnnn", tag)
+        path.touch()
+        os.utime(path, ns=(mtime, mtime))
+        return path
+
+    second = 1_000_000_000
+    repack = unstamped("repack-GSE1nnn", 0)
+    old_row = unstamped("0123456789ab", time.time_ns() - 2 * second)
+    old_removal = unstamped("removed-0123456789ab", time.time_ns() - second)
+    row = raw.write_part(tmp_path, raw.Piece(raw.GEO_SOFT, "GSE1nnnn", ("GSE10001",)), [])
+    [removal] = raw.write_removals(tmp_path, raw.GEO_SOFT, ["GSE10001"])
+    late = unstamped("fedcba987654", time.time_ns() + second)
+
+    expected = [repack, old_row, old_removal, row, removal, late]
+    assert raw.part_files(tmp_path, raw.GEO_SOFT) == expected
 
 
 def _texts(n: int, size: int) -> list[raw.RawRow]:
@@ -164,7 +196,7 @@ def test_pack_counts_after_a_kill_and_rerun_match_an_uninterrupted_pack(
     whole, cut = _counted_store(tmp_path / "whole"), _counted_store(tmp_path / "cut")
     real = raw.write_sorted_runs
 
-    def killed(path: Path, rows: Any, schema: Any, **kw: Any) -> Path:
+    def killed(path: Path, rows: Any, schema: Any, **kw: Any) -> None:
         """Kill the pack of one bucket just before or just after its file is renamed."""
         if path != cut / "raw" / raw.GEO_SOFT / "GSE1nnnn.parquet":
             return real(path, rows, schema, **kw)
