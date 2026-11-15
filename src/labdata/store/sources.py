@@ -166,19 +166,34 @@ _DOI = re.compile(r"10\.\d{4,9}/[^\s\"<>?#&]+")
 #: A preprint server's URL suffix after the DOI: version, full text, abstract or PDF.
 _PREPRINT_SUFFIX = re.compile(r"(?:v\d+)?(?:\.full(?:-text|\.pdf)?|\.abstract|\.pdf)?$")
 _PREPRINT_PREFIXES = ("10.1101/", "10.64898/")
+#: A Silverchair article URL's path before the DOI; after it come the article id and title.
+_ARTICLE_PATH = re.compile(r"article(?:-[a-z]+)?/doi/$", re.I)
+_ARTICLE_ID = re.compile(r"/\d+(?:/[^/]*)?$")
+#: A landing page, a PDF or a supplementary file's path after the DOI, which no DOI ends in.
+_PAGE = re.compile(
+    r"(?:/(?:full|abstract|e?pdf)(?:;.*)?|\.pdf|/(?:mediaobjects|attachment|suppl_file)/.*)$"
+)
+#: An MDPI supplementary file link; an MDPI DOI holds no ``/``.
+_MDPI_FILE = re.compile(r"^(10\.3390/[^/]+)/s\d+$")
 
 
 def dois(text: str) -> list[str]:
     """Return the DOIs in a text, normalised, in order, each once.
 
-    Normalised means lower case, without a resolver prefix, trailing punctuation or a
-    preprint server's URL suffix (``v1``, ``.full``), so one DOI is one link target.
+    Normalised means lower case, without a resolver prefix, trailing punctuation, what a
+    publisher's URL adds after the DOI (an article id, a file path, ``/full``) or a preprint
+    server's URL suffix (``v1``, ``.full``), so one DOI is one link target. Only those known
+    tails go: a DOI may itself hold ``/``.
     """
     out: list[str] = []
-    for match in _DOI.finditer(unquote(text)):
+    plain = unquote(text)
+    for match in _DOI.finditer(plain):
         doi = norm_doi(match[0])
-        while doi[-1] in ".,;:]'" or (doi[-1] == ")" and doi.count("(") < doi.count(")")):
+        while doi[-1] in ".,;:]'/" or (doi[-1] == ")" and doi.count("(") < doi.count(")")):
             doi = doi[:-1]
+        if _ARTICLE_PATH.search(plain, 0, match.start()):
+            doi = _ARTICLE_ID.sub("", doi)
+        doi = _MDPI_FILE.sub(r"\1", _PAGE.sub("", doi))
         if doi.startswith(_PREPRINT_PREFIXES):
             doi = _PREPRINT_SUFFIX.sub("", doi)
         if doi not in out:
