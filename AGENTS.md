@@ -52,6 +52,7 @@ src/labdata/
                        daily.py (quota, host links, manual queue); copy.py
                        (GCS copy); job.py (the long-running paper job)
 tests/               pytest suite, mirrors src; mocks the EntrezClient + subprocess seams
+conftest.py          the suite budget and the slow lane
 scripts/check.sh     the gate runner
 scripts/conformance.py  the lab template's rules, checked against this repo
 scripts/bulk/        the NCBI bulk snapshot downloader
@@ -78,6 +79,13 @@ CI runs `check-static` in one job and `test` in another.
 - **conformance** (`scripts/conformance.py`): the lab template's rules. Waivers go in
   `[tool.liulab.waived]`, per rule, with a reason.
 - **pytest** strict markers/config, `xfail_strict`, warnings-as-errors, branch coverage.
+
+Test time has two limits, set in `[tool.pytest.ini_options]` and nowhere else:
+
+- **`timeout`** caps one test, setup and teardown included.
+- **`suite_budget`** caps the whole run; every run prints its time against it.
+- **The slow lane:** a test marked `slow` is held to neither, and runs only in
+  `pixi run test-slow`.
 
 ## Conventions / invariants
 
@@ -113,8 +121,8 @@ CI runs `check-static` in one job and `test` in another.
 
 - No live network in CI. Mock the `EntrezClient` seam with canned responses; assert
   laziness (the client is hit once, then served from cache).
-- Live tests against real NCBI are marked `@pytest.mark.network` and deselected by
-  default (`-m "not network"`); run them explicitly with `pixi run test -m network`.
+- Live tests against real NCBI are marked `@pytest.mark.network`, deselected by default
+  and held to neither time limit; run them with `pixi run test -m network`.
 
 ## Documentation
 
