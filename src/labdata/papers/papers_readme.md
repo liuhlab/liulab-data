@@ -42,9 +42,10 @@ labdata store never writes into it.
 - **What:** where the paper job stands. One look tells you the state.
 - **Layout:** JSON. `last_pass` gives the kind (`daily` or `pmc-sync`), start, end and
   outcome of the last pass. `last_daily_success` and `last_pmc_sync_success` give the date
-  each last succeeded. `fetches` counts the papers fetched today by source, and `quota`
-  counts the OpenAlex downloads spent today by key. `counts` gives papers by status, then
-  by reason. `paperpile_pending` and `copy_pending` are true when a step was skipped because
+  each last succeeded, and `last_pmc_sync_build` names the GEO/SRA build that sync read; the
+  next sync is due when the current build differs. `fetches` counts the papers fetched today
+  by source, and `quota` counts the OpenAlex downloads spent today by key. `counts` gives
+  papers by status, then by reason. `paperpile_pending` and `copy_pending` are true when a step was skipped because
   its login has expired.
 - **Made by:** each pass of the paper job, at its start and its end.
 

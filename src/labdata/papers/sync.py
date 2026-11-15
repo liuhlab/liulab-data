@@ -30,7 +30,7 @@ from labdata.papers.status import read_status, write_status
 from labdata.papers.tables import PaperTables
 from labdata.store.gaps import build_targets
 from labdata.store.layout import HOLDINGS, LINKS_BY_TO, sql_string
-from labdata.store.reader import current_path
+from labdata.store.reader import current_build, current_path
 from labdata.store.sources import BIOPROJECT_XML
 from labdata.store.targets import check_fraction, in_sample
 
@@ -183,7 +183,8 @@ def pmc_sync(
         Sends the PMC bucket's requests; kept-open connections by default.
     sample : float or None
         Take only this seeded share of the linked papers, for a trial; ``None`` takes all.
-        Only a sync over all papers sets the date of the last successful PMC sync.
+        Only a sync over all papers records its date and the build it read as the last
+        successful PMC sync.
     log : callable
         Takes one progress line.
 
@@ -196,6 +197,8 @@ def pmc_sync(
     root = store.root
     with paper_lock(root):
         start = _now()
+        # Read before the sync: a build that becomes current during it makes the next one due.
+        build = current_build(store.store.root)
 
         def last_pass(end: str | None, outcome: str) -> dict[str, Any]:
             return {
@@ -230,6 +233,7 @@ def pmc_sync(
                 last_pmc_sync_success=(
                     today.isoformat() if sample is None else status.last_pmc_sync_success
                 ),
+                last_pmc_sync_build=build if sample is None else status.last_pmc_sync_build,
                 counts=report.counts,
             ),
         )

@@ -293,6 +293,7 @@ def test_a_sampled_sync_is_not_the_months_sync_and_a_full_one_is(
     sync(root, "--sample", "0.5")
     status = json.loads((root / "paper-status.json").read_text())
     assert status["last_pmc_sync_success"] is None
+    assert status["last_pmc_sync_build"] is None
     assert status["last_pass"]["outcome"] == "success"
     assert status["last_pass"]["sample"] == 0.5
     assert "pmc-sync" in job_mod.due(open_paper_store(root), after_0030)
@@ -300,6 +301,7 @@ def test_a_sampled_sync_is_not_the_months_sync_and_a_full_one_is(
     sync(root)
     status = json.loads((root / "paper-status.json").read_text())
     assert status["last_pmc_sync_success"] == TODAY
+    assert status["last_pmc_sync_build"] == "b1"
     assert status["last_pass"]["sample"] is None
     assert "pmc-sync" not in job_mod.due(open_paper_store(root), after_0030)
 
