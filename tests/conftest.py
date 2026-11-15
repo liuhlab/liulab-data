@@ -7,9 +7,13 @@ seeded with canned responses — and never touch the network.
 
 from __future__ import annotations
 
+import compileall
 import gzip
 import importlib
+import importlib.util
+import re
 from collections.abc import Callable, Iterator
+from importlib import metadata
 from pathlib import Path
 from typing import Any
 
@@ -21,8 +25,38 @@ from tests import _slices
 from tests._fakes import FakeEntrezClient
 
 # Imported here, at collection, so a cold import is never inside a test's time limit.
-for _heavy in ("duckdb", "pandas", "pyarrow.parquet"):
+for _heavy in ("duckdb", "pandas", "pyarrow.parquet", "typer.rich_utils"):
     importlib.import_module(_heavy)
+
+
+def _compile(name: str) -> None:
+    """Compile a distribution and every one it requires, as a fresh environment lacks bytecode.
+
+    The tests that start a Snakemake process would otherwise pay for it inside their time limit.
+    """
+    seen: set[str] = set()
+    todo = [name]
+    while todo:
+        key = re.sub(r"[-_.]+", "-", todo.pop()).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            dist = metadata.distribution(key)
+        except metadata.PackageNotFoundError:
+            continue
+        todo += [re.split(r"[^A-Za-z0-9_.-]", r, maxsplit=1)[0] for r in dist.requires or []]
+        for file in dist.files or []:
+            if file.suffix == ".py":
+                compileall.compile_file(Path(str(dist.locate_file(file))), quiet=2)
+
+
+if not Path(
+    importlib.util.cache_from_source(
+        str(metadata.distribution("snakemake").locate_file("snakemake/cli.py"))
+    )
+).is_file():
+    _compile("snakemake")
 
 
 @pytest.fixture(autouse=True, scope="session")
