@@ -43,15 +43,16 @@ class Clock:
 
 
 class Sbatch:
-    """Stand-in for the successor submission: records each command, answers a job ID."""
+    """Stand-in for the successor submission: records each command, answers job IDs from 4243."""
 
-    def __init__(self, returncode: int = 0, stderr: str = "") -> None:
+    def __init__(self, returncode: int = 0, stderr: str = "", first: int = 4243) -> None:
         self.calls: list[list[str]] = []
-        self.returncode, self.stderr = returncode, stderr
+        self.returncode, self.stderr, self.next = returncode, stderr, first
 
     def __call__(self, args: list[str]) -> subprocess.CompletedProcess[str]:
         self.calls.append(args)
-        return subprocess.CompletedProcess(args, self.returncode, "4243\n", self.stderr)
+        self.next += 1
+        return subprocess.CompletedProcess(args, self.returncode, f"{self.next - 1}\n", self.stderr)
 
 
 class Rclone:
@@ -166,13 +167,14 @@ def test_one_daily_pass_a_day_after_0030_and_the_pmc_sync_on_the_3rd(
     assert len([c for c in rclone.calls if c[1] == "copy"]) == 5
     assert sbatch.calls == [
         ["sbatch", "--parsable", f"--dependency=afterany:{JOB}", OUTPUT, SCRIPT],
+        ["sbatch", "--parsable", f"--dependency=afterany:{JOB}:4243", OUTPUT, SCRIPT],
     ]
     # Idle, the job prints a line a minute.
     idle = [line for line in lines if line.startswith("2026-11-02T01:") and " idle" in line]
     assert len(idle) == 60
 
 
-def test_after_a_restart_only_what_is_due_runs_and_one_successor_is_submitted(
+def test_after_a_restart_only_what_is_due_runs_and_no_more_successors_are_submitted(
     tmp_path: Path, sbatch: Sbatch, rclone: Rclone
 ) -> None:
     root = paper_store(tmp_path)
@@ -192,7 +194,7 @@ def test_after_a_restart_only_what_is_due_runs_and_one_successor_is_submitted(
 
     assert passes(first) == ["2026-11-05T07:00Z daily pass 2026-11-05: success"]
     assert passes(second) == []
-    assert len(sbatch.calls) == 1
+    assert len(sbatch.calls) == 2
 
 
 def test_a_failed_successor_submission_is_logged_and_the_job_goes_on(
@@ -226,9 +228,87 @@ def test_the_successor_logs_into_the_folder_of_the_job_before_it(
     monkeypatch.setattr(job_mod, "_show_job", lambda _id: shown)
     serve(root, Clock(utc("2026-11-05 07:00")), until=utc("2026-11-05 07:01"))
 
-    [args] = sbatch.calls
-    logs = [a for a in args if a.startswith("--output=")]
-    assert logs == ([f"{output}labdata-papers.%j.log"] if output else [])
+    logs = [[a for a in args if a.startswith("--output=")] for args in sbatch.calls]
+    assert logs == [[f"{output}labdata-papers.%j.log"] if output else []] * 2
+
+
+def test_a_failed_log_write_does_not_stop_the_job(
+    tmp_path: Path, sbatch: Sbatch, rclone: Rclone
+) -> None:
+    root = synced(paper_store(tmp_path))
+    clock = Clock(utc("2026-11-05 00:00"))
+    lines: list[str] = []
+
+    def log(line: str) -> None:
+        if clock.now < utc("2026-11-05 00:20"):
+            raise OSError(28, "No space left on device")
+        lines.append(line)
+
+    web = FakeWeb(articles={PMID: Article(PMID, "A paper", 2020)}, works=[work("W1", pmid=PMID)])
+    job_mod.serve(
+        open_paper_store(root),
+        client=EntrezClient(
+            NcbiCredentials("t@t.org", "abc"), transport=web, limiter=RateLimiter(1000.0, 8)
+        ),
+        openalex=lambda: OpenAlex(load_accounts(), transport=web, limiter=RateLimiter(1000.0, 8)),
+        transport=web,
+        clock=clock,
+        sleep=clock.sleep,
+        until=utc("2026-11-05 01:00"),
+        job_id=JOB,
+        successor=SCRIPT,
+        log=log,
+    )
+
+    assert passes(lines) == ["2026-11-05T00:30Z daily pass 2026-11-05: success"]
+    assert status(root)["last_daily_success"] == "2026-11-05"
+
+
+def queued_after(args: list[str]) -> str:
+    return next(a for a in args if a.startswith("--dependency=")).removeprefix(
+        "--dependency=afterany:"
+    )
+
+
+@pytest.mark.parametrize(
+    ("record", "shown", "after", "chain"),
+    [
+        # Job 4241 ran; 4243, queued behind 4242, is still waiting.
+        ("4241 4242 4243", "PENDING", ["4242:4243"], "4242 4243 4300"),
+        # Job 4240 ran, 4241 failed at once, so this job, the next one queued, took over.
+        ("4240 4241 4242", None, ["4242", "4242:4300"], "4242 4300 4301"),
+        # The job queued behind this one was lost.
+        ("4241 4242 4243", "CANCELLED", ["4242", "4242:4300"], "4242 4300 4301"),
+        # The same job, requeued.
+        ("4242 4243 4244", "PENDING", [], "4242 4243 4244"),
+    ],
+    ids=["one queued", "successor failed", "successor lost", "requeued"],
+)
+def test_two_jobs_stay_queued_behind_the_running_one(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    rclone: Rclone,
+    record: str,
+    shown: str | None,
+    after: list[str],
+    chain: str,
+) -> None:
+    root = synced(paper_store(tmp_path))
+    (root / job_mod.SUCCESSOR).write_text(record + "\n")
+    sbatch = Sbatch(first=4300)
+    monkeypatch.setattr(job_mod, "_submit", sbatch)
+    monkeypatch.setattr(
+        job_mod,
+        "_show_job",
+        lambda id_: (
+            show_job(f"{RUN}/labdata-papers.{id_}.log")
+            + (f"   JobState={shown} Reason=Dependency\n" if shown and id_ != JOB else "")
+        ),
+    )
+    serve(root, Clock(utc("2026-11-05 07:00")), until=utc("2026-11-05 07:01"))
+
+    assert [queued_after(args) for args in sbatch.calls] == after
+    assert (root / job_mod.SUCCESSOR).read_text().split() == chain.split()
 
 
 class EditingClock(Clock):
@@ -354,6 +434,7 @@ def test_serve_submits_its_successor_from_the_slurm_job_id(
 
     assert result.exit_code == 0, result.output
     assert sbatch.calls == [
-        ["sbatch", "--parsable", f"--dependency=afterany:{JOB}", OUTPUT, SCRIPT]
+        ["sbatch", "--parsable", f"--dependency=afterany:{JOB}", OUTPUT, SCRIPT],
+        ["sbatch", "--parsable", f"--dependency=afterany:{JOB}:4243", OUTPUT, SCRIPT],
     ]
-    assert f"successor job 4243 submitted, to start after job {JOB}" in result.output
+    assert f"successor job 4244 submitted, to start after job {JOB} and 4243" in result.output

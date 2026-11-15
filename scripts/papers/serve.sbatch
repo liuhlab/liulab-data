@@ -3,9 +3,10 @@
 #
 #   LABDATA_PAPERS=/path/to/paper-store sbatch scripts/papers/serve.sbatch
 #
-# At start the job submits its own successor, which waits for this job to end for any reason
-# (time limit, failure, cancel), then takes over. To stop the chain, cancel the waiting
-# successor first, then this job. The successor gets the Slurm options written here, not
+# At start the job keeps two successors queued behind it, each waiting for the jobs before it
+# to end for any reason (time limit, failure, cancel), so one that fails at start does not end
+# the chain. To stop the chain, cancel the waiting successors first, then this job. The
+# successors get the Slurm options written here, not
 # options given on the first sbatch command line, except its log: each job writes
 # labdata-papers.<job id>.log into the folder of the job before it. The first job's log
 # goes where --output says, or into the submit directory without it.
