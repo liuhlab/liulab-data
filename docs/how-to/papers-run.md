@@ -168,14 +168,32 @@ table may be damaged. The log says why, with the numbers. Check the table. If th
 
 ## Check the copy
 
-Compare the paper store with its `copy_to`, leaving out the hidden files and the status
-record, as the copy does:
+The routine check reads the status record and the copy record, and lists no paper folder.
+Run it between passes. The copy is current when both of these hold:
+
+- In `paper-status.json`, `copy_pending` is `false`, and `last_copy_success` is at or after
+  `last_pass.end`: the copy after the last pass worked. If `copy_pending` is `true`, log in
+  and run `labdata papers copy`.
+- The copy record in the bucket matches the one on the disk. Each copy sends it last, after
+  the files it lists:
+
+  ```bash
+  pixi run rclone check "$LABDATA_PAPERS" <copy_to> --max-depth 1 \
+    --include "/.copied-files.parquet"
+  ```
+
+  It should report 0 differences and 1 matching file. It lists only the top level of each
+  side.
+
+A full check finds what differs when the copy record does not match, or after a change made
+in the bucket by hand. It lists every file on both sides, so run it only to repair the copy,
+and only when the maintainer says yes. Run it between passes too: a pass that runs beside it
+changes files under it. Like the copy, it leaves out the hidden files and the status record:
 
 ```bash
 pixi run rclone check "$LABDATA_PAPERS" <copy_to> --one-way \
   --filter "- .*" --filter "- .*/**" --filter "- /paper-status.json"
 ```
 
-It should report 0 differences. It lists every file on both sides, so run it only to check
-or repair, and between passes: a pass that runs beside it changes files under it. If it finds
-differences, `labdata papers copy --full` repairs them. It deletes nothing.
+It should report 0 differences. If it finds differences, `labdata papers copy --full` repairs
+them. It deletes nothing.

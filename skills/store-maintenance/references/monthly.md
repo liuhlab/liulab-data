@@ -41,6 +41,10 @@ Follow `docs/how-to/papers-run.md`. The paper job does the work; these checks re
 2. **Status record.** `paper-status.json`: `last_pass.outcome` is `success`,
    `last_daily_success` is today (yesterday before 00:30 UTC), and `copy_pending` is `false`.
    Record the `counts` by status in the log entry.
-3. **GCS copy.** "Check the copy" in `docs/how-to/papers-run.md` reports 0 differences.
+3. **GCS copy.** The routine check of "Check the copy", in `docs/how-to/papers-run.md`, passes:
+   `copy_pending` is `false`, `last_copy_success` is at or after `last_pass.end`, and the copy
+   record check reports 0 differences. If `copy_pending` is `true`, get the login (SKILL.md,
+   preflight), run `labdata papers copy`, and read it again. No step here lists every file of
+   the paper store: that section's full check runs only to repair, with the user's yes.
 
 Done when: every check on this page has an outcome.
