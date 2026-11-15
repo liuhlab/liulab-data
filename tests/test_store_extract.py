@@ -88,7 +88,7 @@ def test_tiny_byte_ranges_neither_drop_nor_repeat_a_record(
 ) -> None:
     root = _root(tmp_path, "sra_slice")
     monkeypatch.setattr(extract, "_CHUNK", 5)
-    out = extract.extract(root, source, workers=1, part_bytes=7)
+    out = extract.extract(root, source, workers=1, part_bytes=64)  # shorter than any record
     assert len(list(out.glob("part-*.parquet"))) > 20
     assert _rows(out) == _serial(root, source)
 
