@@ -294,7 +294,7 @@ def papers_serve(
         None, help="Paper store root; default: LABDATA_PAPERS, then pointer."
     ),
     successor: Path | None = typer.Option(
-        None, help="Batch script of the next jobs; at start, two are kept queued behind this one."
+        None, help="Batch script of the next jobs, kept queued at start behind this one."
     ),
     until: str | None = typer.Option(
         None, help="Stop at this UTC time, YYYY-MM-DDTHH:MM; default: run until stopped."
@@ -304,7 +304,7 @@ def papers_serve(
 
     Each pass reads the OpenAlex accounts afresh, so saved accounts count from the next pass.
     Runs only what paper-status.json shows is due, one pass at a time, each followed by the
-    GCS copy. Inside a Slurm job, with --successor, it first keeps two jobs queued behind
+    GCS copy. Inside a Slurm job, with --successor, it first keeps jobs queued behind
     this one, each with --dependency=afterany on the jobs before it.
     """
     import os

@@ -4,8 +4,9 @@ From 00:30 UTC each day, the daily pass is due when ``paper-status.json`` record
 daily-pass success that day, and from the 3rd of a month the PMC sync is due when it records
 no PMC sync success that month. Both are
 read afresh before each check, so after a restart only what is due runs. Every pass ends
-with a copy to GCS. At start the job makes sure two jobs are queued behind it, each to start
+with a copy to GCS. At start the job keeps ``QUEUED`` jobs queued behind it, each to start
 once the jobs before it end for any reason, so one that fails at start does not end the chain.
+A running job cannot see its successor fail, as the successor starts only once it ends.
 """
 
 from __future__ import annotations
@@ -55,7 +56,7 @@ def _submit(args: list[str]) -> subprocess.CompletedProcess[str]:
 
 
 def _show_job(job_id: str) -> str:
-    """Return ``scontrol show job`` output, or ``""``; the seam that reads the job's log path."""
+    """Return ``scontrol show job`` output, or ``""``; the seam that reads a job's state."""
     try:
         done = subprocess.run(
             ["scontrol", "show", "job", job_id], capture_output=True, text=True, check=False
@@ -124,13 +125,13 @@ def serve(
     until : datetime.datetime or None
         Stop at this time; ``None`` runs until the job is stopped.
     job_id : str or None
-        This Slurm job's ID; with ``successor``, two jobs are kept queued behind it.
+        This Slurm job's ID; with ``successor``, jobs are kept queued behind it.
     successor : str or None
         The batch script the queued jobs run.
     log : callable
         Takes one line for the job log; a line it fails to write with ``OSError`` is dropped.
     """
-    log = _guarded(log)
+    log = _drop_failed_lines(log)
     if job_id and successor:
         _submit_successor(store, job_id, successor, lambda line: log(f"{_stamp(clock())} {line}"))
     transport = transport or HttpTransport()
@@ -189,17 +190,16 @@ def _copy(store: PaperStore, log: Callable[[str], None]) -> None:
 def _submit_successor(
     store: PaperStore, job_id: str, script: str, log: Callable[[str], None]
 ) -> None:
-    """Keep two jobs queued behind this one, so one that fails at start does not end the chain.
+    """Keep ``QUEUED`` jobs behind this one, so one failing at start does not end the chain.
 
-    A running job cannot see its successor fail, as the successor starts only once it ends.
-    The record lists the chain; the jobs after this one in it count while Slurm shows them
-    pending, or shows nothing.
+    The record lists the chain; a job after this one in it counts while Slurm shows it
+    pending or running, or shows nothing.
     """
     record = store.root / SUCCESSOR
     chain = record.read_text(encoding="utf-8").split() if record.is_file() else []
-    queued = chain[chain.index(job_id) + 1 :][:QUEUED] if job_id in chain else []
-    queued = queued[: next((i for i, q in enumerate(queued) if not _waiting(q)), len(queued))]
-    if len(queued) == QUEUED:
+    after_me = chain[chain.index(job_id) + 1 :] if job_id in chain else []
+    queued = [next_id for next_id in after_me if _waiting(next_id)]
+    if len(queued) >= QUEUED:
         log(f"successors {' and '.join(queued)} already queued behind job {job_id}")
         return
     log_dir = _log_dir(job_id)
@@ -218,14 +218,18 @@ def _submit_successor(
             log(f"successor not submitted: {done.stderr.strip()}; submit it by hand")
             return
         queued.append(done.stdout.strip().split(";")[0])
-        write_atomic(record, " ".join([job_id, *queued]) + "\n")
         log(f"successor job {queued[-1]} submitted, to start after job {' and '.join(after)}")
+        try:
+            write_atomic(record, " ".join([job_id, *queued]) + "\n")
+        except OSError as err:
+            log(f"successor record not written: {err}; no more successors submitted")
+            return
 
 
 def _waiting(job_id: str) -> bool:
-    """Return whether Slurm shows ``job_id`` pending, or shows nothing to say otherwise."""
+    """Return whether Slurm shows ``job_id`` pending or running, or shows nothing."""
     state = re.search(r"\bJobState=(\S+)", _show_job(job_id))
-    return state is None or state[1] == "PENDING"
+    return state is None or state[1] in {"PENDING", "RUNNING"}
 
 
 def _log_dir(job_id: str) -> str | None:
@@ -265,7 +269,7 @@ def _ticker(kind: str, log: Callable[[str], None]) -> Iterator[None]:
         thread.join()
 
 
-def _guarded(log: Callable[[str], None]) -> Callable[[str], None]:
+def _drop_failed_lines(log: Callable[[str], None]) -> Callable[[str], None]:
     """Wrap ``log`` so a full or failing disk drops the line instead of stopping the job."""
 
     def write(line: str) -> None:

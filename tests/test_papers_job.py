@@ -43,7 +43,7 @@ class Clock:
 
 
 class Sbatch:
-    """Stand-in for the successor submission: records each command, answers job IDs from 4243."""
+    """Stand-in for the successor submission: records each command, answers job IDs from ``first``."""
 
     def __init__(self, returncode: int = 0, stderr: str = "", first: int = 4243) -> None:
         self.calls: list[list[str]] = []
@@ -110,7 +110,9 @@ def synced(root: Path) -> Path:
     return root
 
 
-def serve(root: Path, clock: Clock, until: dt.datetime) -> list[str]:
+def serve(
+    root: Path, clock: Clock, until: dt.datetime, log: Callable[[str], None] | None = None
+) -> list[str]:
     """Run the paper job from the clock's time until ``until``; return its log lines."""
     web = FakeWeb(
         articles={PMID: Article(PMID, "A paper", 2020)},
@@ -129,7 +131,7 @@ def serve(root: Path, clock: Clock, until: dt.datetime) -> list[str]:
         until=until,
         job_id=JOB,
         successor=SCRIPT,
-        log=lines.append,
+        log=log or lines.append,
     )
     return lines
 
@@ -244,27 +246,13 @@ def test_a_failed_log_write_does_not_stop_the_job(
             raise OSError(28, "No space left on device")
         lines.append(line)
 
-    web = FakeWeb(articles={PMID: Article(PMID, "A paper", 2020)}, works=[work("W1", pmid=PMID)])
-    job_mod.serve(
-        open_paper_store(root),
-        client=EntrezClient(
-            NcbiCredentials("t@t.org", "abc"), transport=web, limiter=RateLimiter(1000.0, 8)
-        ),
-        openalex=lambda: OpenAlex(load_accounts(), transport=web, limiter=RateLimiter(1000.0, 8)),
-        transport=web,
-        clock=clock,
-        sleep=clock.sleep,
-        until=utc("2026-11-05 01:00"),
-        job_id=JOB,
-        successor=SCRIPT,
-        log=log,
-    )
+    serve(root, clock, until=utc("2026-11-05 01:00"), log=log)
 
     assert passes(lines) == ["2026-11-05T00:30Z daily pass 2026-11-05: success"]
     assert status(root)["last_daily_success"] == "2026-11-05"
 
 
-def queued_after(args: list[str]) -> str:
+def dependency_of(args: list[str]) -> str:
     return next(a for a in args if a.startswith("--dependency=")).removeprefix(
         "--dependency=afterany:"
     )
@@ -274,22 +262,24 @@ def queued_after(args: list[str]) -> str:
     ("record", "shown", "after", "chain"),
     [
         # Job 4241 ran; 4243, queued behind 4242, is still waiting.
-        ("4241 4242 4243", "PENDING", ["4242:4243"], "4242 4243 4300"),
+        ("4241 4242 4243", {}, ["4242:4243"], "4242 4243 4300"),
         # Job 4240 ran, 4241 failed at once, so this job, the next one queued, took over.
-        ("4240 4241 4242", None, ["4242", "4242:4300"], "4242 4300 4301"),
+        ("4240 4241 4242", {"4241": "FAILED"}, ["4242", "4242:4300"], "4242 4300 4301"),
         # The job queued behind this one was lost.
-        ("4241 4242 4243", "CANCELLED", ["4242", "4242:4300"], "4242 4300 4301"),
-        # The same job, requeued.
-        ("4242 4243 4244", "PENDING", [], "4242 4243 4244"),
+        ("4241 4242 4243", {"4243": "CANCELLED"}, ["4242", "4242:4300"], "4242 4300 4301"),
+        # The same job, requeued, with both its successors still waiting.
+        ("4242 4243 4244", {}, [], "4242 4243 4244"),
+        # Requeued after its first successor was lost: the second one keeps its place.
+        ("4242 4243 4244", {"4243": "CANCELLED"}, ["4242:4244"], "4242 4244 4300"),
     ],
-    ids=["one queued", "successor failed", "successor lost", "requeued"],
+    ids=["one queued", "successor failed", "successor lost", "requeued", "requeued, one lost"],
 )
 def test_two_jobs_stay_queued_behind_the_running_one(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     rclone: Rclone,
     record: str,
-    shown: str | None,
+    shown: dict[str, str],
     after: list[str],
     chain: str,
 ) -> None:
@@ -302,12 +292,12 @@ def test_two_jobs_stay_queued_behind_the_running_one(
         "_show_job",
         lambda id_: (
             show_job(f"{RUN}/labdata-papers.{id_}.log")
-            + (f"   JobState={shown} Reason=Dependency\n" if shown and id_ != JOB else "")
+            + f"   JobState={shown.get(id_, 'PENDING')} Reason=Dependency\n"
         ),
     )
     serve(root, Clock(utc("2026-11-05 07:00")), until=utc("2026-11-05 07:01"))
 
-    assert [queued_after(args) for args in sbatch.calls] == after
+    assert [dependency_of(args) for args in sbatch.calls] == after
     assert (root / job_mod.SUCCESSOR).read_text().split() == chain.split()
 
 

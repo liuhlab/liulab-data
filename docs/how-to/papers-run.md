@@ -27,6 +27,8 @@ the accounts at each pass, so new ones count from the next pass, with no restart
 
 For the copy to Google Cloud Storage (GCS), set up the `gcs` rclone remote and log in as
 [Copy the store to GCS](store-gcs.md) shows. Leave out `--copy-to` to run with no copy.
+The job's rclone reads your own config, `~/.config/rclone/rclone.conf`, even when your shell
+sets `RCLONE_CONFIG`; set `LABDATA_RCLONE_CONFIG` before `sbatch` to use another file.
 
 ## Fill the store the first time
 
@@ -89,7 +91,7 @@ To stop the chain, cancel the waiting jobs first, then the running one:
 
 ```bash
 squeue --me -n labdata-papers
-scancel --me -n labdata-papers -t PENDING
+scancel -u "$USER" -n labdata-papers -t PENDING
 scancel <running job id>
 ```
 
