@@ -3,23 +3,28 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 import os
 import shutil
 import subprocess
 import tomllib
 from pathlib import Path
 
+import pyarrow.parquet as pq
 import pytest
 from typer.testing import CliRunner, Result
 
 from labdata.cli import app
-from labdata.store import extract
+from labdata.store import extract, raw, refresh
 from labdata.store.build import build
+from labdata.store.gcs import COPIED
+from labdata.store.pack import pack
 from labdata.store.prune import GRACE, prune
 from tests._slices import built_root
 
 _HOUR = dt.timedelta(hours=1)
 _DEST = "gcs:lab-bucket/geo-sra-store"
+_SOURCES = ("bioproject", "biosample", "geo-series", "sra-accessions")
 _EXPIRED = (
     "ERROR : Attempt 1/3 failed with 1 errors and: couldn't fetch token - maybe it has "
     'expired? - refresh with "rclone config reconnect gcs:": oauth2: cannot fetch token: '
@@ -144,18 +149,47 @@ def test_prune_never_deletes_the_current_build(root: Path) -> None:
 
 # ---------------------------------------------------------------- copy
 
+_PROGRESS = ["--stats=1m", "--stats-one-line", "--stats-log-level=NOTICE"]
+_TOP = ["README.md", "labdata-store.toml"]
+
 
 class _Rclone:
-    """Stand-in for the rclone seam: records each command, answers with one result."""
+    """Stand-in for the rclone seam: records each command and the file list it reads.
 
-    def __init__(self, returncode: int = 0, stderr: str = "") -> None:
+    It keeps what a ``copyto`` sends to the bucket, and a ``copy`` from the bucket fetches it.
+    Every command answers with ``returncode`` and ``stderr``, and the one named ``expiring``
+    meets an expired login.
+    """
+
+    def __init__(self) -> None:
         self.calls: list[list[str]] = []
-        self.returncode = returncode
-        self.stderr = stderr
+        self.lists: list[list[str]] = []
+        self.bucket: dict[str, bytes] = {}
+        self.returncode, self.stderr = 0, ""
+        self.expiring = ""
 
     def __call__(self, args: list[str]) -> subprocess.CompletedProcess[str]:
         self.calls.append(args)
+        listed: list[str] = []
+        for arg in args:
+            if arg.startswith("--files-from-raw="):
+                listed = Path(arg.split("=", 1)[1]).read_text(encoding="utf-8").splitlines()
+                self.lists.append(listed)
+        if args[1] == self.expiring:
+            return subprocess.CompletedProcess(args, 1, "", _EXPIRED)
+        if self.returncode == 0 and args[1] == "copyto" and args[3].startswith(f"{_DEST}/"):
+            self.bucket[args[3].removeprefix(f"{_DEST}/")] = Path(args[2]).read_bytes()
+        if self.returncode == 0 and args[1] == "copy" and args[2] == _DEST:
+            for name in (n for n in listed if n in self.bucket):
+                (Path(args[3]) / name).write_bytes(self.bucket[name])
         return subprocess.CompletedProcess(args, self.returncode, "", self.stderr)
+
+    def commands(self) -> list[str]:
+        return [args[1] for args in self.calls]
+
+    def record(self) -> list[str]:
+        """The paths the copy record in the bucket names."""
+        return sorted(json.loads(self.bucket[COPIED]))
 
 
 @pytest.fixture
@@ -169,41 +203,252 @@ def _copy(root: Path, *extra: str) -> Result:
     return CliRunner().invoke(app, ["store", "copy", "--root", str(root), *extra])
 
 
-def test_copy_syncs_exactly_the_marker_readme_snapshots_raw_and_current_build(
-    root: Path, rclone: _Rclone
-) -> None:
+def _copy_to(root: Path) -> None:
     marker = root / "labdata-store.toml"
     marker.write_text(marker.read_text() + f'copy_to = "{_DEST}"\n', encoding="utf-8")
-    build(root, "b2")
-    result = CliRunner().invoke(app, ["store", "copy", "--root", str(root)])
+
+
+def _files(root: Path, *folders: str) -> list[str]:
+    """Every file under ``folders``, hidden ones aside, as paths from the store root."""
+    return sorted(
+        p.relative_to(root).as_posix()
+        for folder in folders
+        for p in (root / folder).rglob("*")
+        if p.is_file() and not p.name.startswith(".")
+    )
+
+
+def _full(root: Path) -> None:
+    result = _copy(root, "--full")
     assert result.exit_code == 0, result.output
-    selected = [
-        "--filter=- .*",
-        "--filter=- .*/**",
-        "--filter=+ /snapshots/bioproject/2026-10-14/**",
-        "--filter=+ /snapshots/biosample/2026-10-14/**",
-        "--filter=+ /snapshots/geo-series/2026-10-14/**",
-        "--filter=+ /snapshots/sra-accessions/2026-10-14/**",
-        "--filter=+ /raw/**",
-        "--filter=+ /builds/b2/**",
-        "--filter=+ /README.md",
+
+
+def test_full_uploads_the_current_state_then_the_marker_then_the_record_and_deletes_nothing(
+    root: Path, rclone: _Rclone
+) -> None:
+    _copy_to(root)
+    (root / "snapshots" / "bioproject" / "2026-10-14" / "bioproject.xml.sha256").write_text("x")
+    unread = _snapshot(root, "geo-series", "2026-01-01")
+
+    _full(root)
+
+    sent = _files(root, "builds/b1", "raw", *(f"snapshots/{s}/2026-10-14" for s in _SOURCES))
+    assert rclone.commands() == ["lsjson", "copy", "copy", "copyto"]
+    probe, files, top, record = rclone.calls
+    assert probe == ["rclone", "lsjson", _DEST, "--max-depth", "1"]
+    # Every file of the current state lists both sides; the marker goes after the build.
+    assert files[:4] == ["rclone", "copy", str(root), _DEST]
+    assert "--no-traverse" not in files
+    assert rclone.lists[:2] == [sent, _TOP]
+    assert top[:4] == ["rclone", "copy", str(root), _DEST]
+    assert record[1:] == ["copyto", record[2], f"{_DEST}/{COPIED}"]
+    assert rclone.record() == sorted([*sent, *_TOP])
+    assert (root / COPIED).read_bytes() == rclone.bucket[COPIED]
+    assert not any(str(unread.relative_to(root)) in p for p in rclone.record())
+
+
+def test_a_routine_copy_sends_the_new_build_then_deletes_the_old_one_by_name(
+    root: Path, rclone: _Rclone
+) -> None:
+    _copy_to(root)
+    _full(root)
+    rclone.calls.clear()
+    rclone.lists.clear()
+    _snapshot(root, "bioproject", "2026-11-01")
+    extract.extract(root, "bioproject", workers=1)
+    build(root, "b2")
+
+    result = _copy(root)
+
+    assert result.exit_code == 0, result.output
+    every_time = [
+        "raw/pubmed-si/README.md",
+        "raw/pubmed-si/manifest.json",
+        "raw/sra-xml/README.md",
+        "raw/sra-xml/manifest.json",
+        # The fixture's snapshots have no manifest to give them a sha256.
+        "snapshots/bioproject/2026-11-01/bioproject.xml",
+        "snapshots/biosample/2026-10-14/biosample_set.xml.gz",
+        "snapshots/geo-series/2026-10-14/gds_gse_esummary.jsonl.gz",
+        "snapshots/sra-accessions/2026-10-14/SRA_Accessions.tab",
     ]
-    progress = ["--stats=1m", "--stats-one-line", "--stats-log-level=NOTICE"]
-    assert rclone.calls == [
-        ["rclone", "lsjson", _DEST, "--max-depth", "1"],
-        ["rclone", "copy", str(root), _DEST, *selected, "--filter=- **", *progress],
-        [
-            "rclone",
-            "sync",
-            str(root),
-            _DEST,
-            "--delete-excluded",
-            *selected,
-            "--filter=+ /labdata-store.toml",
-            "--filter=- **",
-            *progress,
-        ],
-    ]
+    old = [*_files(root, "builds/b1"), "snapshots/bioproject/2026-10-14/bioproject.xml"]
+    assert rclone.commands() == ["lsjson", "copy", "copy", "delete", "copyto"]
+    # The raw files are unchanged, so none goes up; the old build is still on the disk.
+    assert rclone.lists == [sorted([*_files(root, "builds/b2"), *every_time]), _TOP, old]
+    assert "--no-traverse" in rclone.calls[1]
+    assert rclone.calls[3][:4] == ["rclone", "delete", _DEST, "--no-traverse"]
+    raw = [p for p in _files(root, "raw") if p.endswith(".parquet")]
+    assert rclone.record() == sorted([*_files(root, "builds/b2"), *every_time, *raw, *_TOP])
+
+    rclone.lists.clear()
+    assert _copy(root).exit_code == 0
+    small = ["builds/b2/README.md", "builds/b2/manifest.json"]
+    assert rclone.lists == [[*small, *every_time], _TOP]
+
+
+def test_a_copy_record_that_fails_to_go_up_leaves_the_disks_so_the_next_copy_deletes_again(
+    root: Path, rclone: _Rclone
+) -> None:
+    _copy_to(root)
+    _full(root)
+    build(root, "b2")
+    rclone.expiring = "copyto"
+
+    assert "bucket is behind" in _copy(root).output
+    assert "builds/b1/manifest.json" in json.loads((root / COPIED).read_text())
+
+    rclone.expiring = ""
+    rclone.lists.clear()
+    assert _copy(root).exit_code == 0
+    assert "builds/b1/manifest.json" in rclone.lists[2]
+
+
+def _drop_bucket(root: Path) -> str:
+    """Remove every record of one raw bucket file, so pack deletes it; build ``b2``."""
+    gone = "raw/pubmed-si/SRPnnnnnn.parquet"
+    rows = pq.read_table(root / gone, columns=["accession"]).column(0).to_pylist()
+    raw.write_removals(root, "pubmed-si", rows)
+    pack(root, ["pubmed-si"])
+    build(root, "b2")
+    assert not (root / gone).exists()
+    return gone
+
+
+def test_a_raw_file_pack_dropped_is_deleted_in_the_bucket_by_name(
+    root: Path, rclone: _Rclone, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _copy_to(root)
+    _full(root)
+    rclone.lists.clear()
+    gone = _drop_bucket(root)
+    # The fixture holds three raw files: let one copy delete one of them.
+    monkeypatch.setattr("labdata.store.gcs.MAX_DELETE_SHARE", 0.5)
+
+    assert _copy(root).exit_code == 0
+
+    assert rclone.lists[2] == sorted([*_files(root, "builds/b1"), gone])
+    assert gone not in rclone.record()
+
+
+def test_a_copy_that_would_delete_more_than_one_raw_file_in_20_sends_nothing_and_says_why(
+    root: Path, rclone: _Rclone
+) -> None:
+    _copy_to(root)
+    _full(root)
+    rclone.calls.clear()
+    _drop_bucket(root)
+
+    result = _copy(root)
+
+    assert result.exit_code == 1
+    assert "1 of the 3 raw files" in result.output
+    assert rclone.commands() == ["lsjson"]
+
+
+def test_with_no_record_on_disk_a_copy_fetches_the_buckets_and_sends_only_changes(
+    root: Path, rclone: _Rclone
+) -> None:
+    _copy_to(root)
+    _full(root)
+    (root / COPIED).unlink()
+    rclone.calls.clear()
+    rclone.lists.clear()
+
+    assert _copy(root).exit_code == 0
+
+    assert rclone.commands() == ["lsjson", "copy", "copy", "copy", "copyto"]
+    assert rclone.calls[1][:3] == ["rclone", "copy", _DEST]
+    assert "--no-traverse" in rclone.calls[1]
+    assert rclone.lists[0] == [COPIED, "labdata-store.toml"]
+    assert not any(p.endswith(".parquet") for p in rclone.lists[1])
+    # The local marker is never overwritten by the bucket's.
+    assert "copy_to" in (root / "labdata-store.toml").read_text()
+
+
+def _bucket_marker(rclone: _Rclone, root: Path, build_id: str) -> None:
+    """Put in the bucket a marker naming ``build_id``, as the last mirror left it."""
+    text = (root / "labdata-store.toml").read_text(encoding="utf-8")
+    current = tomllib.loads(text)["build"]
+    rclone.bucket["labdata-store.toml"] = text.replace(f'"{current}"', f'"{build_id}"').encode()
+
+
+def _status(root: Path, **status: object) -> None:
+    refresh.write_status(root, {"outcome": "succeeded", **status})
+
+
+def test_with_no_record_a_copy_seeds_one_from_the_build_the_buckets_marker_names(
+    root: Path, rclone: _Rclone
+) -> None:
+    _copy_to(root)
+    _status(root, copy_pending=False)
+    _bucket_marker(rclone, root, "b1")
+
+    assert _copy(root).exit_code == 0
+
+    # The seeded record goes up first, then only the small files: nothing is deleted.
+    assert rclone.commands() == ["lsjson", "copy", "copyto", "copy", "copy", "copyto"]
+    assert all(not p.endswith(".parquet") for p in rclone.lists[1])
+    assert rclone.lists[2] == _TOP
+    sent = _files(root, "builds/b1", "raw", *(f"snapshots/{s}/2026-10-14" for s in _SOURCES))
+    assert rclone.record() == sorted([*sent, *_TOP])
+
+
+def test_with_no_record_after_a_switch_a_copy_sends_the_new_build_and_deletes_the_old(
+    root: Path, rclone: _Rclone
+) -> None:
+    _copy_to(root)
+    _bucket_marker(rclone, root, "b1")
+    build(root, "b2")
+    # The switch raised copy_pending; the copy before it had worked.
+    _status(root, copy_pending=True, copy_pending_at_switch=False)
+
+    assert _copy(root).exit_code == 0
+
+    assert rclone.commands() == ["lsjson", "copy", "copyto", "copy", "copy", "delete", "copyto"]
+    assert set(_files(root, "builds/b2")) <= set(rclone.lists[1])
+    assert rclone.lists[3] == _files(root, "builds/b1")
+    assert not any(p.startswith("builds/b1/") for p in rclone.record())
+
+
+@pytest.mark.parametrize(
+    ("marker_build", "status"),
+    [
+        ("b0", {"copy_pending": False}),
+        ("b1", {"copy_pending": True, "copy_pending_at_switch": True}),
+        ("b1", {}),
+    ],
+    ids=["build-gone", "copy-was-pending", "no-status-record"],
+)
+def test_with_no_record_a_copy_that_cannot_trust_the_bucket_skips_and_asks_for_full(
+    root: Path, rclone: _Rclone, marker_build: str, status: dict[str, object]
+) -> None:
+    _copy_to(root)
+    if status:
+        _status(root, **status)
+    _bucket_marker(rclone, root, marker_build)
+
+    result = _copy(root)
+
+    assert result.exit_code == 0, result.output
+    assert "labdata store copy --full" in result.output
+    assert rclone.commands() == ["lsjson", "copy"]
+    assert COPIED not in rclone.bucket
+
+
+def test_with_no_record_on_disk_or_in_the_bucket_a_copy_sends_nothing_and_asks_for_full(
+    root: Path, rclone: _Rclone
+) -> None:
+    _copy_to(root)
+    _status(root, copy_pending=False)
+
+    result = _copy(root)
+
+    assert result.exit_code == 0, result.output
+    assert "labdata store copy --full" in result.output
+    # It only checked the login and looked for the bucket's record and marker.
+    assert rclone.commands() == ["lsjson", "copy"]
+    assert rclone.lists == [[COPIED, "labdata-store.toml"]]
 
 
 def test_copy_is_refused_on_a_folder_with_no_marker(tmp_path: Path, rclone: _Rclone) -> None:

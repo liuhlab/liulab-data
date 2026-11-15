@@ -547,19 +547,26 @@ def store_copy(
     to: str | None = typer.Option(
         None, help="rclone destination <remote>:<bucket>/<path>; default: copy_to in the marker."
     ),
+    full: bool = typer.Option(
+        False,
+        "--full",
+        help="Upload the whole current state and delete nothing; for a first copy or a repair.",
+    ),
 ) -> None:
-    """Copy the marker, current snapshots, raw/ and current build to a bucket with rclone.
+    """Send the store's changes since the last copy to a bucket with rclone.
 
-    Refused unless the current build is complete. When rclone's Google login has expired,
-    it skips with a message and exits 0; rerun after `rclone config reconnect`. The status
-    record marks the copy pending until one succeeds.
+    It sends the current build and the raw files and snapshots it read, and deletes in the
+    bucket, by name, the files the last copy sent that the current build no longer reads.
+    Refused unless the current build is complete. When rclone's Google login has expired, or
+    no copy record exists, it skips with a message and exits 0. The status record marks the
+    copy pending until one succeeds.
     """
     from labdata.store import refresh
     from labdata.store.gcs import copy
 
     where = root if root is not None else open_store().root
     try:
-        result = copy(where, to)
+        result = copy(where, to, full=full, in_step=refresh.bucket_in_step(where))
     except LabdataError as err:
         typer.echo(str(err), err=True)
         raise typer.Exit(1) from err

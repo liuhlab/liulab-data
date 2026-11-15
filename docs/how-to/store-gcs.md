@@ -42,10 +42,36 @@ a grace period after it goes out of use, so a reader can finish; the
 [API reference](../reference.md#labdata.store.prune) gives its length. `--grace 0` deletes
 them at once: use it only as a one-off to tidy a store nobody is reading.
 
-`copy` sends the marker file, the store's `README.md`, the current snapshots, `raw/` and the
-current build, and deletes anything else in the bucket's copy. It leaves out `work/`,
-`support/` and `refresh-status.json`. It will not run unless the current build is complete.
-It first checks the login with one listing call. When the login has expired, it stops and
+`copy` sends what changed since the last copy. The bucket keeps the store for good, and the
+cluster disk is only a work area, so a copy never deletes a file because the disk lacks it.
+
+- It sends the current build, the raw files and snapshots that build read, and the store's
+  `README.md`. The marker file goes after them.
+- It then deletes in the bucket, by name, the files the last copy sent that the current build
+  no longer reads: the old build, a snapshot only that build read, a raw file the pack step
+  dropped.
+- It leaves out `work/`, `support/` and `refresh-status.json`. It will not run unless the
+  current build is complete.
+
+To know what changed, the copy keeps a hidden list of the files the bucket holds,
+`.copied-files.json`, in the store and in the bucket. When neither has the list, the copy makes
+it from the build that the bucket's marker file names. It does so only if that build is still on
+the disk and the last copy had worked. Otherwise, as for a store's first copy,
+`labdata store copy` stops and asks you to run this once:
+
+```bash
+labdata store copy --full
+```
+
+It sends the whole current state and deletes nothing. It lists every file on both sides, so
+keep it for a first copy or a repair. Later copies send only the changes.
+
+A copy refuses, sending nothing, when it would delete more than a small share of the raw files:
+the build's manifest may be damaged. The message says why, with the numbers. If the files left
+on purpose, run `labdata store copy --full`: it sends the store and leaves those files in the
+bucket.
+
+A copy first checks the login with one listing call. When the login has expired, it stops and
 exits cleanly:
 
 ```text
@@ -61,14 +87,16 @@ until `labdata store copy` succeeds.
 Compare the store with its `copy_to`, leaving out what the copy leaves out:
 
 ```bash
-pixi run rclone check "$LABDATA_STORE" <copy_to> --one-way \
+pixi run rclone check "$LABDATA_STORE" <copy_to> \
   --filter "- .*" --filter "- .*/**" --filter "- /work/**" \
   --filter "- /support/**" --filter "- /refresh-status.json" \
   --filter "- /builds/<old build>/**"
 ```
 
 It should report 0 differences. A build or snapshot that prune keeps for its grace period is
-not in the bucket: add a filter for each one instead of counting it as a difference.
+not in the bucket: add a filter for each one instead of counting it as a difference. A file
+found only in the bucket is one a copy should have deleted. The check lists every file on both
+sides, so run it only to check the copy.
 
 ## Read the store on another computer
 
