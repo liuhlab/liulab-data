@@ -3,8 +3,12 @@
 This folder is a labdata paper store. It holds the papers that GEO Series and BioProjects in a
 labdata store link to: each paper's article as XML or PDF, its small supplementary files, a
 list of all its supplementary files, and where each paper stands. A paper is keyed by its
-PubMed ID (PMID), or by its DOI when it has no PMID. A preprint and its journal version are
-two papers.
+PubMed ID (PMID), or by its DOI when it has no PMID. A preprint that OpenAlex has merged into
+its journal version is kept as that journal paper.
+
+Only papers get rows. A DOI gets none when it names a dataset or the like, or when OpenAlex
+does not know it; the next sync asks about it again. A placeholder PMID, a small number that
+only BioProject XML gives, gets none either.
 
 Any full copy of this folder is the paper store. Paths in this file are relative to the paper
 store root, written `<papers>`. The paper store never writes into the labdata store, and the
@@ -55,7 +59,7 @@ Four Parquet tables at the root, each sorted by `paper`. Query them with DuckDB,
 
 | File | One row per | Columns |
 | --- | --- | --- |
-| `papers.parquet` | paper | `paper`, `pmid`, `pmcid`, `doi`, `openalex`, `published`, `status`, `reason`, `xml_tier`, `pdf_tier`, `added`, `looked_up`, `work_type`, `openalex_pdf`, `host_pdf_urls`, `retracted` |
+| `papers.parquet` | paper | `paper`, `pmid`, `pmcid`, `doi`, `other_dois`, `openalex`, `published`, `status`, `reason`, `xml_tier`, `pdf_tier`, `added`, `looked_up`, `work_type`, `openalex_pdf`, `host_pdf_urls`, `retracted` |
 | `paper_info.parquet` | paper | `paper`, `pmid`, `pmcid`, `doi`, `title`, `journal`, `published`, `authors`, `abstract`, `publication_type` |
 | `files.parquet` | file held or only listed | `paper`, `kind`, `name`, `path`, `size`, `md5`, `url`, `tier`, `label`, `caption`, `fetched`, `gone`, `etag` |
 | `attempts.parquet` | try at one source for one paper | `paper`, `tier`, `date`, `account`, `outcome`, `detail` |
@@ -67,7 +71,7 @@ Four Parquet tables at the root, each sorted by `paper`. Query them with DuckDB,
   | `fetched` | the paper store holds the paper's XML or PDF |
   | `waiting` | a source will serve it later; `reason` says which |
   | `manual` | only a save in Paperpile can serve it; `reason` gives the last failure |
-  | `skipped` | not a real paper, such as a placeholder PMID, or retracted |
+  | `skipped` | retracted, so nothing more is downloaded |
 
 - `reason` says why a paper is not fetched:
 
@@ -80,13 +84,12 @@ Four Parquet tables at the root, each sorted by `paper`. Query them with DuckDB,
   | `manual` | `openalex-failed` | OpenAlex's copy could not be fetched |
   | `manual` | `host-blocked` | the publisher's site refused the download |
   | `manual` | `host-failed` | the free link gave no PDF |
-  | `skipped` | `placeholder` | a small PMID only BioProject XML gives, not a real paper |
   | `skipped` | `retracted` | the paper is retracted |
-  | `skipped` | `not-article` | OpenAlex calls the DOI a dataset or the like, not a paper |
 
 - `retracted` is true once PMC, PubMed or OpenAlex calls the paper retracted. A retracted
   paper is `skipped` with reason `retracted`: nothing more is downloaded for it, and the
   files already held stay.
+- `other_dois` lists the other DOIs a record may link for the paper, such as its preprint's.
 
 - A tier is the source a file came from: `pmc` (the PMC bucket), `openalex`, `host` (a free
   link on the publisher's site) or `paperpile`. `xml_tier` and `pdf_tier` name the tier of

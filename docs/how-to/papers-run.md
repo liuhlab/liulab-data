@@ -130,7 +130,7 @@ The file at the paper store root says what the job did last and where the papers
   "fetches": {"date": "2026-11-05", "by_tier": {"openalex": 300, "host": 2}},
   "quota": {"date": "2026-11-05", "by_key": {"a@lab.org": 100, "b@lab.org": 100, "c@lab.org": 100}},
   "counts": {"fetched": {"": 80512}, "waiting": {"openalex-backlog": 7690, "pmc-embargo": 1204},
-             "manual": {"no-route": 9300, "host-blocked": 120}, "skipped": {"placeholder": 41}},
+             "manual": {"no-route": 9300, "host-blocked": 120}, "skipped": {"retracted": 41}},
   "copy_pending": false,
   "last_copy_success": "2026-11-05T01:12:41Z",
   "paperpile_pending": false
