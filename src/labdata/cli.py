@@ -213,7 +213,8 @@ def papers_pmc_sync(
         raise typer.Exit(1) from err
     typer.echo(
         f"{report.added} added, {report.looked_up} looked up, {report.failed} failed, "
-        f"{report.rekeyed} re-keyed in {time.monotonic() - started:.0f} s"
+        f"{report.rekeyed} re-keyed, {report.turned_away} DOIs turned away "
+        f"in {time.monotonic() - started:.0f} s"
     )
     for status, reasons in sorted(report.counts.items()):
         each = ", ".join(f"{r or '-'}: {n}" for r, n in sorted(reasons.items()))
@@ -314,7 +315,7 @@ def papers_serve(
         None, help="Stop at this UTC time, YYYY-MM-DDTHH:MM; default: run until stopped."
     ),
 ) -> None:
-    """Run the paper job: the daily pass after 00:30 UTC, the PMC sync on the 3rd.
+    """Run the paper job: daily pass after 00:30 UTC, PMC sync on the 3rd and on a new build.
 
     Each pass reads the OpenAlex accounts afresh, so saved accounts count from the next pass.
     Runs only what paper-status.json shows is due, one pass at a time, each followed by the

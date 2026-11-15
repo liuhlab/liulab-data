@@ -32,11 +32,15 @@ Follow "Refresh the store" in `docs/how-to/store-run.md`.
 
 Follow `docs/how-to/papers-run.md`. The paper job does the work; these checks read what it did.
 
-1. **Status record.** `paper-status.json` in the paper store root: `last_pass.outcome` is
-   `success`, `last_daily_success` is today (yesterday before 00:30 UTC), and `copy_pending`
-   is `false`. Record the `counts` by status in the log entry.
-2. **This month's PMC sync.** `last_pmc_sync_success` falls in this month, on or after the 3rd.
-   Before the 3rd, it falls in last month. A sampled sync never sets it.
+1. **The new build's PMC sync.** The new build makes the PMC sync due. The paper job starts it
+   within a minute, once any pass already running ends, but never between 00:00 and 00:30 UTC.
+   Probe the job log in the sync's first minutes, then wait until `paper-status.json` in the
+   paper store root shows `last_pmc_sync_build` equal to the build ID recorded in the GEO/SRA
+   status-record step, and `last_pmc_sync_success` today. A failed sync shows
+   `last_pass.outcome` `failed`, and the job tries it again an hour later.
+2. **Status record.** `paper-status.json`: `last_pass.outcome` is `success`,
+   `last_daily_success` is today (yesterday before 00:30 UTC), and `copy_pending` is `false`.
+   Record the `counts` by status in the log entry.
 3. **GCS copy.** "Check the copy" in `docs/how-to/papers-run.md` reports 0 differences.
 
 Done when: every check on this page has an outcome.

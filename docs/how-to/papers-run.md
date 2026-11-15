@@ -52,8 +52,8 @@ same time: it waits until the first sync is done.
 To fill the store in rounds, add `--sample 0.01`, then `--sample 0.1`, then run it with no
 `--sample`. Each round skips the papers the last round looked up this month. A sampled sync
 does not count as the month's PMC sync: `paper-status.json` records it as the last pass, with
-its `sample` share, but only a sync over all papers sets `last_pmc_sync_success`. So the paper
-job still runs the month's PMC sync after a sampled round.
+its `sample` share, but only a sync over all papers sets `last_pmc_sync_success` and
+`last_pmc_sync_build`. So the paper job still runs the month's PMC sync after a sampled round.
 
 The first copy to GCS sends all of it, with `--full`. It uploads every file and deletes
 nothing in the bucket. Run it once by hand, as its own job,
@@ -82,6 +82,9 @@ sbatch scripts/papers/serve.sbatch
 
 The job asks for 2 CPUs and 8 GB on `cpu_batch`, for the 14 days that partition allows.
 It runs the daily pass each day after 00:30 UTC, and the PMC sync on the 3rd of each month.
+It also runs the PMC sync when a refresh makes a new GEO/SRA build current, so the papers the
+new build links come in soon after. That sync counts as the month's, so a refresh on the 1st or
+2nd leaves no sync for the 3rd.
 Each pass ends with a copy of its changes to GCS. The job never runs a full copy.
 
 PMC gives the article text, figures and supplements, while OpenAlex and host links give a PDF
@@ -101,8 +104,9 @@ scancel <running job id>
 ```
 
 If the chain breaks, submit `scripts/papers/serve.sbatch` again by hand. A new job does only
-what is due: a day with no daily pass, or a month with no PMC sync after the 3rd. The job log
-says `successor not submitted` when it could not submit a waiting job.
+what is due: a day with no daily pass, a month with no PMC sync after the 3rd, or a new build
+since the last PMC sync. The job log says `successor not submitted` when it could not submit a
+waiting job.
 
 ## Watch it
 
@@ -127,10 +131,11 @@ The file at the paper store root says what the job did last and where the papers
                 "end": "2026-11-05T01:12:40+00:00", "outcome": "success"},
   "last_daily_success": "2026-11-05",
   "last_pmc_sync_success": "2026-11-03",
+  "last_pmc_sync_build": "20261031T020000Z",
   "fetches": {"date": "2026-11-05", "by_tier": {"openalex": 300, "host": 2}},
   "quota": {"date": "2026-11-05", "by_key": {"a@lab.org": 100, "b@lab.org": 100, "c@lab.org": 100}},
   "counts": {"fetched": {"": 80512}, "waiting": {"openalex-backlog": 7690, "pmc-embargo": 1204},
-             "manual": {"no-route": 9300, "host-blocked": 120}, "skipped": {"placeholder": 41}},
+             "manual": {"no-route": 9300, "host-blocked": 120}, "skipped": {"retracted": 41}},
   "copy_pending": false,
   "last_copy_success": "2026-11-05T01:12:41Z",
   "paperpile_pending": false
@@ -140,6 +145,8 @@ The file at the paper store root says what the job did last and where the papers
 - `last_daily_success` older than today, after 00:30 UTC, means a missed day.
 - `last_pmc_sync_success` is the date of the last PMC sync over all papers. A sampled sync
   leaves it alone.
+- `last_pmc_sync_build` is the GEO/SRA build that sync read. When the store's current build
+  differs, the next PMC sync is due. A sampled sync leaves it alone too.
 - `quota` shows the copies each OpenAlex account bought today.
 - `counts` gives the papers per status, then per reason.
 - `copy_pending: true` means the bucket is behind: the GCS login had expired, a copy failed

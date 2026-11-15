@@ -147,13 +147,15 @@ class FakeWeb:
     """Answers PubMed efetch, ID converter and OpenAlex requests from canned records.
 
     ``batch_misses`` are works an OpenAlex batch filter leaves out though a single lookup
-    finds them.
+    finds them. ``merged`` maps a DOI OpenAlex merged into another work to that work's DOI:
+    a single lookup by it answers with that work, and a batch filter finds nothing.
     """
 
     articles: Mapping[str, Article] = field(default_factory=dict)
     pmcids: Mapping[str, str] = field(default_factory=dict)
     works: list[dict[str, Any]] = field(default_factory=list)
     batch_misses: set[str] = field(default_factory=set)
+    merged: Mapping[str, str] = field(default_factory=dict)
     calls: list[str] = field(default_factory=list)
     bucket: FakeBucket = field(default_factory=lambda: FakeBucket())
 
@@ -205,6 +207,8 @@ class FakeWeb:
         self.calls.append("openalex-single")
         name, _, value = urllib.parse.unquote(path.removeprefix("/works/")).partition(":")
         name = {"pmid": "ids.pmid"}.get(name, name)
+        if name == "doi":
+            value = self.merged.get(value, value)
         for w in self.works:
             if _value(w, name) == value:
                 return Reply(json.dumps(w))

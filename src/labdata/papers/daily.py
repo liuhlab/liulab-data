@@ -225,7 +225,7 @@ def _recompute(state: PaperTables, today: dt.date) -> None:
     for key, row in state.papers.items():
         if row.get("status") == "skipped":
             continue
-        status, reason = status_of(row, held=key in held, placeholder=False, today=today)
+        status, reason = status_of(row, held=key in held, today=today)
         if status == "waiting" and reason != "pmc-embargo":
             mine = tries.get(key, [])
             host = _host_tried(mine)
