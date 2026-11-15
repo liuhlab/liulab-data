@@ -14,12 +14,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from labdata.exceptions import NotMirrored
 from labdata.papers import tables
 from labdata.papers._zst import open_plain
-from labdata.papers.root import paper_key
+from labdata.papers.root import is_placeholder, paper_key
 from labdata.store.model import kind_of
 from labdata.store.reader import BuildReader
 
@@ -156,7 +157,7 @@ class PaperReader:
         ----------
         key : str
             A PMID, bare or as ``PMID:<n>``, or a DOI; a DOI finds the paper it belongs to
-            even when that paper is keyed by its PMID.
+            even when that paper is keyed by its PMID or another DOI.
 
         Returns
         -------
@@ -198,10 +199,10 @@ class PaperReader:
         wanted = list(dict.fromkeys(paper_key(k) for k in keys))
         if not wanted:
             return {}
-        dois = [w for w in wanted if not w.isdigit()]
-        rows = self._rows(tables.PAPERS, wanted, dois=dois)
+        dois = {w for w in wanted if not w.isdigit()}
+        rows = self._paper_rows(wanted, dois)
         by_key = {r["paper"]: r for r in rows}
-        by_doi = {r["doi"]: r for r in rows if r["doi"]}
+        by_doi = _by_doi(rows)
         hits = {w: row for w in wanted if (row := by_key.get(w) or by_doi.get(w))}
         held = {row["paper"] for row in hits.values()}
         info = {r["paper"]: r for r in self._rows(tables.PAPER_INFO, held)} if held else {}
@@ -229,8 +230,8 @@ class PaperReader:
     def papers_for(self, accessions: Iterable[str]) -> dict[str, PaperLinks]:
         """Map each Series or BioProject to the papers its build links, with their status.
 
-        A DOI link counts only when the paper store holds that DOI's paper, or when the
-        record links no PMID: the paper job takes in a DOI-only paper only for such records.
+        A DOI link counts only when the paper store holds its paper. A PMID link counts
+        before the paper store takes the paper in, unless it is a placeholder.
 
         Parameters
         ----------
@@ -251,31 +252,41 @@ class PaperReader:
         order = [a.strip().upper() for a in accessions]
         for accession in order:
             kind_of(accession)
-        targets: dict[str, set[str]] = {a: set() for a in order}
-        for src, dst, _relation, _source in self.build.links(set(order)) if order else []:
+        targets: dict[str, dict[str, set[str]]] = {a: {} for a in order}
+        for src, dst, _relation, source in self.build.links(set(order)) if order else []:
             if src in targets and dst.startswith((_PMID, _DOI)) and _is_paper(dst):
-                targets[src].add(dst)
+                targets[src].setdefault(dst, set()).add(source)
         linked = {t for ts in targets.values() for t in ts}
         pmids = {paper_key(t) for t in linked if t.startswith(_PMID)}
         dois = {paper_key(t) for t in linked if t.startswith(_DOI)}
-        rows = self._rows(tables.PAPERS, pmids | dois, dois=dois) if pmids | dois else []
+        rows = self._paper_rows(pmids | dois, dois) if pmids | dois else []
         by_key = {r["paper"]: r for r in rows}
-        by_doi = {r["doi"]: r for r in rows if r["doi"]}
+        by_doi = _by_doi(rows)
         out = {}
         for accession in order:
             found: dict[str, LinkedPaper] = {}
-            has_pmid = any(t.startswith(_PMID) for t in targets[accession])
-            for target in targets[accession]:
+            for target, sources in targets[accession].items():
                 key = paper_key(target)
                 row = by_key.get(key) or by_doi.get(key)
-                if row is None and target.startswith(_DOI) and has_pmid:
-                    continue
-                if row is None:
-                    found[key] = LinkedPaper(key, None, None)
-                else:
+                if row is not None:
                     found[row["paper"]] = LinkedPaper(row["paper"], row["status"], row["reason"])
+                elif target.startswith(_PMID) and not is_placeholder(key, sources):
+                    found[key] = LinkedPaper(key, None, None)
             out[accession] = PaperLinks(accession, tuple(found[k] for k in sorted(found)))
         return out
+
+    def _paper_rows(self, keys: Iterable[str], dois: set[str]) -> list[dict[str, Any]]:
+        """Return the ``papers`` rows keyed by ``keys``, or whose DOIs include one of ``dois``."""
+        rows = self._rows(tables.PAPERS, keys, dois=dois)
+        rest = dois - set(_by_doi(rows))
+        path = tables.PAPERS.path(self.root)
+        if rest and path.is_file():
+            # Few papers have other DOIs, so this reads few rows.
+            aliased = pq.read_table(
+                path, schema=tables.PAPERS.schema, filters=pc.field("other_dois").is_valid()
+            ).to_pylist()
+            rows += [r for r in aliased if rest & set(r["other_dois"])]
+        return rows
 
     def _rows(
         self, table: tables.PaperTable, keys: Iterable[str], dois: Iterable[str] = ()
@@ -288,6 +299,11 @@ class PaperReader:
         if dois:
             filters.append([("doi", "in", sorted(dois))])
         return pq.read_table(path, schema=table.schema, filters=filters).to_pylist()
+
+
+def _by_doi(rows: Iterable[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Map each DOI of the ``papers`` rows, ``doi`` and ``other_dois``, to its row."""
+    return {d: r for r in rows for d in (r["doi"], *(r["other_dois"] or ())) if d}
 
 
 def _is_paper(target: str) -> bool:

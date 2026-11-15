@@ -14,6 +14,7 @@ import pytest
 from labdata.exceptions import NotMirrored
 from labdata.papers import init_paper_store, open_paper_store, tables
 from labdata.papers.reader import Author, PaperReader
+from tests._paper_fakes import fixture_build
 from tests._slices import built_root
 
 
@@ -192,6 +193,41 @@ def test_series_papers_joined_from_the_build(tmp_path: Path) -> None:
     assert unlinked.papers == ()
     # Linked in the build, but not yet taken in by the paper store.
     assert [(p.key, p.status) for p in unsynced.papers] == [("33281976", None)]
+
+
+def test_a_doi_link_counts_only_when_the_store_holds_its_paper(tmp_path: Path) -> None:
+    store = fixture_build(
+        tmp_path / "store",
+        [
+            ("GSE1", "DOI:10.5281/zenodo.1", "SOFT Series_web_link"),
+            ("GSE2", "DOI:10.1101/2024.01.01.000002", "SOFT Series_citation"),
+            ("PRJNA1", "PMID:12345", "BioProject XML"),
+        ],
+    )
+    root = tmp_path / "papers"
+    init_paper_store(root, store)
+    tables.write(
+        root,
+        tables.PAPERS,
+        [
+            {
+                "paper": "41000006",
+                "pmid": 41000006,
+                "doi": "10.1000/journal",
+                "other_dois": ["10.1101/2024.01.01.000002"],
+                "status": "waiting",
+                "reason": "pmc-embargo",
+            }
+        ],
+    )
+    reader = open_paper_store(root).reader
+    dataset, preprint, placeholder = reader.papers_for(["GSE1", "GSE2", "PRJNA1"]).values()
+    # Not papers: a dataset's DOI and a placeholder PMID.
+    assert not dataset.linked
+    assert not placeholder.linked
+    # A preprint's DOI leads to its journal version.
+    assert [(p.key, p.status) for p in preprint.papers] == [("41000006", "waiting")]
+    assert reader.paper("10.1101/2024.01.01.000002").key == "41000006"
 
 
 def test_bioproject_no_series_names(tmp_path: Path) -> None:
