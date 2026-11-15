@@ -172,17 +172,21 @@ def start_prebuild() -> None:
     global _folder, _builder
     if _folder is None:
         _folder = Path(tempfile.mkdtemp(prefix="labdata-slices-"))
-        with (_folder / "log.txt").open("wb") as log:
-            _builder = subprocess.Popen(
-                [
-                    sys.executable,
-                    "-c",
-                    f"from tests import _slices; _slices._build_all({str(_folder)!r})",
-                ],
-                cwd=Path(__file__).parents[1],
-                stdout=log,
-                stderr=subprocess.STDOUT,
-            )
+        try:
+            with (_folder / "log.txt").open("wb") as log:
+                _builder = subprocess.Popen(
+                    [
+                        sys.executable,
+                        "-c",
+                        f"from tests import _slices; _slices._build_all({str(_folder)!r})",
+                    ],
+                    cwd=Path(__file__).parents[1],
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                )
+        except BaseException:
+            remove_prebuilt()
+            raise
 
 
 def prebuild() -> None:
