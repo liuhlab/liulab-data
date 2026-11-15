@@ -73,7 +73,7 @@ def logged_in(dest: str, *, run: Callable[[list[str]], subprocess.CompletedProce
     return not (probe.returncode and login_expired(probe.stderr))
 
 
-def on_paths(
+def run_on_paths(
     args: list[str],
     paths: list[str],
     *,

@@ -69,7 +69,7 @@ def copy(
     *,
     full: bool = False,
     accept_deletes: int = 0,
-    in_step: bool = False,
+    bucket_matches_marker: bool = False,
 ) -> CopyResult:
     """Send the store's changes since the last successful copy to ``destination``.
 
@@ -85,7 +85,7 @@ def copy(
     accept_deletes : int
         Delete up to this many raw files the current build no longer reads, even past the
         usual bound: for files removed on purpose.
-    in_step : bool
+    bucket_matches_marker : bool
         Whether the bucket holds exactly the build its marker names and what that build read.
         A routine copy with no copy record, on the disk or in the bucket, then seeds one from
         that build, if it is on the disk.
@@ -127,7 +127,12 @@ def copy(
         with build_lock(root):
             held = _current(root, store.settings.get(BUILD_KEY))
             skipped = _send(
-                root, dest, held, full=full, accept_deletes=accept_deletes, in_step=in_step
+                root,
+                dest,
+                held,
+                full=full,
+                accept_deletes=accept_deletes,
+                bucket_matches_marker=bucket_matches_marker,
             )
     except BaseException:
         note_copy(root, pending=True)
@@ -139,7 +144,13 @@ def copy(
 
 
 def _send(
-    root: Path, dest: str, held: _Files, *, full: bool, accept_deletes: int, in_step: bool
+    root: Path,
+    dest: str,
+    held: _Files,
+    *,
+    full: bool,
+    accept_deletes: int,
+    bucket_matches_marker: bool,
 ) -> str | None:
     """Copy the current state to ``dest``; return why the copy was skipped, or None when done."""
     expired = _rclone.expired_message(dest, "store", "labdata store copy")
@@ -157,7 +168,7 @@ def _send(
             if COPIED in fetched:
                 copied = json.loads(fetched[COPIED])
             else:
-                copied = _seed(root, fetched.get(MARKER)) if in_step else None
+                copied = _seed(root, fetched.get(MARKER)) if bucket_matches_marker else None
                 if copied is None:
                     return (
                         "no copy record, on the disk or in the bucket, so the bucket is behind "
@@ -181,7 +192,10 @@ def _fetch(root: Path, dest: str, names: list[str]) -> dict[str, str] | None:
     """Return the text of each of ``names`` the bucket holds; None when the login has expired."""
     folder = Path(tempfile.mkdtemp(prefix=".copy-fetch.", dir=root))
     try:
-        if not _ok(root, ["copy", dest, str(folder), "--no-traverse"], names):
+        fetch = ["copy", dest, str(folder), "--no-traverse"]
+        if not _rclone.run_on_paths(
+            fetch, names, folder=root, run=_run_rclone, error=StoreCopyError
+        ):
             return None
         return {
             n: (folder / n).read_text(encoding="utf-8") for n in names if (folder / n).is_file()
@@ -198,7 +212,7 @@ def _seed(root: Path, marker: str | None) -> _Files | None:
     build = tomllib.loads(marker).get(BUILD_KEY) if marker else None
     if not build or not manifest_path(build_path(root, str(build))).is_file():
         return None
-    return _state(root, str(build))[0]
+    return _build_files(root, str(build))[0]
 
 
 def _changes(root: Path, dest: str, held: _Files, copied: _Files | None) -> bool:
@@ -220,7 +234,13 @@ def _changes(root: Path, dest: str, held: _Files, copied: _Files | None) -> bool
         (["delete", dest, "--no-traverse"], gone),
     ]
     # A step with no paths is left out: rclone given none would act on the whole store.
-    return all(_ok(root, [*args, *_rclone.PROGRESS], paths) for args, paths in steps if paths)
+    return all(
+        _rclone.run_on_paths(
+            [*args, *_rclone.PROGRESS], paths, folder=root, run=_run_rclone, error=StoreCopyError
+        )
+        for args, paths in steps
+        if paths
+    )
 
 
 def _gone(held: _Files, copied: _Files) -> list[str]:
@@ -266,7 +286,10 @@ def _put_copied(root: Path, dest: str, held: _Files) -> bool:
     tmp = temp_beside(path)
     try:
         tmp.write_text(json.dumps(held, indent=1, sort_keys=True) + "\n", encoding="utf-8")
-        if not _ok(root, ["copyto", str(tmp), f"{dest.rstrip('/')}/{COPIED}"], []):
+        to = f"{dest.rstrip('/')}/{COPIED}"
+        if not _rclone.run_on_paths(
+            ["copyto", str(tmp), to], [], folder=root, run=_run_rclone, error=StoreCopyError
+        ):
             return False
         tmp.replace(path)
     finally:
@@ -282,7 +305,7 @@ def _current(root: Path, build: object) -> _Files:
     if not manifest_path(folder).is_file():
         rel = folder.relative_to(root).as_posix()
         raise StoreCopyError(f"copy refused: {rel} is missing or has no {MANIFEST}")
-    held, missing = _state(root, str(build))
+    held, missing = _build_files(root, str(build))
     if missing:
         raise StoreCopyError(
             "copy refused: the current build is incomplete; missing " + ", ".join(missing)
@@ -290,7 +313,7 @@ def _current(root: Path, build: object) -> _Files:
     return held
 
 
-def _state(root: Path, build: str) -> tuple[_Files, list[str]]:
+def _build_files(root: Path, build: str) -> tuple[_Files, list[str]]:
     """Return a build's files and what it read, with their sha256, and those not on the disk."""
     folder = build_path(root, build)
     rel = folder.relative_to(root).as_posix()
@@ -306,7 +329,7 @@ def _state(root: Path, build: str) -> tuple[_Files, list[str]]:
     for source, files in inputs.get("raw", {}).items():
         named = {f"raw/{source}/{f['name']}": f.get("sha256") for f in files}
         missing += [p for p in named if not (root / p).is_file()]
-        held |= named | _small(root, f"raw/{source}")
+        held |= named | _side_files(root, f"raw/{source}")
     for source, snap in sorted(inputs.get("snapshots", {}).items()):
         sub = f"snapshots/{source}/{snap['date']}"
         if (root / sub).is_dir():
@@ -314,11 +337,11 @@ def _state(root: Path, build: str) -> tuple[_Files, list[str]]:
         held[f"{sub}/{snap['name']}"] = snap.get("sha256")
         if not (root / sub / snap["name"]).is_file():
             missing.append(f"{sub}/{snap['name']}")
-    held |= _small(root, rel) | {p: None for p in _TOP if (root / p).is_file()}
+    held |= _side_files(root, rel) | {p: None for p in _TOP if (root / p).is_file()}
     return held, missing
 
 
-def _small(root: Path, folder: str) -> _Files:
+def _side_files(root: Path, folder: str) -> _Files:
     """Return a folder's README and manifest, those present, to go up every time."""
     return {f"{folder}/{n}": None for n in (README, MANIFEST) if (root / folder / n).is_file()}
 
@@ -330,10 +353,6 @@ def _listing(folder: Path) -> list[str]:
         for p in folder.rglob("*")
         if p.is_file() and not any(part.startswith(".") for part in p.relative_to(folder).parts)
     )
-
-
-def _ok(root: Path, args: list[str], paths: list[str]) -> bool:
-    return _rclone.on_paths(args, paths, folder=root, run=_run_rclone, error=StoreCopyError)
 
 
 def _run_rclone(args: list[str]) -> subprocess.CompletedProcess[str]:

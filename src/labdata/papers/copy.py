@@ -21,11 +21,7 @@ copy sets ``copy_pending``; a later success clears it.
 from __future__ import annotations
 
 import datetime as dt
-import os
 import subprocess
-import tempfile
-from collections.abc import Iterator
-from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -146,7 +142,9 @@ def _send(root: Path, dest: str, *, full: bool, accept_deletes: int) -> str | No
     path = root / COPIED
     fetch = ["copy", dest, str(root), "--no-traverse"]
     # The bucket's copy record is never older than the disk's: it goes up first.
-    if (full or not path.is_file()) and not _rclone_ok(root, fetch, [COPIED]):
+    if (full or not path.is_file()) and not _rclone.run_on_paths(
+        fetch, [COPIED], folder=root, run=_run_rclone, error=PaperCopyError
+    ):
         return expired
     if not full and not path.is_file():
         return (
@@ -206,8 +204,7 @@ def _changes(root: Path, dest: str, held: _Held, copied: _Held | None) -> bool:
     With no ``copied``, upload every file and delete none. Returns False when rclone's login
     has expired.
     """
-    probe = _run_rclone(["rclone", "lsjson", dest, "--max-depth", "1"])
-    if probe.returncode and _rclone.login_expired(probe.stderr):
+    if not _rclone.logged_in(dest, run=_run_rclone):
         return False
     steps: list[tuple[list[str], list[str]]] = []
     gone: list[str] = []
@@ -222,7 +219,12 @@ def _changes(root: Path, dest: str, held: _Held, copied: _Held | None) -> bool:
     steps.append((["copy", str(root), dest, "--max-depth=1", *_LEFT_OUT], []))
     if gone:
         steps.append((["delete", dest, "--no-traverse"], gone))
-    return all(_rclone_ok(root, [*args, *_rclone.PROGRESS], paths) for args, paths in steps)
+    return all(
+        _rclone.run_on_paths(
+            [*args, *_rclone.PROGRESS], paths, folder=root, run=_run_rclone, error=PaperCopyError
+        )
+        for args, paths in steps
+    )
 
 
 def _put_copied(root: Path, dest: str, held: _Held) -> bool:
@@ -235,41 +237,15 @@ def _put_copied(root: Path, dest: str, held: _Held) -> bool:
     tmp = temp_beside(path)
     try:
         pq.write_table(pa.Table.from_pylist(rows, schema=_SCHEMA), tmp, compression="zstd")
-        if not _rclone_ok(root, ["copyto", str(tmp), f"{dest.rstrip('/')}/{COPIED}"]):
+        to = f"{dest.rstrip('/')}/{COPIED}"
+        if not _rclone.run_on_paths(
+            ["copyto", str(tmp), to], [], folder=root, run=_run_rclone, error=PaperCopyError
+        ):
             return False
         tmp.replace(path)
     finally:
         tmp.unlink(missing_ok=True)
     return True
-
-
-def _rclone_ok(root: Path, args: list[str], paths: list[str] | None = None) -> bool:
-    """Run ``rclone <args>`` on ``paths`` only, if given; False when the login has expired.
-
-    Raises :class:`PaperCopyError` when rclone fails for another reason.
-    """
-    with _file_list(root, paths or []) as listed:
-        done = _run_rclone(["rclone", *args, *listed])
-    if done.returncode == 0:
-        return True
-    if _rclone.login_expired(done.stderr):
-        return False
-    raise PaperCopyError(f"rclone {args[0]} failed ({done.returncode}): {done.stderr}")
-
-
-@contextmanager
-def _file_list(root: Path, paths: list[str]) -> Iterator[list[str]]:
-    """Yield the rclone flag naming a hidden file that lists ``paths``; none for no paths."""
-    if not paths:
-        yield []
-        return
-    fd, name = tempfile.mkstemp(prefix=".copy-list.", dir=root)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.writelines(p + "\n" for p in paths)
-        yield [f"--files-from-raw={name}"]
-    finally:
-        Path(name).unlink(missing_ok=True)
 
 
 def _pending(root: Path, pending: bool) -> None:

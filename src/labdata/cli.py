@@ -576,7 +576,7 @@ def store_copy(
             to,
             full=full,
             accept_deletes=accept_deletes,
-            in_step=refresh.bucket_in_step(where),
+            bucket_matches_marker=refresh.bucket_matches_marker(where),
         )
     except LabdataError as err:
         typer.echo(str(err), err=True)

@@ -243,7 +243,7 @@ def switched(root: Path) -> dict[str, Any]:
     return status
 
 
-def bucket_in_step(root: Path) -> bool:
+def bucket_matches_marker(root: Path) -> bool:
     """Return whether the bucket held exactly the build its marker names, by the status record.
 
     That is, the copy was not pending when the last refresh switched builds, or, with no switch
