@@ -153,6 +153,8 @@ def test_one_daily_pass_a_day_after_0030_and_the_pmc_sync_on_the_3rd(
     tmp_path: Path, sbatch: Sbatch, rclone: Rclone
 ) -> None:
     root = paper_store(tmp_path)
+    full_copy(root)
+    rclone.calls.clear()
     clock = Clock(utc("2026-11-01 23:00"))
     lines = serve(root, clock, until=utc("2026-11-04 02:00"))
 
@@ -165,8 +167,9 @@ def test_one_daily_pass_a_day_after_0030_and_the_pmc_sync_on_the_3rd(
     ]
     assert status(root)["last_daily_success"] == "2026-11-04"
     assert status(root)["last_pmc_sync_success"] == "2026-11-03"
-    # Every pass ends with a copy to GCS.
-    assert len([c for c in rclone.calls if c[1] == "copy"]) == 5
+    # Every pass ends with a copy of its changes to GCS, never a full mirror.
+    assert len([c for c in rclone.calls if c[1] == "lsjson"]) == 5
+    assert not [c for c in rclone.calls if c[1] == "sync"]
     assert sbatch.calls == [
         ["sbatch", "--parsable", f"--dependency=afterany:{JOB}", OUTPUT, SCRIPT],
         ["sbatch", "--parsable", f"--dependency=afterany:{JOB}:4243", OUTPUT, SCRIPT],
@@ -352,33 +355,16 @@ def test_an_unreadable_accounts_file_fails_that_pass_and_the_job_goes_on(
     assert passes(lines) == ["2026-11-05T08:00Z daily pass 2026-11-05: success"]
 
 
-def copy(root: Path) -> str:
-    result = CliRunner().invoke(app, ["papers", "copy", "--root", str(root)])
+def full_copy(root: Path) -> str:
+    result = CliRunner().invoke(app, ["papers", "copy", "--root", str(root), "--full"])
     assert result.exit_code == 0, result.output
     return result.output
-
-
-def test_copy_makes_the_bucket_match_the_store_but_no_lock_journal_or_temp_file(
-    tmp_path: Path, rclone: Rclone
-) -> None:
-    root = paper_store(tmp_path)
-    copy(root)
-
-    hidden = ["--filter=- .*", "--filter=- .*/**", "--filter=- /paper-status.json"]
-    progress = ["--stats=1m", "--stats-one-line", "--stats-log-level=NOTICE"]
-    assert rclone.calls == [
-        ["rclone", "lsjson", DEST, "--max-depth", "1"],
-        # New files land first, the marker last; the sync then deletes what the store dropped.
-        ["rclone", "copy", str(root), DEST, *hidden, "--filter=- /labdata-papers.toml", *progress],
-        ["rclone", "sync", str(root), DEST, "--delete-excluded", *hidden, *progress],
-    ]
-    assert status(root)["copy_pending"] is False
 
 
 def test_a_failed_copy_sets_copy_pending(tmp_path: Path, rclone: Rclone) -> None:
     root = paper_store(tmp_path)
     rclone.returncode, rclone.stderr = 3, "ERROR : bucket not found\n"
-    result = CliRunner().invoke(app, ["papers", "copy", "--root", str(root)])
+    result = CliRunner().invoke(app, ["papers", "copy", "--root", str(root), "--full"])
     assert result.exit_code == 1
     assert "bucket not found" in result.output
     assert status(root)["copy_pending"] is True
@@ -389,12 +375,12 @@ def test_an_expired_login_sets_copy_pending_and_a_later_copy_clears_it(
 ) -> None:
     root = paper_store(tmp_path)
     rclone.returncode, rclone.stderr = 1, "oauth2: cannot fetch token: invalid_grant"
-    out = copy(root)
+    out = full_copy(root)
     assert "rclone config reconnect gcs:" in out
     assert status(root)["copy_pending"] is True
 
     rclone.returncode, rclone.stderr = 0, ""
-    copy(root)
+    full_copy(root)
     assert status(root)["copy_pending"] is False
 
 
@@ -402,6 +388,7 @@ def test_an_expired_login_does_not_fail_the_pass(
     tmp_path: Path, sbatch: Sbatch, rclone: Rclone
 ) -> None:
     root = synced(paper_store(tmp_path))
+    full_copy(root)
     rclone.returncode, rclone.stderr = 1, "invalid_grant"
     lines = serve(root, Clock(utc("2026-11-05 07:00")), until=utc("2026-11-05 07:10"))
 

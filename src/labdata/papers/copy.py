@@ -1,28 +1,53 @@
-"""Make the paper store's GCS copy match it, as the GEO/SRA store's copy does.
+"""Copy the paper store to GCS: the changes since the last copy, or on request a full mirror.
 
-New and changed files are uploaded, the marker last, then objects the store no longer holds
-are deleted. Hidden files stay behind: the lock, the daily pass's journal and every temp
-file; so does ``paper-status.json``, which the copy itself updates. An expired login skips the copy and sets ``copy_pending`` in ``paper-status.json``; a
-later copy clears it.
+A routine copy lists neither the paper folders nor the bucket. It compares the ``files``
+table with :data:`COPIED`, the paths, MD5s, sizes and fetch dates the last successful copy
+sent: a new or changed row is uploaded by name, a path gone from the table is deleted in the
+bucket, and the small top-level files go up every time. With no :data:`COPIED`, a routine copy
+is skipped and asks for a full mirror, ``labdata papers copy --full``, which writes it.
+
+Hidden files stay behind: the lock, the daily pass's journal, :data:`COPIED` and every temp
+file; so does ``paper-status.json``, which the copy itself updates. A skipped copy, on an
+expired login or with no earlier copy, sets ``copy_pending``; a later success clears it.
 """
 
 from __future__ import annotations
 
+import datetime as dt
+import os
 import subprocess
+import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
+
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 from labdata import _rclone
 from labdata.exceptions import LabdataError
 from labdata.papers.root import MARKER, PaperStore, paper_lock
 from labdata.papers.status import STATUS, read_status, write_status
+from labdata.papers.tables import FILES
+from labdata.store._files import temp_beside
 
 #: The marker key naming the rclone destination, ``<remote>:<bucket>/<path>``.
 COPY_TO_KEY = "copy_to"
 
+#: The ``files`` rows the bucket holds, as the last successful copy left them: each held
+#: path with its MD5, size and fetch date.
+COPIED = ".copied-files.parquet"
+
 #: Left out of the copy, and deleted from the bucket: hidden files and folders, and the
 #: status record, which the copy itself changes.
 _LEFT_OUT = ["--filter=- .*", "--filter=- .*/**", f"--filter=- /{STATUS}"]
+
+_COLUMNS = ["path", "md5", "size", "fetched"]
+_SCHEMA = pa.schema([FILES.schema.field(c) for c in _COLUMNS])
+
+#: Paths to their ``(md5, size, fetched)``.
+_Held = dict[str, tuple[object, ...]]
 
 
 class PaperCopyError(LabdataError):
@@ -31,7 +56,7 @@ class PaperCopyError(LabdataError):
 
 @dataclass(frozen=True, slots=True)
 class CopyResult:
-    """The outcome of one copy: done, or skipped because rclone's login expired."""
+    """The outcome of one copy: done, or skipped, with a message saying why."""
 
     destination: str
     skipped: bool = False
@@ -43,8 +68,8 @@ def destination(store: PaperStore) -> str:
     return str(store.settings.get(COPY_TO_KEY) or "")
 
 
-def copy(store: PaperStore, to: str | None = None) -> CopyResult:
-    """Make ``to`` match the paper store with rclone: new files first, then deletes.
+def copy(store: PaperStore, to: str | None = None, *, full: bool = False) -> CopyResult:
+    """Send the paper store's changes since the last successful copy to ``to``.
 
     Holds the paper store's lock, so a copy never runs beside a pass.
 
@@ -54,11 +79,15 @@ def copy(store: PaperStore, to: str | None = None) -> CopyResult:
         The paper store.
     to : str or None
         An rclone path, ``<remote>:<bucket>/<path>``; defaults to the marker's ``copy_to``.
+    full : bool
+        Mirror the whole store instead: upload new files, then delete objects the store no
+        longer holds. It lists every file on both sides; for a first copy or a repair.
 
     Returns
     -------
     CopyResult
-        ``skipped`` is true, with a message, when rclone's login has expired.
+        ``skipped`` is true, with a message, when rclone's login has expired, or when a
+        routine copy finds no earlier successful copy to start from.
 
     Raises
     ------
@@ -74,15 +103,28 @@ def copy(store: PaperStore, to: str | None = None) -> CopyResult:
             f"{COPY_TO_KEY} in {root / MARKER}"
         )
     with paper_lock(root):
-        try:
-            done = _rclone.mirror(
-                str(root),
-                dest,
-                [*_LEFT_OUT, f"--filter=- /{MARKER}"],
-                _LEFT_OUT,
-                run=_run_rclone,
-                error=PaperCopyError,
+        start = dt.datetime.now(dt.UTC)
+        held = _held(root)
+        copied = None if full else _copied(root)
+        if not full and copied is None:
+            _pending(root, True)
+            message = (
+                "no earlier copy to send changes from, so the bucket is behind the paper "
+                "store. Run `labdata papers copy --full` once; later copies send changes."
             )
+            return CopyResult(dest, skipped=True, message=message)
+        try:
+            if copied is None:
+                done = _rclone.mirror(
+                    str(root),
+                    dest,
+                    [*_LEFT_OUT, f"--filter=- /{MARKER}"],
+                    _LEFT_OUT,
+                    run=_run_rclone,
+                    error=PaperCopyError,
+                )
+            else:
+                done = _changes(root, dest, held, copied)
         except PaperCopyError:
             _pending(root, True)
             raise
@@ -91,11 +133,84 @@ def copy(store: PaperStore, to: str | None = None) -> CopyResult:
             raise PaperCopyError(
                 f"cannot run rclone: {err}; run inside the pixi environment"
             ) from err
-        _pending(root, not done)
-    if not done:
-        message = _rclone.expired_message(dest, "paper store", "labdata papers copy")
-        return CopyResult(dest, skipped=True, message=message)
+        if not done:
+            _pending(root, True)
+            message = _rclone.expired_message(dest, "paper store", "labdata papers copy")
+            return CopyResult(dest, skipped=True, message=message)
+        _write_copied(root, held)
+        stamp = start.strftime("%Y-%m-%dT%H:%M:%SZ")
+        write_status(root, replace(read_status(root), copy_pending=False, last_copy_success=stamp))
     return CopyResult(dest)
+
+
+def _held(root: Path) -> _Held:
+    return _signatures(FILES.path(root))
+
+
+def _copied(root: Path) -> _Held | None:
+    path = root / COPIED
+    return _signatures(path) if path.is_file() else None
+
+
+def _signatures(path: Path) -> _Held:
+    if not path.is_file():
+        return {}
+    data = pq.read_table(path, columns=_COLUMNS, schema=_SCHEMA).to_pylist()
+    return {r["path"]: (r["md5"], r["size"], r["fetched"]) for r in data if r["path"]}
+
+
+def _write_copied(root: Path, held: _Held) -> None:
+    path = root / COPIED
+    rows = [dict(zip(_COLUMNS, (p, *sig), strict=True)) for p, sig in sorted(held.items())]
+    tmp = temp_beside(path)
+    try:
+        pq.write_table(pa.Table.from_pylist(rows, schema=_SCHEMA), tmp, compression="zstd")
+        tmp.replace(path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def _changes(root: Path, dest: str, held: _Held, copied: _Held) -> bool:
+    """Upload new and changed files by name, delete dropped ones, then copy the top level.
+
+    Returns False when rclone's login has expired.
+    """
+    probe = _run_rclone(["rclone", "lsjson", dest, "--max-depth", "1"])
+    if probe.returncode and _rclone.login_expired(probe.stderr):
+        return False
+    put = sorted(p for p, sig in held.items() if copied.get(p) != sig)
+    gone = sorted(set(copied) - set(held))
+    steps: list[tuple[list[str], list[str]]] = []
+    if put:
+        steps.append((["copy", str(root), dest, "--no-traverse"], put))
+    if gone:
+        steps.append((["delete", dest], gone))
+    # Tables last, so the bucket's tables never name a file it lacks.
+    steps.append((["copy", str(root), dest, "--max-depth=1", *_LEFT_OUT], []))
+    for args, paths in steps:
+        with _file_list(root, paths) as listed:
+            done = _run_rclone(["rclone", *args, *listed, *_rclone.PROGRESS])
+        if done.returncode == 0:
+            continue
+        if _rclone.login_expired(done.stderr):
+            return False
+        raise PaperCopyError(f"rclone {args[0]} failed ({done.returncode}): {done.stderr}")
+    return True
+
+
+@contextmanager
+def _file_list(root: Path, paths: list[str]) -> Iterator[list[str]]:
+    """Yield the rclone flag naming a hidden file that lists ``paths``; none for no paths."""
+    if not paths:
+        yield []
+        return
+    fd, name = tempfile.mkstemp(prefix=".copy-list.", dir=root)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.writelines(p + "\n" for p in paths)
+        yield [f"--files-from-raw={name}"]
+    finally:
+        Path(name).unlink(missing_ok=True)
 
 
 def _pending(root: Path, pending: bool) -> None:

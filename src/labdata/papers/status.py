@@ -41,7 +41,10 @@ class PaperStatus:
     paperpile_pending : bool
         The Paperpile step was skipped because the Drive login has expired.
     copy_pending : bool
-        The GCS copy was skipped because its login has expired.
+        The bucket is behind: the GCS copy failed, or was skipped because its login has
+        expired or no earlier copy exists.
+    last_copy_success : str or None
+        The UTC time, ISO 8601, the last successful GCS copy started.
     """
 
     last_pass: dict[str, Any] = field(default_factory=dict)
@@ -52,6 +55,7 @@ class PaperStatus:
     counts: dict[str, dict[str, int]] = field(default_factory=dict)
     paperpile_pending: bool = False
     copy_pending: bool = False
+    last_copy_success: str | None = None
 
 
 def read_status(root: Path) -> PaperStatus:
