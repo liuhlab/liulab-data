@@ -6,10 +6,14 @@ over it, and it records every request it answers.
 
 from __future__ import annotations
 
+import atexit
 import gzip
 import hashlib
 import io
 import json
+import os
+import shutil
+import tempfile
 import urllib.parse
 from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
@@ -364,14 +368,32 @@ def _value(w: dict[str, Any], name: str) -> str | None:
     raise AssertionError(f"unexpected OpenAlex filter: {name}")
 
 
+#: Each store :func:`fixture_build` made, by its links and non-targets, for later calls to copy.
+_MADE: dict[tuple[tuple[tuple[str, str, str], ...], frozenset[str]], Path] = {}
+
+
 def fixture_build(
     root: Path, links: list[tuple[str, str, str]], *, not_targets: Iterable[str] = ()
 ) -> Path:
     """Make a GEO/SRA store at ``root`` whose build ``b1`` holds links, holdings and gaps.
 
     Each link is ``(from, to, source)``; every ``from`` is held. Every held Series is on the
-    target list of the build's snapshot date, except ``not_targets``.
+    target list of the build's snapshot date, except ``not_targets``. A store asked for again
+    is copied from the first.
     """
+    key = (tuple(links), frozenset(not_targets))
+    if key not in _MADE:
+        if not _MADE:
+            atexit.register(shutil.rmtree, _CACHE, ignore_errors=True)
+        _MADE[key] = _make_build(_CACHE / str(len(_MADE)), links, set(not_targets))
+    shutil.copytree(_MADE[key], root, dirs_exist_ok=True)
+    return root
+
+
+_CACHE = Path(tempfile.gettempdir()) / f"labdata-paper-builds-{os.getpid()}"
+
+
+def _make_build(root: Path, links: list[tuple[str, str, str]], skip: set[str]) -> Path:
     build = root / "builds" / "b1"
     build.mkdir(parents=True)
     (root / "labdata-store.toml").write_text('format_version = 1\nbuild = "b1"\n', encoding="utf-8")
@@ -397,7 +419,6 @@ def fixture_build(
         "SELECT * FROM (VALUES ('GSE0', 'x', 'x')) v(accession, reason, detail) WHERE false",
         {gaps.DATE_KEY: SNAPSHOT_DATE},
     )
-    skip = set(not_targets)
     series = sorted({f for f, _, _ in links if f.startswith("GSE") and f not in skip})
     out = targets.list_path(root, SNAPSHOT_DATE)
     out.parent.mkdir(parents=True)
