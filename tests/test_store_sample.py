@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import subprocess
-import sys
 from pathlib import Path
 
 import click
@@ -19,8 +17,7 @@ from labdata.store import _parse, extract, layout, open_store
 from labdata.store.build import build
 from labdata.store.targets import in_sample
 from tests._slices import BuiltStore
-
-_BENCHMARK = Path(__file__).parents[1] / "scripts" / "store" / "benchmark.py"
+from tests.test_store_benchmark import _MODES, _benchmark
 
 
 @pytest.fixture(autouse=True)
@@ -195,7 +192,10 @@ def test_a_scratch_root_takes_samples_of_one_store_only(
     assert open_store(scratch).settings["build"] == "s2"
 
 
-def test_the_cli_builds_a_sample_and_the_benchmark_runs_on_it(source: Path, tmp_path: Path) -> None:
+@pytest.mark.parametrize("mode", _MODES)
+def test_the_cli_builds_a_sample_and_the_benchmark_runs_on_it(
+    source: Path, tmp_path: Path, mode: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
     scratch = tmp_path / "scratch"
     result = CliRunner().invoke(
         app,
@@ -220,22 +220,11 @@ def test_the_cli_builds_a_sample_and_the_benchmark_runs_on_it(source: Path, tmp_
     no_limits = tmp_path / "limits.json"
     no_limits.write_text("{}")
     out = tmp_path / "result.json"
-    done = subprocess.run(
-        [
-            sys.executable,
-            str(_BENCHMARK),
-            str(scratch),
-            "--sizes",
-            "1,2",
-            "--limits",
-            str(no_limits),
-            "--out",
-            str(out),
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-        cwd=tmp_path,
+    done = _benchmark(
+        [str(scratch), "--sizes", "1,2", "--limits", str(no_limits), "--out", str(out)],
+        tmp_path,
+        mode,
+        monkeypatch,
     )
     assert done.returncode == 0, done.stderr
     sample = json.loads(out.read_text())["sample"]

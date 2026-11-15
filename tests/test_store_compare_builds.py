@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import functools
+import importlib.util
+import io
 import shutil
 import subprocess
 import sys
+from contextlib import redirect_stdout
 from pathlib import Path
+from typing import Any
 
 import duckdb
 import pyarrow.parquet as pq
@@ -37,13 +42,22 @@ def builds(_built: Path, tmp_path: Path) -> tuple[Path, Path]:
     return old, new
 
 
-def _compare(old: Path, new: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [sys.executable, str(SCRIPT), str(old), str(new)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+@functools.cache
+def _script() -> Any:
+    spec = importlib.util.spec_from_file_location("compare_builds", SCRIPT)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def compare(old: Path, new: Path) -> subprocess.CompletedProcess[str]:
+    """Run the script's ``main`` on two builds in this process; return its code and output."""
+    out = io.StringIO()
+    with redirect_stdout(out):
+        code = _script().main([str(old), str(new)])
+    return subprocess.CompletedProcess([str(old), str(new)], code, out.getvalue(), "")
 
 
 def _rewrite(path: Path, select: str, where: str = "true") -> None:
@@ -58,9 +72,16 @@ def _rewrite(path: Path, select: str, where: str = "true") -> None:
     kept.unlink()
 
 
-def test_identical_builds_match(builds: tuple[Path, Path]) -> None:
-    done = _compare(*builds)
+def test_identical_builds_match_run_as_a_script(builds: tuple[Path, Path]) -> None:
+    old, new = builds
+    done = subprocess.run(
+        [sys.executable, str(SCRIPT), str(old), str(new)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
     assert done.returncode == 0, done.stdout + done.stderr
+    assert done.stdout == compare(old, new).stdout
 
 
 def test_a_build_with_text_dates_matches_its_typed_twin(builds: tuple[Path, Path]) -> None:
@@ -77,7 +98,7 @@ def test_a_build_with_text_dates_matches_its_typed_twin(builds: tuple[Path, Path
     assert str(pq.read_schema(layout.records_path(old, "GEO Series")).field("published").type) == (
         "string"
     )
-    done = _compare(old, new)
+    done = compare(old, new)
     assert done.returncode == 0, done.stdout + done.stderr
 
 
@@ -90,7 +111,7 @@ def test_a_one_cell_change_fails_naming_the_cell(builds: tuple[Path, Path]) -> N
         f"* REPLACE (CASE WHEN accession = '{accession}' THEN raw_text || 'x' "
         "ELSE raw_text END AS raw_text)",
     )
-    done = _compare(old, new)
+    done = compare(old, new)
     assert done.returncode == 1
     assert "records/geo-sample.parquet" in done.stdout
     assert "raw_text" in done.stdout
@@ -122,7 +143,7 @@ def test_a_changed_or_dropped_field_fails_naming_the_column_and_accession(
         path,
         f"* REPLACE (CASE WHEN accession = '{accession}' THEN {fields} ELSE fields END AS fields)",
     )
-    done = _compare(old, new)
+    done = compare(old, new)
     assert done.returncode == 1
     line = next(x for x in done.stdout.splitlines() if "column fields" in x)
     assert line.startswith("records/geo-sample.parquet: column fields: 1 row differs")
@@ -134,7 +155,7 @@ def test_a_dropped_row_fails_naming_the_table_and_accession(builds: tuple[Path, 
     path = layout.records_path(new, "GEO Sample")
     accession = pq.read_table(path, columns=["accession"]).column(0)[3].as_py()
     _rewrite(path, "*", f"accession <> '{accession}'")
-    done = _compare(old, new)
+    done = compare(old, new)
     assert done.returncode == 1
     lines = done.stdout.splitlines()
     rows = pq.read_metadata(layout.records_path(old, "GEO Sample")).num_rows

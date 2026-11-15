@@ -33,12 +33,12 @@ from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
 from labdata.store import geo_lane, init_store, open_store, pipeline, raw, refresh
 from labdata.store.fetch import soft_url
+from tests.test_store_compare_builds import compare
 from tests.test_store_refresh_fetch import Ncbi, _Reply
 
 _DATA = Path(__file__).parent / "data" / "geo_slice"
 _OLD = "2026-10-14"
 _SEQ = "Expression profiling by high throughput sequencing"
-_COMPARE = Path(__file__).parents[1] / "scripts" / "store" / "compare_builds.py"
 _EXPIRED = "Failed to create file system: couldn't fetch token: invalid_grant: maybe it has expired"
 _DEST = "gcs:lab-bucket/store"
 
@@ -237,10 +237,8 @@ def _current(root: Path) -> Path:
 
 
 def _same_build(one: Path, two: Path) -> None:
-    done = subprocess.run(
-        [sys.executable, str(_COMPARE), str(one), str(two)], capture_output=True, text=True
-    )
-    assert done.returncode == 0, done.stdout + done.stderr
+    done = compare(one, two)
+    assert done.returncode == 0, done.stdout
 
 
 # ---------------------------------------------------------------- the DAG
@@ -385,6 +383,8 @@ def built(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, _Geo]:
     return _built(tmp_path / "store", monkeypatch, ncbi), ncbi
 
 
+# A refresh run end to end starts a Snakemake process for its DAG, then builds.
+@pytest.mark.slow
 def test_a_refresh_adds_replaces_removes_and_switches_while_an_open_store_keeps_its_build(
     built: tuple[Path, _Geo], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -420,6 +420,7 @@ def test_a_refresh_adds_replaces_removes_and_switches_while_an_open_store_keeps_
     assert status["copy_pending"] is False
 
 
+@pytest.mark.slow
 def test_a_refresh_killed_after_pack_and_rerun_gives_the_uninterrupted_build(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -454,6 +455,7 @@ def test_a_refresh_killed_after_pack_and_rerun_gives_the_uninterrupted_build(
     assert status["counts"] == refresh.read_status(whole)["counts"]
 
 
+@pytest.mark.slow
 def test_a_second_refresh_asks_only_for_the_overlap_window(
     built: tuple[Path, _Geo], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -476,6 +478,7 @@ def test_a_second_refresh_asks_only_for_the_overlap_window(
     _same_build(first, _current(root))
 
 
+@pytest.mark.slow
 def test_an_expired_login_leaves_the_copy_pending_and_a_later_copy_clears_it(
     built: tuple[Path, _Geo], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -546,6 +549,7 @@ def test_an_accession_only_a_pending_removal_lists_is_fetched_again(
     assert set(_held(root, raw.GEO_SOFT)) == {KEPT}
 
 
+@pytest.mark.slow
 def test_a_refresh_removes_no_sra_record_ncbi_no_longer_serves(
     built: tuple[Path, _Geo], monkeypatch: pytest.MonkeyPatch
 ) -> None:
