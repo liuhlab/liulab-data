@@ -2,24 +2,18 @@
 
 from __future__ import annotations
 
-import functools
-import importlib.util
-import io
 import shutil
 import subprocess
 import sys
-from contextlib import redirect_stdout
 from pathlib import Path
-from typing import Any
 
 import duckdb
 import pyarrow.parquet as pq
 import pytest
 
 from labdata.store import layout
+from tests._scripts import COMPARE_BUILDS, compare
 from tests._slices import BuiltStore
-
-SCRIPT = Path(__file__).parents[1] / "scripts" / "store" / "compare_builds.py"
 
 
 @pytest.fixture(autouse=True)
@@ -42,24 +36,6 @@ def builds(_built: Path, tmp_path: Path) -> tuple[Path, Path]:
     return old, new
 
 
-@functools.cache
-def _script() -> Any:
-    spec = importlib.util.spec_from_file_location("compare_builds", SCRIPT)
-    assert spec is not None
-    assert spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def compare(old: Path, new: Path) -> subprocess.CompletedProcess[str]:
-    """Run the script's ``main`` on two builds in this process; return its code and output."""
-    out = io.StringIO()
-    with redirect_stdout(out):
-        code = _script().main([str(old), str(new)])
-    return subprocess.CompletedProcess([str(old), str(new)], code, out.getvalue(), "")
-
-
 def _rewrite(path: Path, select: str, where: str = "true") -> None:
     """Rewrite one table file from a DuckDB select over its rows, called ``t``."""
     kept = path.with_suffix(".old")
@@ -75,13 +51,14 @@ def _rewrite(path: Path, select: str, where: str = "true") -> None:
 def test_identical_builds_match_run_as_a_script(builds: tuple[Path, Path]) -> None:
     old, new = builds
     done = subprocess.run(
-        [sys.executable, str(SCRIPT), str(old), str(new)],
+        [sys.executable, str(COMPARE_BUILDS), str(old), str(new)],
         capture_output=True,
         text=True,
         check=False,
     )
     assert done.returncode == 0, done.stdout + done.stderr
-    assert done.stdout == compare(old, new).stdout
+    here = compare(old, new)
+    assert (here.returncode, here.stdout, here.stderr) == (0, done.stdout, done.stderr)
 
 
 def test_a_build_with_text_dates_matches_its_typed_twin(builds: tuple[Path, Path]) -> None:

@@ -16,8 +16,8 @@ from labdata.exceptions import StoreBuildError
 from labdata.store import _parse, extract, layout, open_store
 from labdata.store.build import build
 from labdata.store.targets import in_sample
+from tests._scripts import BENCHMARK_MODES, benchmark
 from tests._slices import BuiltStore
-from tests.test_store_benchmark import _MODES, _benchmark
 
 
 @pytest.fixture(autouse=True)
@@ -192,7 +192,7 @@ def test_a_scratch_root_takes_samples_of_one_store_only(
     assert open_store(scratch).settings["build"] == "s2"
 
 
-@pytest.mark.parametrize("mode", _MODES)
+@pytest.mark.parametrize("mode", BENCHMARK_MODES)
 def test_the_cli_builds_a_sample_and_the_benchmark_runs_on_it(
     source: Path, tmp_path: Path, mode: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -220,7 +220,7 @@ def test_the_cli_builds_a_sample_and_the_benchmark_runs_on_it(
     no_limits = tmp_path / "limits.json"
     no_limits.write_text("{}")
     out = tmp_path / "result.json"
-    done = _benchmark(
+    done = benchmark(
         [str(scratch), "--sizes", "1,2", "--limits", str(no_limits), "--out", str(out)],
         tmp_path,
         mode,

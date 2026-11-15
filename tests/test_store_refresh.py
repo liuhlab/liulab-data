@@ -34,7 +34,7 @@ from labdata.ncbi.entrez import EntrezClient
 from labdata.store import geo_lane, init_store, open_store, pipeline, raw, refresh
 from labdata.store.fetch import soft_url
 from tests import _snakemake
-from tests.test_store_compare_builds import compare
+from tests._scripts import compare
 from tests.test_store_refresh_fetch import Ncbi, _Reply
 
 _DATA = Path(__file__).parent / "data" / "geo_slice"
@@ -238,7 +238,7 @@ def _current(root: Path) -> Path:
 
 def _same_build(one: Path, two: Path) -> None:
     done = compare(one, two)
-    assert done.returncode == 0, done.stdout
+    assert done.returncode == 0, done.stdout + done.stderr
 
 
 # ---------------------------------------------------------------- the DAG
