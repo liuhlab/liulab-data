@@ -4,11 +4,11 @@ A raw row is ``accession``, ``raw_text``, ``hash`` and ``fetch_date``. A source'
 ``raw/<source>/<bucket>.parquet``, a bucket being a range of :data:`WIDTHS` accession numbers.
 
 A fetch lane splits its work into :class:`Piece` s, one per bucket, and writes each finished
-piece as one part file that appears by a rename. A rerun skips every accession a part or a
-raw bucket already holds, so a saved piece makes no request. A re-fetch accession is fetched
-again though a raw bucket holds it; only a part saves it. A removal part lists accessions to
-delete instead of rows. Only :mod:`labdata.store.pack` writes ``raw/``. Writer side only, so
-pyarrow is imported here freely.
+piece as one part file that appears by a rename, its name stamped with that time. A rerun
+skips every accession a part or a raw bucket already holds, so a saved piece makes no
+request. A re-fetch accession is fetched again though a raw bucket holds it; only a part saves
+it. A removal part lists accessions to delete instead of rows. Only :mod:`labdata.store.pack`
+writes ``raw/``. Writer side only, so pyarrow is imported here freely.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ import itertools
 import os
 import re
 import threading
+import time
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
@@ -72,6 +73,10 @@ SCHEMA = pa.schema(
     ]
 )
 _ACCESSION = re.compile(r"^([A-Z]+)(\d+)$")
+#: Digits of the write stamp in a part's name, ``<bucket>.<stamp>.<rest>``.
+_STAMP_DIGITS = 20
+_last_stamp = 0
+_stamp_lock = threading.Lock()
 
 
 def sha256(text: str) -> str:
@@ -122,12 +127,31 @@ def parts_dir(root: Path, source: str) -> Path:
 
 
 def part_files(root: Path, source: str) -> list[Path]:
-    """Return a source's finished part files, oldest first."""
+    """Return a source's finished part files, oldest first, by the stamp in their names.
+
+    Not by mtime: Linux gives files written within one clock tick the same mtime. A part
+    with no stamp sorts by its mtime.
+    """
     folder = parts_dir(root, source)
     if not folder.is_dir():
         return []
     files = [p for p in folder.glob("*.parquet") if not p.name.startswith(".")]
-    return sorted(files, key=lambda p: (p.stat().st_mtime_ns, p.name))
+    return sorted(files, key=lambda p: (_written(p), p.name))
+
+
+def _written(path: Path) -> int:
+    stamp = path.name.split(".")[1]
+    if len(stamp) == _STAMP_DIGITS and stamp.isdigit():
+        return int(stamp)
+    return path.stat().st_mtime_ns
+
+
+def _stamp() -> int:
+    """Return the time in nanoseconds, later than every stamp this process gave before."""
+    global _last_stamp
+    with _stamp_lock:
+        _last_stamp = max(time.time_ns(), _last_stamp + 1)
+        return _last_stamp
 
 
 def part_bucket(path: Path) -> str:
@@ -282,11 +306,12 @@ def write_removals(root: Path, source: str, accessions: Iterable[str]) -> list[P
         listed = "\n".join(sorted(members))
         tag = hashlib.sha256(listed.encode()).hexdigest()[:12]
         folder.mkdir(parents=True, exist_ok=True)
-        path = folder / f"{bucket}.removed-{tag}.parquet"
-        written.append(path)
-        if path.is_file():
+        if kept := next(folder.glob(f"{bucket}.*removed-{tag}.parquet"), None):
+            written.append(kept)
             continue
-        write_sorted_runs(path, [], SCHEMA.with_metadata({REMOVED_KEY: listed.encode()}))
+        path = folder / f"{bucket}.removed-{tag}.parquet"
+        schema = SCHEMA.with_metadata({REMOVED_KEY: listed.encode()})
+        written.append(write_sorted_runs(path, [], schema, stamped=True))
     return written
 
 
@@ -365,18 +390,28 @@ def write_part(
 
     listed = "\n".join(piece.todo) if record_asked else ""
     schema = SCHEMA.with_metadata({ASKED_KEY: listed.encode()})
-    write_sorted_runs(path, checked(), schema, chunk_bytes=chunk_bytes)
-    return path
+    return write_sorted_runs(path, checked(), schema, chunk_bytes=chunk_bytes, stamped=True)
 
 
 def write_sorted_runs(
-    path: Path, rows: Iterable[RawRow], schema: pa.Schema, *, chunk_bytes: int = SORT_CHUNK_BYTES
-) -> None:
+    path: Path,
+    rows: Iterable[RawRow],
+    schema: pa.Schema,
+    *,
+    chunk_bytes: int = SORT_CHUNK_BYTES,
+    stamped: bool = False,
+) -> Path:
     """Write rows to ``path`` one chunk at a time, each chunk sorted by accession.
 
     A chunk is written as :data:`GROUPS_PER_CHUNK` row groups, so a reader merging many
     sorted runs holds one small row group of each. The file appears by a rename once whole.
-    Rows already in order make a sorted file.
+    Rows already in order make a sorted file. With ``stamped``, the file is a part, and its
+    name gets the time of the rename after the bucket: ``<bucket>.<stamp>.<rest>``.
+
+    Returns
+    -------
+    pathlib.Path
+        The file written.
     """
     tmp = writer_temp(path)
     try:
@@ -391,9 +426,13 @@ def write_sorted_runs(
                     chunk, size = [], 0
             if chunk:
                 _write_chunk(writer, chunk, schema, chunk_bytes)
+        if stamped:
+            bucket, rest = path.name.split(".", 1)
+            path = path.with_name(f"{bucket}.{_stamp():0{_STAMP_DIGITS}d}.{rest}")
         tmp.replace(path)
     finally:
         tmp.unlink(missing_ok=True)
+    return path
 
 
 def _write_chunk(

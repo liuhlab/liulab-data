@@ -164,7 +164,7 @@ def test_pack_counts_after_a_kill_and_rerun_match_an_uninterrupted_pack(
     whole, cut = _counted_store(tmp_path / "whole"), _counted_store(tmp_path / "cut")
     real = raw.write_sorted_runs
 
-    def killed(path: Path, rows: Any, schema: Any, **kw: Any) -> None:
+    def killed(path: Path, rows: Any, schema: Any, **kw: Any) -> Path:
         """Kill the pack of one bucket just before or just after its file is renamed."""
         if path != cut / "raw" / raw.GEO_SOFT / "GSE1nnnn.parquet":
             return real(path, rows, schema, **kw)

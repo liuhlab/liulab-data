@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import os
 import shutil
 import threading
 import urllib.parse
@@ -325,9 +326,16 @@ def test_writing_the_same_removal_again_keeps_its_place_before_later_rows(tmp_pa
     _part(root, raw.GEO_SOFT, raw.RawRow("GSE3", "came back", _DATE))
 
     raw.write_removals(root, raw.GEO_SOFT, ["GSE3"])
+    _one_tick(root, raw.GEO_SOFT)
     _step(root, "pack")
 
     assert _held(root, raw.GEO_SOFT) == {"GSE3": "came back"}
+
+
+def _one_tick(root: Path, source: str) -> None:
+    """Give every part one mtime, as Linux does to files written within one clock tick."""
+    for path in raw.part_files(root, source):
+        os.utime(path, ns=(0, 0))
 
 
 def _part(root: Path, source: str, *rows: raw.RawRow) -> Path:
