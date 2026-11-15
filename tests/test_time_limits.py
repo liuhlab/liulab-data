@@ -67,14 +67,14 @@ class SlowFinish:
     """Session-finish work that runs before the budget's, as pytest's temp-folder clean-up does."""
 
     def pytest_sessionfinish(self) -> None:
-        time.sleep(0.3)
+        time.sleep(0.8)
 
 
 def test_the_budget_stops_where_the_tests_end(pytester: pytest.Pytester) -> None:
-    scratch(pytester, "def test_quick():\n    pass\n", timeout=1, budget=0.2)
+    scratch(pytester, "def test_quick():\n    pass\n", timeout=1, budget=0.75)
     result = pytester.runpytest(plugins=[SlowFinish()])
     assert result.ret == pytest.ExitCode.OK
-    result.stdout.fnmatch_lines(["suite time: * s of its 0.2 s budget"])
+    result.stdout.fnmatch_lines(["suite time: * s of its 0.75 s budget"])
 
 
 # An unmarked test is not exempted by a parametrize id or a directory named `slow`.

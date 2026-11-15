@@ -16,13 +16,13 @@ import pytest
 SLOW = "slow"
 EXEMPT = (SLOW, "network")
 
+#: Ride on an exempt test's reports, which pytest-xdist carries from a worker to the controller.
+EXEMPT_TAGS = {name: (name, True) for name in EXEMPT}
 
-def _tags(item: pytest.Item) -> list[tuple[str, bool]]:
-    """Tags for the test's exempt marks.
 
-    They ride on its reports, which pytest-xdist carries from a worker to the controller.
-    """
-    return [(name, True) for name in EXEMPT if item.get_closest_marker(name)]
+def _exempt(item: pytest.Item) -> bool:
+    """Whether a test carries a mark that frees it from both limits."""
+    return any(item.get_closest_marker(name) for name in EXEMPT)
 
 
 class SuiteBudget:
@@ -50,7 +50,9 @@ class SuiteBudget:
 
     def pytest_runtest_logreport(self, report: pytest.TestReport) -> None:
         """Note an exempt test's marks."""
-        self.exempt_ran.update(name for name in EXEMPT if (name, True) in report.user_properties)
+        for name, tag in EXEMPT_TAGS.items():
+            if tag in report.user_properties:
+                self.exempt_ran.add(name)
 
     @pytest.hookimpl(trylast=True)
     def pytest_sessionfinish(self, session: pytest.Session) -> None:
@@ -104,10 +106,12 @@ def pytest_runtest_makereport(
 ) -> Generator[None, pytest.TestReport, pytest.TestReport]:
     """Tag an exempt test's report."""
     report = yield
-    report.user_properties.extend(_tags(item))
+    for name, tag in EXEMPT_TAGS.items():
+        if item.get_closest_marker(name):
+            report.user_properties.append(tag)
     return report
 
 
 def pytest_timeout_set_timer(item: pytest.Item) -> bool | None:
     """Set no timer for an exempt test; pytest-timeout sets one for every other."""
-    return True if _tags(item) else None
+    return True if _exempt(item) else None
