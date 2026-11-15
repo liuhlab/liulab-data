@@ -4,20 +4,22 @@ From 00:30 UTC each day, the daily pass is due when ``paper-status.json`` record
 daily-pass success that day, and from the 3rd of a month the PMC sync is due when it records
 no PMC sync success that month. Both are
 read afresh before each check, so after a restart only what is due runs. Every pass ends
-with a copy to GCS. At start the job submits its own successor, which Slurm starts once this
-job ends for any reason.
+with a copy to GCS. At start the job keeps ``QUEUED`` jobs queued behind it, each to start
+once the jobs before it end for any reason, so one that fails at start does not end the chain.
+A running job cannot see its successor fail, as the successor starts only once it ends.
 """
 
 from __future__ import annotations
 
 import datetime as dt
 import posixpath
+import re
 import subprocess
 import threading
 import time
 import traceback
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 
 from labdata._http import HttpTransport, Transport
 from labdata.ncbi.entrez import EntrezClient
@@ -41,8 +43,11 @@ TICK = 60.0
 #: A failed pass is tried again after this long.
 RETRY = dt.timedelta(hours=1)
 
-#: Records which successor this job submitted, so a requeued job submits no second one.
+#: Records the chain: a job, then the jobs queued behind it.
 SUCCESSOR = ".successor"
+
+#: Jobs kept queued behind the running one.
+QUEUED = 2
 
 
 def _submit(args: list[str]) -> subprocess.CompletedProcess[str]:
@@ -51,7 +56,7 @@ def _submit(args: list[str]) -> subprocess.CompletedProcess[str]:
 
 
 def _show_job(job_id: str) -> str:
-    """Return ``scontrol show job`` output, or ``""``; the seam that reads the job's log path."""
+    """Return ``scontrol show job`` output, or ``""``; the seam that reads a job's state."""
     try:
         done = subprocess.run(
             ["scontrol", "show", "job", job_id], capture_output=True, text=True, check=False
@@ -120,12 +125,13 @@ def serve(
     until : datetime.datetime or None
         Stop at this time; ``None`` runs until the job is stopped.
     job_id : str or None
-        This Slurm job's ID; with ``successor``, the next job is submitted to start after it.
+        This Slurm job's ID; with ``successor``, jobs are kept queued behind it.
     successor : str or None
-        The batch script the next job runs.
+        The batch script the queued jobs run.
     log : callable
-        Takes one line for the job log.
+        Takes one line for the job log; a line it fails to write with ``OSError`` is dropped.
     """
+    log = _drop_failed_lines(log)
     if job_id and successor:
         _submit_successor(store, job_id, successor, lambda line: log(f"{_stamp(clock())} {line}"))
     transport = transport or HttpTransport()
@@ -184,27 +190,46 @@ def _copy(store: PaperStore, log: Callable[[str], None]) -> None:
 def _submit_successor(
     store: PaperStore, job_id: str, script: str, log: Callable[[str], None]
 ) -> None:
-    """Submit the next job once per job ID, to start when this one ends."""
+    """Keep ``QUEUED`` jobs behind this one, so one failing at start does not end the chain.
+
+    The record lists the chain; a job after this one in it counts while Slurm shows it
+    pending or running, or shows nothing.
+    """
     record = store.root / SUCCESSOR
-    if record.is_file() and record.read_text(encoding="utf-8").split()[:1] == [job_id]:
-        log(f"successor already submitted by job {job_id}")
+    chain = record.read_text(encoding="utf-8").split() if record.is_file() else []
+    after_me = chain[chain.index(job_id) + 1 :] if job_id in chain else []
+    queued = [next_id for next_id in after_me if _waiting(next_id)]
+    if len(queued) >= QUEUED:
+        log(f"successors {' and '.join(queued)} already queued behind job {job_id}")
         return
-    args = ["sbatch", "--parsable", f"--dependency=afterany:{job_id}", script]
     log_dir = _log_dir(job_id)
-    if log_dir is not None:
-        # Otherwise the successor's log lands in its submit directory: the repo checkout.
-        args.insert(-1, f"--output={posixpath.join(log_dir, 'labdata-papers.%j.log')}")
-    try:
-        done = _submit(args)
-    except OSError as err:
-        log(f"successor not submitted: {err}; submit it by hand")
-        return
-    if done.returncode:
-        log(f"successor not submitted: {done.stderr.strip()}; submit it by hand")
-        return
-    next_id = done.stdout.strip().split(";")[0]
-    write_atomic(record, f"{job_id} {next_id}\n")
-    log(f"successor job {next_id} submitted, to start after job {job_id}")
+    while len(queued) < QUEUED:
+        after = [job_id, *queued]
+        args = ["sbatch", "--parsable", f"--dependency=afterany:{':'.join(after)}", script]
+        if log_dir is not None:
+            # Otherwise the successor's log lands in its submit directory: the repo checkout.
+            args.insert(-1, f"--output={posixpath.join(log_dir, 'labdata-papers.%j.log')}")
+        try:
+            done = _submit(args)
+        except OSError as err:
+            log(f"successor not submitted: {err}; submit it by hand")
+            return
+        if done.returncode:
+            log(f"successor not submitted: {done.stderr.strip()}; submit it by hand")
+            return
+        queued.append(done.stdout.strip().split(";")[0])
+        log(f"successor job {queued[-1]} submitted, to start after job {' and '.join(after)}")
+        try:
+            write_atomic(record, " ".join([job_id, *queued]) + "\n")
+        except OSError as err:
+            log(f"successor record not written: {err}; no more successors submitted")
+            return
+
+
+def _waiting(job_id: str) -> bool:
+    """Return whether Slurm shows ``job_id`` pending or running, or shows nothing."""
+    state = re.search(r"\bJobState=(\S+)", _show_job(job_id))
+    return state is None or state[1] in {"PENDING", "RUNNING"}
 
 
 def _log_dir(job_id: str) -> str | None:
@@ -242,6 +267,16 @@ def _ticker(kind: str, log: Callable[[str], None]) -> Iterator[None]:
     finally:
         stop.set()
         thread.join()
+
+
+def _drop_failed_lines(log: Callable[[str], None]) -> Callable[[str], None]:
+    """Wrap ``log`` so a full or failing disk drops the line instead of stopping the job."""
+
+    def write(line: str) -> None:
+        with suppress(OSError):
+            log(line)
+
+    return write
 
 
 def _stamp(now: dt.datetime) -> str:

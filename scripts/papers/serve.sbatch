@@ -3,12 +3,16 @@
 #
 #   LABDATA_PAPERS=/path/to/paper-store sbatch scripts/papers/serve.sbatch
 #
-# At start the job submits its own successor, which waits for this job to end for any reason
-# (time limit, failure, cancel), then takes over. To stop the chain, cancel the waiting
-# successor first, then this job. The successor gets the Slurm options written here, not
-# options given on the first sbatch command line, except its log: each job writes
-# labdata-papers.<job id>.log into the folder of the job before it. The first job's log
-# goes where --output says, or into the submit directory without it.
+# At start the job keeps two successors queued behind it, each waiting for the jobs before it
+# to end for any reason (time limit, failure, cancel), so one that fails at start does not end
+# the chain. To stop the chain, cancel the waiting successors first, then this job. The
+# successors get the Slurm options written here, not options given on the first sbatch
+# command line, except their log: each job writes labdata-papers.<job id>.log into the
+# folder of the job before it. The first job's log goes where --output says, or into the
+# submit directory without it.
+#
+# rclone reads $LABDATA_RCLONE_CONFIG, else its per-user default config, whatever
+# RCLONE_CONFIG the submitting shell had; successors inherit the choice.
 #SBATCH --job-name=labdata-papers
 #SBATCH --partition=cpu_batch
 #SBATCH --open-mode=append
@@ -21,6 +25,7 @@ set -euo pipefail
 : "${LABDATA_PAPERS:?set LABDATA_PAPERS to the paper store root}"
 repo="${LABDATA_REPO:-${SLURM_SUBMIT_DIR:-$PWD}}"
 export LABDATA_REPO="$repo"
+export RCLONE_CONFIG="${LABDATA_RCLONE_CONFIG:-$HOME/.config/rclone/rclone.conf}"
 
 echo "$(date -u +%FT%TZ) job ${SLURM_JOB_ID:-local}" \
   "restart ${SLURM_RESTART_COUNT:-0} on $(hostname)" \

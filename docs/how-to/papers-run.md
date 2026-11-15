@@ -27,6 +27,8 @@ the accounts at each pass, so new ones count from the next pass, with no restart
 
 For the copy to Google Cloud Storage (GCS), set up the `gcs` rclone remote and log in as
 [Copy the store to GCS](store-gcs.md) shows. Leave out `--copy-to` to run with no copy.
+The job's rclone reads your own config, `~/.config/rclone/rclone.conf`, even when your shell
+sets `RCLONE_CONFIG`; set `LABDATA_RCLONE_CONFIG` before `sbatch` to use another file.
 
 ## Fill the store the first time
 
@@ -81,20 +83,21 @@ PMC gives the article text, figures and supplements, while OpenAlex and host lin
 only. So when a paper fetched from OpenAlex or a host link later appears in PMC, the PMC sync
 takes its PMC files and then deletes the old PDF.
 
-At start, the job submits the next job, which waits for this one to end and then takes over.
-So the chain goes on by itself: Slurm on arc accepts a job submitted from inside a running job.
+At start, the job makes sure two more jobs wait behind it. When the running job ends, the
+next one takes over; if that one fails at start, the one after it takes over. So the chain
+goes on by itself: Slurm on arc accepts a job submitted from inside a running job.
 
-To stop the chain, cancel the waiting job first, then the running one:
+To stop the chain, cancel the waiting jobs first, then the running one:
 
 ```bash
 squeue --me -n labdata-papers
-scancel <waiting job id>
+scancel -u "$USER" -n labdata-papers -t PENDING
 scancel <running job id>
 ```
 
 If the chain breaks, submit `scripts/papers/serve.sbatch` again by hand. A new job does only
 what is due: a day with no daily pass, or a month with no PMC sync after the 3rd. The job log
-says `successor not submitted` when it could not submit the next job.
+says `successor not submitted` when it could not submit a waiting job.
 
 ## Watch it
 
