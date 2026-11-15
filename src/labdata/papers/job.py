@@ -1,12 +1,13 @@
 """The paper job: one long-running process that runs each pass when it is due.
 
 From 00:30 UTC each day, the daily pass is due when ``paper-status.json`` records no
-daily-pass success that day, and from the 3rd of a month the PMC sync is due when it records
-no PMC sync success that month. Both are
-read afresh before each check, so after a restart only what is due runs. Every pass ends
-with a copy to GCS. At start the job keeps ``QUEUED`` jobs queued behind it, each to start
-once the jobs before it end for any reason, so one that fails at start does not end the chain.
-A running job cannot see its successor fail, as the successor starts only once it ends.
+daily-pass success that day. The PMC sync is due when it records no PMC sync success this
+month, from the 3rd, or records a GEO/SRA build other than the store's current one. The file
+and the store's marker are read afresh before each check, so after a restart only what is
+due runs. Every pass ends with a copy to GCS. At start the job keeps ``QUEUED`` jobs queued
+behind it, each to start once the jobs before it end for any reason, so one that fails at
+start does not end the chain. A running job cannot see its successor fail, as the successor
+starts only once it ends.
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ from labdata.papers.root import PaperStore
 from labdata.papers.status import read_status
 from labdata.papers.sync import pmc_sync
 from labdata.store._files import write_atomic
+from labdata.store.reader import current_build
 
 #: The daily pass waits this long after midnight UTC, past OpenAlex's quota reset.
 DAILY_AT = dt.time(0, 30)
@@ -69,6 +71,9 @@ def _show_job(job_id: str) -> str:
 def due(store: PaperStore, now: dt.datetime) -> list[str]:
     """Return the passes due at ``now``, daily first: ``daily``, ``pmc-sync``, or both.
 
+    A new GEO/SRA build makes the PMC sync due only when the last full sync recorded the
+    build it read. Only the GEO/SRA store's marker is read, never a build.
+
     Parameters
     ----------
     store : PaperStore
@@ -87,9 +92,18 @@ def due(store: PaperStore, now: dt.datetime) -> list[str]:
     if now.time() >= DAILY_AT and status.last_daily_success != today.isoformat():
         out.append("daily")
     last_sync = status.last_pmc_sync_success or ""
-    if now.time() >= DAILY_AT and today.day >= SYNC_DAY and last_sync[:7] != today.isoformat()[:7]:
+    monthly = today.day >= SYNC_DAY and last_sync[:7] != today.isoformat()[:7]
+    if now.time() >= DAILY_AT and (monthly or _new_build(store, status.last_pmc_sync_build)):
         out.append("pmc-sync")
     return out
+
+
+def _new_build(store: PaperStore, synced: str | None) -> bool:
+    """Return whether the GEO/SRA store's marker names a build other than ``synced``."""
+    if synced is None:
+        return False
+    current = current_build(store.store.root)
+    return current is not None and current != synced
 
 
 def serve(
