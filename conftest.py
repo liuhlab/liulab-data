@@ -2,13 +2,14 @@
 
 `suite_budget` in `[tool.pytest.ini_options]` is the most seconds a run may take, and
 `timeout`, read by pytest-timeout, the most one test may take. A test marked `slow` is held
-to neither, and the default run deselects it. So is a `network` test: no time cap fixes a wait
-on live NCBI.
+to neither: the default run deselects it, and a run in which one ran is not timed. So is a
+`network` test: no time cap fixes a wait on live NCBI.
 """
 
 from __future__ import annotations
 
 import time
+from collections.abc import Generator
 
 import pytest
 
@@ -16,19 +17,22 @@ SLOW = "slow"
 EXEMPT = (SLOW, "network")
 
 
-def _exempt(item: pytest.Item) -> bool:
-    """Whether a test carries a mark that frees it from both limits."""
-    return any(item.get_closest_marker(name) for name in EXEMPT)
+def _tags(item: pytest.Item) -> list[tuple[str, bool]]:
+    """Tags for the test's exempt marks.
+
+    They ride on its reports, which pytest-xdist carries from a worker to the controller.
+    """
+    return [(name, True) for name in EXEMPT if item.get_closest_marker(name)]
 
 
 class SuiteBudget:
-    """Times one run, less its exempt tests, and fails it when that is over budget."""
+    """Times one run's tests, and fails the run when that is over budget, unless an exempt test ran."""
 
     def __init__(self, budget: float) -> None:
         self.budget = budget
         self.started = time.perf_counter()
-        self.exempt_ids: set[str] = set()
-        self.exempt_seconds = 0.0
+        self.ended: float | None = None
+        self.exempt_ran: set[str] = set()
         self.over = False
         self.verdict = ""
 
@@ -36,30 +40,32 @@ class SuiteBudget:
         """Start the clock where pytest starts its own."""
         self.started = time.perf_counter()
 
-    def pytest_collection_modifyitems(self, items: list[pytest.Item]) -> None:
-        """Note which tests carry a mark. Keywords would also match a directory named `slow`."""
-        self.exempt_ids = {item.nodeid for item in items if _exempt(item)}
+    @pytest.hookimpl(wrapper=True)
+    def pytest_runtestloop(self) -> Generator[None, object, object]:
+        """Stop the clock where the tests end, so later session-finish work is not counted."""
+        try:
+            return (yield)
+        finally:
+            self.ended = time.perf_counter()
 
     def pytest_runtest_logreport(self, report: pytest.TestReport) -> None:
-        """Count an exempt test's setup, call and teardown, so the budget leaves them out."""
-        if report.nodeid in self.exempt_ids:
-            self.exempt_seconds += report.duration
+        """Note an exempt test's marks."""
+        self.exempt_ran.update(name for name in EXEMPT if (name, True) in report.user_properties)
 
     @pytest.hookimpl(trylast=True)
     def pytest_sessionfinish(self, session: pytest.Session) -> None:
         """Fail a run that took longer than its budget."""
-        took = time.perf_counter() - self.started - self.exempt_seconds
-        excluded = (
-            f" ({self.exempt_seconds:.1f} s of exempt tests not counted)"
-            if self.exempt_seconds
-            else ""
-        )
+        if self.exempt_ran:
+            ran = " and ".join(sorted(self.exempt_ran))
+            self.verdict = f"suite time: not checked, because {ran} tests ran"
+            return
+        took = (self.ended or time.perf_counter()) - self.started
         self.over = took > self.budget
         if not self.over:
-            self.verdict = f"suite time: {took:.1f} s of its {self.budget:g} s budget{excluded}"
+            self.verdict = f"suite time: {took:.1f} s of its {self.budget:g} s budget"
             return
         self.verdict = (
-            f"suite time: {took:.1f} s, over its {self.budget:g} s budget{excluded}. "
+            f"suite time: {took:.1f} s, over its {self.budget:g} s budget. "
             "Find the slowest tests with --durations=10, then make them faster or mark them slow."
         )
         if session.exitstatus == pytest.ExitCode.OK:
@@ -74,23 +80,34 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     """Register `suite_budget`."""
     parser.addini(
         "suite_budget",
-        "Most seconds a run may take, exempt tests excluded. 0 or unset: no budget.",
+        "Most seconds a run may take; a run in which a slow or network test ran is not timed. "
+        "0 or unset: no budget.",
         type="float",
         default=0.0,
     )
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    """Register the `slow` marker, and the budget when one is set."""
+    """Register the `slow` marker, and the budget when one is set, outside xdist's workers."""
     config.addinivalue_line(
         "markers",
         f"{SLOW}: exempt from timeout and suite_budget, and deselected unless -m {SLOW}",
     )
     budget = config.getini("suite_budget")
-    if budget:
+    if budget and not hasattr(config, "workerinput"):
         config.pluginmanager.register(SuiteBudget(budget), "suite-budget")
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(
+    item: pytest.Item,
+) -> Generator[None, pytest.TestReport, pytest.TestReport]:
+    """Tag an exempt test's report."""
+    report = yield
+    report.user_properties.extend(_tags(item))
+    return report
 
 
 def pytest_timeout_set_timer(item: pytest.Item) -> bool | None:
     """Set no timer for an exempt test; pytest-timeout sets one for every other."""
-    return True if _exempt(item) else None
+    return True if _tags(item) else None

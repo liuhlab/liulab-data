@@ -36,6 +36,9 @@ tags of the form `vYYYY.M.PATCH` (e.g. `v2026.6.0`).
 - The repository moved to `liuhlab/liulab-data`. Project URLs and the HTTP User-Agent
   point there.
 - The docs site is built with zensical instead of MkDocs.
+- Tests have two time limits in `[tool.pytest.ini_options]`: `timeout` for one test and
+  `suite_budget` for a run. A test marked `slow` or `network` is held to neither, and a run that
+  includes one is not timed. `pixi run test-slow` runs the slow tests.
 
 ### Fixed
 
