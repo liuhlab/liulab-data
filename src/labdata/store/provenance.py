@@ -9,6 +9,7 @@ for code. Every write is a temporary file renamed into place.
 from __future__ import annotations
 
 import datetime as dt
+import functools
 import hashlib
 import json
 import re
@@ -474,6 +475,8 @@ def _coverage_section(target: dict[str, Any] | None, notes: dict[str, int]) -> l
     return lines
 
 
+# The code a process runs does not change under it, so one look at git serves every write.
+@functools.cache
 def _commit() -> str | None:
     try:
         out = subprocess.run(
