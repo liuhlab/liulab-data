@@ -15,7 +15,7 @@ from labdata.exceptions import NotMirrored
 from labdata.papers import init_paper_store, open_paper_store, tables
 from labdata.papers.reader import Author, PaperReader
 from tests._paper_fakes import fixture_build
-from tests._slices import built_root
+from tests._slices import BuiltStore
 
 
 @pytest.fixture(autouse=True)
@@ -23,8 +23,8 @@ def _isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
 
 
-def paper_store(tmp_path: Path, slice_name: str) -> PaperReader:
-    store = built_root(tmp_path / "store", slice_name)
+def paper_store(built_store: BuiltStore, tmp_path: Path, slice_name: str) -> PaperReader:
+    store = built_store(tmp_path / "store", slice_name)
     root = tmp_path / "papers"
     init_paper_store(root, store)
     tables.write(
@@ -67,8 +67,8 @@ def paper_store(tmp_path: Path, slice_name: str) -> PaperReader:
     return open_paper_store(root).reader
 
 
-def test_paper_gives_details_status_and_files(tmp_path: Path) -> None:
-    reader = paper_store(tmp_path, "geo_slice")
+def test_paper_gives_details_status_and_files(built_store: BuiltStore, tmp_path: Path) -> None:
+    reader = paper_store(built_store, tmp_path, "geo_slice")
     paper = reader.paper("PMID:40167329")
     assert (paper.key, paper.status, paper.xml_tier) == ("40167329", "fetched", "pmc")
     assert paper.info is not None
@@ -86,9 +86,9 @@ def test_paper_gives_details_status_and_files(tmp_path: Path) -> None:
 
 
 def test_a_batch_lookup_reads_each_table_once(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    built_store: BuiltStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    reader = paper_store(tmp_path, "geo_slice")
+    reader = paper_store(built_store, tmp_path, "geo_slice")
     read = []
     real = pq.read_table
 
@@ -156,10 +156,10 @@ def row_groups_read(path: Path, ranges: list[tuple[int, int]]) -> set[int]:
 
 
 def test_a_lookup_decodes_only_the_row_groups_that_can_hold_its_key(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    built_store: BuiltStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(tables, "ROW_GROUP_ROWS", 1)
-    reader = paper_store(tmp_path, "geo_slice")
+    reader = paper_store(built_store, tmp_path, "geo_slice")
     ranges: dict[str, list[tuple[int, int]]] = {}
     real = pq.read_table
 
@@ -178,8 +178,8 @@ def test_a_lookup_decodes_only_the_row_groups_that_can_hold_its_key(
     assert row_groups_read(tables.FILES.path(root), ranges["files.parquet"]) == set()
 
 
-def test_series_papers_joined_from_the_build(tmp_path: Path) -> None:
-    reader = paper_store(tmp_path, "geo_slice")
+def test_series_papers_joined_from_the_build(built_store: BuiltStore, tmp_path: Path) -> None:
+    reader = paper_store(built_store, tmp_path, "geo_slice")
     found = reader.papers_for(["GSE246310", "GSE233931", "GSE28770", "GSE153830"])
     fetched, waiting, unlinked, unsynced = found.values()
     assert [(p.key, p.status) for p in fetched.papers] == [("40167329", "fetched")]
@@ -230,8 +230,8 @@ def test_a_doi_link_counts_only_when_the_store_holds_its_paper(tmp_path: Path) -
     assert reader.paper("10.1101/2024.01.01.000002").key == "41000006"
 
 
-def test_bioproject_no_series_names(tmp_path: Path) -> None:
-    reader = paper_store(tmp_path, "sra_slice")
+def test_bioproject_no_series_names(built_store: BuiltStore, tmp_path: Path) -> None:
+    reader = paper_store(built_store, tmp_path, "sra_slice")
     linked, unlinked = reader.papers_for(["PRJNA436361", "PRJNA530347"]).values()
     assert [(p.key, p.status, p.reason) for p in linked.papers] == [
         ("30115783", "manual", "no-route")

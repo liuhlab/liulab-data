@@ -18,7 +18,7 @@ from labdata.exceptions import StoreBuildError
 from labdata.store import _parse, extract, layout, open_store
 from labdata.store.build import build
 from labdata.store.targets import in_sample
-from tests._slices import built_root
+from tests._slices import BuiltStore
 
 _BENCHMARK = Path(__file__).parents[1] / "scripts" / "store" / "benchmark.py"
 
@@ -30,9 +30,9 @@ def _isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
 
 @pytest.fixture(scope="module")
-def source(tmp_path_factory: pytest.TempPathFactory) -> Path:
+def source(built_store: BuiltStore, tmp_path_factory: pytest.TempPathFactory) -> Path:
     """The geo_slice store, fetched and built once as ``b1``."""
-    return built_root(tmp_path_factory.mktemp("source") / "store", "geo_slice")
+    return built_store(tmp_path_factory.mktemp("source") / "store", "geo_slice")
 
 
 def _tree(root: Path) -> dict[str, tuple[int, str]]:
@@ -110,9 +110,10 @@ def test_a_sample_holds_the_sampled_records_of_each_type_and_leaves_the_source_a
 
 
 def test_a_sample_holds_the_sampled_snapshot_records_that_nothing_links_to(
+    built_store: BuiltStore,
     tmp_path: Path,
 ) -> None:
-    source = built_root(tmp_path / "source", "prjna1027859")
+    source = built_store(tmp_path / "source", "prjna1027859")
     full = _accessions(source / "builds" / "b1", "biosample")
     folder, _ = extract.done_dir(source, "biosample")
     listed = {
@@ -175,12 +176,14 @@ def test_a_sample_refuses_its_own_source_as_scratch_root(source: Path) -> None:
         build(source, "s1", fraction=0.5, sample_of=source)
 
 
-def test_a_scratch_root_takes_samples_of_one_store_only(source: Path, tmp_path: Path) -> None:
+def test_a_scratch_root_takes_samples_of_one_store_only(
+    built_store: BuiltStore, source: Path, tmp_path: Path
+) -> None:
     scratch = tmp_path / "scratch"
     build(scratch, "s1", fraction=0.3, sample_of=source)
     build(scratch, "s2", fraction=0.6, sample_of=source)
     assert open_store(scratch).settings["sample_of"] == str(source.absolute())
-    other = built_root(tmp_path / "other", "sra_slice")
+    other = built_store(tmp_path / "other", "sra_slice")
 
     with pytest.raises(StoreBuildError, match=r"holds samples of .*pick another scratch root"):
         build(scratch, "s3", fraction=0.3, sample_of=other)

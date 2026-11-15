@@ -17,7 +17,7 @@ from typer.testing import CliRunner
 from labdata.cli import app
 from labdata.store import readme
 from labdata.store.build import build
-from tests._slices import built_root
+from tests._slices import BuiltStore
 
 
 @pytest.fixture(autouse=True)
@@ -27,8 +27,8 @@ def _isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
 
 @pytest.fixture(scope="module")
-def _built(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return built_root(tmp_path_factory.mktemp("readme") / "store", "geo_slice")
+def _built(built_store: BuiltStore, tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return built_store(tmp_path_factory.mktemp("readme") / "store", "geo_slice")
 
 
 @pytest.fixture

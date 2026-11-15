@@ -19,7 +19,7 @@ from labdata.exceptions import AccessionError, NotFound
 from labdata.store import Store, open_store
 from labdata.store.build import build
 from labdata.store.model import Record
-from tests._slices import SLICES, TODAY, built_root
+from tests._slices import SLICES, TODAY, BuiltStore
 
 #: An accession of each record type that no fixture snapshot lists.
 _UNKNOWN = [
@@ -42,8 +42,12 @@ def _isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
 
 @pytest.fixture(scope="module", params=sorted(SLICES))
-def built(request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return built_root(tmp_path_factory.mktemp(request.param) / "store", request.param)
+def built(
+    built_store: BuiltStore,
+    request: pytest.FixtureRequest,
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Path:
+    return built_store(tmp_path_factory.mktemp(request.param) / "store", request.param)
 
 
 @pytest.fixture

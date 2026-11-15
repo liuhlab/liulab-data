@@ -8,13 +8,21 @@ seeded with canned responses — and never touch the network.
 from __future__ import annotations
 
 import gzip
+import importlib
 from collections.abc import Callable, Iterator
+from pathlib import Path
 from typing import Any
 
 import pytest
 
+from labdata.store import extract
 from tests import _geodata as g
+from tests import _slices
 from tests._fakes import FakeEntrezClient
+
+# Imported here, at collection, so a cold import is never inside a test's time limit.
+for _heavy in ("duckdb", "pandas", "pyarrow.parquet"):
+    importlib.import_module(_heavy)
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -42,9 +50,40 @@ class Decompressor:
 @pytest.fixture(autouse=True)
 def _no_decompressor_binaries(monkeypatch: pytest.MonkeyPatch) -> None:
     """Decompress snapshots in Python at the extract's subprocess seam."""
-    from labdata.store import extract
-
     monkeypatch.setattr(extract, "_popen", Decompressor)
+
+
+def _prebuild() -> None:
+    """Build every thin slice once, under the test defaults no fixture has set yet."""
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("SLURM_CPUS_ON_NODE", "1")
+        patch.setattr(extract, "_popen", Decompressor)
+        _slices.prebuild()
+
+
+def pytest_collection_finish(session: pytest.Session) -> None:
+    """Build the slices before the first test, when a selected one copies them.
+
+    A shared fixture's setup counts toward the time limit of the first test that uses it.
+    """
+    if any("built_store" in getattr(item, "fixturenames", ()) for item in session.items):
+        _prebuild()
+
+
+def pytest_sessionfinish() -> None:
+    """Remove the prebuilt slices."""
+    _slices.remove_prebuilt()
+
+
+@pytest.fixture(scope="session")
+def built_store() -> Callable[[Path, str], Path]:
+    """Return ``copy(path, slice_name)``: the store :func:`tests._slices.built_root` makes.
+
+    Each slice is fetched and built once a session; every call copies it, so a test may
+    change its copy.
+    """
+    _prebuild()
+    return _slices.copy_built
 
 
 @pytest.fixture

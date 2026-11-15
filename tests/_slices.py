@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import shutil
+import tempfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +33,9 @@ GEO_SERIES = [
     "GSE15556",
 ]
 SRA_PROJECTS = ["PRJNA436361", "PRJNA530347"]
+
+#: The ``built_store`` fixture: ``built_store(path, slice_name)`` copies a prebuilt store there.
+BuiltStore = Callable[[Path, str], Path]
 
 
 def _soft_url(gse: str) -> str:
@@ -114,3 +119,42 @@ def built_root(path: Path, slice_name: str) -> Path:
     fetch(path, accessions, client=client(), today=TODAY)
     build(path, "b1")
     return path
+
+
+#: Each fixture fetched and built once by :func:`prebuild`, kept for :func:`copy_built`.
+_BUILT: dict[str, Path] = {}
+
+
+def prebuild() -> None:
+    """Fetch and build every fixture once, as :func:`built_root` would, in a temporary folder."""
+    if not _BUILT:
+        folder = Path(tempfile.mkdtemp(prefix="labdata-slices-"))
+        for name in SLICES:
+            _BUILT[name] = built_root(folder / name, name)
+
+
+def copy_built(path: Path, slice_name: str) -> Path:
+    """Copy a prebuilt fixture's store to ``path``: what :func:`built_root` makes there.
+
+    Files hard-linked to each other in the store, as a build links its known table, stay so.
+    """
+    copied: dict[int, str] = {}
+
+    def copy(src: str, dst: str) -> str:
+        stat = Path(src).stat()
+        if stat.st_nlink > 1 and stat.st_ino in copied:
+            Path(dst).hardlink_to(copied[stat.st_ino])
+        else:
+            shutil.copy2(src, dst)
+            copied[stat.st_ino] = dst
+        return dst
+
+    shutil.copytree(_BUILT[slice_name], path, copy_function=copy)
+    return path
+
+
+def remove_prebuilt() -> None:
+    """Delete what :func:`prebuild` made."""
+    if _BUILT:
+        shutil.rmtree(next(iter(_BUILT.values())).parent, ignore_errors=True)
+        _BUILT.clear()

@@ -12,7 +12,7 @@ import pyarrow.parquet as pq
 import pytest
 
 from labdata.store import layout
-from tests._slices import built_root
+from tests._slices import BuiltStore
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "store" / "compare_builds.py"
 
@@ -24,8 +24,8 @@ def _isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
 
 @pytest.fixture(scope="module")
-def _built(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return built_root(tmp_path_factory.mktemp("compare") / "store", "geo_slice") / "builds" / "b1"
+def _built(built_store: BuiltStore, tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return built_store(tmp_path_factory.mktemp("compare") / "store", "geo_slice") / "builds" / "b1"
 
 
 @pytest.fixture

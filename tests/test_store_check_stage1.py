@@ -9,14 +9,14 @@ from pathlib import Path
 
 import pytest
 
-from tests._slices import built_root
+from tests._slices import BuiltStore
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "store" / "check_stage1.py"
 
 
 @pytest.fixture(scope="module")
-def root(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return built_root(tmp_path_factory.mktemp("check") / "store", "sra_slice")
+def root(built_store: BuiltStore, tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return built_store(tmp_path_factory.mktemp("check") / "store", "sra_slice")
 
 
 def _names(root: Path, tmp_path: Path, *flags: str) -> list[str]:

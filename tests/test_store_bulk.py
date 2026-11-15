@@ -20,7 +20,7 @@ from labdata.store.build import build
 from labdata.store.fetch import fetch
 from labdata.store.model import Link
 from tests._fakes import ExplodingEntrezClient
-from tests._slices import built_root
+from tests._slices import BuiltStore
 
 _WHEAT = "PRJNA436361"
 _RABBIT = "PRJNA530347"
@@ -33,13 +33,13 @@ def _isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
 
 @pytest.fixture(scope="module")
-def sra_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return built_root(tmp_path_factory.mktemp("sra") / "store", "sra_slice")
+def sra_root(built_store: BuiltStore, tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return built_store(tmp_path_factory.mktemp("sra") / "store", "sra_slice")
 
 
 @pytest.fixture(scope="module")
-def geo_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return built_root(tmp_path_factory.mktemp("geo") / "store", "geo_slice")
+def geo_root(built_store: BuiltStore, tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return built_store(tmp_path_factory.mktemp("geo") / "store", "geo_slice")
 
 
 # ---------------------------------------------------------------- records 5 and 6
