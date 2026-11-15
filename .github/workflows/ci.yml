@@ -1,10 +1,16 @@
 name: CI
 
-on:
-  push:
-    branches: [main]
-  pull_request:
+# One job: GitHub bills each job rounded up to a whole minute. Every step after the first runs
+# even when one before it failed, so a run reports every failure.
 
+on:
+  # Tests the merge commit. A push to `main` would test again what the pull request tested.
+  pull_request:
+  # Checks `main` by hand.
+  workflow_dispatch:
+
+# A new push to a pull request cancels the run it supersedes; a run started by hand is never
+# cancelled.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -13,62 +19,32 @@ permissions:
   contents: read
 
 jobs:
-  # ruff, pyright and conformance, all at once, all reported.
   check:
     runs-on: ubuntu-latest
     steps:
       # A real checkout, not a source archive: `conformance` shells out to `git ls-files`.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # `build` needs the tags: hatch-vcs reads the newest one
       - uses: prefix-dev/setup-pixi@v0.10.2
         with:
-          environments: default
+          # `docs` holds the site builder, which `default` does not.
+          environments: default docs
           locked: true
-      # `check-static`, not `check`: pytest is the `test` job below, in its own environment.
+      # Two steps, not `check`, so each has its own verdict on the run page.
       - run: pixi run check-static
-
-  test:
-    name: test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: prefix-dev/setup-pixi@v0.10.2
-        with:
-          environments: test
-          locked: true
-      - name: pytest
-        run: pixi run -e test test
-
-  build:
-    name: build wheel + sdist
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0   # hatch-vcs needs full history to derive a version
-      - uses: prefix-dev/setup-pixi@v0.10.2
-        with:
-          environments: default
-          locked: true
-      - name: pixi run build
-        run: pixi run -e default build
+      - run: pixi run test
+        if: ${{ !cancelled() }}
+      - run: pixi run build
+        id: build
+        if: ${{ !cancelled() }}
       - uses: actions/upload-artifact@v7
+        # Only a wheel that was built: a failed build would fail this step too.
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         with:
           name: dist
           path: dist/
           if-no-files-found: error
-
-  docs:
-    name: docs build (no deploy)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      - uses: prefix-dev/setup-pixi@v0.10.2
-        with:
-          environments: docs
-          locked: true
-      # `docs-build` is a task on the `docs` feature, so no `-e` flag is needed. It carries
-      # `--strict`. Publishing is `docs.yml`, on `main`.
-      - name: docs-build
-        run: pixi run docs-build
+      # `docs-build` carries `--strict`. Publishing is `docs.yml`, on `main`.
+      - run: pixi run docs-build
+        if: ${{ !cancelled() }}

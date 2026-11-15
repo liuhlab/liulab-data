@@ -136,9 +136,10 @@ ruff = "*"   # used by mkdocstrings to format rendered signatures
 docs = "zensical serve"
 docs-build = "zensical build --clean --strict"
 
+# `default` takes `test` so pyright can resolve pytest, and not `docs`, so `pixi run check`
+# never installs the site builder.
 [tool.pixi.environments]
 default = { features = ["py313", "dev", "test"], solve-group = "default" }
-test    = { features = ["py313", "test"], solve-group = "default" }
 docs    = { features = ["py313", "docs"], solve-group = "default" }
 
 [tool.pixi.tasks]
