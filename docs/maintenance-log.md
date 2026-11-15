@@ -5,13 +5,15 @@ the GEO/SRA store and checks both stores. A yearly run adds the heavy checks and
 withdrawn SRA records. The steps are in [Run the full download](how-to/store-run.md) and
 [Run the paper store](how-to/papers-run.md).
 
-Each check ends as pass, fail or skipped. A failed check links the issue filed for it.
+Each entry gives the build, the liulab-data commit the run used and the wall time against the
+budget. Each check ends as pass, fail or skipped. A failed check links the issue filed for it.
 
 ## 2026-11-07, monthly
 
 The first refresh of the full store, a month after the full download.
 
 - **Build:** `20261107T163933Z`
+- **Commit:** not recorded.
 - **Wall time:** 65 min, against a budget of 2 h. That day's snapshots were already on disk, so
   this run cost less than a normal month. A normal month should take about 1 h 55 min.
 
