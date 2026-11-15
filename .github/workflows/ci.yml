@@ -5,7 +5,9 @@ name: CI
 
 on:
   # Tests the merge commit. A push to `main` would test again what the pull request tested.
+  # A draft runs nothing (the job's `if:`); marking it ready runs CI once.
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   # Checks `main` by hand.
   workflow_dispatch:
 
@@ -20,6 +22,8 @@ permissions:
 
 jobs:
   check:
+    # Skipped on a draft, which bills nothing. A run by hand has no pull request, so it runs.
+    if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
     steps:
       # A real checkout, not a source archive: `conformance` shells out to `git ls-files`.
