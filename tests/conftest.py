@@ -8,11 +8,14 @@ seeded with canned responses — and never touch the network.
 from __future__ import annotations
 
 import contextlib
+import functools
 import importlib
 from collections.abc import Callable, Generator
 from typing import Any
 
 import pytest
+import typer.main
+import typer.testing
 
 from tests import _geodata as g
 from tests import _slices, _snakemake
@@ -31,9 +34,14 @@ _SHARED: dict[str, tuple[Callable[[], None], Callable[[], None]]] = {
 
 @pytest.fixture(autouse=True, scope="session")
 def _test_defaults() -> Generator[None]:
-    """Run every test under :func:`tests._slices.defaults`."""
+    """Run every test under :func:`tests._slices.defaults`, with the CLI built once.
+
+    Typer turns the app into a Click command on every ``CliRunner.invoke``; a ``labdata``
+    process does it once, and so does a test session.
+    """
     with pytest.MonkeyPatch.context() as patch:
         _slices.defaults(patch)
+        patch.setattr(typer.testing, "_get_command", functools.cache(typer.main.get_command))
         yield
 
 
