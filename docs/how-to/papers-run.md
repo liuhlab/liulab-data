@@ -156,8 +156,15 @@ pass writes while it runs.
 GCS keeps the paper store for good; the cluster disk is a work area. So a copy deletes in the
 bucket only the files that left the `files` table. It refuses, sending nothing, when the table
 is missing or empty, or when more than a small share of the copied files left it at once: the
-table may be damaged. The log says why, with the numbers. Check the table. If the files left on purpose, run
-`labdata papers copy --full`: it sends the store and leaves those files in the bucket.
+table may be damaged. The log says why, with the numbers. Check the table. If the files left
+on purpose, as when a change moves many files at once, run the copy by hand with the number
+of files the log gives. For 1200 files:
+
+```bash
+labdata papers copy --accept-deletes 1200
+```
+
+It sends the changes and deletes those files in the bucket, up to that number.
 
 ## Check the copy
 
@@ -172,3 +179,30 @@ pixi run rclone check "$LABDATA_PAPERS" <copy_to> --one-way \
 It should report 0 differences. It lists every file on both sides, so run it only to check
 or repair, and between passes: a pass that runs beside it changes files under it. If it finds
 differences, `labdata papers copy --full` repairs them. It deletes nothing.
+
+## Restore the store from GCS
+
+GCS keeps the paper store for good. If the work disk is lost, get the store back from the
+bucket before the paper job runs again. The restore downloads the whole store out of GCS, which
+costs money, so run it only with the maintainer's yes.
+
+Stop the paper job first, as [Start the paper job](#start-the-paper-job) shows. Then download
+the store as its own job:
+
+```bash
+export LABDATA_PAPERS=/path/to/paper-store
+sbatch --job-name=labdata-papers-restore --partition=cpu_batch \
+  --cpus-per-task=2 --mem=8G --time=1-00:00:00 \
+  --output=labdata-papers-restore.%j.log \
+  --wrap "pixi run rclone copy <copy_to> $LABDATA_PAPERS --stats=1m --stats-one-line"
+```
+
+If it stops, submit it again: it skips the files it already has. If the GEO/SRA store moved
+too, set `store` in `labdata-papers.toml` to its new folder. Then start the paper job.
+
+The download brings the copy record, so the job's copies send only what changes from then on.
+It does not bring `paper-status.json`, so the job starts with a daily pass, and with the
+month's PMC sync from the 3rd.
+
+Never run `labdata papers copy --full` from a disk that does not hold the whole store: it
+replaces the bucket's tables with the disk's.

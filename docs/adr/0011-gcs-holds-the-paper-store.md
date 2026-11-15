@@ -15,9 +15,9 @@ the work disk.
   nothing. No paper copy runs `rclone sync`.
 - A routine copy deletes only the paths that left the `files` table since the copy record. It
   refuses, sends nothing and sets `copy_pending` when the table is missing or empty, or when
-  more than 5% of the copy record's paths left it. A pass drops far fewer: the PDFs PMC
-  replaces, and the files PMC renames or stops serving. A damaged table is likelier, and its
-  own tables would replace the bucket's.
+  more than 5% of the copy record's paths, and more than one, left it. A pass drops far
+  fewer: the PDFs PMC replaces, and the files PMC renames or stops serving. A damaged table
+  is likelier, and its own tables would replace the bucket's.
 - Each successful copy uploads the copy record to the bucket, at the same path, after the
   files it names and the deletes, and only then saves it on the disk. A work disk without it
   fetches the bucket's, which is small; only when the bucket has none either does the copy ask
@@ -34,7 +34,7 @@ the work disk.
 
 ## Consequences
 
-- A top-level file deleted from the store stays in the bucket, as do the files past the bound
-  that a full copy then accepts, such as a layout change that moves many files at once.
-  Removing them is a step by hand.
-- A copy past the bound stops the bucket's updates until someone checks the table.
+- A top-level file deleted from the store stays in the bucket. Removing it is a step by hand.
+- A copy past the bound stops the bucket's updates until someone checks the table. If the
+  files left on purpose, such as in a layout change that moves many files at once,
+  `labdata papers copy --accept-deletes N`, run by hand, deletes up to N of them.

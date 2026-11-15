@@ -9,7 +9,7 @@ asks for ``labdata papers copy --full``, which uploads every file.
 
 No copy deletes by comparing the bucket with the disk. A copy refuses, sending nothing, when the
 ``files`` table is missing or empty, or when it would delete more than :data:`MAX_DELETE_SHARE`
-of the copied paths.
+of the copied paths, and more than one, unless the deletes are accepted by hand.
 
 Hidden files stay behind, :data:`COPIED` aside: the lock, the daily pass's journal and every
 temp file; so does ``paper-status.json``, which the copy itself updates. A skipped or refused
@@ -45,8 +45,8 @@ COPY_TO_KEY = "copy_to"
 #: bucket.
 COPIED = ".copied-files.parquet"
 
-#: The largest share of :data:`COPIED`'s paths one copy deletes in the bucket; past it the
-#: copy refuses.
+#: The largest share of :data:`COPIED`'s paths one copy deletes in the bucket, or one path if
+#: that is more; past it the copy refuses.
 MAX_DELETE_SHARE = 0.05
 
 #: Left out of the copy: hidden files and folders, and the status record, which the copy
@@ -78,7 +78,9 @@ def destination(store: PaperStore) -> str:
     return str(store.settings.get(COPY_TO_KEY) or "")
 
 
-def copy(store: PaperStore, to: str | None = None, *, full: bool = False) -> CopyResult:
+def copy(
+    store: PaperStore, to: str | None = None, *, full: bool = False, accept_deletes: int = 0
+) -> CopyResult:
     """Send the paper store's changes since the last successful copy to ``to``.
 
     Holds the paper store's lock, so a copy never runs beside a pass.
@@ -92,6 +94,9 @@ def copy(store: PaperStore, to: str | None = None, *, full: bool = False) -> Cop
     full : bool
         Upload every file instead, and delete nothing. It lists every file on both sides; for
         a first copy or a repair.
+    accept_deletes : int
+        Delete up to this many paths that left the ``files`` table, even past
+        :data:`MAX_DELETE_SHARE`: for files moved or removed on purpose.
 
     Returns
     -------
@@ -102,9 +107,10 @@ def copy(store: PaperStore, to: str | None = None, *, full: bool = False) -> Cop
     Raises
     ------
     PaperCopyError
-        If no destination is set; if the ``files`` table is missing or empty, or more than
-        :data:`MAX_DELETE_SHARE` of the copied paths left it; or if rclone fails for another
-        reason. Past the destination check, ``copy_pending`` is then set.
+        If no destination is set; if ``full`` comes with ``accept_deletes``; if the ``files``
+        table is missing or empty, or more of the copied paths left it than this copy deletes;
+        or if rclone fails for another reason. Past the first two checks, ``copy_pending`` is
+        then set.
     """
     root = store.root
     dest = to or destination(store)
@@ -113,10 +119,12 @@ def copy(store: PaperStore, to: str | None = None, *, full: bool = False) -> Cop
             f"no destination: pass --to <remote>:<bucket>/<path> or set "
             f"{COPY_TO_KEY} in {root / MARKER}"
         )
+    if full and accept_deletes:
+        raise PaperCopyError("--full deletes nothing, so it takes no --accept-deletes")
     with paper_lock(root):
         start = dt.datetime.now(dt.UTC)
         try:
-            skipped = _send(root, dest, full=full)
+            skipped = _send(root, dest, full=full, accept_deletes=accept_deletes)
         except PaperCopyError:
             _pending(root, True)
             raise
@@ -133,7 +141,7 @@ def copy(store: PaperStore, to: str | None = None, *, full: bool = False) -> Cop
     return CopyResult(dest)
 
 
-def _send(root: Path, dest: str, *, full: bool) -> str | None:
+def _send(root: Path, dest: str, *, full: bool, accept_deletes: int) -> str | None:
     """Copy the store to ``dest``; return why the copy was skipped, or None when it is done."""
     expired = _rclone.expired_message(dest, "paper store", "labdata papers copy")
     held = _held(root)
@@ -150,7 +158,7 @@ def _send(root: Path, dest: str, *, full: bool) -> str | None:
                 "every file and deletes nothing. Later copies send changes."
             )
         copied = _signatures(path)
-        _check_deletes(root, held, copied)
+        _check_deletes(root, held, copied, accept_deletes)
     if _changes(root, dest, held, copied) and _put_copied(root, dest, held):
         return None
     return expired
@@ -167,15 +175,16 @@ def _held(root: Path) -> _Held:
     return held
 
 
-def _check_deletes(root: Path, held: _Held, copied: _Held) -> None:
+def _check_deletes(root: Path, held: _Held, copied: _Held, accepted: int) -> None:
     gone = len(copied.keys() - held.keys())
-    if gone > MAX_DELETE_SHARE * len(copied):
+    limit = int(max(1, MAX_DELETE_SHARE * len(copied), accepted))
+    if gone > limit:
         raise PaperCopyError(
             f"{gone} of the {len(copied)} files the last copy sent have left "
-            f"{FILES.path(root)}, more than the {MAX_DELETE_SHARE:.0%} one copy deletes, so "
-            "nothing was copied: the table may be damaged. If the files left the store on "
-            "purpose, `labdata papers copy --full` sends the store and deletes nothing; "
-            "those files then stay in the bucket."
+            f"{FILES.path(root)}, more than the {limit} this copy deletes, so nothing was "
+            "copied: the table may be damaged, or this work disk was not restored from the "
+            "bucket. If the files left the store on purpose, "
+            f"`labdata papers copy --accept-deletes {gone}` deletes them in the bucket."
         )
 
 
