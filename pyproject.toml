@@ -109,7 +109,6 @@ python = "3.13.*"
 pytest = "*"
 pytest-cov = "*"
 pytest-timeout = "*"
-hypothesis = "*"
 
 # Dev tooling feature
 [tool.pixi.feature.dev.dependencies]
