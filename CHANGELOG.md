@@ -10,6 +10,8 @@ tags of the form `vYYYY.M.PATCH` (e.g. `v2026.6.0`).
 
 ### Changed
 
+- Marking a draft pull request ready right after a push now runs CI. The push's skipped
+  draft run used to cancel the real one; the draft state is now part of the concurrency key.
 - The store's dates are typed. Rebuild the store to get them. Direct DuckDB and Parquet readers
   see these column types change:
 
