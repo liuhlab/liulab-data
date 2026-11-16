@@ -83,7 +83,7 @@ CI runs on pull requests only, and tests the merge commit.
 Test time has two limits, set in `[tool.pytest.ini_options]` and nowhere else:
 
 - **`timeout`** caps one test, setup and teardown included.
-- **`suite_budget`** caps the whole run; every run prints its time against it.
+- **`suite_budget`** caps a run with no slow or network test in it, and prints its time against it.
 - **The slow lane:** a test marked `slow` is held to neither, and runs only in
   `pixi run test-slow`.
 

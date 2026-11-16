@@ -68,7 +68,8 @@ at pack.
 ### Part
 
 A file under `work/parts/` holding one piece's fetched rows. It appears whole by a rename, so a
-rerun skips a piece whose part exists.
+rerun skips a piece whose part exists. Parts apply in the order they appeared, so a later part's
+row or removal wins over an earlier one's.
 
 ### Pack
 

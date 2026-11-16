@@ -36,9 +36,19 @@ tags of the form `vYYYY.M.PATCH` (e.g. `v2026.6.0`).
 - The repository moved to `liuhlab/liulab-data`. Project URLs and the HTTP User-Agent
   point there.
 - The docs site is built with zensical instead of MkDocs.
+- Tests have two time limits, set only in `[tool.pytest.ini_options]`, which a conformance rule
+  checks: `timeout` for one test and `suite_budget` for a run. A test marked `slow` or `network`
+  is held to neither, and a run that includes one is not timed. `pixi run test-slow` runs the
+  slow tests.
+- CI is one job, run on pull requests that are not drafts. `pixi run check` runs the tests even
+  when a static step fails. The `test` pixi environment is gone. The workflows use setup-pixi
+  v0.11.3.
 
 ### Fixed
 
+- Pack could apply a removal after a Series row fetched later, and so delete the row, when both
+  parts were written within one filesystem clock tick, as on Linux. Parts now apply in the order
+  they were written.
 - `Series.pubmed_id` returned a verbose repr (e.g. `IntegerElement(23828890, attributes={})`)
   because Biopython parses `PubMedIds` as `IntegerElement`, whose `str()` is that repr; it
   now unwraps through `int()` and returns the bare id (e.g. `"23828890"`).

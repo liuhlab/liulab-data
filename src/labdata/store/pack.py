@@ -210,7 +210,7 @@ def _split_if_misnamed(root: Path, source: str, path: Path, chunk_bytes: int) ->
     folder.mkdir(parents=True, exist_ok=True)
     for bucket, members in sorted(by_bucket.items()):
         wanted = set(members)
-        part = folder / f"{bucket}.repack-{path.stem}.parquet"
+        part = folder / raw.part_name(bucket, f"repack-{path.stem}")
         rows = (row for row in _rows(path) if row.accession in wanted)
         raw.write_sorted_runs(part, rows, raw.SCHEMA, chunk_bytes=chunk_bytes)
         _age(part)
