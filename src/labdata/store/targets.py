@@ -54,10 +54,14 @@ class BuildSource:
     sample : float or None
         The seeded share of raw rows and snapshot records kept (see :func:`in_sample`);
         ``None`` keeps all.
+    made_in : pathlib.Path or None
+        The root a missing extract is made in: a sample build's own, so it never writes to
+        ``root``. ``None`` makes it in ``root``.
     """
 
     root: Path
     sample: float | None
+    made_in: Path | None = None
 
 
 @dataclass(slots=True)

@@ -17,6 +17,7 @@ from labdata.ncbi.entrez import EntrezClient
 from labdata.papers import init_paper_store, open_paper_store, paper_dir, tables
 from labdata.papers import job as job_mod
 from labdata.papers import openalex as openalex_mod
+from labdata.papers.folder import PENDING
 from labdata.papers.openalex import Account, OpenAlex, OpenAlexError, load_accounts
 from tests._paper_fakes import Article, FakeWeb, Reply, fixture_build, work
 from tests._slices import BuiltStore
@@ -419,38 +420,59 @@ def test_a_rekey_killed_at_the_table_save_moves_no_file_and_the_next_sync_comple
         )
     assert isinstance(result.exception, KilledError)
     assert set(by_key(root, tables.PAPERS)) == {REKEY_DOI}
+    # A pass starts here: it removes the moved copy the saved tables never named.
+    tables.PaperTables.load(root)
     where_the_tables_say(root)
 
     sync(root)
     rekeyed(root)
     where_the_tables_say(root)
+
+
+def killed_after_the_save(root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run a PMC sync killed just after its first table save."""
+    write = tables.write
+
+    def killed(at: Path, table: tables.PaperTable, rows: list[dict]) -> Path:
+        out = write(at, table, rows)
+        if table is tables.ATTEMPTS:
+            raise KilledError
+        return out
+
+    with monkeypatch.context() as m:
+        m.setattr(tables, "write", killed)
+        result = CliRunner().invoke(
+            app, ["papers", "pmc-sync", "--root", str(root), "--today", TODAY]
+        )
+    assert isinstance(result.exception, KilledError)
+    assert set(by_key(root, tables.PAPERS)) == {REKEY_PMID}
 
 
 def test_a_rekey_killed_after_the_table_save_moves_its_files_at_the_next_sync(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = rekey_store(tmp_path)
-    old = root / paper_dir(REKEY_DOI) / "10.1000%2Frekey.pdf"
     use(monkeypatch, web())
-    replace = Path.replace
-
-    def killed(self: Path, target: Path) -> Path:
-        if self == old:
-            raise KilledError
-        return replace(self, target)
-
-    with monkeypatch.context() as m:
-        m.setattr(Path, "replace", killed)
-        result = CliRunner().invoke(
-            app, ["papers", "pmc-sync", "--root", str(root), "--today", TODAY]
-        )
-    assert isinstance(result.exception, KilledError)
-    assert old.is_file()
-    assert set(by_key(root, tables.PAPERS)) == {REKEY_PMID}
+    killed_after_the_save(root, monkeypatch)
+    assert (root / paper_dir(REKEY_DOI) / "10.1000%2Frekey.pdf").is_file()
 
     sync(root)
     rekeyed(root)
     where_the_tables_say(root)
+
+
+def test_a_rekey_killed_after_the_table_save_with_its_journal_lost_names_no_missing_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = rekey_store(tmp_path)
+    use(monkeypatch, web())
+    killed_after_the_save(root, monkeypatch)
+    (root / PENDING).unlink()
+    new = paper_dir(REKEY_PMID) / f"{REKEY_PMID}.pdf"
+    for _ in range(2):
+        assert [f["path"] for f in tables.read(root, tables.FILES)] == [new.as_posix()]
+        assert (root / new).read_bytes() == b"%PDF"
+        sync(root)
 
 
 def test_a_preprint_merged_into_its_journal_version_is_that_paper(

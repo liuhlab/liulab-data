@@ -5,10 +5,11 @@ lines and the ``SRA_Accessions.tab`` experiments with ``Center=GEO`` and a GSM a
 its tab status. Packages come from ``efetch`` in batches, several calls in flight under the
 client's shared rate cap. Each bucket's piece is split into parts of a few thousand
 experiments, so a preempted run loses at most a few open parts. An experiment NCBI serves no
-package for is saved as an ``sra-xml`` row with empty text, which the build lists in its
-notes. Each run also asks again for a saved package that is empty while the tab says ``live``,
-or that the current build notes as not well-formed. Every step streams: the tab, the SOFT text and the list are read in chunks and spilled to
-Parquet under ``work/eutils/``.
+package for is saved as an ``sra-xml`` row with empty text, and one whose fetch failed twice as
+an ``sra-fetch-failed`` row; the build lists both in its notes. Each run also asks again for a
+saved package that is empty while the tab says ``live``, or that the current build notes as
+not well-formed. Every step streams: the tab, the SOFT text and the list are read in chunks
+and spilled to Parquet under ``work/eutils/``, which only this lane reads.
 """
 
 from __future__ import annotations
@@ -263,7 +264,7 @@ class _Part:
     recovered: set[str] = field(default_factory=set)
     missing: list[str] = field(default_factory=list)
     kept: set[str] = field(default_factory=set)
-    failed: set[str] = field(default_factory=set)
+    failed: dict[str, str] = field(default_factory=dict)
     _writer: pq.ParquetWriter | None = None
 
     def add(self, got: FetchedRecords) -> int:
@@ -284,7 +285,7 @@ class _Part:
         self.fetched += len(got.records)
         self.recovered |= self.again & got.records.keys()
         self.missing += missing
-        self.failed |= set(got.failed)
+        self.failed |= got.failed
         self.batches -= 1
         return len(missing)
 
@@ -339,7 +340,8 @@ def fetch_packages(
     -------
     LaneReport
         Counts for this run. An experiment whose call failed is asked once more before the
-        lane ends; if that fails too it is not saved, so the next run asks for it again. A new
+        lane ends; if that fails too it is saved as an ``sra-fetch-failed`` row, not as a
+        package, so the next run asks for it again. A new
         one NCBI has no package for is saved with an empty text and counted in ``missing``.
         Saved bad packages are asked again: ``reasked`` counts them, ``recovered`` those that
         came back good and replace the saved copy. A re-fetch experiment NCBI serves none
@@ -348,13 +350,13 @@ def fetch_packages(
     sizes = (batch, inflight, part_size)
     noted = gaps.noted(root, gaps.UNPARSABLE_PACKAGE)
     again = frozenset(refetch)
-    first, settled = _fetch_once(
+    first, settled, failed = _fetch_once(
         root, experiments, client, date, sizes, log_every, noted, set(), again
     )
     report = first
     if first.failed:
         logger.info("asking again for the %d experiments whose calls failed", first.failed)
-        last, _ = _fetch_once(
+        last, _, failed = _fetch_once(
             root, experiments, client, date, sizes, log_every, noted, settled, again
         )
         report = LaneReport(
@@ -365,6 +367,7 @@ def fetch_packages(
             first.recovered + last.recovered,
             first.unserved | last.unserved,
         )
+    _record_failed(root, failed, date)
     logger.info(
         "asked again for %d saved bad packages; %d came back good",
         report.reasked,
@@ -383,8 +386,12 @@ def _fetch_once(
     noted: set[str],
     settled: set[str],
     refetch: frozenset[str],
-) -> tuple[LaneReport, set[str]]:
-    """Run the lane once; also return the saved bad packages asked again whose call worked."""
+) -> tuple[LaneReport, set[str], dict[str, str]]:
+    """Run the lane once.
+
+    Also return the saved bad packages asked again whose call worked, and each experiment
+    whose call failed with its error.
+    """
     batch, inflight, part_size = sizes
     spill = paths.EUTILS.at(root, "spill")
     shutil.rmtree(spill, ignore_errors=True)
@@ -392,6 +399,7 @@ def _fetch_once(
     report = {"fetched": 0, "missing": 0, "failed": 0, "reasked": 0, "recovered": 0}
     asked_again: set[str] = set()
     unserved: set[str] = set()
+    failed: dict[str, str] = {}
     jobs = _jobs(root, experiments, batch, part_size, spill, noted, settled, refetch)
     pending: dict[Future[FetchedRecords], _Part] = {}
     opened: set[_Part] = set()
@@ -434,10 +442,11 @@ def _fetch_once(
                     report["failed"] += len(part.failed)
                     report["reasked"] += len(part.again - refetch)
                     report["recovered"] += len(part.recovered - refetch)
-                    asked_again |= part.again - part.failed - refetch
+                    asked_again |= part.again - part.failed.keys() - refetch
                     unserved |= part.kept & refetch
+                    failed |= part.failed
             refill()
-    return LaneReport(**report, unserved=frozenset(unserved)), asked_again
+    return LaneReport(**report, unserved=frozenset(unserved)), asked_again, failed
 
 
 def _fetch(client: EntrezClient, ids: list[str]) -> FetchedRecords:
@@ -455,6 +464,17 @@ def _save(root: Path, part: _Part, date: str) -> None:
     if asked:
         raw.write_part(root, raw.Piece(raw.SRA_XML, bucket, asked), part.rows(date))
     part.spill.unlink(missing_ok=True)
+
+
+def _record_failed(root: Path, failed: dict[str, str], date: str) -> None:
+    """Save each experiment whose fetch failed as an ``sra-fetch-failed`` row: its last error."""
+    by_bucket: dict[str, list[str]] = defaultdict(list)
+    for accession in sorted(failed):
+        by_bucket[raw.bucket_of(raw.SRA_FETCH_FAILED, accession)].append(accession)
+    for bucket, todo in sorted(by_bucket.items()):
+        rows = (raw.RawRow(a, " ".join(failed[a].split()), date) for a in todo)
+        piece = raw.Piece(raw.SRA_FETCH_FAILED, bucket, tuple(todo))
+        raw.write_part(root, piece, rows, record_asked=False)
 
 
 def _jobs(

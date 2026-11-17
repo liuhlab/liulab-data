@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 from pathlib import Path
 
 import pytest
 
-from labdata.store import gcs, paths
+from labdata.store import extract, gcs, paths
 from tests._fake_gcs import FakeGcs
 from tests._slices import BuiltStore
 
@@ -19,7 +20,7 @@ def _isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.delenv("LABDATA_STORE", raising=False)
 
 
-def test_the_copy_sends_exactly_the_state_files_and_the_readme_frees_exactly_the_scratch_ones(
+def test_the_copy_sends_the_state_files_and_the_readme_frees_the_scratch_ones_not_extracts(
     built_store: BuiltStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = built_store(tmp_path / "store", "geo_slice")
@@ -36,3 +37,8 @@ def test_the_copy_sends_exactly_the_state_files_and_the_readme_frees_exactly_the
     cleanup = readme.split("\n## Clean up\n", 1)[1].split("\n## ", 1)[0]
     listed = re.findall(r"^- `([^`]+)`", cleanup, re.MULTILINE)
     assert sorted(listed) == sorted(paths.declared(paths.Kind.SCRATCH))
+    # Deleting what the README frees, and all of work/, keeps every extract.
+    shutil.rmtree(root / "work")
+    shutil.rmtree(root / "support", ignore_errors=True)
+    for source in extract.SOURCES:
+        extract.done_dir(root, source)

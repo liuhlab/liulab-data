@@ -187,15 +187,14 @@ def write_notes(
     build_dir: Path,
     target_list: Path,
     extra: Iterable[Note] = (),
-    experiments: Path | None = None,
     *,
     source: targets.BuildSource | None = None,
 ) -> dict[str, int]:
     """Write ``notes.parquet``: type disagreements, failed package fetches, then ``extra``.
 
-    A failed package fetch is an experiment on the E-utilities lane's list ``experiments``
-    that ``raw/sra-xml/`` of ``source`` (default ``root``) does not hold. When ``source``
-    samples, only the experiments in its seeded sample are noted.
+    A failed package fetch is an experiment ``raw/sra-fetch-failed/`` of ``source`` (default
+    ``root``) holds and its ``raw/sra-xml/`` does not. When ``source`` samples, only the
+    experiments in its seeded sample are noted.
 
     Returns
     -------
@@ -232,7 +231,8 @@ def write_notes(
     unfetched = "SELECT * FROM extra WHERE false"
     sample = None if source is None else source.sample
     saved = paths.RAW.at(root if source is None else source.root, raw.SRA_XML)
-    if experiments is not None and experiments.is_file():
+    failed = saved.with_name(raw.SRA_FETCH_FAILED)
+    if any(failed.glob("*.parquet")):
         held = (
             f"SELECT accession FROM {_read(saved / '*.parquet')}"
             if any(saved.glob("*.parquet"))
@@ -240,7 +240,7 @@ def write_notes(
         )
         unfetched = (
             f"SELECT accession, '{PACKAGE_FETCH_FAILED}' AS kind, "
-            f"'no package saved; a rerun asks again' AS detail FROM {_read(experiments)} "
+            f"'no package saved; a rerun asks again' AS detail FROM {_read(failed / '*.parquet')} "
             f"WHERE accession NOT IN ({held})"
             + ("" if sample is None else " AND in_sample(accession)")
         )

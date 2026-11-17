@@ -161,12 +161,9 @@ refresh's folder under `work/refresh/`, which `refresh-status.json` names:
 scripts/store/keep_run_logs.sh "$LABDATA_STORE" refresh/<started>
 ```
 
-Then you may delete everything in `work/` except `work/extract/`. That folder holds the
-Parquet extracts of the current snapshots, and every build reads them, a sample build
-(`labdata store build --sample-of`) and a rebuild of the store included. `labdata store prune`
-deletes an old snapshot's extract with the snapshot. If you lose an extract,
-`labdata store extract --source <source>` makes it again, slowly. The store's `README.md` lists
-the `work/` folders that are safe to delete.
+Then, while no refresh or full run is running, you may delete everything in `work/`. The
+Parquet extracts of the snapshots sit in `extracts/`, outside `work/`. A build that needs a
+missing one makes it again, slowly. The store's `README.md` lists what is safe to delete.
 
 ### What a refresh needs
 
