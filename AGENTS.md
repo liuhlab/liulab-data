@@ -25,6 +25,8 @@ src/labdata/
   _cache.py          cache-dir resolution ($XDG_CACHE_HOME/liulab-data)
   exceptions.py      LabdataError hierarchy
   _http.py, _rclone.py  the HTTP and rclone seams every client shares
+  _gcs.py            the GCS protocol both stores share: the copy; store/gcs.py and
+                       papers/copy.py are its adapters
   cli.py             thin Typer CLI (labdata version, labdata ncbi configure,
                        labdata geo download, + hidden per-stage subcommands)
   ncbi/              NCBI E-utilities: credential config + EntrezClient seam
@@ -99,8 +101,8 @@ slow and live lanes run in one process.
   `Bio.Entrez` directly); its HTTP, and every other web client's, goes through
   `labdata._http.HttpTransport`, which tests replace with a fake transport. Subprocess
   seams: `sratools._run` (sra-tools/pigz), `geo.pipeline._run_snakemake` and
-  `store.pipeline._run_snakemake` (Snakemake), `labdata._rclone.run` (rclone; the copies
-  call it through `store.gcs._run_rclone` and `papers.copy._run_rclone`),
+  `store.pipeline._run_snakemake` (Snakemake), `labdata._rclone.run` (rclone; both
+  stores' copies call it through `labdata._gcs`),
   `papers.job._submit` (sbatch), `papers.job._show_job` (scontrol) and `store.extract._popen` (rapidgzip/pigz). Tests mock the seams, never the real binaries.
 - **Pipelines are Snakemake DAGs with typed resources.** The download DAG
   (`prefetch → extract → compress`) lives in `pipeline.smk`, driven by
@@ -124,6 +126,8 @@ slow and live lanes run in one process.
 
 - No live network in CI. Mock the `EntrezClient` seam with canned responses; assert
   laziness (the client is hit once, then served from cache).
+- GCS is `tests._fake_gcs.FakeGcs`, a folder behind the rclone seam. Copy tests check what it
+  holds, never the rclone command lines.
 - Live tests against real NCBI are marked `@pytest.mark.network`, deselected by default
   and held to neither time limit; run them with `pixi run test-network`.
 

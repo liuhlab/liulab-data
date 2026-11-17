@@ -94,6 +94,24 @@ def test_full_uploads_every_file_then_the_record_and_deletes_nothing(
     assert status(root)["last_copy_success"]
 
 
+def test_after_each_copy_gcs_holds_exactly_the_files_its_copy_record_names(
+    root: Path, gcs: FakeGcs
+) -> None:
+    for paper in range(2, 21):
+        hold(root, str(paper), "pdf", "host")
+    pdf = hold(root, "1", "pdf", "openalex")
+    copy(open_paper_store(root), full=True)
+    assert gcs.files() == sorted([*record(gcs), COPIED])
+    hold(root, "1", "xml", "pmc", b"<article/>")
+    drop(root, pdf)
+
+    copy(open_paper_store(root))
+
+    assert gcs.files() == sorted([*record(gcs), COPIED])
+    for path in record(gcs):
+        assert gcs.md5[path] == hashlib.md5((root / path).read_bytes()).hexdigest(), path
+
+
 def test_a_full_copy_from_a_disk_without_the_whole_store_uploads_nothing(
     root: Path, gcs: FakeGcs
 ) -> None:
