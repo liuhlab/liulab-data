@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 from pathlib import Path
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
-from typer.testing import CliRunner
+from typer.testing import CliRunner, Result
 
 from labdata.cli import app
 from labdata.papers import init_paper_store, open_paper_store, tables
@@ -319,10 +320,9 @@ def test_a_work_disk_restored_from_gcs_sends_no_paper_file_and_deletes_nothing(
     for paper in range(1, 4):
         hold(root, str(paper), "pdf", "host")
     full(root, gcs)
-    # The restore: what GCS holds, its copy record among it, on a new disk.
     restored = tmp_path / "restored"
-    shutil.copytree(root, restored, ignore=shutil.ignore_patterns(".*", "paper-status.json"))
-    (restored / COPIED).write_bytes(gcs.read(COPIED))
+    assert restore(restored).exit_code == 0
+    gcs.forget()
 
     copy(open_paper_store(restored))
 
@@ -387,3 +387,91 @@ def test_any_failure_past_the_destination_sets_copy_pending(root: Path, gcs: Fak
     with pytest.raises(pa.ArrowInvalid):
         copy(open_paper_store(root))
     assert status(root)["copy_pending"] is True
+
+
+# ---------------------------------------------------------------- restore
+
+
+def restore(root: Path, *extra: str) -> Result:
+    return CliRunner().invoke(
+        app, ["papers", "restore", "--root", str(root), "--from", DEST, *extra]
+    )
+
+
+def on_disk(root: Path) -> list[str]:
+    """Every file under ``root``, the lock aside, as paths from it."""
+    return sorted(
+        p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file() and p.name != ".lock"
+    )
+
+
+def test_a_restore_fills_an_empty_disk_with_what_gcs_holds_and_nothing_else(
+    root: Path, gcs: FakeGcs, tmp_path: Path
+) -> None:
+    hold(root, "1", "pdf", "host")
+    hold(root, "2", "xml", "pmc", b"<article/>")
+    full(root, gcs)
+    disk = tmp_path / "new-disk"
+
+    result = restore(disk)
+
+    assert result.exit_code == 0, result.output
+    assert on_disk(disk) == gcs.files()
+    for path in gcs.files():
+        assert (disk / path).read_bytes() == gcs.read(path), path
+    assert status(disk)["finalized"] is True
+
+
+def test_a_restore_brings_a_disk_that_fell_behind_in_step_and_leaves_its_scratch(
+    root: Path, gcs: FakeGcs, tmp_path: Path
+) -> None:
+    for paper in range(2, 4):
+        hold(root, str(paper), "pdf", "host")
+    pdf = hold(root, "1", "pdf", "openalex")
+    full(root, gcs)
+    stale = tmp_path / "stale"
+    shutil.copytree(root, stale)
+    scratch = [".daily-journal.jsonl", ".tmp/inventory.csv"]
+    for name in scratch:
+        (stale / name).parent.mkdir(exist_ok=True)
+        (stale / name).write_text("mine")
+    # Another disk moves on: PMC replaces one PDF and a pass adds a paper.
+    xml = hold(root, "1", "xml", "pmc", b"<article/>")
+    drop(root, pdf)
+    new = hold(root, "4", "pdf", "host")
+    copy(open_paper_store(root))
+    gcs.forget()
+
+    result = restore(stale)
+
+    assert result.exit_code == 0, result.output
+    gets = [path for op, path in gcs.log if op == "get"]
+    assert papers(gets) == sorted([xml, new])
+    # The marker did not change, so it stays as it is.
+    assert "labdata-papers.toml" not in gets
+    assert not (stale / pdf).exists()
+    assert [p for p in on_disk(stale) if p not in scratch] == gcs.files()
+    for path in gcs.files():
+        assert (stale / path).read_bytes() == gcs.read(path), path
+    assert all((stale / name).read_text() == "mine" for name in scratch)
+
+
+def test_a_restore_prints_its_size_and_without_a_terminal_downloads_past_1_gb_only_if_told(
+    root: Path, gcs: FakeGcs, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    hold(root, "1", "pdf", "host")
+    full(root, gcs)
+    # The bar the restore asks above, lowered to fit a test.
+    monkeypatch.setattr("labdata._gcs.ASK_ABOVE", 10)
+    disk = tmp_path / "new-disk"
+
+    refused = restore(disk)
+
+    assert refused.exit_code == 1
+    assert re.search(r"downloads \d+ files, [\d.]+ GB", refused.output)
+    assert "--accept-download" in refused.output
+    assert [path for op, path in gcs.log if op == "get"] == [COPIED, STATUS]
+    assert on_disk(disk) == []
+
+    assert restore(disk, "--accept-download").exit_code == 0
+    assert on_disk(disk) == gcs.files()

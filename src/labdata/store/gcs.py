@@ -12,12 +12,13 @@ marker in GCS names, when GCS is known to hold exactly that build; otherwise it 
 asks for ``labdata store copy --full``, which uploads the current state and deletes nothing. A
 copy refuses, sending nothing, when it would delete more of the copy record's raw files than
 :func:`labdata._gcs.delete_limit` allows, unless the deletes are accepted by hand.
+:func:`restore` fills a work disk from GCS.
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -132,6 +133,42 @@ def copy(
     return CopyResult(dest)
 
 
+def restore(
+    root: Path, source: str | None = None, *, approve: Callable[[int, int], bool]
+) -> str | None:
+    """Fill the work disk at ``root`` from ``source``, as :func:`labdata._gcs.restore` says.
+
+    Holds the store's build lock, so a restore never runs beside a build, prune or copy.
+
+    Parameters
+    ----------
+    root : pathlib.Path
+        The store root; it may be empty or missing.
+    source : str or None
+        An rclone path, ``<remote>:<bucket>/<path>``; defaults to the marker's ``copy_to``.
+    approve : callable
+        Called with the number of files and bytes to download, before any; False stops it.
+
+    Returns
+    -------
+    str or None
+        Why it stopped: rclone's login has expired or ``approve`` said no; None when done.
+
+    Raises
+    ------
+    StoreCopyError
+        If no source is set, GCS holds no copy record or lacks a file it names, or rclone fails.
+    StoreBuildError
+        If a build, prune or copy of this store is running.
+    """
+    if not source and paths.MARKER.at(root).is_file():
+        source = str(paths.read_marker(root).get(COPY_TO_KEY) or "")
+    if not source:
+        raise StoreCopyError("no source: pass --from <remote>:<bucket>/<path>")
+    with build_lock(root):
+        return _gcs.restore(_Adapter(root, seeds=False), source, approve=approve)
+
+
 class _Adapter(_gcs.Adapter):
     record = COPIED
     status = paths.STATUS.rel
@@ -155,6 +192,12 @@ class _Adapter(_gcs.Adapter):
         from labdata.store.refresh import finalized
 
         return finalized(self.root)
+
+    def state(self, path: str) -> bool:
+        try:
+            return paths.kind(path) is paths.STATE
+        except ValueError:
+            return False
 
     def holder(self, path: str) -> str:
         """Return the build, raw source or snapshot that holds ``path``; ``""`` at the top."""

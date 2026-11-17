@@ -10,10 +10,15 @@ changed files by name; the files at the top of the root, the marker among them; 
 by name, of the recorded files that left the held set; the copy record; and last the status
 record, marked finalized. Each record goes to GCS first, then the work disk. No copy deletes
 by comparing GCS with the work disk.
+
+:func:`restore` runs the copy the other way: it fills a work disk with the state files the
+copy record in GCS names, and saves that record and the status record on the disk last.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 import shutil
 import subprocess
 import tempfile
@@ -27,6 +32,9 @@ from labdata.store._files import temp_beside
 #: The largest share of a copy record's paths one copy deletes in GCS, unless one path is
 #: more or more are accepted by hand; past it the copy refuses.
 MAX_DELETE_SHARE = 0.05
+
+#: A restore asks before it downloads more than this many bytes.
+ASK_ABOVE = 1_000_000_000
 
 #: Paths from the store root to their signatures; None for a file sent every time.
 Files = Mapping[str, object]
@@ -71,6 +79,10 @@ class Adapter(ABC):
     @abstractmethod
     def finalized(self) -> bytes | None:
         """Return the status record marked finalized; None to leave it as it stands."""
+
+    @abstractmethod
+    def state(self, path: str) -> bool:
+        """Return whether ``path``, from the store root, is a state file: one a restore brings."""
 
     def holder(self, path: str) -> str:
         """Return the folder that holds ``path`` in the store."""
@@ -180,6 +192,117 @@ def copy(
     return None
 
 
+def restore(adapter: Adapter, source: str, *, approve: Callable[[int, int], bool]) -> str | None:
+    """Fill the work disk from ``source``: the state files its copy record names, and no other.
+
+    It downloads the files whose entries differ between the copy record in GCS and the disk's,
+    or every file when the disk has none, leaving out a file present with GCS's size and MD5.
+    Then it deletes the state files the disk's copy record names and GCS's does not, and saves
+    GCS's copy record and status record on the disk last. Scratch and rebuildable files stay.
+
+    Parameters
+    ----------
+    adapter : Adapter
+        The store.
+    source : str
+        An rclone path, ``<remote>:<bucket>/<path>``.
+    approve : callable
+        Called with the number of files and bytes to download, before any; False stops the
+        restore there.
+
+    Returns
+    -------
+    str or None
+        Why the restore stopped: rclone's login has expired, or ``approve`` said no. None when
+        it is done.
+
+    Raises
+    ------
+    Exception
+        The adapter's :attr:`~Adapter.error` when GCS holds no copy record or lacks a file it
+        names, or when rclone cannot run or fails for another reason.
+    """
+    run = _runner(adapter)
+    root = adapter.root
+    expired = _expired(adapter, source, "the restore again")
+    if not _rclone.logged_in(source, run=run):
+        return expired
+    root.mkdir(parents=True, exist_ok=True)
+    fetched = _fetch(adapter, source, [adapter.record, adapter.status], run)
+    if fetched is None:
+        return expired
+    if adapter.record not in fetched:
+        raise adapter.error(f"{source} holds no copy record, {adapter.record}: nothing to restore")
+    held = {p: s for p, s in adapter.load(fetched[adapter.record]).items() if adapter.state(p)}
+    disk = root / adapter.record
+    had = adapter.load(disk.read_bytes()) if disk.is_file() else None
+    wanted = [
+        p for p in held if had is None or p not in had or held[p] is None or had[p] != held[p]
+    ]
+    listed = _listing(adapter, source, wanted, run)
+    if listed is None:
+        return expired
+    lacking = [p for p in wanted if p not in listed]
+    if lacking:
+        raise adapter.error(
+            f"{source} lacks {len(lacking)} files its copy record names, such as {lacking[0]}: "
+            f"run `{adapter.command} --full` from a disk that holds the {adapter.what}"
+        )
+    get = [p for p in wanted if not _matches(root / p, *listed[p])]
+    if not approve(len(get), sum(listed[p][0] for p in get)):
+        return "nothing was downloaded"
+    pull = ["copy", source, str(root), "--no-traverse", "--ignore-times", *_rclone.PROGRESS]
+    # The files first, then the top of the root, so the marker never names a missing build.
+    for names in ([p for p in get if "/" in p], [p for p in get if "/" not in p]):
+        if names and not _rclone.run_on_paths(
+            pull, names, folder=root, run=run, error=adapter.error
+        ):
+            return expired
+    for path in sorted(p for p in had or {} if p not in held and adapter.state(p)):
+        _remove(root, path)
+    for name in (adapter.record, adapter.status):
+        if name in fetched:
+            tmp = temp_beside(root / name)
+            tmp.write_bytes(fetched[name])
+            tmp.replace(root / name)
+    return None
+
+
+def _listing(
+    adapter: Adapter, source: str, paths: list[str], run: _Run
+) -> dict[str, tuple[int, str]] | None:
+    """Return each of ``paths`` GCS holds with its size and MD5; None on an expired login."""
+    if not paths:
+        return {}
+    out: list[str] = []
+    args = ["lsjson", source, "--recursive", "--files-only", "--hash"]
+    if not _rclone.run_on_paths(
+        args, paths, folder=adapter.root, run=run, error=adapter.error, out=out
+    ):
+        return None
+    return {e["Path"]: (e["Size"], e.get("Hashes", {}).get("md5", "")) for e in json.loads(out[0])}
+
+
+def _matches(path: Path, size: int, md5: str) -> bool:
+    """Return whether ``path`` is a file of ``size`` bytes with ``md5``."""
+    if not path.is_file() or path.stat().st_size != size:
+        return False
+    digest = hashlib.md5()
+    with path.open("rb") as fh:
+        while chunk := fh.read(1 << 20):
+            digest.update(chunk)
+    return digest.hexdigest() == md5
+
+
+def _remove(root: Path, path: str) -> None:
+    """Delete ``path`` under ``root``, and the folders it leaves empty."""
+    (root / path).unlink(missing_ok=True)
+    folder = (root / path).parent
+    while folder != root and folder.is_dir() and not any(folder.iterdir()):
+        folder.rmdir()
+        folder = folder.parent
+
+
 def _send(
     adapter: Adapter, dest: str, held: Files, copied: Files | None, gone: list[str], run: _Run
 ) -> bool:
@@ -250,9 +373,11 @@ def _put(adapter: Adapter, dest: str, name: str, data: bytes, run: _Run) -> bool
     return True
 
 
-def _expired(adapter: Adapter, dest: str) -> str:
+def _expired(adapter: Adapter, dest: str, then: str = "") -> str:
     """Return what to do when rclone's login has expired: reconnect, then copy again."""
     remote = dest.split(":", 1)[0]
+    if then:
+        return f"rclone's Google login has expired. Run `rclone config reconnect {remote}:`, then run {then}."
     return (
         f"rclone's Google login has expired, so GCS is behind the {adapter.what}. "
         f"Run `rclone config reconnect {remote}:`, then `{adapter.command}`."
