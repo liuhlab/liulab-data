@@ -25,7 +25,7 @@ from tests import _slices, _snakemake
 from tests._fakes import FakeEntrezClient
 
 # Imported here, at collection, so a cold import is never inside a test's time limit.
-for _heavy in ("duckdb", "pandas", "pyarrow.parquet", "typer.rich_utils"):
+for _heavy in ("duckdb", "pandas", "pyarrow.dataset", "pyarrow.parquet", "typer.rich_utils"):
     importlib.import_module(_heavy)
 
 #: Each setup tests share, by the fixture that hands it out: how it starts, and the wait for it.

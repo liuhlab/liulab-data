@@ -76,11 +76,12 @@ def run_on_paths(
     folder: Path,
     run: Callable[[list[str]], subprocess.CompletedProcess[str]],
     error: Callable[[str], Exception],
+    out: list[str] | None = None,
 ) -> bool:
     """Run ``rclone <args>`` on ``paths`` alone, or as it is when ``paths`` is empty.
 
     The paths go to rclone as ``--files-from-raw``, in a hidden list file in ``folder`` that
-    is deleted afterwards.
+    is deleted afterwards. On success, rclone's stdout is appended to ``out``.
 
     Returns
     -------
@@ -105,6 +106,8 @@ def run_on_paths(
         if name:
             Path(name).unlink(missing_ok=True)
     if done.returncode == 0:
+        if out is not None:
+            out.append(done.stdout)
         return True
     if login_expired(done.stderr):
         return False

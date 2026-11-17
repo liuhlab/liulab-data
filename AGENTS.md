@@ -25,7 +25,7 @@ src/labdata/
   _cache.py          cache-dir resolution ($XDG_CACHE_HOME/liulab-data)
   exceptions.py      LabdataError hierarchy
   _http.py, _rclone.py  the HTTP and rclone seams every client shares
-  _gcs.py            the GCS protocol both stores share: the copy; store/gcs.py and
+  _gcs.py            the GCS protocol both stores share: copy and restore; store/gcs.py and
                        papers/copy.py are its adapters
   cli.py             thin Typer CLI (labdata version, labdata ncbi configure,
                        labdata geo download, + hidden per-stage subcommands)
@@ -54,7 +54,9 @@ src/labdata/
   papers/            the paper store: paths.py (its top-level paths and their kinds);
                        root.py (marker, pointer, lock, paper folders);
                        tables.py (the four tables' declaration and only writer);
-                       status.py (paper-status.json); reader.py (PaperReader);
+                       status.py (paper-status.json); lifecycle.py (each pass
+                       and copy under the lock; the only writer of
+                       paper-status.json); reader.py (PaperReader);
                        sync.py (the monthly PMC sync), pubmed.py, openalex.py,
                        pmc.py (the PMC bucket tier); folder.py (the only writer,
                        mover and deleter of paper files; zstd, temp files);
@@ -109,7 +111,7 @@ slow and live lanes run in one process.
   `labdata._http.HttpTransport`, which tests replace with a fake transport. Subprocess
   seams: `sratools._run` (sra-tools/pigz), `geo.pipeline._run_snakemake` and
   `store.pipeline._run_snakemake` (Snakemake), `labdata._rclone.run` (rclone; both
-  stores' copies call it through `labdata._gcs`),
+  stores' copies and restores call it through `labdata._gcs`),
   `papers.job._submit` (sbatch), `papers.job._show_job` (scontrol) and `store.extract._popen` (rapidgzip/pigz). Tests mock the seams, never the real binaries.
 - **Pipelines are Snakemake DAGs with typed resources.** The download DAG
   (`prefetch → extract → compress`) lives in `pipeline.smk`, driven by
@@ -133,8 +135,8 @@ slow and live lanes run in one process.
 
 - No live network in CI. Mock the `EntrezClient` seam with canned responses; assert
   laziness (the client is hit once, then served from cache).
-- GCS is `tests._fake_gcs.FakeGcs`, a folder behind the rclone seam. Copy tests check what it
-  holds, never the rclone command lines.
+- GCS is `tests._fake_gcs.FakeGcs`, a folder behind the rclone seam. Copy and restore tests
+  check what it holds, never the rclone command lines.
 - Live tests against real NCBI are marked `@pytest.mark.network`, deselected by default
   and held to neither time limit; run them with `pixi run test-network`.
 
