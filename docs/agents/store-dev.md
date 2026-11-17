@@ -6,7 +6,8 @@ search:
 # Trying a store change
 
 Most changes to the store's code or table layout don't need the full build. Use the smallest
-build that answers the question, and run the full build once, at the end.
+build that answers the question, and run the full build once, at the end. Never repeat a full
+build: the real store gets one a month, in the refresh ([ADR 0004](../adr/0004-full-rebuild-per-refresh.md)).
 
 | Question | Smallest build that answers it |
 | --- | --- |

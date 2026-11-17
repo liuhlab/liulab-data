@@ -102,6 +102,10 @@ slow and live lanes run in one process.
   `store.pipeline._run_snakemake` (Snakemake), `labdata._rclone.run` (rclone; the copies
   call it through `store.gcs._run_rclone` and `papers.copy._run_rclone`),
   `papers.job._submit` (sbatch), `papers.job._show_job` (scontrol) and `store.extract._popen` (rapidgzip/pigz). Tests mock the seams, never the real binaries.
+- **Robust and gentle on NCBI before fast.** Never buy speed with more load on NCBI or a
+  weaker retry: do not raise the `ncbi` resource cap or cut the backoff in `labdata._http`
+  to save time.
+- **The paper store reads no licence field**, in any table or check.
 - **Pipelines are Snakemake DAGs with typed resources.** The download DAG
   (`prefetch → extract → compress`) lives in `pipeline.smk`, driven by
   `labdata.geo.pipeline`. labdata owns per-stage logic (tool calls, resume flags, cleanup,
