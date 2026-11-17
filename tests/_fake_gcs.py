@@ -92,13 +92,14 @@ class FakeGcs:
     def deleted(self) -> list[str]:
         return [path for op, path in self.log if op == "delete"]
 
-    def phases(self, record: str) -> list[str]:
+    def phases(self, record: str, status: str = "") -> list[str]:
         """The log as the steps it took, in order: ``get``, ``files``, ``top`` (files at the
-        top of ``dest``), ``delete`` and ``record`` (the object named ``record`` sent)."""
+        top of ``dest``), ``delete``, ``record`` and ``status`` (those objects sent)."""
         steps: list[str] = []
         for op, path in self.log:
             if op == "put":
-                op = "record" if path == record else "files" if "/" in path else "top"
+                named = {record: "record", status: "status"}
+                op = named.get(path) or ("files" if "/" in path else "top")
             if not steps or steps[-1] != op:
                 steps.append(op)
         return steps

@@ -284,8 +284,9 @@ def papers_copy(
     files table is missing or empty, or when it would delete more than a small share of the
     copied files and more than --accept-deletes; with --full, when the disk lacks more than
     that share of the files the bucket's copy record lists.
-    Leaves out paper-status.json and hidden files. When rclone's Google login has expired, it
-    sets copy_pending in paper-status.json and exits 0; rerun after `rclone config reconnect`.
+    Sends paper-status.json last, marked finalized; leaves out hidden files. When rclone's
+    Google login has expired, it sets copy_pending in paper-status.json and exits 0; rerun
+    after `rclone config reconnect`.
     Holds the paper store's lock.
     """
     from labdata.papers import open_paper_store
@@ -567,7 +568,7 @@ def store_copy(
     record, on the disk or in the bucket, it seeds one from the build the bucket's marker
     names when the status record shows the bucket holds that build; otherwise, or when
     rclone's Google login has expired, it skips with a message and exits 0. The status record
-    marks the copy pending until one succeeds.
+    marks the copy pending until one succeeds, which sends it last, marked finalized.
     """
     from labdata.store import refresh
     from labdata.store.gcs import copy

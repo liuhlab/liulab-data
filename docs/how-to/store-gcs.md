@@ -50,8 +50,10 @@ cluster disk is only a work area, so a copy never deletes a file because the dis
 - It then deletes in the bucket, by name, the files the last copy sent that the current build
   no longer reads: the old build, a snapshot only that build read, a raw file the pack step
   dropped.
-- It leaves out `work/`, `support/` and `refresh-status.json`. It will not run unless the
-  current build is complete.
+- It sends `refresh-status.json` last, after its copy record, marked `finalized`. A refresh
+  that has not switched to its new build yet keeps its status record, so the bucket keeps the
+  one before.
+- It leaves out `work/` and `support/`. It will not run unless the current build is complete.
 
 To know what changed, the copy keeps a hidden list of the files the bucket holds,
 `.copied-files.json`, in the store and in the bucket. When neither has the list, the copy makes
@@ -111,7 +113,7 @@ and only when the maintainer says yes. It leaves out what the copy leaves out:
 ```bash
 pixi run rclone check "$LABDATA_STORE" <copy_to> \
   --filter "- .*" --filter "- .*/**" --filter "- /work/**" \
-  --filter "- /support/**" --filter "- /refresh-status.json" \
+  --filter "- /support/**" \
   --filter "- /builds/<old build>/**"
 ```
 

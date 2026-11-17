@@ -1,9 +1,9 @@
 """Copy the paper store to GCS, which holds it for good: the changes since the last copy.
 
 This is the paper store's adapter of :mod:`labdata._gcs`. The held set is the ``files``
-table's paper files, each with its MD5, size and fetch date, and the files at the top of the
-store, which go up every time. The copy record, :data:`COPIED`, is Parquet. A routine copy lists
-only the top level of the store. With no copy record on the work disk or in GCS, it is skipped
+table's paper files, each with its MD5, size and fetch date, and the state files
+:mod:`labdata.papers.paths` declares at the top of the store, which go up every time. The copy
+record, :data:`COPIED`, is Parquet. A routine copy lists only the top level of the store. With no copy record on the work disk or in GCS, it is skipped
 and asks for ``labdata papers copy --full``, which uploads every file. A full copy fetches the
 copy record in GCS first, and refuses when the disk's table lacks more of its paths than a
 routine copy deletes: the disk does not hold the whole store.
@@ -13,8 +13,8 @@ delete more of the copied paper files than :func:`labdata._gcs.delete_limit` all
 the deletes are accepted by hand.
 
 Hidden files stay behind, :data:`COPIED` aside: the lock, the daily pass's journal and every
-temp file; so does ``paper-status.json``, which the copy itself updates. A skipped or refused
-copy sets ``copy_pending``; a later success clears it.
+temp file. ``paper-status.json`` goes up last, after the copy record, marked ``finalized``. A
+skipped or refused copy sets ``copy_pending``; a later success clears it.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ from labdata import _gcs
 from labdata.exceptions import LabdataError
 from labdata.papers import paths
 from labdata.papers.root import MARKER, PaperStore, paper_lock
-from labdata.papers.status import STATUS, read_status, write_status
+from labdata.papers.status import STATUS, encode, read_status, write_status
 from labdata.papers.tables import FILES
 
 #: The marker key naming the rclone destination, ``<remote>:<bucket>/<path>``.
@@ -40,9 +40,15 @@ COPY_TO_KEY = "copy_to"
 #: file with its MD5, size and fetch date. Kept here on the disk and in GCS.
 COPIED = paths.COPY_RECORD.rel
 
-#: Left out of the copy: hidden files and folders, and the status record, which the copy
-#: itself changes.
-_LEFT_OUT = ["--filter=- .*", "--filter=- .*/**", f"--filter=- /{STATUS}"]
+#: The state files at the top of the store the copy sends with the paper files; the two
+#: records go up after them.
+_TOP = [
+    d.rel
+    for d in paths.LAYOUT
+    if d.kind is paths.STATE
+    and not d.rel.endswith("/")
+    and d not in (paths.STATUS, paths.COPY_RECORD)
+]
 
 _COLUMNS = ["path", "md5", "size", "fetched"]
 _SCHEMA = pa.schema([FILES.schema.field(c) for c in _COLUMNS])
@@ -116,27 +122,35 @@ def copy(
         start = dt.datetime.now(dt.UTC)
         try:
             held = _held(root)
-            skipped = _gcs.copy(
-                _Adapter(root), dest, held, full=full, accept_deletes=accept_deletes
-            )
+            adapter = _Adapter(root, start.strftime("%Y-%m-%dT%H:%M:%SZ"))
+            skipped = _gcs.copy(adapter, dest, held, full=full, accept_deletes=accept_deletes)
         except BaseException:
             _pending(root, True)
             raise
         if skipped:
             _pending(root, True)
             return CopyResult(dest, skipped=True, message=skipped)
-        stamp = start.strftime("%Y-%m-%dT%H:%M:%SZ")
-        write_status(root, replace(read_status(root), copy_pending=False, last_copy_success=stamp))
     return CopyResult(dest)
 
 
 class _Adapter(_gcs.Adapter):
     record = COPIED
+    status = STATUS
     what = "paper store"
     command = "labdata papers copy"
     error = PaperCopyError
-    full_filters = (*_LEFT_OUT, "--filter=- /*")
+    full_filters = ("--filter=- .*", "--filter=- .*/**", "--filter=- /*")
     full_checks = True
+
+    def __init__(self, root: Path, start: str) -> None:
+        super().__init__(root)
+        self.start = start
+
+    def finalized(self) -> bytes:
+        old = read_status(self.root)
+        return encode(
+            replace(old, copy_pending=False, last_copy_success=self.start, finalized=True)
+        )
 
     def load(self, data: bytes) -> _Held:
         return _signatures(pq.read_table(pa.BufferReader(data), columns=_COLUMNS, schema=_SCHEMA))
@@ -186,11 +200,7 @@ def _held(root: Path) -> _Held:
             f"{path} is missing or empty, so nothing was copied: the copy would replace the "
             "bucket's tables with it and delete the bucket's papers"
         )
-    top = (
-        p.name
-        for p in root.iterdir()
-        if p.is_file() and not p.is_symlink() and not p.name.startswith(".") and p.name != STATUS
-    )
+    top = (rel for rel in _TOP if (root / rel).is_file() and not (root / rel).is_symlink())
     return held | dict.fromkeys(top)
 
 

@@ -398,9 +398,10 @@ def built(full_run: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tu
 
 
 def test_a_refresh_adds_replaces_removes_and_switches_while_an_open_store_keeps_its_build(
-    built: tuple[Path, _Geo], monkeypatch: pytest.MonkeyPatch, snakemake: Runner
+    built: tuple[Path, _Geo], monkeypatch: pytest.MonkeyPatch, snakemake: Runner, tmp_path: Path
 ) -> None:
     root, ncbi = built
+    gcs = _mirrored(root, monkeypatch, tmp_path)
     before = open_store(root)
     assert "(revised)" not in before.raw([CHANGED])[CHANGED].text
     _change(ncbi)
@@ -424,12 +425,13 @@ def test_a_refresh_adds_replaces_removes_and_switches_while_an_open_store_keeps_
     assert "(revised)" not in before.raw([CHANGED])[CHANGED].text
     status = refresh.read_status(root)
     today = dt.datetime.now(dt.UTC).date().isoformat()
-    assert status["outcome"] == "succeeded"
+    assert status["outcome"] == "finalized"
     assert status["last_success"] == today
     assert status["since"] == _OLD
     assert status["ended"] >= status["started"]
     assert status["counts"][raw.GEO_SOFT] == {"added": 1, "replaced": 1, "removed": 1}
     assert status["copy_pending"] is False
+    assert gcs.read(refresh.STATUS) == (root / refresh.STATUS).read_bytes()
     # The layout declares every file the refresh left.
     for path in (p for p in root.rglob("*") if p.is_file()):
         paths.kind(path.relative_to(root).as_posix())
@@ -546,18 +548,23 @@ def test_a_second_refresh_asks_only_for_the_overlap_window(
     _same_build(first, _current(root))
 
 
+def _mirrored(root: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> FakeGcs:
+    """Set ``copy_to``; GCS mirrors the current build, and has no copy record yet."""
+    marker = root / "labdata-store.toml"
+    marker.write_text(marker.read_text() + f'copy_to = "{_DEST}"\n', encoding="utf-8")
+    gcs = FakeGcs.install(monkeypatch, tmp_path / "gcs", _DEST)
+    gcs.write("labdata-store.toml", marker.read_bytes())
+    return gcs
+
+
 def test_an_expired_login_leaves_the_copy_pending_and_a_later_copy_clears_it(
     built: tuple[Path, _Geo], monkeypatch: pytest.MonkeyPatch, snakemake: Runner, tmp_path: Path
 ) -> None:
     root, ncbi = built
-    marker = root / "labdata-store.toml"
-    marker.write_text(marker.read_text() + f'copy_to = "{_DEST}"\n', encoding="utf-8")
-    gcs = FakeGcs.install(monkeypatch, tmp_path / "gcs", _DEST)
+    gcs = _mirrored(root, monkeypatch, tmp_path)
     gcs.expired = True
     _change(ncbi)
     _executor(monkeypatch, snakemake)
-    # GCS mirrors the build the refresh leaves, and has no copy record yet.
-    gcs.write("labdata-store.toml", marker.read_bytes())
     old = _current(root).name
 
     _refresh(root)
@@ -570,7 +577,8 @@ def test_an_expired_login_leaves_the_copy_pending_and_a_later_copy_clears_it(
     gcs.expired = False
     # No --full: the copy seeds its record from the old build, then deletes it in GCS.
     assert "Copied the store" in _cli("copy", "--root", str(root))
-    assert refresh.read_status(root)["copy_pending"] is False
+    assert refresh.read_status(root)["outcome"] == "finalized"
+    assert gcs.read(refresh.STATUS) == (root / refresh.STATUS).read_bytes()
     assert f"builds/{old}/manifest.json" in gcs.deleted()
     assert not any(p.startswith(f"builds/{_current(root).name}/") for p in gcs.deleted())
 

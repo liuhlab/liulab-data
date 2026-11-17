@@ -52,8 +52,9 @@ labdata store never writes into it.
   next sync is due when the current build differs. `fetches` counts the papers fetched today
   by source, and `quota` counts the OpenAlex downloads spent today by key. `counts` gives
   papers by status, then by reason. `paperpile_pending` and `copy_pending` are true when a step was skipped because
-  its login has expired.
-- **Made by:** each pass of the paper job, at its start and its end.
+  its login has expired. `finalized` is true when the bucket holds the store's last change.
+- **Made by:** each pass of the paper job, at its start and its end, and each copy, which
+  sends it to the bucket last.
 
 ## The tables
 

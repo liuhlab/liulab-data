@@ -50,6 +50,8 @@ class PaperStatus:
         expired or no earlier copy exists.
     last_copy_success : str or None
         The UTC time, ISO 8601, the last successful GCS copy started.
+    finalized : bool
+        GCS holds the store's last change: a copy sent this record.
     """
 
     last_pass: dict[str, Any] = field(default_factory=dict)
@@ -62,6 +64,7 @@ class PaperStatus:
     paperpile_pending: bool = False
     copy_pending: bool = False
     last_copy_success: str | None = None
+    finalized: bool = False
 
 
 def read_status(root: Path) -> PaperStatus:
@@ -101,5 +104,10 @@ def write_status(root: Path, status: PaperStatus) -> Path:
         The file written.
     """
     path = root / STATUS
-    write_atomic(path, json.dumps(asdict(status), indent=2, sort_keys=True) + "\n")
+    write_atomic(path, encode(status).decode())
     return path
+
+
+def encode(status: PaperStatus) -> bytes:
+    """Return the bytes of ``paper-status.json`` holding ``status``."""
+    return (json.dumps(asdict(status), indent=2, sort_keys=True) + "\n").encode()

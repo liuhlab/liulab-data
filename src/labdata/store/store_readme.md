@@ -196,8 +196,8 @@ labdata store verify --root <store>
 
 ## Clean up
 
-When no run is going and `refresh-status.json` says the last refresh succeeded, you may delete
-the paths below. They are on this computer only, and the next run makes what it needs again.
+When no run is going and `refresh-status.json` says the last refresh succeeded or is
+finalized, you may delete the paths below. They are on this computer only, and the next run makes what it needs again.
 Keep the run logs in `support/` first, as its section says. Fetch steps still skip every item
 saved in `raw/`.
 
@@ -235,8 +235,9 @@ NCBI:
 
 3. Read `refresh-status.json`. It gives the refresh's start, end and outcome, the date of the
    last successful refresh, the records added, replaced and removed in each `raw/` source, and
-   `copy_pending`. When `copy_pending` is `true`, the GCS copy is behind the store. Log in to
-   rclone again, then run `labdata store copy --root <store>`.
+   `copy_pending`. The outcome is `finalized` once GCS holds the refresh's build. When
+   `copy_pending` is `true`, the GCS copy is behind the store. Log in to rclone again, then
+   run `labdata store copy --root <store>`.
 
 4. Keep the refresh's logs, as `support/` says above.
 

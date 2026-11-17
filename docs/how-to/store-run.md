@@ -136,7 +136,7 @@ new one from the same date and leaves the old folder in place.
 {
   "started": "2026-11-07T02:00:00Z",
   "ended": "2026-11-07T03:24:10Z",
-  "outcome": "succeeded",
+  "outcome": "finalized",
   "since": "2026-10-14",
   "last_success": "2026-11-07",
   "folder": "work/refresh/2026-11-07T020000Z",
@@ -146,10 +146,12 @@ new one from the same date and leaves the old folder in place.
 }
 ```
 
-`last_success` changes only once the store has switched to the new build. When rclone's login
-has expired, or the store still needs its first `--full` copy, the refresh still succeeds and
+`last_success` changes only once the store has switched to the new build. The outcome is
+`finalized` once the copy has sent the new build to the bucket. When rclone's login has
+expired, or the store still needs its first `--full` copy, the refresh ends `succeeded` and
 `copy_pending` is `true`. Log in, then run `labdata store copy`, or `labdata store copy --full`
-if it asks for it. It copies the store and sets `copy_pending` back to `false`.
+if it asks for it. It copies the store, sets `copy_pending` back to `false` and the outcome to
+`finalized`.
 `copy_pending_at_switch` keeps `copy_pending` as it was when the refresh switched builds.
 
 To keep the refresh's step logs with the store, copy them into `support/`. `<started>` is the

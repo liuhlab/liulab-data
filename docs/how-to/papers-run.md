@@ -155,10 +155,11 @@ The file at the paper store root says what the job did last and where the papers
   `false`.
 - `last_copy_success` is when the last copy that worked started. The next copy sends what
   changed after it.
+- `finalized: true` means the bucket holds the store's last change: a copy sent this record.
 
 The copy reads the changes from the `files` table, so it lists only the top level of the
-paper store and the bucket. It leaves out `paper-status.json`, the lock file and the files a
-pass writes while it runs.
+paper store and the bucket. It sends `paper-status.json` last, after its copy record, marked
+`finalized`. It leaves out the lock file and the files a pass writes while it runs.
 
 GCS keeps the paper store for good; the cluster disk is a work area. So a copy deletes in the
 bucket only the files that left the `files` table. It refuses, sending nothing, when the table
@@ -195,7 +196,8 @@ Run it between passes. The copy is current when both of these hold:
 A full check finds what differs when the copy record does not match, or after a change made
 in the bucket by hand. It lists every file on both sides, so run it only to repair the copy,
 and only when the maintainer says yes. Run it between passes too: a pass that runs beside it
-changes files under it. Like the copy, it leaves out the hidden files and the status record:
+changes files under it. Like the copy, it leaves out the hidden files. The status record
+differs once a pass has run since the last copy:
 
 ```bash
 pixi run rclone check "$LABDATA_PAPERS" <copy_to> --one-way \
@@ -226,8 +228,8 @@ If it stops, submit it again: it skips the files it already has. If the GEO/SRA 
 too, set `store` in `labdata-papers.toml` to its new folder. Then start the paper job.
 
 The download brings the copy record, so the job's copies send only what changes from then on.
-It does not bring `paper-status.json`, so the job starts with a daily pass, and with the
-month's PMC sync from the 3rd.
+It brings `paper-status.json` as the last copy left it, so the job knows when the last daily
+pass and the last PMC sync ran.
 
 Restore before any copy by hand. A full copy, `labdata papers copy --full`, first reads the
 list of files the bucket holds. It refuses, and sends nothing, when the disk lacks more than a

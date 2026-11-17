@@ -35,8 +35,8 @@ from labdata.store.root import open_store
 STATUS = paths.STATUS.rel
 #: The status key keeping ``copy_pending`` as it stood when the refresh switched builds.
 AT_SWITCH = "copy_pending_at_switch"
-#: Outcomes the status record names.
-RUNNING, SUCCEEDED, FAILED = "running", "succeeded", "failed"
+#: Outcomes the status record names; finalized once a copy has sent the update to GCS.
+RUNNING, SUCCEEDED, FAILED, FINALIZED = "running", "succeeded", "failed", "finalized"
 #: The file in a refresh's folder each pack appends its per-bucket counts to.
 PACK_COUNTS = "pack-counts.jsonl"
 #: The version of ``refresh.smk``'s markers; raise it when a marker changes meaning, so an
@@ -72,7 +72,24 @@ def read_status(root: Path) -> dict[str, Any]:
 
 def write_status(root: Path, status: dict[str, Any]) -> None:
     """Write the status record whole."""
-    write_atomic(paths.STATUS.at(root), json.dumps(status, indent=2, sort_keys=True) + "\n")
+    write_atomic(paths.STATUS.at(root), _dump(status))
+
+
+def finalized(root: Path) -> bytes | None:
+    """Return the status record marked finalized, for a copy to send last.
+
+    A store with no record gets one that says only that, and when. None while a refresh that has not
+    switched builds is running or failed: the copy leaves its record, so a rerun resumes it.
+    """
+    status = read_status(root)
+    if status.get("outcome") in (RUNNING, FAILED) and AT_SWITCH not in status:
+        return None
+    ended = status.get("ended") or _now()
+    return _dump(status | {"outcome": FINALIZED, "copy_pending": False, "ended": ended}).encode()
+
+
+def _dump(status: dict[str, Any]) -> str:
+    return json.dumps(status, indent=2, sort_keys=True) + "\n"
 
 
 def downloader() -> Path:
@@ -209,8 +226,10 @@ def run(
     ]
     code = pipeline._run_snakemake(argv, verbose=verbose)
     status = read_status(root)
-    status |= {"ended": _now(), "outcome": FAILED if code else SUCCEEDED}
-    write_status(root, status)
+    # The copy, the last step, finalized it.
+    if code or status.get("outcome") != FINALIZED:
+        status |= {"ended": _now(), "outcome": FAILED if code else SUCCEEDED}
+        write_status(root, status)
     return code
 
 
@@ -257,5 +276,5 @@ def bucket_matches_marker(root: Path) -> bool:
 def note_copy(root: Path, *, pending: bool) -> None:
     """Mark the GCS copy pending or done in the status record, if the store has one."""
     status = read_status(root)
-    if status:
+    if status and status.get("copy_pending") != pending:
         write_status(root, status | {"copy_pending": pending})
