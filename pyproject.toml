@@ -153,10 +153,10 @@ test      = "pytest -n 4"
 test-slow = "pytest -m slow"
 test-network = "pytest -m network"
 test-cov  = "pytest --cov=labdata --cov-report=term-missing"
-# `.`, never an absolute path: an absolute path matches no `.vale.ini` section and exits 0.
-# The globs stop vale walking trees it never lints — check.sh runs steps concurrently, and a
-# walk of .pixi/ races pytest writing __pycache__ there.
-vale = "vale --glob='!{.pixi,site,dist,build}/**' ."
+# Relative paths, never absolute: an absolute path matches no `.vale.ini` section and exits 0.
+# Listed by git, not walked from `.`: check.sh runs steps concurrently, and a walk of .pixi/
+# fails on a `__pycache__` file another step renames during it.
+vale = "git ls-files -z --cached --others --exclude-standard '*.md' | xargs -0 vale"
 markdownlint = "markdownlint-cli2"
 conformance = "python scripts/conformance.py"
 # The static step list lives here and nowhere else; `check.sh` takes it as arguments.
