@@ -141,14 +141,14 @@ def build(
     Raises
     ------
     StoreBuildError
-        If a snapshot is missing or not extracted, a build of that id exists, another
+        If a snapshot is missing, a build of that id exists, another
         build of this store is running, or a sample's scratch root is its source, holds
         ``raw/`` or ``snapshots/``, or holds samples of another store.
     NotAStoreError
         If ``sample_of`` is not a store root.
     """
     fraction = targets.check_fraction(fraction)
-    source = None if sample_of is None else targets.BuildSource(sample_of, fraction)
+    source = None if sample_of is None else targets.BuildSource(sample_of, fraction, made_in=root)
     with build_lock(root) if source is None else _scratch_root(root, source.root):
         return _build(
             root, build_id, workers or _limits.default_workers(), chunk_bytes, fraction, source
@@ -259,7 +259,9 @@ def _build_into(
     sample_of: targets.BuildSource | None,
 ) -> None:
     source = sample_of or targets.BuildSource(root, None)
-    _, geo_date = extract.done_dir(source.root, snapshots.GEO_SERIES)
+    for kind in extract.SOURCES:
+        extract.extract(source.root, kind, made_in=source.made_in, workers=workers)
+    _, geo_date = extract.done_dir(source.root, snapshots.GEO_SERIES, made_in=source.made_in)
     target_list = targets.target_list(root, geo_date, fraction, source=source)
     _summary_links(target_list, work / "links" / "summary.parquet")
     tasks: list[_parse.Task] = []
@@ -297,7 +299,7 @@ def _build_into(
         extract.run_parallel(_parse.run, ((t,) for t in wanted), workers)
         logger.info("writing record, link and supplementary-file tables")
         for folder in sorted((work / "records").glob("*")):
-            _write_records(con, source.root, folder, layout.records_path(tmp, folder.name))
+            _write_records(con, source, folder, layout.records_path(tmp, folder.name))
         _write_links(con, work, tmp)
         _write_holdings(con, tmp)
         suppl.write(
@@ -314,7 +316,7 @@ def _build_into(
         gaps.Note(str(v["example"]), gaps.UNKNOWN_LABEL, f"{label}: {v['links']} links")
         for label, v in labels.items()
     ]
-    _, sra_date = extract.done_dir(source.root, snapshots.SRA_ACCESSIONS)
+    _, sra_date = extract.done_dir(source.root, snapshots.SRA_ACCESSIONS, made_in=source.made_in)
     note_counts = gaps.write_notes(
         root,
         tmp,
@@ -481,7 +483,7 @@ def _wanted_snapshots(
     }
     tasks: list[_parse.Task] = []
     for kind, (query, prefix) in wanted.items():
-        folder, date = extract.done_dir(source.root, kind)
+        folder, date = extract.done_dir(source.root, kind, made_in=source.made_in)
         if sampled:
             query += f" UNION SELECT accession FROM read_parquet({extract.parts(folder)}){sampled}"
         out = work / "snapshots" / kind
@@ -533,7 +535,9 @@ def _decompressed_bytes(folder: Path) -> int:
     return size
 
 
-def _write_records(con: duckdb.DuckDBPyConnection, root: Path, folder: Path, out: Path) -> None:
+def _write_records(
+    con: duckdb.DuckDBPyConnection, source: targets.BuildSource, folder: Path, out: Path
+) -> None:
     """Write one record type, keeping each record's copy as ``_kept_order`` ranks it.
 
     A large type is written in accession ranges, each sorted on its own and streamed out in
@@ -554,15 +558,15 @@ def _write_records(con: duckdb.DuckDBPyConnection, root: Path, folder: Path, out
             terms.append(f"accession >= {sql_string(lo)}")
         if hi is not None:
             terms.append(f"accession < {sql_string(hi)}")
-        ranges.append(_record_range(root, folder, " AND ".join(terms)))
+        ranges.append(_record_range(source, folder, " AND ".join(terms)))
     layout.write(con, RECORDS, out, ranges)
     logger.info("wrote %s in %d accession ranges", out.stem, len(ranges))
 
 
-def _record_range(root: Path, folder: Path, where: str) -> str:
+def _record_range(source: targets.BuildSource, folder: Path, where: str) -> str:
     """Return the query of one accession range; SRA records take typed columns from the tab."""
     if folder.name.startswith("sra-"):
-        tab, _ = extract.done_dir(root, snapshots.SRA_ACCESSIONS)
+        tab, _ = extract.done_dir(source.root, snapshots.SRA_ACCESSIONS, made_in=source.made_in)
         fields = ", ".join(f"{name}: {name}" for name in _TYPED)
         typed_join = (
             f"LEFT JOIN (SELECT accession, min({{{fields}}}) AS x "
@@ -630,7 +634,7 @@ def _no_package_notes(
     """
     if not experiments:
         return []
-    folder, _ = extract.done_dir(source.root, snapshots.SRA_ACCESSIONS)
+    folder, _ = extract.done_dir(source.root, snapshots.SRA_ACCESSIONS, made_in=source.made_in)
     listed = ", ".join(sql_string(a) for a in sorted(set(experiments)))
     with extract.connect(root) as con:
         rows = con.execute(

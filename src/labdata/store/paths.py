@@ -71,7 +71,7 @@ BUILDS = Declared("builds/", STATE)
 RAW = Declared("raw/", STATE)
 SNAPSHOTS = Declared("snapshots/", STATE)
 #: One Parquet extract per snapshot, ``<source>-<date>/``.
-EXTRACTS = Declared("work/extract/", REBUILDABLE)
+EXTRACTS = Declared("extracts/", REBUILDABLE)
 #: Run logs kept by hand; nothing reads them.
 SUPPORT = Declared("support/", SCRATCH)
 BUILD_LOCK = Declared("work/build.lock", SCRATCH)
@@ -93,6 +93,8 @@ EUTILS = Declared("work/eutils/", SCRATCH)
 TMP = Declared("work/tmp/", SCRATCH)
 #: The yearly SRA removal's batches, ``<tab date>/``.
 SRA_REMOVAL = Declared("work/sra-removal/", SCRATCH)
+#: Where extracts were kept before; the store's next extract or build moves them out.
+OLD_EXTRACTS = Declared("work/extract/", SCRATCH)
 
 #: Every declared path.
 LAYOUT = (
@@ -115,6 +117,7 @@ LAYOUT = (
     EUTILS,
     TMP,
     SRA_REMOVAL,
+    OLD_EXTRACTS,
 )
 
 

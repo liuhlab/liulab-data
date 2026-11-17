@@ -75,7 +75,8 @@ def write(
         If a source's snapshot is missing, not extracted, or extracted without a status column.
     """
     read = root if source is None else source.root
-    folders = {name: extract.done_dir(read, name) for name in SOURCES}
+    made_in = None if source is None else source.made_in
+    folders = {name: extract.done_dir(read, name, made_in=made_in) for name in SOURCES}
     for name in _STATUSED:
         _require_status(name, *folders[name])
     dates = {name: date for name, (_, date) in folders.items()}

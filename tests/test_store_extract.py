@@ -76,7 +76,7 @@ def _serial(root: Path, source: str) -> list[dict[str, object]]:
 def test_an_extract_equals_the_serial_readers(tmp_path: Path, slice_name: str, source: str) -> None:
     root = _root(tmp_path, slice_name)
     out = extract.extract(root, source, workers=1)
-    assert out == root / "work" / "extract" / f"{source}-2026-10-14"
+    assert out == root / "extracts" / f"{source}-2026-10-14"
     assert (out / extract.DONE).is_file()
     assert _rows(out) == _serial(root, source)
     assert not list((root / "work" / "tmp").glob("*"))
@@ -109,7 +109,7 @@ def test_a_part_already_written_is_skipped_and_a_rerun_finishes(
     monkeypatch.setattr(extract, "_write_part", killed)
     with pytest.raises(KeyboardInterrupt):
         extract.extract(root, "sra-accessions", workers=1, part_bytes=500)
-    out = root / "work" / "extract" / "sra-accessions-2026-10-14"
+    out = root / "extracts" / "sra-accessions-2026-10-14"
     assert sorted(p.name for p in out.glob("part-*")) == [
         "part-00000.parquet",
         "part-00001.parquet",
@@ -127,6 +127,27 @@ def test_a_part_already_written_is_skipped_and_a_rerun_finishes(
     assert calls == []
 
 
+def test_an_extract_in_the_old_place_under_work_is_moved_not_made_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _root(tmp_path)
+    made = extract.extract(root, "bioproject", workers=1)
+    old = root / "work" / "extract" / made.name
+    old.parent.mkdir(parents=True)
+    made.rename(old)
+    rows = _rows(old)
+
+    def never(*args: object) -> None:
+        raise AssertionError("made again")
+
+    monkeypatch.setattr(extract, "_write_rows", never)
+    out = extract.extract(root, "bioproject", workers=1)
+
+    assert out == root / "extracts" / "bioproject-2026-10-14"
+    assert not old.exists()
+    assert _rows(out) == rows
+
+
 # Ray leaves a log file handle open at shutdown.
 @pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")
 @pytest.mark.slow
@@ -137,12 +158,12 @@ def test_ray_with_two_workers_gives_the_same_parts(tmp_path: Path) -> None:
     assert _rows(out) == _serial(root, "biosample")
 
 
-def test_a_build_without_an_extract_names_the_command_to_run(tmp_path: Path) -> None:
+def test_a_build_makes_a_missing_extract_first(tmp_path: Path) -> None:
     root = _root(tmp_path)
     for source in ("sra-accessions", "bioproject", "geo-series"):
         extract.extract(root, source, workers=1)
-    with pytest.raises(StoreBuildError, match="labdata store extract --source biosample"):
-        build(root, "b1")
+    build(root, "b1", workers=1)
+    assert (root / "extracts" / "biosample-2026-10-14" / extract.DONE).is_file()
 
 
 def test_the_extract_command_does_one_source(tmp_path: Path) -> None:
@@ -152,7 +173,7 @@ def test_the_extract_command_does_one_source(tmp_path: Path) -> None:
         app, ["store", "extract", "--source", "bioproject", "--workers", "1", "--root", str(root)]
     )
     assert done.exit_code == 0, done.output
-    assert [p.name for p in (root / "work" / "extract").iterdir()] == ["bioproject-2026-10-14"]
+    assert [p.name for p in (root / "extracts").iterdir()] == ["bioproject-2026-10-14"]
     bad = runner.invoke(app, ["store", "extract", "--source", "nope", "--root", str(root)])
     assert bad.exit_code != 0
 
