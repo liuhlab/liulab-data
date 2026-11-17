@@ -5,10 +5,10 @@ from the store root, each with a signature that changes with the file, or None f
 sent every time. The copy record is the held set as the last successful copy left it, at the
 store root on the work disk and in GCS.
 
-After one listing call checks rclone's login, :func:`copy` sends, in order: the new and
-changed files by name; the files at the top of the root, the marker among them; the deletes,
-by name, of the recorded files that left the held set; the copy record; and last the status
-record, marked finalized. Each record goes to GCS first, then the work disk. No copy deletes
+After one listing call checks rclone's login, :func:`copy` checks the work disk against GCS
+(:func:`check`), then sends, in order: the new and changed files by name; the files at the
+top of the root, the marker among them; the deletes, by name, of the recorded files that left
+the held set; the copy record; and last the status record, marked finalized. Each record goes to GCS first, then the work disk. No copy deletes
 by comparing GCS with the work disk.
 
 :func:`restore` runs the copy the other way: it fills a work disk with the state files the
@@ -48,9 +48,10 @@ class Adapter(ABC):
     #: The copy record's and the status record's file names at the store root.
     record: str
     status: str
-    #: The store's name and its copy command, for messages.
+    #: The store's name and its copy and restore commands, for messages.
     what: str
     command: str
+    restorer: str
     #: Raised when rclone fails for a reason other than an expired login.
     error: type[Exception]
     #: rclone filters that pick, out of the whole root, what a full copy sends below the top
@@ -142,12 +143,12 @@ def copy(
     Raises
     ------
     Exception
-        :meth:`Adapter.check_deletes`'s refusal, before anything is sent; the adapter's
-        :attr:`~Adapter.error` when rclone cannot run or fails for another reason.
+        :func:`check`'s or :meth:`Adapter.check_deletes`'s refusal, before anything is sent;
+        the adapter's :attr:`~Adapter.error` when rclone cannot run or fails for another reason.
     """
     run = _runner(adapter)
     expired = _expired(adapter, dest)
-    if not _rclone.logged_in(dest, run=run):
+    if not _rclone.logged_in(dest, run=run) or not _check(adapter, dest, run, full=full):
         return expired
     copied = None
     if not full or adapter.full_checks:
@@ -190,6 +191,52 @@ def copy(
     if status is not None and not _put(adapter, dest, adapter.status, status, run):
         return expired
     return None
+
+
+def check(adapter: Adapter, dest: str) -> bool:
+    """Check that the work disk's copy record is the one in GCS, by MD5, downloading nothing.
+
+    GCS's MD5 comes from the object's metadata. A disk with no copy record passes: the copy's
+    seeding rules handle it.
+
+    Returns
+    -------
+    bool
+        False when rclone's login has expired, so nothing was checked.
+
+    Raises
+    ------
+    Exception
+        The adapter's :attr:`~Adapter.error`, naming the restore command, when the records
+        differ; or, naming a full copy, when GCS holds no copy record and the disk does.
+    """
+    run = _runner(adapter)
+    return _rclone.logged_in(dest, run=run) and _check(adapter, dest, run, full=False)
+
+
+def _check(adapter: Adapter, dest: str, run: _Run, *, full: bool) -> bool:
+    """Run :func:`check` after the login probe; a full copy may send to GCS with no record."""
+    disk = adapter.root / adapter.record
+    if not disk.is_file():
+        return True
+    listed = _listing(adapter, dest, [adapter.record], run)
+    if listed is None:
+        return False
+    if adapter.record not in listed:
+        if full:
+            return True
+        raise adapter.error(
+            f"GCS at {dest} holds no copy record, but the work disk's names what an earlier "
+            f"copy sent there, so nothing was sent: GCS is new or was emptied. "
+            f"`{adapter.command} --full` sends the whole {adapter.what}."
+        )
+    if listed[adapter.record][1] != hashlib.md5(disk.read_bytes()).hexdigest():
+        raise adapter.error(
+            f"the work disk's copy record, {adapter.record}, is not the one in GCS at {dest}, so "
+            f"nothing was sent: this disk is behind GCS, or another disk sent to it since. "
+            f"Run `{adapter.restorer} --from {dest}` to bring the work disk in step with GCS."
+        )
+    return True
 
 
 def restore(adapter: Adapter, source: str, *, approve: Callable[[int, int], bool]) -> str | None:

@@ -446,6 +446,56 @@ def test_a_copy_that_would_delete_too_many_raw_files_sends_nothing_unless_accept
     assert not set(gone) & set(gcs.files())
 
 
+def test_a_copy_from_a_disk_behind_gcs_sends_nothing_until_a_restore_brings_it_in_step(
+    root: Path, gcs: FakeGcs, tmp_path: Path
+) -> None:
+    _copy_to(root)
+    _full(root)
+    other = tmp_path / "other"
+    shutil.copytree(root, other)
+    build(other, "b2")
+    assert _copy(other).exit_code == 0
+    gcs.forget()
+    # This disk still names b1: its copy record is not the one in GCS.
+    _status(root, copy_pending=False)
+
+    refused = _copy(root)
+
+    assert refused.exit_code == 1
+    assert "labdata store restore" in refused.output
+    assert gcs.log == []
+    assert lifecycle.read_status(root)["copy_pending"] is True
+    assert "builds/b2/manifest.json" in _record(gcs)
+
+    assert CliRunner().invoke(app, ["store", "restore", "--root", str(root)]).exit_code == 0
+    gcs.forget()
+
+    assert _copy(root).exit_code == 0
+    # The check read GCS's MD5 alone.
+    assert not any(op == "get" for op, _ in gcs.log)
+    _holds_its_record(gcs, root)
+
+
+def test_a_routine_copy_to_a_gcs_emptied_since_sends_nothing_and_asks_for_full(
+    root: Path, gcs: FakeGcs
+) -> None:
+    _copy_to(root)
+    _full(root)
+    for path in gcs.files():
+        gcs.remove(path)
+    gcs.forget()
+
+    refused = _copy(root)
+
+    # Changes alone would leave GCS partial.
+    assert refused.exit_code == 1
+    assert "labdata store copy --full" in refused.output
+    assert gcs.log == []
+    assert lifecycle.read_status(root)["copy_pending"] is True
+    _full(root)
+    _holds_its_record(gcs, root)
+
+
 def test_with_no_record_on_disk_a_copy_fetches_the_gcs_one_and_sends_only_changes(
     root: Path, gcs: FakeGcs
 ) -> None:

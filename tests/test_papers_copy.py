@@ -383,9 +383,9 @@ def test_an_empty_files_table_copies_nothing(root: Path, gcs: FakeGcs, full_copy
 def test_any_failure_past_the_destination_sets_copy_pending(root: Path, gcs: FakeGcs) -> None:
     hold(root, "1", "pdf", "host")
     full(root, gcs)
-    (root / COPIED).write_bytes(b"not parquet")
+    gcs.error = "ERROR : bucket not found\n"
 
-    with pytest.raises(pa.ArrowInvalid):
+    with pytest.raises(PaperCopyError, match="bucket not found"):
         copy(open_paper_store(root))
     assert status(root)["copy_pending"] is True
 

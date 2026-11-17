@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from labdata.store import lifecycle, open_store
-from labdata.store.gcs import COPIED
+from labdata.store.gcs import COPIED, StoreCopyError
 from tests._fake_gcs import FakeGcs
 from tests._slices import BuiltStore
 
@@ -78,6 +78,26 @@ def test_a_refresh_switched_on_an_expired_login_ends_built_and_the_next_copy_fin
     assert not lifecycle.unfinished(status, "refresh")
     assert _gcs_names(gcs, "b2")
     assert gcs.read(lifecycle.STATUS) == (root / lifecycle.STATUS).read_bytes()
+
+
+def test_an_update_on_a_disk_behind_gcs_refuses_at_its_start_unless_the_login_has_expired(
+    root: Path, gcs: FakeGcs, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Another disk copied since this one did.
+    gcs.write(COPIED, b"{}\n")
+
+    with pytest.raises(StoreCopyError, match="labdata store restore"):
+        lifecycle.start(root, "refresh", folder="work/refresh/x", started=_STARTED)
+
+    status = lifecycle.read_status(root)
+    assert (status["outcome"], status["copy_pending"]) == ("finalized", True)
+    assert gcs.log == []
+
+    gcs.expired = True
+    lifecycle.start(root, "run", folder="work/run/2026-10-14-all")
+
+    assert lifecycle.read_status(root)["outcome"] == "running"
+    assert "not checked against GCS" in caplog.text
 
 
 def test_a_full_run_whose_build_fails_coverage_leaves_the_store_on_its_build(

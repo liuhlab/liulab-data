@@ -1,9 +1,10 @@
 """The paper store's life cycle: each step runs under the lock and ends finalized when it can.
 
 A step is a daily pass, a PMC sync or a copy, and holds the paper store's lock once, for the
-pass and its copy together. A pass records its outcome, then finalizes, whatever the outcome,
-when the ``files`` table and the copy record on the work disk name different paper files or a
-copy is pending. Finalizing takes in a stopped daily pass's journal, marks a copy pending and
+pass and its copy together. A pass first checks the work disk against GCS, refusing when it is
+not in step and only warning when rclone's login has expired. A pass records its outcome, then
+finalizes, whatever the outcome, when the ``files`` table and the copy record on the work disk
+name different paper files or a copy is pending. Finalizing takes in a stopped daily pass's journal, marks a copy pending and
 the store not finalized, then copies to GCS; the copy sends the status record last, marked
 finalized and no longer pending, and a pass it records as running, which was stopped, as
 failed. A copy that is skipped, fails or is cut off leaves it pending, for the paper job's next
@@ -240,6 +241,7 @@ def _pass[R](
     """Run one pass under the lock, record its outcome, then finalize, whatever the outcome."""
     root = store.root
     with paper_lock(root):
+        _check(store, log)
         record = {**record, "start": _now(), "end": None, "outcome": "running"}
         _write(root, replace(read_status(root), last_pass=record))
 
@@ -256,6 +258,18 @@ def _pass[R](
         _write(root, succeeded(replace(read_status(root), last_pass=outcome("success")), report))
         _finalize(store, log)
     return report
+
+
+def _check(store: PaperStore, log: _Log) -> None:
+    """Refuse a pass on a work disk not in step with GCS, marking the copy pending."""
+    dest = destination(store)
+    try:
+        checked = not dest or copy_mod.check(store, dest)
+    except PaperCopyError:
+        _write(store.root, replace(read_status(store.root), copy_pending=True, finalized=False))
+        raise
+    if not checked:
+        log("rclone's Google login has expired, so the work disk was not checked against GCS")
 
 
 def _finalize(store: PaperStore, log: _Log) -> CopyResult | None:

@@ -299,8 +299,9 @@ def papers_copy(
     """Send the paper store's changes since the last successful copy to a bucket with rclone.
 
     Lists neither the paper folders nor the bucket. With no copy record, on the disk or in the
-    bucket, it does nothing and asks for --full. It refuses, exiting 1, when the
-    files table is missing or empty, or when it would delete more than a small share of the
+    bucket, it does nothing and asks for --full. It refuses, exiting 1, when the work disk's
+    copy record is not the one in GCS (run `labdata papers restore`), when the files table is
+    missing or empty, or when it would delete more than a small share of the
     copied files and more than --accept-deletes; with --full, when the disk lacks more than
     that share of the files the bucket's copy record lists.
     Sends paper-status.json last, marked finalized; leaves out hidden files. When rclone's
@@ -623,8 +624,9 @@ def store_copy(
 
     It sends the current build and the raw files and snapshots it read, and deletes in the
     bucket, by name, the files the last copy sent that the current build no longer reads. It
-    refuses, exiting 1, unless the current build is complete, or when it would delete more
-    than a small share of the copied raw files and more than --accept-deletes. With no copy
+    refuses, exiting 1, unless the current build is complete, when the work disk's copy record
+    is not the one in GCS (run `labdata store restore`), or when it would delete more than a
+    small share of the copied raw files and more than --accept-deletes. With no copy
     record, on the disk or in the bucket, it seeds one from the build the bucket's marker
     names when the status record shows the bucket holds that build; otherwise, or when
     rclone's Google login has expired, it skips with a message and exits 1. The status record
@@ -775,7 +777,13 @@ def store_run(
     from labdata.store import pipeline
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
-    code = pipeline.run(open_store(root).root, fraction=_fraction(fraction), cores=cores, ncbi=ncbi)
+    try:
+        code = pipeline.run(
+            open_store(root).root, fraction=_fraction(fraction), cores=cores, ncbi=ncbi
+        )
+    except LabdataError as err:
+        typer.echo(str(err), err=True)
+        raise typer.Exit(1) from err
     if code:
         typer.echo(f"The run stopped with steps unfinished (snakemake exit {code}).", err=True)
         raise typer.Exit(code)

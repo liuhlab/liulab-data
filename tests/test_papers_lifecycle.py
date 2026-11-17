@@ -183,3 +183,35 @@ def test_a_copy_after_a_killed_pass_sends_that_pass_as_failed_never_running(
         True,
         False,
     )
+
+
+def test_a_pass_on_a_disk_behind_gcs_refuses_at_its_start_unless_the_login_has_expired(
+    tmp_path: Path, gcs: FakeGcs, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = copied_store(tmp_path, [paper("41000001")])
+    before = read_status(root)
+    # Another disk copied since this one did.
+    gcs.write(".copied-files.parquet", b"another disk's record")
+    gcs.forget()
+    web = FakeWeb(articles={"41000001": Article("41000001", "A paper", 2020)}, works=[work("W1")])
+    limiter = RateLimiter(1000.0, 8)
+    client = EntrezClient(NcbiCredentials("t@t.org", "abc"), transport=web, limiter=limiter)
+    monkeypatch.setattr("labdata.cli._store_client", lambda: client)
+    monkeypatch.setattr("labdata.cli._openalex_client", lambda: OpenAlex(transport=web))
+    monkeypatch.setattr("labdata.cli._paper_transport", lambda: web)
+    run = ["papers", "daily", "--root", str(root), "--today", TODAY.isoformat()]
+
+    refused = CliRunner().invoke(app, run)
+
+    assert refused.exit_code == 1
+    assert "labdata papers restore" in refused.output
+    status = read_status(root)
+    assert status.last_pass == before.last_pass
+    assert (status.finalized, status.copy_pending) == (False, True)
+    assert gcs.log == []
+
+    gcs.expired = True
+    warned = CliRunner().invoke(app, run)
+
+    assert "not checked against GCS" in warned.output
+    assert read_status(root).last_pass["outcome"] == "success"
