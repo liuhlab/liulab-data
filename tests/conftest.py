@@ -72,7 +72,7 @@ def pytest_configure(config: pytest.Config) -> None:
     """In a pytest-xdist worker, build the slices in the folder the run shares."""
     folder = getattr(config, "workerinput", {}).get(_SLICES_FOLDER)
     if folder:
-        _slices.share(Path(folder))
+        _slices.use_folder(Path(folder))
 
 
 def pytest_collection_finish(session: pytest.Session) -> None:

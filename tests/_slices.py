@@ -177,7 +177,7 @@ def _build_all(folder: str) -> None:
 
 
 def shared_folder() -> Path:
-    """Return the folder to build in, made by this process, which removes it at the end."""
+    """Return the folder to build in; with none set, make one, which this process removes."""
     global _folder, _owned
     if _folder is None:
         _folder = Path(tempfile.mkdtemp(prefix="labdata-slices-"))
@@ -185,7 +185,7 @@ def shared_folder() -> Path:
     return _folder
 
 
-def share(folder: Path) -> None:
+def use_folder(folder: Path) -> None:
     """Build in ``folder``, which another process made and removes: a pytest-xdist worker's."""
     global _folder
     _folder = folder

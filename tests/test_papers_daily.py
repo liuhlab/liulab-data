@@ -124,7 +124,8 @@ def _isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
 @pytest.fixture
 def quota(monkeypatch: pytest.MonkeyPatch) -> int:
-    """A daily quota of 10 downloads a key: the quota's rules on a tenth of the files."""
+    """Pin the real quota of 100 a key, then set 10: the quota's rules on a tenth of the files."""
+    assert daily_mod.QUOTA == 100
     monkeypatch.setattr(daily_mod, "QUOTA", 10)
     return 10
 
