@@ -13,9 +13,10 @@ Follow "Refresh the store" in `docs/how-to/store-run.md`.
 
 1. **Refresh.** Submit `scripts/store/refresh.sbatch` under the run plan. Probe it in its first
    minutes.
-2. **Status record.** `refresh-status.json` in the store root: `outcome` is `succeeded` and
-   `last_success` is today. Record the new build ID from the store marker. If `copy_pending` is
-   `true`, get the login (SKILL.md, preflight), run `labdata store copy`, and read it again.
+2. **Status record.** `refresh-status.json` in the store root: `outcome` is `finalized` and
+   `last_success` is today. Record the new build ID from the store marker. If `outcome` is
+   `succeeded` and `copy_pending` is `true`, get the login (SKILL.md, preflight), run
+   `labdata store copy`, and read it again.
 3. **Coverage.** `labdata store coverage` ends with `Coverage passes.`
 4. **Thin-slice checks.** `pixi run python scripts/store/check_stage1.py` on the held node:
    the thin-slice checks pass with the network blocked. Its `--every-record` flag belongs to the

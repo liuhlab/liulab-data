@@ -145,6 +145,7 @@ def test_prune_never_deletes_the_current_build(root: Path) -> None:
 # ---------------------------------------------------------------- copy
 
 _TOP = ["README.md", "labdata-store.toml"]
+_STATUS = "refresh-status.json"
 
 
 @pytest.fixture
@@ -189,7 +190,7 @@ def _current(root: Path) -> list[str]:
 
 def _holds_its_record(gcs: FakeGcs, root: Path) -> None:
     """Assert GCS holds exactly what its copy record names, as the work disk holds it."""
-    assert gcs.files() == sorted([*_record(gcs), COPIED])
+    assert set(gcs.files()) - {_STATUS} == {*_record(gcs), COPIED}
     for path in _record(gcs):
         assert gcs.md5[path] == hashlib.md5((root / path).read_bytes()).hexdigest(), path
 
@@ -203,9 +204,9 @@ def test_full_uploads_the_current_state_then_the_marker_then_the_record_and_dele
 
     _full(root)
 
-    assert gcs.phases(COPIED) == ["files", "top", "record"]
-    assert gcs.sent()[-3:] == [*_TOP, COPIED]
-    assert gcs.files() == sorted([*_current(root), COPIED])
+    assert gcs.phases(COPIED, _STATUS) == ["files", "top", "record", "status"]
+    assert gcs.sent()[-4:] == [*_TOP, COPIED, _STATUS]
+    assert gcs.files() == sorted([*_current(root), COPIED, _STATUS])
     # Every file of the current state lists both sides.
     assert gcs.walks == 1
     assert (root / COPIED).read_bytes() == gcs.read(COPIED)
@@ -254,8 +255,9 @@ def test_a_routine_copy_sends_the_new_build_then_deletes_the_old_one_by_name(
     ]
     old = [*_files(root, "builds/b1"), "snapshots/bioproject/2026-10-14/bioproject.xml"]
     # The raw files are unchanged, so none goes up; the old build is still on the disk.
-    assert gcs.phases(COPIED) == ["files", "top", "delete", "record"]
-    assert sorted(gcs.sent()) == sorted([*_files(root, "builds/b2"), *every_time, *_TOP, COPIED])
+    assert gcs.phases(COPIED, _STATUS) == ["files", "top", "delete", "record", "status"]
+    sent = [*_files(root, "builds/b2"), *every_time, *_TOP, COPIED, _STATUS]
+    assert sorted(gcs.sent()) == sorted(sent)
     assert sorted(gcs.deleted()) == old
     assert gcs.walks == 0
     raw = [p for p in _files(root, "raw") if p.endswith(".parquet")]
@@ -264,7 +266,7 @@ def test_a_routine_copy_sends_the_new_build_then_deletes_the_old_one_by_name(
     gcs.forget()
     assert _copy(root).exit_code == 0
     small = ["builds/b2/README.md", "builds/b2/manifest.json"]
-    assert sorted(gcs.sent()) == sorted([*small, *every_time, *_TOP, COPIED])
+    assert sorted(gcs.sent()) == sorted([*small, *every_time, *_TOP, COPIED, _STATUS])
 
 
 def test_a_side_file_leaves_gcs_only_with_its_build_raw_source_or_snapshot(
@@ -337,6 +339,62 @@ def test_a_copy_cut_off_before_its_copy_record_ends_the_same_when_run_again(
     _holds_its_record(gcs, root)
     assert (root / COPIED).read_bytes() == gcs.read(COPIED)
     assert refresh.read_status(root)["copy_pending"] is False
+
+
+def test_a_copy_sends_the_status_record_last_marked_finalized_and_again_if_cut_off(
+    root: Path, gcs: FakeGcs
+) -> None:
+    _copy_to(root)
+    # The full run writes no status record: the first copy writes a finalized one.
+    _full(root)
+    assert gcs.sent()[-2:] == [COPIED, _STATUS]
+    assert _finalized(gcs, root)["outcome"] == "finalized"
+    before = gcs.read(_STATUS)
+    build(root, "b2")
+    # A refresh past its switch, copying as its last step.
+    switched = {"last_success": "2026-11-01", "copy_pending_at_switch": False, "ended": None}
+    _status(root, **switched, outcome="running", copy_pending=True)
+    gcs.kill = _STATUS
+
+    assert isinstance(_copy(root).exception, KilledError)
+    # GCS holds b2 and its copy record, and the status record of the copy before.
+    assert "builds/b2/manifest.json" in _record(gcs)
+    assert gcs.read(_STATUS) == before
+
+    gcs.kill = ""
+    gcs.forget()
+    assert _copy(root).exit_code == 0
+    assert gcs.sent()[-2:] == [COPIED, _STATUS]
+    status = _finalized(gcs, root)
+    assert status["last_success"] == "2026-11-01"
+    assert status["ended"]
+
+
+@pytest.mark.parametrize("outcome", ["running", "failed"])
+def test_a_copy_leaves_the_status_record_of_a_refresh_that_has_not_switched(
+    root: Path, gcs: FakeGcs, outcome: str
+) -> None:
+    _copy_to(root)
+    _full(root)
+    before = gcs.read(_STATUS)
+    _status(root, outcome=outcome, folder="work/refresh/20261101T000000Z", copy_pending=True)
+    gcs.forget()
+
+    assert _copy(root).exit_code == 0
+
+    assert _STATUS not in gcs.sent()
+    assert gcs.read(_STATUS) == before
+    # A rerun of the refresh resumes it.
+    status = refresh.read_status(root)
+    assert (status["outcome"], status["copy_pending"]) == (outcome, False)
+
+
+def _finalized(gcs: FakeGcs, root: Path) -> dict[str, object]:
+    """Assert GCS and the work disk hold the same status record, finalized; return it."""
+    assert gcs.read(_STATUS) == (root / _STATUS).read_bytes()
+    status = json.loads(gcs.read(_STATUS))
+    assert (status["outcome"], status["copy_pending"]) == ("finalized", False)
+    return status
 
 
 def _drop_bucket(root: Path, *names: str) -> list[str]:
@@ -435,7 +493,7 @@ def test_with_no_record_a_copy_seeds_one_from_the_build_the_gcs_marker_names(
     assert _copy(root).exit_code == 0
 
     # The seeded record goes up first, then only the small files: nothing is deleted.
-    assert gcs.phases(COPIED) == ["get", "record", "files", "top", "record"]
+    assert gcs.phases(COPIED, _STATUS) == ["get", "record", "files", "top", "record", "status"]
     assert all(not p.endswith(".parquet") for p in gcs.sent())
     assert _record(gcs) == _current(root)
     _holds_its_record(gcs, root)
@@ -452,7 +510,8 @@ def test_with_no_record_after_a_switch_a_copy_sends_the_new_build_and_deletes_th
 
     assert _copy(root).exit_code == 0
 
-    assert gcs.phases(COPIED) == ["get", "record", "files", "top", "delete", "record"]
+    steps = ["get", "record", "files", "top", "delete", "record", "status"]
+    assert gcs.phases(COPIED, _STATUS) == steps
     assert set(_files(root, "builds/b2")) <= set(gcs.sent())
     assert sorted(gcs.deleted()) == _files(root, "builds/b1")
     _holds_its_record(gcs, root)

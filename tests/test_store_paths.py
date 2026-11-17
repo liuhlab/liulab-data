@@ -30,8 +30,8 @@ def test_the_copy_sends_the_state_files_and_the_readme_frees_the_scratch_ones_no
 
     gcs.copy(root, "gcs:bucket/store", full=True)
 
-    # GCS holds the state files, and the copy record names each.
-    assert set(fake.files()) == state | {paths.COPY_RECORD.rel}
+    # GCS holds the state files, and the copy record names each but the two records.
+    assert set(fake.files()) == state | {paths.COPY_RECORD.rel, paths.STATUS.rel}
     assert set(json.loads(paths.COPY_RECORD.at(root).read_text(encoding="utf-8"))) == state
     readme = paths.README.at(root).read_text(encoding="utf-8")
     cleanup = readme.split("\n## Clean up\n", 1)[1].split("\n## ", 1)[0]

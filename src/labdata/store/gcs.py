@@ -3,8 +3,9 @@
 This is the GEO/SRA store's adapter of :mod:`labdata._gcs`. The held set is the current state:
 the current build and the raw files and snapshot folders it read, as its manifest names them,
 with the README and manifest beside each, the marker and the root ``README.md``. ``work/``,
-``support/``, the status record and older builds stay behind. The copy record, :data:`COPIED`,
-is JSON: each file with its sha256, or null for a file sent every time.
+``support/`` and older builds stay behind. The copy record, :data:`COPIED`, is JSON: each file
+with its sha256, or null for a file sent every time. The status record goes up last, marked
+finalized, as :func:`labdata.store.refresh.finalized` gives it.
 
 A routine copy with no copy record on the work disk or in GCS seeds one from the build the
 marker in GCS names, when GCS is known to hold exactly that build; otherwise it is skipped and
@@ -133,6 +134,7 @@ def copy(
 
 class _Adapter(_gcs.Adapter):
     record = COPIED
+    status = paths.STATUS.rel
     what = "store"
     command = "labdata store copy"
     error = StoreCopyError
@@ -147,6 +149,12 @@ class _Adapter(_gcs.Adapter):
 
     def dump(self, files: _gcs.Files) -> bytes:
         return (json.dumps(files, indent=1, sort_keys=True) + "\n").encode()
+
+    def finalized(self) -> bytes | None:
+        # Imported here: the refresh imports this module.
+        from labdata.store.refresh import finalized
+
+        return finalized(self.root)
 
     def holder(self, path: str) -> str:
         """Return the build, raw source or snapshot that holds ``path``; ``""`` at the top."""

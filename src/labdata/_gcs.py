@@ -7,8 +7,9 @@ store root on the work disk and in GCS.
 
 After one listing call checks rclone's login, :func:`copy` sends, in order: the new and
 changed files by name; the files at the top of the root, the marker among them; the deletes,
-by name, of the recorded files that left the held set; and the copy record, to GCS first and
-then the work disk. No copy deletes by comparing GCS with the work disk.
+by name, of the recorded files that left the held set; the copy record; and last the status
+record, marked finalized. Each record goes to GCS first, then the work disk. No copy deletes
+by comparing GCS with the work disk.
 """
 
 from __future__ import annotations
@@ -36,8 +37,9 @@ _Run = Callable[[list[str]], subprocess.CompletedProcess[str]]
 class Adapter(ABC):
     """One store's side of the protocol: its root, its copy record and its rules."""
 
-    #: The copy record's file name at the store root.
+    #: The copy record's and the status record's file names at the store root.
     record: str
+    status: str
     #: The store's name and its copy command, for messages.
     what: str
     command: str
@@ -65,6 +67,10 @@ class Adapter(ABC):
     @abstractmethod
     def check_deletes(self, held: Files, copied: Files, accepted: int, *, full: bool) -> None:
         """Raise :attr:`error` when the copy would delete more than :func:`delete_limit` allows."""
+
+    @abstractmethod
+    def finalized(self) -> bytes | None:
+        """Return the status record marked finalized; None to leave it as it stands."""
 
     def holder(self, path: str) -> str:
         """Return the folder that holds ``path`` in the store."""
@@ -118,7 +124,8 @@ def copy(
     -------
     str or None
         Why the copy was skipped: rclone's login has expired, or a routine copy found no copy
-        record on the work disk or in GCS and the adapter seeded none. None when it is done.
+        record on the work disk or in GCS and the adapter seeded none. None when it is done,
+        the status record included.
 
     Raises
     ------
@@ -153,7 +160,7 @@ def copy(
                         f"{adapter.what} and deletes nothing. Later copies send changes."
                     )
                 # Up first, so a copy cut off after it never has to seed one again.
-                if not _put_record(adapter, dest, copied, run):
+                if not _put(adapter, dest, adapter.record, adapter.dump(copied), run):
                     return expired
         if copied is not None:
             adapter.check_deletes(held, copied, accept_deletes, full=full)
@@ -165,7 +172,12 @@ def copy(
     # A file missing on the work disk but not gone stays in GCS, so the record keeps it.
     left = set(gone)
     kept = {p: sig for p, sig in (copied or {}).items() if p not in held and p not in left}
-    return None if _put_record(adapter, dest, {**kept, **held}, run) else expired
+    if not _put(adapter, dest, adapter.record, adapter.dump({**kept, **held}), run):
+        return expired
+    status = adapter.finalized()
+    if status is not None and not _put(adapter, dest, adapter.status, status, run):
+        return expired
+    return None
 
 
 def _send(
@@ -218,16 +230,16 @@ def _fetch(adapter: Adapter, dest: str, names: list[str], run: _Run) -> dict[str
         shutil.rmtree(folder, ignore_errors=True)
 
 
-def _put_record(adapter: Adapter, dest: str, files: Files, run: _Run) -> bool:
-    """Save ``files`` as the copy record, in GCS first, then on the work disk.
+def _put(adapter: Adapter, dest: str, name: str, data: bytes, run: _Run) -> bool:
+    """Save ``data`` as the file ``name`` at the top of the root, in GCS first, then on the disk.
 
     Returns False when rclone's login has expired.
     """
-    path = adapter.root / adapter.record
+    path = adapter.root / name
     tmp = temp_beside(path)
     try:
-        tmp.write_bytes(adapter.dump(files))
-        to = f"{dest.rstrip('/')}/{adapter.record}"
+        tmp.write_bytes(data)
+        to = f"{dest.rstrip('/')}/{name}"
         if not _rclone.run_on_paths(
             ["copyto", str(tmp), to], [], folder=adapter.root, run=run, error=adapter.error
         ):

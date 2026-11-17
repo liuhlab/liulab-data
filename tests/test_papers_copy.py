@@ -15,10 +15,11 @@ from typer.testing import CliRunner
 from labdata.cli import app
 from labdata.papers import init_paper_store, open_paper_store, tables
 from labdata.papers.copy import COPIED, PaperCopyError, copy
-from tests._fake_gcs import FakeGcs
+from tests._fake_gcs import FakeGcs, KilledError
 from tests._paper_fakes import fixture_build
 
 DEST = "gcs:bucket/datalake/paper-store"
+STATUS = "paper-status.json"
 
 
 @pytest.fixture
@@ -84,14 +85,40 @@ def test_full_uploads_every_file_then_the_record_and_deletes_nothing(
     copy(open_paper_store(root), full=True)
 
     # The paper files first; the top level, tables and marker among it, after them.
-    assert gcs.phases(COPIED) == ["files", "top", "record"]
+    assert gcs.phases(COPIED, STATUS) == ["files", "top", "record", "status"]
     assert papers(gcs.files()) == papers(record(gcs)) == [path]
     top = sorted(p.name for p in root.iterdir() if p.is_file() and not p.name.startswith("."))
-    assert sorted(set(gcs.files()) - {path, COPIED}) == sorted(set(top) - {"paper-status.json"})
+    assert sorted(set(gcs.files()) - {path, COPIED}) == top
     # Every file lists both sides.
     assert gcs.walks == 1
     assert status(root)["copy_pending"] is False
     assert status(root)["last_copy_success"]
+
+
+def test_a_copy_sends_the_status_record_last_marked_finalized_and_again_if_cut_off(
+    root: Path, gcs: FakeGcs
+) -> None:
+    hold(root, "1", "pdf", "host")
+    full(root, gcs)
+    before = gcs.read(STATUS)
+    hold(root, "2", "pdf", "host")
+    # A file at the top that no layout declares is not the store's: it stays behind.
+    (root / "notes.txt").write_text("mine")
+    gcs.kill = STATUS
+
+    with pytest.raises(KilledError):
+        copy(open_paper_store(root))
+    assert "papers/2/2.pdf" in record(gcs)
+    assert gcs.read(STATUS) == before
+
+    gcs.kill = ""
+    gcs.forget()
+    copy(open_paper_store(root))
+
+    assert gcs.sent()[-2:] == [COPIED, STATUS]
+    assert "notes.txt" not in gcs.files()
+    assert gcs.read(STATUS) == (root / STATUS).read_bytes()
+    assert (status(root)["finalized"], status(root)["copy_pending"]) == (True, False)
 
 
 def test_after_each_copy_gcs_holds_exactly_the_files_its_copy_record_names(
@@ -101,13 +128,13 @@ def test_after_each_copy_gcs_holds_exactly_the_files_its_copy_record_names(
         hold(root, str(paper), "pdf", "host")
     pdf = hold(root, "1", "pdf", "openalex")
     copy(open_paper_store(root), full=True)
-    assert gcs.files() == sorted([*record(gcs), COPIED])
+    assert gcs.files() == sorted([*record(gcs), COPIED, STATUS])
     hold(root, "1", "xml", "pmc", b"<article/>")
     drop(root, pdf)
 
     copy(open_paper_store(root))
 
-    assert gcs.files() == sorted([*record(gcs), COPIED])
+    assert gcs.files() == sorted([*record(gcs), COPIED, STATUS])
     for path in record(gcs):
         assert gcs.md5[path] == hashlib.md5((root / path).read_bytes()).hexdigest(), path
 
@@ -143,7 +170,7 @@ def test_a_routine_copy_sends_only_the_new_rows_and_lists_no_paper_folder(
     copy(open_paper_store(root))
 
     assert papers(gcs.sent()) == [new]
-    assert gcs.phases(COPIED) == ["files", "top", "record"]
+    assert gcs.phases(COPIED, STATUS) == ["files", "top", "record", "status"]
     assert gcs.walks == 0
     assert papers(record(gcs)) == sorted([new, "papers/1/1.pdf"])
 
@@ -160,7 +187,7 @@ def test_a_pdf_pmc_replaced_is_deleted_in_gcs_by_the_next_copy(root: Path, gcs: 
     copy(open_paper_store(root))
 
     # The tables go up before the PDF they dropped is deleted, the record after it.
-    assert gcs.phases(COPIED) == ["files", "top", "delete", "record"]
+    assert gcs.phases(COPIED, STATUS) == ["files", "top", "delete", "record", "status"]
     assert papers(gcs.sent()) == [xml]
     assert gcs.deleted() == [pdf]
     assert xml in record(gcs)
@@ -299,7 +326,7 @@ def test_a_work_disk_restored_from_gcs_sends_no_paper_file_and_deletes_nothing(
 
     copy(open_paper_store(restored))
 
-    assert gcs.phases(COPIED) == ["top", "record"]
+    assert gcs.phases(COPIED, STATUS) == ["top", "record", "status"]
     assert status(restored)["copy_pending"] is False
 
 
