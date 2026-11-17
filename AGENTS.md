@@ -86,8 +86,8 @@ Test time has two limits, set in `[tool.pytest.ini_options]` and nowhere else:
 - **`suite_budget`** caps a run with no slow or network test in it, and prints its time against it.
 - **The slow lane:** a test marked `slow` is held to neither, and runs only in
   `pixi run test-slow`.
-- **Workers:** `pixi run test` runs on 4 pytest-xdist workers; the slow and live lanes run in
-  one process.
+- **Workers:** `pixi run test` runs on one pytest-xdist worker per CPU core, at most 4; the
+  slow and live lanes run in one process.
 
 ## Conventions / invariants
 

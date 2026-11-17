@@ -147,9 +147,10 @@ lint      = "ruff check ."
 fmt       = "ruff format ."
 fmt-check = "ruff format --check ."
 typecheck = "pyright"
-# The default lane runs on 4 workers that share one build of the thin slices. The slow and live
-# lanes have no time limit to meet and run in one process, so the live one keeps NCBI's pace.
-test      = "pytest -n 4"
+# The default lane runs on one worker per CPU core, at most 4, sharing one build of the thin
+# slices: more workers slow each test towards its `timeout`. The slow and live lanes have no
+# time limit to meet and run in one process, so the live one keeps NCBI's pace.
+test      = "pytest -n auto --maxprocesses 4"
 test-slow = "pytest -m slow"
 test-network = "pytest -m network"
 test-cov  = "pytest --cov=labdata --cov-report=term-missing"
