@@ -5,6 +5,8 @@ search:
 
 # GCS holds the GEO/SRA store too, and both copies share one delete bound
 
+Amended by [ADR 0013](0013-finalized-when-gcs-holds-it.md).
+
 This amends [ADR 0011](0011-gcs-holds-the-paper-store.md). As for the paper store, the bucket
 keeps the GEO/SRA store and the cluster disk is a work area. The store holds its current state
 only, so a file that leaves it leaves the bucket too, and no routine step lists every file.

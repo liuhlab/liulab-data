@@ -7,7 +7,8 @@ search:
 
 Amended by [ADR 0012](0012-gcs-holds-the-store.md): a copy may always delete one path,
 `--accept-deletes` deletes past the bound by hand, and a full copy refuses on a disk without
-the whole store.
+the whole store. Amended by [ADR 0013](0013-finalized-when-gcs-holds-it.md): every copy first
+checks its copy record against the one in GCS, and the status record goes to GCS too.
 
 This amends [ADR 0010](0010-paper-copy-sends-changes.md). GCS keeps the paper store for good.
 The cluster disk is a work area that will not be kept. So the bucket is the source of truth: a
