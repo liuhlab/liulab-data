@@ -112,6 +112,7 @@ labdata store verify --root <store>
   | `geo-gaps` | target Series whose SOFT could not be saved, with the reason | the GEO fetch |
   | `entrez-links` | GEO Series: its Entrez links to SRA and BioProject, one per line | E-utilities `elink` and `esummary` |
   | `sra-xml` | SRA experiment: its `EXPERIMENT_PACKAGE` XML | E-utilities `efetch`, `db=sra` |
+  | `sra-fetch-failed` | SRA experiment whose package could not be fetched, with the last error | the E-utilities fetch |
   | `pubmed-si` | accession searched: the PubMed IDs that list it | E-utilities `esearch`, the `[si]` field |
 
   A `geo-soft` row with data tables cut out starts with two lines that give the size and

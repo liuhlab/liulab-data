@@ -13,7 +13,7 @@ from typer.testing import CliRunner
 
 import labdata.ncbi.entrez as entrez_mod
 from labdata.cli import app
-from labdata.store import eutils, extract, open_store, pack, raw
+from labdata.store import eutils, extract, open_store, pack, paths, raw
 from labdata.store.build import build
 from labdata.store.gaps import FETCH_FAILED, SOFT_MISSING, gap_row
 from labdata.store.model import Link
@@ -145,19 +145,62 @@ def test_a_rounds_build_and_coverage_cover_only_its_sample(root: Path) -> None:
     assert "soft-missing: 0" in output
 
 
-def test_experiments_whose_package_fetch_failed_are_noted_and_counted(
-    root: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def _fail_all(root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run the E-utilities lane with every call failing, then pack."""
     monkeypatch.setattr(entrez_mod.time, "sleep", lambda _s: None)
-    pack.write_rows(root, raw.GEO_GAPS, [gap_row("GSE28772", FETCH_FAILED, _DATE)])
     listed = eutils.experiment_list(root)
     down = _Ncbi(known=set(), broken_calls=1 << 30)
     assert eutils.fetch_packages(root, listed, client=_client(down), date=_DATE).failed == 9
+    pack.pack(root)
+
+
+def _failed(build_dir: Path) -> list[str]:
+    notes = _rows(build_dir / "notes.parquet")
+    return sorted(str(n["accession"]) for n in notes if n["kind"] == FETCH_FAILED)
+
+
+def _state_copy(root: Path, to: Path) -> Path:
+    """Copy only the store's state files, then remake its extracts, as a restore would."""
+    for rel in paths.declared(paths.STATE):
+        src = root / rel
+        if src.is_dir():
+            shutil.copytree(src, to / rel)
+        elif src.is_file():
+            to.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, to / rel)
+    for source in extract.SOURCES:
+        extract.extract(to, source, workers=1)
+    return to
+
+
+def test_failed_package_fetches_are_noted_from_state_alone(
+    root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pack.write_rows(root, raw.GEO_GAPS, [gap_row("GSE28772", FETCH_FAILED, _DATE)])
+    _fail_all(root, monkeypatch)
+    restored = _state_copy(root, tmp_path / "restored")
     out = build(root, "b1")
-    failed = [n["accession"] for n in _rows(out / "notes.parquet") if n["kind"] == FETCH_FAILED]
+    failed = _failed(out)
     assert len(failed) == 9
     assert "SRX8670456" in failed
     code, output = _coverage(root)
     assert code == 0, output
     assert "fetch-failed: 1\n" in output  # the Series gap only
     assert "SRA experiments fetch-failed: 9" in output
+    again = build(restored, "b1")
+    assert _rows(again / "notes.parquet") == _rows(out / "notes.parquet")
+    assert _coverage(restored) == (code, output.replace(str(root), str(restored)))
+
+
+def test_a_partial_refetch_keeps_earlier_failed_fetches_noted(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _fail_all(root, monkeypatch)
+    # A refresh lists only its re-fetch Series' experiments; this one is served now.
+    listed = eutils.experiment_list(root, series=["GSE153830"], from_tab=False)
+    up = _Ncbi(known={"SRX8670456"})
+    assert eutils.fetch_packages(root, listed, client=_client(up), date=_DATE).fetched == 1
+    pack.pack(root)
+    failed = _failed(build(root, "b1"))
+    assert len(failed) == 8
+    assert "SRX8670456" not in failed
