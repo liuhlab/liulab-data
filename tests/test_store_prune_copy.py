@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
 import os
 import shutil
-import subprocess
 import tomllib
 from pathlib import Path
 
@@ -20,17 +20,12 @@ from labdata.store.build import build
 from labdata.store.gcs import COPIED
 from labdata.store.pack import pack
 from labdata.store.prune import GRACE, prune
+from tests._fake_gcs import FakeGcs, KilledError
 from tests._slices import BuiltStore
 
 _HOUR = dt.timedelta(hours=1)
 _DEST = "gcs:lab-bucket/geo-sra-store"
 _SOURCES = ("bioproject", "biosample", "geo-series", "sra-accessions")
-_EXPIRED = (
-    "ERROR : Attempt 1/3 failed with 1 errors and: couldn't fetch token - maybe it has "
-    'expired? - refresh with "rclone config reconnect gcs:": oauth2: cannot fetch token: '
-    '400 Bad Request\nResponse: {"error": "invalid_grant", '
-    '"error_description": "Token has been expired or revoked."}\n'
-)
 
 
 @pytest.fixture(autouse=True)
@@ -149,54 +144,12 @@ def test_prune_never_deletes_the_current_build(root: Path) -> None:
 
 # ---------------------------------------------------------------- copy
 
-_PROGRESS = ["--stats=1m", "--stats-one-line", "--stats-log-level=NOTICE"]
 _TOP = ["README.md", "labdata-store.toml"]
 
 
-class _Rclone:
-    """Stand-in for the rclone seam: records each command and the file list it reads.
-
-    It keeps what a ``copyto`` sends to the bucket, and a ``copy`` from the bucket fetches it.
-    Every command answers with ``returncode`` and ``stderr``, and the one named ``expiring``
-    meets an expired login.
-    """
-
-    def __init__(self) -> None:
-        self.calls: list[list[str]] = []
-        self.lists: list[list[str]] = []
-        self.bucket: dict[str, bytes] = {}
-        self.returncode, self.stderr = 0, ""
-        self.expiring = ""
-
-    def __call__(self, args: list[str]) -> subprocess.CompletedProcess[str]:
-        self.calls.append(args)
-        listed: list[str] = []
-        for arg in args:
-            if arg.startswith("--files-from-raw="):
-                listed = Path(arg.split("=", 1)[1]).read_text(encoding="utf-8").splitlines()
-                self.lists.append(listed)
-        if args[1] == self.expiring:
-            return subprocess.CompletedProcess(args, 1, "", _EXPIRED)
-        if self.returncode == 0 and args[1] == "copyto" and args[3].startswith(f"{_DEST}/"):
-            self.bucket[args[3].removeprefix(f"{_DEST}/")] = Path(args[2]).read_bytes()
-        if self.returncode == 0 and args[1] == "copy" and args[2] == _DEST:
-            for name in (n for n in listed if n in self.bucket):
-                (Path(args[3]) / name).write_bytes(self.bucket[name])
-        return subprocess.CompletedProcess(args, self.returncode, "", self.stderr)
-
-    def commands(self) -> list[str]:
-        return [args[1] for args in self.calls]
-
-    def record(self) -> list[str]:
-        """The paths the copy record in the bucket names."""
-        return sorted(json.loads(self.bucket[COPIED]))
-
-
 @pytest.fixture
-def rclone(monkeypatch: pytest.MonkeyPatch) -> _Rclone:
-    fake = _Rclone()
-    monkeypatch.setattr("labdata.store.gcs._run_rclone", fake)
-    return fake
+def gcs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> FakeGcs:
+    return FakeGcs.install(monkeypatch, tmp_path / "gcs", _DEST)
 
 
 def _copy(root: Path, *extra: str) -> Result:
@@ -223,8 +176,26 @@ def _full(root: Path) -> None:
     assert result.exit_code == 0, result.output
 
 
+def _record(gcs: FakeGcs) -> list[str]:
+    """The paths the copy record in GCS names."""
+    return sorted(json.loads(gcs.read(COPIED)))
+
+
+def _current(root: Path) -> list[str]:
+    """The current state of a store built once as ``b1``: what its copy sends."""
+    snapshots = [f"snapshots/{s}/2026-10-14" for s in _SOURCES]
+    return sorted([*_files(root, "builds/b1", "raw", *snapshots), *_TOP])
+
+
+def _holds_its_record(gcs: FakeGcs, root: Path) -> None:
+    """Assert GCS holds exactly what its copy record names, as the work disk holds it."""
+    assert gcs.files() == sorted([*_record(gcs), COPIED])
+    for path in _record(gcs):
+        assert gcs.md5[path] == hashlib.md5((root / path).read_bytes()).hexdigest(), path
+
+
 def test_full_uploads_the_current_state_then_the_marker_then_the_record_and_deletes_nothing(
-    root: Path, rclone: _Rclone
+    root: Path, gcs: FakeGcs
 ) -> None:
     _copy_to(root)
     (root / "snapshots" / "bioproject" / "2026-10-14" / "bioproject.xml.sha256").write_text("x")
@@ -232,28 +203,37 @@ def test_full_uploads_the_current_state_then_the_marker_then_the_record_and_dele
 
     _full(root)
 
-    sent = _files(root, "builds/b1", "raw", *(f"snapshots/{s}/2026-10-14" for s in _SOURCES))
-    assert rclone.commands() == ["lsjson", "copy", "copy", "copyto"]
-    probe, files, top, record = rclone.calls
-    assert probe == ["rclone", "lsjson", _DEST, "--max-depth", "1"]
-    # Every file of the current state lists both sides; the marker goes after the build.
-    assert files[:4] == ["rclone", "copy", str(root), _DEST]
-    assert "--no-traverse" not in files
-    assert rclone.lists[:2] == [sent, _TOP]
-    assert top[:4] == ["rclone", "copy", str(root), _DEST]
-    assert record[1:] == ["copyto", record[2], f"{_DEST}/{COPIED}"]
-    assert rclone.record() == sorted([*sent, *_TOP])
-    assert (root / COPIED).read_bytes() == rclone.bucket[COPIED]
-    assert not any(str(unread.relative_to(root)) in p for p in rclone.record())
+    assert gcs.phases(COPIED) == ["files", "top", "record"]
+    assert gcs.sent()[-3:] == [*_TOP, COPIED]
+    assert gcs.files() == sorted([*_current(root), COPIED])
+    # Every file of the current state lists both sides.
+    assert gcs.walks == 1
+    assert (root / COPIED).read_bytes() == gcs.read(COPIED)
+    assert not any(str(unread.relative_to(root)) in p for p in gcs.files())
 
 
-def test_a_routine_copy_sends_the_new_build_then_deletes_the_old_one_by_name(
-    root: Path, rclone: _Rclone
+def test_after_each_copy_gcs_holds_exactly_the_files_its_copy_record_names(
+    root: Path, gcs: FakeGcs
 ) -> None:
     _copy_to(root)
     _full(root)
-    rclone.calls.clear()
-    rclone.lists.clear()
+    _holds_its_record(gcs, root)
+    gone = _drop_bucket(root)
+
+    assert _copy(root).exit_code == 0
+
+    _holds_its_record(gcs, root)
+    assert _record(gcs) == sorted(json.loads((root / COPIED).read_text()))
+    assert not set(gone) & set(gcs.files())
+    assert not any(p.startswith("builds/b1/") for p in gcs.files())
+
+
+def test_a_routine_copy_sends_the_new_build_then_deletes_the_old_one_by_name(
+    root: Path, gcs: FakeGcs
+) -> None:
+    _copy_to(root)
+    _full(root)
+    gcs.forget()
     _snapshot(root, "bioproject", "2026-11-01")
     extract.extract(root, "bioproject", workers=1)
     build(root, "b2")
@@ -273,22 +253,22 @@ def test_a_routine_copy_sends_the_new_build_then_deletes_the_old_one_by_name(
         "snapshots/sra-accessions/2026-10-14/SRA_Accessions.tab",
     ]
     old = [*_files(root, "builds/b1"), "snapshots/bioproject/2026-10-14/bioproject.xml"]
-    assert rclone.commands() == ["lsjson", "copy", "copy", "delete", "copyto"]
     # The raw files are unchanged, so none goes up; the old build is still on the disk.
-    assert rclone.lists == [sorted([*_files(root, "builds/b2"), *every_time]), _TOP, old]
-    assert "--no-traverse" in rclone.calls[1]
-    assert rclone.calls[3][:4] == ["rclone", "delete", _DEST, "--no-traverse"]
+    assert gcs.phases(COPIED) == ["files", "top", "delete", "record"]
+    assert sorted(gcs.sent()) == sorted([*_files(root, "builds/b2"), *every_time, *_TOP, COPIED])
+    assert sorted(gcs.deleted()) == old
+    assert gcs.walks == 0
     raw = [p for p in _files(root, "raw") if p.endswith(".parquet")]
-    assert rclone.record() == sorted([*_files(root, "builds/b2"), *every_time, *raw, *_TOP])
+    assert _record(gcs) == sorted([*_files(root, "builds/b2"), *every_time, *raw, *_TOP])
 
-    rclone.lists.clear()
+    gcs.forget()
     assert _copy(root).exit_code == 0
     small = ["builds/b2/README.md", "builds/b2/manifest.json"]
-    assert rclone.lists == [[*small, *every_time], _TOP]
+    assert sorted(gcs.sent()) == sorted([*small, *every_time, *_TOP, COPIED])
 
 
-def test_a_side_file_leaves_the_bucket_only_with_its_build_raw_source_or_snapshot(
-    root: Path, rclone: _Rclone
+def test_a_side_file_leaves_gcs_only_with_its_build_raw_source_or_snapshot(
+    root: Path, gcs: FakeGcs
 ) -> None:
     _copy_to(root)
     extra = "snapshots/bioproject/2026-10-14/bioproject.xml.sha256"
@@ -298,41 +278,65 @@ def test_a_side_file_leaves_the_bucket_only_with_its_build_raw_source_or_snapsho
     missing = ["raw/pubmed-si/README.md", "builds/b1/README.md", extra]
     for path in missing:
         (root / path).unlink()
-    rclone.calls.clear()
+    gcs.forget()
 
     assert _copy(root).exit_code == 0
-    assert "delete" not in rclone.commands()
-    assert set(missing) <= set(rclone.record())
+    assert gcs.deleted() == []
+    assert set(missing) <= set(_record(gcs)) & set(gcs.files())
 
-    # The build and the snapshot leave the current state, and their side files the bucket.
+    # The build and the snapshot leave the current state, and their side files GCS.
     _snapshot(root, "bioproject", "2026-11-01")
     extract.extract(root, "bioproject", workers=1)
     build(root, "b2")
-    rclone.lists.clear()
+    gcs.forget()
 
     assert _copy(root).exit_code == 0
-    deleted = rclone.lists[-1]
-    assert {"builds/b1/README.md", extra} <= set(deleted)
-    assert "raw/pubmed-si/README.md" not in deleted
-    assert "raw/pubmed-si/README.md" in rclone.record()
-    assert not {"builds/b1/README.md", extra} & set(rclone.record())
+    assert {"builds/b1/README.md", extra} <= set(gcs.deleted())
+    assert "raw/pubmed-si/README.md" not in gcs.deleted()
+    assert "raw/pubmed-si/README.md" in set(_record(gcs)) & set(gcs.files())
+    assert not {"builds/b1/README.md", extra} & set(_record(gcs))
 
 
 def test_a_copy_record_that_fails_to_go_up_leaves_the_disks_so_the_next_copy_deletes_again(
-    root: Path, rclone: _Rclone
+    root: Path, gcs: FakeGcs
 ) -> None:
     _copy_to(root)
     _full(root)
     build(root, "b2")
-    rclone.expiring = "copyto"
+    gcs.expired = "copyto"
 
-    assert "bucket is behind" in _copy(root).output
+    assert "rclone config reconnect gcs:" in _copy(root).output
     assert "builds/b1/manifest.json" in json.loads((root / COPIED).read_text())
+    assert "builds/b1/manifest.json" in _record(gcs)
 
-    rclone.expiring = ""
-    rclone.lists.clear()
+    gcs.expired = False
+    gcs.forget()
     assert _copy(root).exit_code == 0
-    assert "builds/b1/manifest.json" in rclone.lists[2]
+    assert "builds/b1/manifest.json" in gcs.deleted()
+    _holds_its_record(gcs, root)
+
+
+def test_a_copy_cut_off_before_its_copy_record_ends_the_same_when_run_again(
+    root: Path, gcs: FakeGcs
+) -> None:
+    _copy_to(root)
+    _full(root)
+    _status(root, copy_pending=False)
+    before = gcs.read(COPIED)
+    _drop_bucket(root)
+    gcs.kill = COPIED
+
+    assert isinstance(_copy(root).exception, KilledError)
+    # GCS holds the new build, but its copy record still names the old one.
+    assert gcs.read(COPIED) == before
+    assert (root / COPIED).read_bytes() == before
+    assert refresh.read_status(root)["copy_pending"] is True
+
+    gcs.kill = ""
+    assert _copy(root).exit_code == 0
+    _holds_its_record(gcs, root)
+    assert (root / COPIED).read_bytes() == gcs.read(COPIED)
+    assert refresh.read_status(root)["copy_pending"] is False
 
 
 def _drop_bucket(root: Path, *names: str) -> list[str]:
@@ -347,27 +351,25 @@ def _drop_bucket(root: Path, *names: str) -> list[str]:
     return gone
 
 
-def test_a_raw_file_pack_dropped_is_deleted_in_the_bucket_by_name(
-    root: Path, rclone: _Rclone
-) -> None:
+def test_a_raw_file_pack_dropped_is_deleted_in_gcs_by_name(root: Path, gcs: FakeGcs) -> None:
     _copy_to(root)
     _full(root)
-    rclone.lists.clear()
+    gcs.forget()
     # The fixture holds three raw files; a copy may always delete one.
     gone = _drop_bucket(root)
 
     assert _copy(root).exit_code == 0
 
-    assert rclone.lists[2] == sorted([*_files(root, "builds/b1"), *gone])
-    assert not set(gone) & set(rclone.record())
+    assert sorted(gcs.deleted()) == sorted([*_files(root, "builds/b1"), *gone])
+    assert not set(gone) & set(gcs.files())
 
 
 def test_a_copy_that_would_delete_too_many_raw_files_sends_nothing_unless_accepted(
-    root: Path, rclone: _Rclone
+    root: Path, gcs: FakeGcs
 ) -> None:
     _copy_to(root)
     _full(root)
-    rclone.calls.clear()
+    gcs.forget()
     gone = _drop_bucket(root, "SRPnnnnnn.parquet", "PRJNA1nnnnnn.parquet")
 
     refused = _copy(root)
@@ -375,82 +377,85 @@ def test_a_copy_that_would_delete_too_many_raw_files_sends_nothing_unless_accept
     assert "2 of the 3 raw files" in refused.output
     assert "labdata store copy --accept-deletes 2" in refused.output
     assert "--full" not in refused.output
-    assert rclone.commands() == ["lsjson"]
     assert _copy(root, "--accept-deletes", "1").exit_code == 1
     full = _copy(root, "--full", "--accept-deletes", "2")
     assert full.exit_code == 1
     assert "--full deletes nothing" in full.output
-    assert rclone.commands() == ["lsjson", "lsjson"]
+    assert gcs.log == []
 
-    rclone.lists.clear()
     assert _copy(root, "--accept-deletes", "2").exit_code == 0
-    assert set(gone) <= set(rclone.lists[2])
-    assert not set(gone) & set(rclone.record())
+    assert set(gone) <= set(gcs.deleted())
+    assert not set(gone) & set(gcs.files())
 
 
-def test_with_no_record_on_disk_a_copy_fetches_the_buckets_and_sends_only_changes(
-    root: Path, rclone: _Rclone
+def test_with_no_record_on_disk_a_copy_fetches_the_gcs_one_and_sends_only_changes(
+    root: Path, gcs: FakeGcs
 ) -> None:
     _copy_to(root)
     _full(root)
     (root / COPIED).unlink()
-    rclone.calls.clear()
-    rclone.lists.clear()
+    gcs.forget()
 
     assert _copy(root).exit_code == 0
 
-    assert rclone.commands() == ["lsjson", "copy", "copy", "copy", "copyto"]
-    assert rclone.calls[1][:3] == ["rclone", "copy", _DEST]
-    assert "--no-traverse" in rclone.calls[1]
-    assert rclone.lists[0] == [COPIED, "labdata-store.toml"]
-    assert not any(p.endswith(".parquet") for p in rclone.lists[1])
-    # The local marker is never overwritten by the bucket's.
+    assert gcs.log[0] == ("get", COPIED)
+    assert gcs.walks == 0
+    assert gcs.deleted() == []
+    assert not any(p.endswith(".parquet") for p in gcs.sent())
+    # The local marker is never overwritten by the one in GCS.
     assert "copy_to" in (root / "labdata-store.toml").read_text()
 
 
-def _bucket_marker(rclone: _Rclone, root: Path, build_id: str) -> None:
-    """Put in the bucket a marker naming ``build_id``, as the last mirror left it."""
+def _gcs_marker(gcs: FakeGcs, root: Path, build_id: str) -> None:
+    """Put in GCS a marker naming ``build_id``, as the last mirror left it."""
     text = (root / "labdata-store.toml").read_text(encoding="utf-8")
     current = tomllib.loads(text)["build"]
-    rclone.bucket["labdata-store.toml"] = text.replace(f'"{current}"', f'"{build_id}"').encode()
+    gcs.write("labdata-store.toml", text.replace(f'"{current}"', f'"{build_id}"').encode())
 
 
 def _status(root: Path, **status: object) -> None:
     refresh.write_status(root, {"outcome": "succeeded", **status})
 
 
-def test_with_no_record_a_copy_seeds_one_from_the_build_the_buckets_marker_names(
-    root: Path, rclone: _Rclone
+def _lose_record(root: Path, gcs: FakeGcs) -> None:
+    """Make GCS a mirror of the current build with no copy record, as before copy records."""
+    _full(root)
+    gcs.remove(COPIED)
+    (root / COPIED).unlink()
+    gcs.forget()
+
+
+def test_with_no_record_a_copy_seeds_one_from_the_build_the_gcs_marker_names(
+    root: Path, gcs: FakeGcs
 ) -> None:
     _copy_to(root)
+    _lose_record(root, gcs)
     _status(root, copy_pending=False)
-    _bucket_marker(rclone, root, "b1")
 
     assert _copy(root).exit_code == 0
 
     # The seeded record goes up first, then only the small files: nothing is deleted.
-    assert rclone.commands() == ["lsjson", "copy", "copyto", "copy", "copy", "copyto"]
-    assert all(not p.endswith(".parquet") for p in rclone.lists[1])
-    assert rclone.lists[2] == _TOP
-    sent = _files(root, "builds/b1", "raw", *(f"snapshots/{s}/2026-10-14" for s in _SOURCES))
-    assert rclone.record() == sorted([*sent, *_TOP])
+    assert gcs.phases(COPIED) == ["get", "record", "files", "top", "record"]
+    assert all(not p.endswith(".parquet") for p in gcs.sent())
+    assert _record(gcs) == _current(root)
+    _holds_its_record(gcs, root)
 
 
 def test_with_no_record_after_a_switch_a_copy_sends_the_new_build_and_deletes_the_old(
-    root: Path, rclone: _Rclone
+    root: Path, gcs: FakeGcs
 ) -> None:
     _copy_to(root)
-    _bucket_marker(rclone, root, "b1")
+    _lose_record(root, gcs)
     build(root, "b2")
     # The switch raised copy_pending; the copy before it had worked.
     _status(root, copy_pending=True, copy_pending_at_switch=False)
 
     assert _copy(root).exit_code == 0
 
-    assert rclone.commands() == ["lsjson", "copy", "copyto", "copy", "copy", "delete", "copyto"]
-    assert set(_files(root, "builds/b2")) <= set(rclone.lists[1])
-    assert rclone.lists[3] == _files(root, "builds/b1")
-    assert not any(p.startswith("builds/b1/") for p in rclone.record())
+    assert gcs.phases(COPIED) == ["get", "record", "files", "top", "delete", "record"]
+    assert set(_files(root, "builds/b2")) <= set(gcs.sent())
+    assert sorted(gcs.deleted()) == _files(root, "builds/b1")
+    _holds_its_record(gcs, root)
 
 
 @pytest.mark.parametrize(
@@ -462,24 +467,24 @@ def test_with_no_record_after_a_switch_a_copy_sends_the_new_build_and_deletes_th
     ],
     ids=["build-gone", "copy-was-pending", "no-status-record"],
 )
-def test_with_no_record_a_copy_that_cannot_trust_the_bucket_skips_and_asks_for_full(
-    root: Path, rclone: _Rclone, marker_build: str, status: dict[str, object]
+def test_with_no_record_a_copy_that_cannot_trust_gcs_skips_and_asks_for_full(
+    root: Path, gcs: FakeGcs, marker_build: str, status: dict[str, object]
 ) -> None:
     _copy_to(root)
     if status:
         _status(root, **status)
-    _bucket_marker(rclone, root, marker_build)
+    _gcs_marker(gcs, root, marker_build)
 
     result = _copy(root)
 
     assert result.exit_code == 0, result.output
     assert "labdata store copy --full" in result.output
-    assert rclone.commands() == ["lsjson", "copy"]
-    assert COPIED not in rclone.bucket
+    assert gcs.sent() == []
+    assert gcs.files() == ["labdata-store.toml"]
 
 
-def test_with_no_record_on_disk_or_in_the_bucket_a_copy_sends_nothing_and_asks_for_full(
-    root: Path, rclone: _Rclone
+def test_with_no_record_on_disk_or_in_gcs_a_copy_sends_nothing_and_asks_for_full(
+    root: Path, gcs: FakeGcs
 ) -> None:
     _copy_to(root)
     _status(root, copy_pending=False)
@@ -488,16 +493,15 @@ def test_with_no_record_on_disk_or_in_the_bucket_a_copy_sends_nothing_and_asks_f
 
     assert result.exit_code == 0, result.output
     assert "labdata store copy --full" in result.output
-    # It only checked the login and looked for the bucket's record and marker.
-    assert rclone.commands() == ["lsjson", "copy"]
-    assert rclone.lists == [[COPIED, "labdata-store.toml"]]
+    assert gcs.log == []
+    assert gcs.files() == []
 
 
-def test_copy_is_refused_on_a_folder_with_no_marker(tmp_path: Path, rclone: _Rclone) -> None:
+def test_copy_is_refused_on_a_folder_with_no_marker(tmp_path: Path, gcs: FakeGcs) -> None:
     result = _copy(tmp_path, "--to", _DEST)
     assert result.exit_code != 0
     assert "no labdata-store.toml" in result.output
-    assert rclone.calls == []
+    assert gcs.calls == []
 
 
 @pytest.mark.parametrize(
@@ -510,7 +514,7 @@ def test_copy_is_refused_on_a_folder_with_no_marker(tmp_path: Path, rclone: _Rcl
     ],
 )
 def test_copy_is_refused_when_the_current_build_is_incomplete(
-    root: Path, rclone: _Rclone, gone: str, message: str
+    root: Path, gcs: FakeGcs, gone: str, message: str
 ) -> None:
     path = root / gone
     shutil.rmtree(path) if path.is_dir() else path.unlink()
@@ -518,29 +522,27 @@ def test_copy_is_refused_when_the_current_build_is_incomplete(
     assert result.exit_code != 0
     assert "refused" in result.output
     assert message in result.output
-    assert rclone.calls == []
+    assert gcs.calls == []
 
 
-def test_copy_needs_a_destination(root: Path, rclone: _Rclone) -> None:
+def test_copy_needs_a_destination(root: Path, gcs: FakeGcs) -> None:
     result = _copy(root)
     assert result.exit_code != 0
     assert "copy_to" in result.output
-    assert rclone.calls == []
+    assert gcs.calls == []
 
 
-def test_an_expired_login_skips_the_copy_with_the_bucket_behind_message(
-    root: Path, rclone: _Rclone
-) -> None:
-    rclone.returncode, rclone.stderr = 1, _EXPIRED
+def test_an_expired_login_skips_the_copy_and_says_how_to_log_in(root: Path, gcs: FakeGcs) -> None:
+    gcs.expired = True
     result = _copy(root, "--to", _DEST)
     assert result.exit_code == 0, result.output
-    assert "bucket is behind" in result.output
+    assert "is behind" in result.output
     assert "rclone config reconnect gcs:" in result.output
-    assert len(rclone.calls) == 1
+    assert gcs.log == []
 
 
-def test_another_rclone_failure_fails_the_copy(root: Path, rclone: _Rclone) -> None:
-    rclone.returncode, rclone.stderr = 3, "ERROR : directory not found\n"
+def test_another_rclone_failure_fails_the_copy(root: Path, gcs: FakeGcs) -> None:
+    gcs.error = "ERROR : directory not found\n"
     result = _copy(root, "--to", _DEST)
     assert result.exit_code == 1
     assert "directory not found" in result.output
@@ -548,13 +550,13 @@ def test_another_rclone_failure_fails_the_copy(root: Path, rclone: _Rclone) -> N
 
 @pytest.mark.parametrize("fault", ["rclone", "record"])
 def test_any_failure_past_the_destination_marks_the_copy_pending(
-    root: Path, rclone: _Rclone, fault: str
+    root: Path, gcs: FakeGcs, fault: str
 ) -> None:
     _copy_to(root)
     _full(root)
     _status(root, copy_pending=False)
     if fault == "rclone":
-        rclone.returncode, rclone.stderr = 3, "ERROR : bucket not found\n"
+        gcs.error = "ERROR : bucket not found\n"
     else:
         (root / COPIED).write_text("not json")
 

@@ -14,7 +14,6 @@ import os
 import re
 import shlex
 import shutil
-import subprocess
 import sys
 import threading
 import time
@@ -33,6 +32,7 @@ from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
 from labdata.store import geo_lane, init_store, open_store, pipeline, raw, refresh
 from labdata.store.fetch import soft_url
+from tests._fake_gcs import FakeGcs
 from tests._scripts import compare
 from tests._slices import copy_store
 from tests._snakemake import Runner
@@ -41,7 +41,6 @@ from tests.test_store_refresh_fetch import Ncbi, _Reply
 _DATA = Path(__file__).parent / "data" / "geo_slice"
 _OLD = "2026-10-14"
 _SEQ = "Expression profiling by high throughput sequencing"
-_EXPIRED = "Failed to create file system: couldn't fetch token: invalid_grant: maybe it has expired"
 _DEST = "gcs:lab-bucket/store"
 
 #: Held and unchanged, held and changed by GEO, held and withdrawn, released since.
@@ -545,22 +544,17 @@ def test_a_second_refresh_asks_only_for_the_overlap_window(
 
 
 def test_an_expired_login_leaves_the_copy_pending_and_a_later_copy_clears_it(
-    built: tuple[Path, _Geo], monkeypatch: pytest.MonkeyPatch, snakemake: Runner
+    built: tuple[Path, _Geo], monkeypatch: pytest.MonkeyPatch, snakemake: Runner, tmp_path: Path
 ) -> None:
     root, ncbi = built
     marker = root / "labdata-store.toml"
     marker.write_text(marker.read_text() + f'copy_to = "{_DEST}"\n', encoding="utf-8")
-    calls: list[list[str]] = []
-
-    def expired(args: list[str]) -> subprocess.CompletedProcess[str]:
-        calls.append(args)
-        return subprocess.CompletedProcess(args, 1, "", _EXPIRED)
-
-    monkeypatch.setattr("labdata.store.gcs._run_rclone", expired)
+    gcs = FakeGcs.install(monkeypatch, tmp_path / "gcs", _DEST)
+    gcs.expired = True
     _change(ncbi)
     _executor(monkeypatch, snakemake)
-    # The bucket mirrors the build the refresh leaves, and has no copy record yet.
-    bucket = {"labdata-store.toml": marker.read_bytes()}
+    # GCS mirrors the build the refresh leaves, and has no copy record yet.
+    gcs.write("labdata-store.toml", marker.read_bytes())
     old = _current(root).name
 
     _refresh(root)
@@ -568,30 +562,14 @@ def test_an_expired_login_leaves_the_copy_pending_and_a_later_copy_clears_it(
     status = refresh.read_status(root)
     assert status["outcome"] == "succeeded"
     assert status["copy_pending"] is True
-    assert calls == [["rclone", "lsjson", _DEST, "--max-depth", "1"]]
+    assert gcs.log == []
 
-    deleted: list[str] = []
-
-    def gcs(args: list[str]) -> subprocess.CompletedProcess[str]:
-        listed = [
-            line
-            for arg in args
-            if arg.startswith("--files-from-raw=")
-            for line in Path(arg.split("=", 1)[1]).read_text(encoding="utf-8").splitlines()
-        ]
-        if args[1] == "copy" and args[2] == _DEST:
-            for name in (n for n in listed if n in bucket):
-                (Path(args[3]) / name).write_bytes(bucket[name])
-        if args[1] == "delete":
-            deleted.extend(listed)
-        return subprocess.CompletedProcess(args, 0, "", "")
-
-    monkeypatch.setattr("labdata.store.gcs._run_rclone", gcs)
-    # No --full: the copy seeds its record from the old build, then deletes it in the bucket.
+    gcs.expired = False
+    # No --full: the copy seeds its record from the old build, then deletes it in GCS.
     assert "Copied the store" in _cli("copy", "--root", str(root))
     assert refresh.read_status(root)["copy_pending"] is False
-    assert f"builds/{old}/manifest.json" in deleted
-    assert not any(p.startswith(f"builds/{_current(root).name}/") for p in deleted)
+    assert f"builds/{old}/manifest.json" in gcs.deleted()
+    assert not any(p.startswith(f"builds/{_current(root).name}/") for p in gcs.deleted())
 
 
 def test_an_accession_only_a_pending_removal_lists_is_fetched_again(
