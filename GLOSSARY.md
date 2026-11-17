@@ -224,6 +224,13 @@ and deletes in GCS only what left the store, never what the work disk lacks.
 
 _Avoid_: record (alone), which reads as a store record or the status record
 
+### Held set
+
+What a store's copy sends to GCS, each file with a signature that changes with the file. For
+the GEO/SRA store, the current build and what it read; for the paper store, the paper files
+the `files` table names and the files at the top of the store. A copy saves it as the copy
+record.
+
 ### Finalized
 
 An update is finalized once GCS holds the state it made, which is when the copy record in GCS

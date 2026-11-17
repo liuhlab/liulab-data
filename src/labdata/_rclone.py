@@ -1,7 +1,7 @@
 """The rclone seam: run one rclone command and tell an expired login from other faults.
 
 Every copy to or listing of a remote (a GCS bucket, a Drive folder) goes through :func:`run`,
-which tests replace. Both GCS copies also take their delete bound from here.
+which tests replace.
 """
 
 from __future__ import annotations
@@ -11,15 +11,12 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
 from collections.abc import Callable
 from pathlib import Path
 
 #: rclone flags that print a one-line progress summary a minute.
 PROGRESS = ["--stats=1m", "--stats-one-line", "--stats-log-level=NOTICE"]
-
-#: The largest share of a copy record's paths one GCS copy deletes in the bucket, unless one
-#: path is more or more are accepted by hand; past it the copy refuses.
-MAX_DELETE_SHARE = 0.05
 
 _EXPIRED = re.compile(r"invalid_grant|maybe it has expired|expired or revoked")
 
@@ -35,28 +32,27 @@ def run(args: list[str]) -> subprocess.CompletedProcess[str]:
     Returns
     -------
     subprocess.CompletedProcess
-        The exit status and the stderr text; stdout is not captured.
+        The exit status, the stdout text, such as a listing, and the stderr text.
 
     Raises
     ------
     OSError
         If rclone cannot be started.
     """
-    proc = subprocess.Popen(args, stderr=subprocess.PIPE, text=True)
+    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    stdout, stderr = proc.stdout, proc.stderr
+    assert stdout is not None
+    assert stderr is not None
+    out: list[str] = []
+    # Read on its own thread, so a long listing never stalls the log lines.
+    reader = threading.Thread(target=lambda: out.append(stdout.read()))
+    reader.start()
     lines = []
-    assert proc.stderr is not None
-    for line in proc.stderr:
+    for line in stderr:
         sys.stderr.write(line)
         lines.append(line)
-    return subprocess.CompletedProcess(args, proc.wait(), "", "".join(lines))
-
-
-def delete_limit(recorded: int, accepted: int = 0) -> int:
-    """Return how many of ``recorded`` paths one copy may delete in the bucket.
-
-    It is the largest of one, :data:`MAX_DELETE_SHARE` of ``recorded`` and ``accepted``.
-    """
-    return int(max(1, MAX_DELETE_SHARE * recorded, accepted))
+    reader.join()
+    return subprocess.CompletedProcess(args, proc.wait(), "".join(out), "".join(lines))
 
 
 def login_expired(stderr: str) -> bool:
@@ -113,12 +109,3 @@ def run_on_paths(
     if login_expired(done.stderr):
         return False
     raise error(f"rclone {args[0]} failed ({done.returncode}): {done.stderr}")
-
-
-def expired_message(dest: str, what: str, command: str) -> str:
-    """Return what to do when rclone's login expired: reconnect, then rerun ``command``."""
-    remote = dest.split(":", 1)[0]
-    return (
-        f"rclone's Google login has expired, so the bucket is behind the {what}. "
-        f"Run `rclone config reconnect {remote}:`, then `{command}`."
-    )
