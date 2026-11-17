@@ -28,7 +28,7 @@ from labdata.papers.copy import copy, destination
 from labdata.papers.daily import daily_pass
 from labdata.papers.openalex import OpenAlex
 from labdata.papers.root import PaperStore
-from labdata.papers.status import read_status
+from labdata.papers.status import PaperStatus, read_status
 from labdata.papers.sync import pmc_sync
 from labdata.store._files import write_atomic
 from labdata.store.reader import current_build
@@ -91,7 +91,12 @@ def due(
     list of str
         The kinds of pass due.
     """
-    status = read_status(store.root)
+    return _due(store, read_status(store.root), now, log)
+
+
+def _due(
+    store: PaperStore, status: PaperStatus, now: dt.datetime, log: Callable[[str], None]
+) -> list[str]:
     today = now.date()
     out = []
     if now.time() >= DAILY_AT and status.last_daily_success != today.isoformat():
@@ -162,13 +167,14 @@ def serve(
     while until is None or clock() < until:
         now = clock()
         stamp, today = _stamp(now), now.date()
+        status = read_status(store.root)
         ready = [
             k
-            for k in due(store, now, lambda line, stamp=stamp: log(f"{stamp} {line}"))
+            for k in _due(store, status, now, lambda line, stamp=stamp: log(f"{stamp} {line}"))
             if retry_at.get(k, now) <= now
         ]
         if not ready:
-            _idle(store, now, log)
+            _idle(status, now, log)
             sleep(TICK)
             continue
         kind = ready[0]
@@ -269,8 +275,7 @@ def _log_dir(job_id: str) -> str | None:
     return None
 
 
-def _idle(store: PaperStore, now: dt.datetime, log: Callable[[str], None]) -> None:
-    status = read_status(store.root)
+def _idle(status: PaperStatus, now: dt.datetime, log: Callable[[str], None]) -> None:
     log(
         f"{_stamp(now)} idle; last daily pass {status.last_daily_success or 'never'}, "
         f"last PMC sync {status.last_pmc_sync_success or 'never'}, "

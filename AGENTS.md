@@ -87,6 +87,9 @@ Test time has two limits, set in `[tool.pytest.ini_options]` and nowhere else:
 - **The slow lane:** a test marked `slow` is held to neither, and runs only in
   `pixi run test-slow`.
 
+`pixi run test` runs on pytest-xdist workers, which share one build of the thin slices; the
+slow and live lanes run in one process.
+
 ## Conventions / invariants
 
 - **Type annotations on every public function**; NumPy-style docstrings
@@ -122,7 +125,7 @@ Test time has two limits, set in `[tool.pytest.ini_options]` and nowhere else:
 - No live network in CI. Mock the `EntrezClient` seam with canned responses; assert
   laziness (the client is hit once, then served from cache).
 - Live tests against real NCBI are marked `@pytest.mark.network`, deselected by default
-  and held to neither time limit; run them with `pixi run test -m network`.
+  and held to neither time limit; run them with `pixi run test-network`.
 
 ## Documentation
 

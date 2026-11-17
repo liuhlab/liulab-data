@@ -45,6 +45,9 @@ tags of the form `vYYYY.M.PATCH` (e.g. `v2026.6.0`).
 - CI is one job, run on pull requests that are not drafts. `pixi run check` runs the tests even
   when a static step fails. The `test` pixi environment is gone. The workflows use setup-pixi
   v0.11.3.
+- `pixi run test` runs the tests on 4 pytest-xdist workers, which share one build of the test
+  stores; pass `-n 0` for one process. The live NCBI tests run in
+  one process with `pixi run test-network`, so they keep NCBI's request rate.
 
 ### Fixed
 

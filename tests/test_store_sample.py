@@ -32,6 +32,15 @@ def source(built_store: BuiltStore, tmp_path_factory: pytest.TempPathFactory) ->
     return built_store(tmp_path_factory.mktemp("source") / "store", "geo_slice")
 
 
+@pytest.fixture(scope="module")
+def samples(source: Path, tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A scratch root holding two samples of ``source``: ``s1`` at 0.3, then ``s2`` at 0.6."""
+    scratch = tmp_path_factory.mktemp("samples") / "scratch"
+    build(scratch, "s1", fraction=0.3, sample_of=source)
+    build(scratch, "s2", fraction=0.6, sample_of=source)
+    return scratch
+
+
 def _tree(root: Path) -> dict[str, tuple[int, str]]:
     """Every file under ``root`` with its size and sha256."""
     return {
@@ -128,11 +137,10 @@ def test_a_sample_holds_the_sampled_snapshot_records_that_nothing_links_to(
 
 
 def test_the_same_fraction_gives_the_same_rows_and_a_smaller_one_lies_inside(
-    source: Path, tmp_path: Path
+    source: Path, samples: Path, tmp_path: Path
 ) -> None:
-    small = build(tmp_path / "a", "s", fraction=0.3, sample_of=source)
-    again = build(tmp_path / "b", "s", fraction=0.3, sample_of=source)
-    large = build(tmp_path / "c", "s", fraction=0.6, sample_of=source)
+    small, large = samples / "builds" / "s1", samples / "builds" / "s2"
+    again = build(tmp_path / "b", "s1", fraction=0.3, sample_of=source)
 
     for name in ("links_by_from.parquet", "holdings.parquet", "known.parquet", "notes.parquet"):
         assert pq.read_table(small / name).equals(pq.read_table(again / name)), name
@@ -174,11 +182,9 @@ def test_a_sample_refuses_its_own_source_as_scratch_root(source: Path) -> None:
 
 
 def test_a_scratch_root_takes_samples_of_one_store_only(
-    built_store: BuiltStore, source: Path, tmp_path: Path
+    built_store: BuiltStore, source: Path, samples: Path, tmp_path: Path
 ) -> None:
-    scratch = tmp_path / "scratch"
-    build(scratch, "s1", fraction=0.3, sample_of=source)
-    build(scratch, "s2", fraction=0.6, sample_of=source)
+    scratch = samples
     assert open_store(scratch).settings["sample_of"] == str(source.absolute())
     other = built_store(tmp_path / "other", "sra_slice")
 

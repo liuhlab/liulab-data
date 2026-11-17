@@ -109,6 +109,7 @@ python = "3.13.*"
 pytest = "*"
 pytest-cov = "*"
 pytest-timeout = "*"
+pytest-xdist = ">=3.8.0,<4"
 
 # Dev tooling feature
 [tool.pixi.feature.dev.dependencies]
@@ -146,8 +147,11 @@ lint      = "ruff check ."
 fmt       = "ruff format ."
 fmt-check = "ruff format --check ."
 typecheck = "pyright"
-test      = "pytest"
+# More workers push the heaviest tests towards their `timeout`, even on a machine with more
+# cores. The slow and live lanes run in one process, so the live one keeps NCBI's pace.
+test      = "pytest -n 4"
 test-slow = "pytest -m slow"
+test-network = "pytest -m network"
 test-cov  = "pytest --cov=labdata --cov-report=term-missing"
 # `.`, never an absolute path: an absolute path matches no `.vale.ini` section and exits 0.
 # The globs stop vale walking trees it never lints — check.sh runs steps concurrently, and a
@@ -248,7 +252,7 @@ filterwarnings = ["error"]
 timeout = 2
 suite_budget = 45
 markers = [
-    "network: hits live NCBI services (E-utilities, SDL) (deselected by default; run with `-m network`)",
+    "network: hits live NCBI services (E-utilities, SDL) (deselected by default; run with `pixi run test-network`)",
 ]
 
 [tool.coverage.run]
