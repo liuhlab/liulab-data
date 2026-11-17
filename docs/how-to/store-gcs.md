@@ -122,6 +122,32 @@ not in the bucket: add a filter for each one instead of counting it as a differe
 found only in the bucket is one a copy should have deleted. If it finds files missing from the
 bucket, `labdata store copy --full` sends them. It deletes nothing.
 
+## Restore the store from GCS
+
+The bucket holds the store for good. If the work disk is lost or fell behind, fill it from
+the bucket before the next refresh:
+
+```bash
+labdata store restore --root /path/to/store --from gcs:<bucket>/<store>
+```
+
+On a disk that already has the store's marker, `--from` defaults to its `copy_to`.
+
+- It reads the bucket's copy record and downloads what the disk lacks or holds differently.
+  An empty disk gets the whole current state; a disk that fell behind gets only the
+  difference. A file already on the disk with the bucket's size and hash is not downloaded
+  again.
+- It deletes the files the disk's copy record names and the bucket's does not, such as an
+  old build.
+- It leaves `work/`, `support/` and `extracts/` alone. A build makes a missing extract
+  from its snapshot.
+- It saves the copy record and `refresh-status.json` last, as the bucket holds them.
+
+It prints how much it downloads, and asks before more than 1 GB. Downloads out of the bucket
+cost money, so a large restore needs the maintainer's yes. A batch job has no terminal to ask
+in: pass `--accept-download` to let it download more than 1 GB. If it stops, run it again: it
+skips the files it already has.
+
 ## Read the store on another computer
 
 Copy the store down, check it against the bucket, and point labdata at it:

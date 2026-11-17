@@ -621,3 +621,29 @@ def test_any_failure_past_the_destination_marks_the_copy_pending(
 
     assert _copy(root).exit_code == 1
     assert refresh.read_status(root)["copy_pending"] is True
+
+
+def test_a_restore_onto_a_disk_without_a_copy_record_downloads_only_what_it_lacks(
+    root: Path, gcs: FakeGcs, tmp_path: Path
+) -> None:
+    _copy_to(root)
+    _full(root)
+    gcs.forget()
+    disk = tmp_path / "other"
+    shutil.copytree(root, disk)
+    (disk / COPIED).unlink()
+    lost = next(p for p in _record(gcs) if p.startswith("raw/") and p.endswith(".parquet"))
+    (disk / lost).unlink()
+    (disk / "work" / "eutils").mkdir(parents=True, exist_ok=True)
+    (disk / "work" / "eutils" / "half-done.tsv").write_text("mine")
+    kept = {p: (disk / p).read_bytes() for p in _files(disk, "work", "extracts")}
+    assert any(p.startswith("extracts/") for p in kept)
+
+    result = CliRunner().invoke(app, ["store", "restore", "--root", str(disk)])
+
+    assert result.exit_code == 0, result.output
+    assert sorted(p for op, p in gcs.log if op == "get") == sorted([COPIED, _STATUS, lost])
+    assert (disk / lost).read_bytes() == gcs.read(lost)
+    assert (disk / COPIED).read_bytes() == gcs.read(COPIED)
+    assert (disk / _STATUS).read_bytes() == gcs.read(_STATUS)
+    assert {p: (disk / p).read_bytes() for p in _files(disk, "work", "extracts")} == kept

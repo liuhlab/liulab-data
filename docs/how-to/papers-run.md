@@ -210,27 +210,33 @@ them. It deletes nothing.
 
 ## Restore the store from GCS
 
-GCS keeps the paper store for good. If the work disk is lost, get the store back from the
-bucket before the paper job runs again. The restore downloads the whole store out of GCS, which
-costs money, so run it only with the maintainer's yes.
+GCS keeps the paper store for good. If the work disk is lost or fell behind, get the store
+back from GCS before the paper job runs again. An empty disk gets the whole store; a disk that
+fell behind gets only the files that changed. Downloads out of GCS cost money, so run a large
+restore only with the maintainer's yes.
 
-Stop the paper job first, as [Start the paper job](#start-the-paper-job) shows. Then download
-the store as its own job:
+Stop the paper job first, as [Start the paper job](#start-the-paper-job) shows. Then run the
+restore as its own job:
 
 ```bash
 export LABDATA_PAPERS=/path/to/paper-store
 sbatch --job-name=labdata-papers-restore --partition=cpu_batch \
   --cpus-per-task=2 --mem=8G --time=1-00:00:00 \
   --output=labdata-papers-restore.%j.log \
-  --wrap "pixi run rclone copy <copy_to> $LABDATA_PAPERS --stats=1m --stats-one-line"
+  --wrap "pixi run labdata papers restore --from <copy_to> --accept-download"
 ```
+
+The restore prints how much it downloads. In a terminal it asks before more than 1 GB. A
+batch job has no terminal, so it needs `--accept-download` for that. Without the flag, a batch
+job prints the size and stops before a download of more than 1 GB.
 
 If it stops, submit it again: it skips the files it already has. If the GEO/SRA store moved
 too, set `store` in `labdata-papers.toml` to its new folder. Then start the paper job.
 
-The download brings the copy record, so the job's copies send only what changes from then on.
-It brings `paper-status.json` as the last copy left it, so the job knows when the last daily
-pass and the last PMC sync ran.
+The restore saves the copy record last, so the job's copies send only what changes from then
+on. It saves `paper-status.json` as the last copy left it, so the job knows when the last
+daily pass and the last PMC sync ran. It leaves the hidden files of the disk alone, the daily
+pass's journal among them.
 
 Restore before any copy by hand. A full copy, `labdata papers copy --full`, first reads the
 list of files the bucket holds. It refuses, and sends nothing, when the disk lacks more than a

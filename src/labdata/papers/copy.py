@@ -15,10 +15,12 @@ the deletes are accepted by hand.
 Hidden files stay behind, :data:`COPIED` aside: the lock, the daily pass's journal and every
 temp file. The status record goes up last, after the copy record, as
 :mod:`labdata.papers.lifecycle` wrote it, which runs every copy under the paper store's lock.
+:func:`restore` fills a work disk from GCS.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -28,7 +30,7 @@ import pyarrow.parquet as pq
 from labdata import _gcs
 from labdata.exceptions import LabdataError
 from labdata.papers import paths
-from labdata.papers.root import PaperStore
+from labdata.papers.root import MARKER, PaperStore, open_paper_store, paper_lock
 from labdata.papers.status import STATUS
 from labdata.papers.tables import FILES
 
@@ -122,6 +124,41 @@ def unsent(root: Path) -> bool:
     return _papers(FILES.path(root)) != _papers(root / COPIED)
 
 
+def restore(
+    root: Path, source: str | None = None, *, approve: Callable[[int, int], bool]
+) -> str | None:
+    """Fill the work disk at ``root`` from ``source``, as :func:`labdata._gcs.restore` says.
+
+    Holds the paper store's lock, so a restore never runs beside a pass or a copy.
+
+    Parameters
+    ----------
+    root : pathlib.Path
+        The paper store root; it may be empty or missing.
+    source : str or None
+        An rclone path, ``<remote>:<bucket>/<path>``; defaults to the marker's ``copy_to``.
+    approve : callable
+        Called with the number of files and bytes to download, before any; False stops it.
+
+    Returns
+    -------
+    str or None
+        Why it stopped: rclone's login has expired or ``approve`` said no; None when done.
+
+    Raises
+    ------
+    PaperCopyError
+        If no source is set, GCS holds no copy record or lacks a file it names, or rclone fails.
+    """
+    if not source and (root / MARKER).is_file():
+        source = destination(open_paper_store(root))
+    if not source:
+        raise PaperCopyError("no source: pass --from <remote>:<bucket>/<path>")
+    root.mkdir(parents=True, exist_ok=True)
+    with paper_lock(root):
+        return _gcs.restore(_Adapter(root, b""), source, approve=approve)
+
+
 class _Adapter(_gcs.Adapter):
     record = COPIED
     status = STATUS
@@ -137,6 +174,12 @@ class _Adapter(_gcs.Adapter):
 
     def finalized(self) -> bytes:
         return self.status_record
+
+    def state(self, path: str) -> bool:
+        try:
+            return paths.kind(path) is paths.STATE
+        except ValueError:
+            return False
 
     def load(self, data: bytes) -> _Held:
         return _signatures(pq.read_table(pa.BufferReader(data), columns=_COLUMNS, schema=_SCHEMA))
