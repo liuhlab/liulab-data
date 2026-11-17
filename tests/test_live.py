@@ -1,7 +1,7 @@
 """Live integration tests against real NCBI E-utilities and GEO FTP-over-HTTP.
 
 Marked ``network`` and deselected by default (see ``addopts`` in pyproject). Run
-explicitly with ``pixi run test -m network``; they need network access and NCBI
+explicitly with ``pixi run test-network``; they need network access and NCBI
 credentials (``NCBI_EMAIL`` env var or a configured cache file).
 """
 

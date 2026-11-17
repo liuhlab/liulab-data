@@ -261,7 +261,7 @@ def test_a_large_soft_streams_through_without_being_held_in_memory(
     original = soft("GSE1").replace(
         b"!Sample_table_begin\nID_REF\tVALUE\n1\t2.5\n!Sample_table_end\n", table.encode()
     )
-    body = gzip.compress(original)
+    body = gzip.compress(original, compresslevel=1)
     size = len(original)
     del rows, table
     site = Site({soft_url("GSE1"): [body]})
