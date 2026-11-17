@@ -285,7 +285,7 @@ def _sync(
     clock = time.monotonic()
     for i in range(0, len(todo), CHUNK):
         chunk = todo[i : i + CHUNK]
-        rekeyed = _look_up(state, chunk, client, openalex, today, report, log, root)
+        rekeyed = _look_up(state, chunk, client, openalex, today, report, log)
         for old, new in rekeyed.items():
             linked[new] = linked.pop(old, set()) | linked.get(new, set())
         state.save(root)
@@ -328,7 +328,6 @@ def _look_up(
     today: dt.date,
     report: SyncReport,
     log: Callable[[str], None],
-    root: Path,
 ) -> dict[str, str]:
     """Look one chunk of papers up, changing ``state``; return the DOI papers re-keyed.
 
@@ -367,7 +366,7 @@ def _look_up(
             _set_work(row, work)
             row["published"] = work.published
             if key != doi:
-                _rekey(state, root, doi, key, work.doi or doi)
+                _rekey(state, doi, key, work.doi or doi)
                 rekeyed[doi] = key
                 report.rekeyed += 1
             if not key.isdigit():
@@ -466,10 +465,10 @@ def _work_info(key: str, work: Work) -> dict[str, Any]:
     }
 
 
-def _rekey(state: PaperTables, root: Path, doi: str, key: str, own_doi: str) -> None:
+def _rekey(state: PaperTables, doi: str, key: str, own_doi: str) -> None:
     """Move a DOI paper to ``key``, the PMID or DOI of the paper it is, whose DOI is ``own_doi``.
 
-    Rows are re-keyed and files renamed; nothing is fetched again. ``doi`` joins the paper's
+    Rows are re-keyed and files moved once the tables are saved; nothing is fetched again. ``doi`` joins the paper's
     ``other_dois`` unless it is the paper's DOI. When the store already holds ``key``'s
     paper, the DOI paper's files join it unless it holds a file of the same kind and name.
     """
@@ -494,21 +493,21 @@ def _rekey(state: PaperTables, root: Path, doi: str, key: str, own_doi: str) -> 
         name = f["name"]
         if f["kind"] in ("xml", "pdf") and name.startswith(old_dir.name):
             name = new_dir.name + name[len(old_dir.name) :]
-        if (f["kind"], name) in taken:
-            continue
         path = f["path"]
+        if (f["kind"], name) in taken:
+            if path:
+                state.folder.delete(path)
+            continue
         if path:
             rel = Path(path).relative_to(old_dir)
             new_path = new_dir / rel.parent / name if f["kind"] != "supplement" else new_dir / rel
-            (root / new_path).parent.mkdir(parents=True, exist_ok=True)
-            (root / path).replace(root / new_path)
+            state.folder.move(path, new_path.as_posix())
             path = new_path.as_posix()
         kept.append({**f, "paper": key, "name": name, "path": path})
     state.files[:] = kept
     for attempt in state.attempts:
         if attempt["paper"] == doi:
             attempt["paper"] = key
-    _remove_empty(root / old_dir)
 
 
 def _drop(state: PaperTables, keys: set[str]) -> None:
@@ -524,19 +523,6 @@ def _drop(state: PaperTables, keys: set[str]) -> None:
         state.info.pop(key, None)
     state.files[:] = [f for f in state.files if f["paper"] not in keys]
     state.attempts[:] = [a for a in state.attempts if a["paper"] not in keys]
-
-
-def _remove_empty(folder: Path) -> None:
-    """Remove a paper folder that its files have left, empty sub-folders first."""
-    if not folder.is_dir():
-        return
-    for sub in sorted(folder.rglob("*"), reverse=True):
-        if sub.is_dir():
-            try:
-                sub.rmdir()
-            except OSError:
-                return
-    folder.rmdir()
 
 
 def _now() -> str:

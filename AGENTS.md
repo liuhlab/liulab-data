@@ -48,7 +48,8 @@ src/labdata/
                        tables.py (the four tables' declaration and only writer);
                        status.py (paper-status.json); reader.py (PaperReader);
                        sync.py (the monthly PMC sync), pubmed.py, openalex.py,
-                       pmc.py (the PMC bucket tier), _zst.py (zstd files);
+                       pmc.py (the PMC bucket tier); folder.py (the only writer,
+                       mover and deleter of paper files; zstd, temp files);
                        daily.py (quota, host links, manual queue); copy.py
                        (GCS copy); job.py (the long-running paper job)
 tests/               pytest suite, mirrors src; mocks the EntrezClient + subprocess seams
