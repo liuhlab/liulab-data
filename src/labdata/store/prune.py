@@ -3,8 +3,9 @@
 A non-current build goes once the store switched away from it more than the grace period
 ago, ``GRACE`` by default. A snapshot goes once it is older than the one the current build
 reads and every build that read it went out of use more than the grace period ago; its extract
-parts under ``work/`` go with it. A snapshot newer than the current build's is waiting for the
-next build and stays. Neither the current build nor what it reads is ever deleted.
+goes with it. A snapshot newer than the current build's is waiting for the next build and
+stays. Neither the current build nor what it reads is ever deleted, nor the new build of an
+update that has not switched to it. Abandoned refresh folders go at once.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from labdata.store import extract, paths, readme
+from labdata.store import extract, lifecycle, paths, readme
 from labdata.store.build import build_lock
 from labdata.store.layout import manifest_path
 from labdata.store.reader import build_folders, build_path
@@ -29,13 +30,17 @@ _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 @dataclass(frozen=True, slots=True)
 class PruneReport:
-    """What one prune deleted: build folders first, then snapshot folders."""
+    """What one prune deleted: abandoned refresh folders, build folders, then snapshot folders."""
 
     deleted: list[Path] = field(default_factory=list)
 
 
 def prune(
-    root: Path, *, now: dt.datetime | None = None, grace: dt.timedelta = GRACE
+    root: Path,
+    *,
+    now: dt.datetime | None = None,
+    grace: dt.timedelta = GRACE,
+    owner_gone: bool = False,
 ) -> PruneReport:
     """Delete old builds and unread snapshots, keeping everything inside the grace period.
 
@@ -52,6 +57,8 @@ def prune(
     grace : datetime.timedelta
         How long a build stays after the store switched away from it: ``GRACE``, 24 hours,
         by default. Zero deletes at once.
+    owner_gone : bool
+        As for :func:`labdata.store.lifecycle.run_lock`.
 
     Returns
     -------
@@ -61,48 +68,59 @@ def prune(
     Raises
     ------
     StoreBuildError
-        If a build, prune or copy of this store is running.
+        If a build, prune or copy of this store is running, or another update holds the run
+        lock.
     """
-    now = now or dt.datetime.now(dt.UTC)
-    with build_lock(root):
-        marker = paths.MARKER.at(root)
-        settings = paths.read_marker(root)
-        current = settings.get(paths.BUILD_KEY)
-        if not current:
-            return PruneReport()
-        switched = _time(settings.get(paths.SWITCHED_KEY)) or dt.datetime.fromtimestamp(
-            marker.stat().st_mtime, dt.UTC
+    with lifecycle.run_lock(root, "prune", owner_gone=owner_gone), build_lock(root):
+        report = _delete(root, now or dt.datetime.now(dt.UTC), grace)
+    # After the locks are released, so the README's sizes leave out the run lock.
+    if report.deleted and paths.read_marker(root).get(paths.BUILD_KEY):
+        readme.try_write(root)
+    return report
+
+
+def _delete(root: Path, now: dt.datetime, grace: dt.timedelta) -> PruneReport:
+    records = paths.REFRESHES.at(root).glob(f"*/{lifecycle.ABANDONED_RECORD}")
+    abandoned = [record.parent for record in sorted(records)]
+    for folder in abandoned:
+        shutil.rmtree(folder)
+    marker = paths.MARKER.at(root)
+    settings = paths.read_marker(root)
+    current = settings.get(paths.BUILD_KEY)
+    if not current:
+        return PruneReport(abandoned)
+    unswitched = lifecycle.unswitched_build(root)
+    switched = _time(settings.get(paths.SWITCHED_KEY)) or dt.datetime.fromtimestamp(
+        marker.stat().st_mtime, dt.UTC
+    )
+    away: dict[str, str] = settings.get(paths.SWITCHED_AWAY_KEY, {})
+    builds = build_folders(root)
+    reads = {b.name: _reads(b) for b in builds}
+    unused_since = {
+        b.name: _time(away.get(b.name)) or switched
+        for b in builds
+        if b.name not in (current, unswitched)
+    }
+    old = [build_path(root, name) for name, t in unused_since.items() if now - t > grace]
+    latest = dict(reads.get(str(current), set()))
+    snaps = []
+    for folder in sorted(paths.SNAPSHOTS.at(root).glob("*/*")):
+        source, date = folder.parent.name, folder.name
+        if not (folder.is_dir() and _DATE.match(date)) or date >= latest.get(source, date):
+            continue
+        readers = [n for n, t in unused_since.items() if (source, date) in reads[n]]
+        if now - max((unused_since[n] for n in readers), default=switched) > grace:
+            snaps.append(folder)
+    for folder in [*old, *snaps]:
+        shutil.rmtree(folder)
+    for folder in snaps:
+        shutil.rmtree(
+            extract.extract_dir(root, folder.parent.name, folder.name), ignore_errors=True
         )
-        away: dict[str, str] = settings.get(paths.SWITCHED_AWAY_KEY, {})
-        builds = build_folders(root)
-        reads = {b.name: _reads(b) for b in builds}
-        unused_since = {
-            b.name: _time(away.get(b.name)) or switched for b in builds if b.name != current
-        }
-        old = [build_path(root, name) for name, t in unused_since.items() if now - t > grace]
-        latest = dict(reads.get(str(current), set()))
-        snaps = []
-        for folder in sorted(paths.SNAPSHOTS.at(root).glob("*/*")):
-            source, date = folder.parent.name, folder.name
-            if not (folder.is_dir() and _DATE.match(date)) or date >= latest.get(source, date):
-                continue
-            readers = [n for n, t in unused_since.items() if (source, date) in reads[n]]
-            if now - max((unused_since[n] for n in readers), default=switched) > grace:
-                snaps.append(folder)
-        for folder in [*old, *snaps]:
-            shutil.rmtree(folder)
-        for folder in snaps:
-            shutil.rmtree(
-                extract.extract_dir(root, folder.parent.name, folder.name), ignore_errors=True
-            )
-        if any(p.name in away for p in old):
-            settings[paths.SWITCHED_AWAY_KEY] = {
-                k: v for k, v in away.items() if not _gone(root, k)
-            }
-            paths.write_marker(root, settings)
-        if old or snaps:
-            readme.try_write(root)
-        return PruneReport([*old, *snaps])
+    if any(p.name in away for p in old):
+        settings[paths.SWITCHED_AWAY_KEY] = {k: v for k, v in away.items() if not _gone(root, k)}
+        paths.write_marker(root, settings)
+    return PruneReport([*abandoned, *old, *snaps])
 
 
 def _reads(build: Path) -> set[tuple[str, str]]:
