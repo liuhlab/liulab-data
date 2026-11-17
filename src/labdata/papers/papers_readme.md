@@ -10,8 +10,10 @@ Only papers get rows. A DOI gets none when it names a dataset or the like, or wh
 does not know it; the next sync asks about it again. A placeholder PMID, a small number that
 only BioProject XML gives, gets none either.
 
-Any full copy of this folder is the paper store. Paths in this file are relative to the paper
-store root, written `<papers>`. The paper store never writes into the labdata store, and the
+Google Cloud Storage (GCS) holds the paper store, and its copy there is the one source of
+truth. Each pass runs on a work disk and is done, or finalized, once it is copied to GCS. A new
+work disk, or one behind GCS, is filled by `labdata papers restore`. Paths in this file are
+relative to the paper store root, written `<papers>`. The paper store never writes into the labdata store, and the
 labdata store never writes into it.
 
 ## Contents
@@ -57,9 +59,9 @@ without it the next pass downloads them again and spends quota twice.
   next sync is due when the current build differs. `fetches` counts the papers fetched today
   by source, and `quota` counts the OpenAlex downloads spent today by key. `counts` gives
   papers by status, then by reason. `paperpile_pending` and `copy_pending` are true when a step was skipped because
-  its login has expired. `finalized` is true when the bucket holds the store's last change.
-- **Made by:** each pass, at its start and its end, and each copy, which sends it to the
-  bucket last. A pass that changes paper files ends with that copy.
+  its login has expired. `finalized` is true when GCS holds the store's last change.
+- **Made by:** each pass, at its start and its end, and each copy, which sends it to GCS
+  last. A pass that changes paper files ends with that copy.
 
 ## The tables
 

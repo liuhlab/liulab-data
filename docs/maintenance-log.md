@@ -7,6 +7,8 @@ withdrawn SRA records. The steps are in [Run the full download](how-to/store-run
 
 Each entry gives the build, the liulab-data commit the run used and the wall time against the
 budget. Each check ends as pass, fail or skipped. A failed check links the issue filed for it.
+A run ends only when GCS holds both stores' new state, so the last row of each entry's table,
+`Both stores finalized`, says when both status records said `finalized`.
 
 ## 2026-11-07, monthly
 

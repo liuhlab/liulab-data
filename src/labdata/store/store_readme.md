@@ -6,8 +6,9 @@ runs, BioProjects and BioSamples. A target Series is a GEO Series whose type nam
 high-throughput sequencing. Each record is kept as the text NCBI served, and as rows in
 Parquet tables that you can query with the `labdata` Python package or with DuckDB.
 
-The store is not tied to one computer. Any full copy of this folder is the store. Paths in
-this file are relative to the store root, written `<store>`.
+Google Cloud Storage (GCS) holds the store, and its copy there is the one source of truth. A
+refresh runs on a work disk and is done, or finalized, once it is copied to GCS. Paths in this
+file are relative to the store root, written `<store>`.
 
 Current build: `${build}`. The store switched to it at ${switched}. It was made by
 ${made_by}
@@ -16,7 +17,7 @@ It reads these snapshots:
 
 ${snapshot_table}
 
-`labdata store build` writes this file each time it switches the store to a new build.
+The store writes this file each time it switches to a new build.
 `labdata store readme` writes it again for the current build, with fresh folder sizes.
 
 ## Contents
@@ -50,9 +51,10 @@ labdata store verify --root <store>
 - **Layout:** TOML. `format_version`; `build`, the current build ID; `switched`, when the store
   switched to that build (UTC); the `[switched_away]` table, when each older build went out of
   use; and, if set, `copy_to`, where `labdata store copy` sends the store.
-- **Made by:** `labdata store init` writes it. `labdata store build` sets `build` and
-  `switched` when a new build is whole. Do not edit `build` by hand.
-- **Refresh:** nothing to do. Each build updates it, and `labdata store prune` drops the
+- **Made by:** `labdata store init` writes it. A refresh or a full run sets `build` and
+  `switched` once the new build passes its checks; `labdata store build` sets them when the
+  build is whole. Do not edit `build` by hand.
+- **Refresh:** nothing to do. Each switch updates it, and `labdata store prune` drops the
   builds it deletes from `[switched_away]`.
 
 ## builds/
@@ -232,7 +234,14 @@ Refresh the store once a month, from a checkout of liulab-data, on a computer th
 NCBI:
 
 1. Save your NCBI email and API key once: `labdata ncbi configure`.
-2. Run the refresh:
+2. If this work disk is new, or behind GCS, restore it first. `<copy_to>` is the place in GCS
+   that `labdata-store.toml` names:
+
+   ```bash
+   labdata store restore --root <store> --from <copy_to>
+   ```
+
+3. Run the refresh:
 
    ```bash
    labdata store refresh --root <store>
@@ -242,18 +251,19 @@ NCBI:
    successful refresh and their SRA experiments, removes the GEO Series that a fetch confirms
    are withdrawn, builds the tables, checks their coverage, switches the store to the new build,
    deletes builds and snapshots out of use for longer than a grace period, and copies the store
-   to GCS. If it stops, run the same command again: within 7 days of its start it goes on from
-   the first unfinished step, and later it starts a new refresh. It refuses while another
-   update runs on the store. If it says it cannot check that update and you know the update
+   to GCS. It first checks that this work disk is in step with GCS, and refuses, naming the
+   restore command, when it is not. If it stops, run the same command again: within 7 days of
+   its start it goes on from the first unfinished step, and later it starts a new refresh. It
+   refuses while another update runs on the store. If it says it cannot check that update and you know the update
    has ended, add `--owner-gone`.
 
-3. Read `refresh-status.json`. It gives the refresh's start, end and outcome, the date of the
+4. Read `refresh-status.json`. It gives the refresh's start, end and outcome, the date of the
    last successful refresh, the records added, replaced and removed in each `raw/` source, and
    `copy_pending`. The outcome is `finalized` once GCS holds the refresh's build. When it is
    `built`, the store uses the new build but GCS does not hold it yet. Log in to rclone again,
    then run the same refresh command: it only copies.
 
-4. Keep the refresh's logs, as `support/` says above.
+5. Keep the refresh's logs, as `support/` says above.
 
 The copy holds `labdata-store.toml`, this file, the snapshots the current build reads,
 `raw/` and the current build.

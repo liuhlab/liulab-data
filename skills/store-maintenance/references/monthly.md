@@ -2,7 +2,8 @@
 
 The GEO/SRA store's refresh and its light checks, then the paper store's checks. The procedure
 for each store lives in its how-to; follow it from there, and record each check below in the
-log entry.
+log entry. The run ends only when both stores are **finalized**: GCS holds each store's new
+state, and each status record says so.
 
 **Budget:** the refresh, 2 h wall time. Past 2 h, stop and report: the user decides whether a
 full rebuild is worth it.
@@ -12,11 +13,12 @@ full rebuild is worth it.
 Follow "Refresh the store" in `docs/how-to/store-run.md`.
 
 1. **Refresh.** Submit `scripts/store/refresh.sbatch` under the run plan. Probe it in its first
-   minutes.
+   minutes. If it refuses to start, see [Refusals](#refusals).
 2. **Status record.** `refresh-status.json` in the store root: `outcome` is `finalized` and
-   `last_success` is today. Record the new build ID from the store marker. If `outcome` is
-   `succeeded` and `copy_pending` is `true`, get the login (SKILL.md, preflight), run
-   `labdata store copy`, and read it again.
+   `last_success` is today. Record the new build ID from the store marker. An outcome of
+   `built` with `copy_pending` `true` means the copy was skipped and the job exited non-zero:
+   get the login (SKILL.md, preflight), submit the same refresh again, which does only the copy,
+   and read the record again.
 3. **Coverage.** `labdata store coverage` ends with `Coverage passes.`
 4. **Thin-slice checks.** `pixi run python scripts/store/check_stage1.py` on the held node:
    the thin-slice checks pass with the network blocked. Its `--every-record` flag belongs to the
@@ -28,9 +30,9 @@ Follow "Refresh the store" in `docs/how-to/store-run.md`.
    `<started>` from the status record's `folder`. Deleting `work/` after that needs the user's
    yes.
 7. **GCS copy.** The routine check of "Check the copy", in `docs/how-to/store-gcs.md`, passes:
-   `copy_pending` is `false` in `refresh-status.json`, and the copy record check reports 0
-   differences. No step here lists every file of the store: that section's full check runs
-   only to repair, with the user's yes.
+   `outcome` is `finalized` and `copy_pending` is `false` in `refresh-status.json`, and the copy
+   record check reports 0 differences. No step here lists every file of the store: that
+   section's full check runs only to repair, with the user's yes.
 
 ## Paper store
 
@@ -46,13 +48,44 @@ Follow `docs/how-to/papers-run.md`. The paper job does the work; these checks re
    `last_pmc_sync_success` the day the sync ran. A failed sync shows `last_pass.outcome`
    `failed`, and the job tries it again an hour later. Record the sync's counts from its line
    in the job log, re-keyed papers and DOIs turned away among them, in the log entry.
-2. **Status record.** `paper-status.json`: `last_pass.outcome` is `success`,
-   `last_daily_success` is today (yesterday before 00:30 UTC), and `copy_pending` is `false`.
-   Record the `counts` by status in the log entry.
+2. **Status record.** `paper-status.json`: `last_pass.outcome` is `success` and
+   `last_daily_success` is today (yesterday before 00:30 UTC). Record the `counts` by status in
+   the log entry.
 3. **GCS copy.** The routine check of "Check the copy", in `docs/how-to/papers-run.md`, passes:
-   `copy_pending` is `false`, `last_copy_success` is at or after `last_pass.end`, and the copy
-   record check reports 0 differences. If `copy_pending` is `true`, get the login (SKILL.md,
-   preflight), run `labdata papers copy`, and read it again. No step here lists every file of
-   the paper store: that section's full check runs only to repair, with the user's yes.
+   `copy_pending` is `false`, `finalized` is `true`, and the copy record check reports 0
+   differences. If `copy_pending` is `true`, get the login (SKILL.md, preflight), run
+   `labdata papers copy` between passes, and read it again; the job also retries each idle
+   minute. A job log that names `labdata papers restore` means a refusal: see
+   [Refusals](#refusals). No step here lists every file of the paper store: that section's full
+   check runs only to repair, with the user's yes.
 
-Done when: every check on this page has an outcome.
+## Both finalized
+
+The last check, read after every other check on this page. Pass when both hold at once:
+
+- `refresh-status.json`: `outcome` is `finalized`, `copy_pending` is `false`, and `build` is
+  the build ID recorded in the GEO/SRA status-record step.
+- `paper-status.json`: `finalized` is `true` and `copy_pending` is `false`.
+
+Log it as its own row, last in the entry's table: `Both stores finalized`, with the build ID
+and the time each record was read. This check is never skipped and never ends as fail: until it
+passes, the run stays open, and each report names what holds it.
+
+## Refusals
+
+Each update and each copy can refuse before it changes anything. The message names the cause.
+
+- **Another update holds the run lock.** If the message says the holder still runs, wait for it.
+  If it says this host cannot check, run `squeue` on the holder's cluster. Once the holder has
+  ended, resubmit with `--owner-gone`. A refresh killed inside a job that still runs, such as
+  the held `labdata-dev` job, looks alive from any other node: start the next refresh on that
+  node, where the check asks the process itself.
+- **The work disk is behind GCS.** The copy record on the disk is not the one in GCS. Stop and
+  report: the fix is the restore the message names (`labdata store restore` or
+  `labdata papers restore`, per "Restore the store from GCS" in the how-to). A restore
+  downloads out of GCS, so it needs a job in the run plan, and the user's yes past 1 GB. For
+  the paper store, stop the paper job before the restore and start it after.
+- **GCS holds no copy record.** The message asks for `--full`. Stop and report; a full copy
+  needs the user's yes.
+
+Done when: every check on this page has an outcome, and "Both finalized" has passed.

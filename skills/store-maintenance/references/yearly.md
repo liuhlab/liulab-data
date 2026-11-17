@@ -12,8 +12,9 @@ run adds", with an hour's margin; size the run plan from that table.
 2. **The monthly page.** Run every step of [`monthly.md`](monthly.md), on the snapshot step 1
    fetched.
 3. **After the refresh**: "Remove withdrawn SRA records", then "Time the queries on a quiet
-   node" on the build that removal made. The removal ends with a copy, so run "Check the copy"
-   in `docs/how-to/store-gcs.md` again after it.
+   node" on the build that removal made. The removal ends with a copy that finalizes it, so
+   run "Check the copy" in `docs/how-to/store-gcs.md` again after it, then the monthly page's
+   "Both finalized" check again, with the removal's build ID.
 
 Record in the log entry, beside the monthly checks:
 
@@ -22,4 +23,5 @@ Record in the log entry, beside the monthly checks:
 - the SRA removal's counts: candidates, confirmed gone, kept on a fetch error;
 - each benchmark query's wall time and memory against its limit.
 
-Done when: the five heavy steps and the monthly checks all have an outcome.
+Done when: the five heavy steps and the monthly checks all have an outcome, and "Both
+finalized" has passed after the removal's copy.
