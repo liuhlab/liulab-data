@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
 import pytest
 
 from labdata.papers import copy as copy_mod
 from labdata.papers import open_paper_store, paths
+from tests._fake_gcs import FakeGcs
 from tests.test_papers_daily import (
     PDF,
     DailyWeb,
@@ -21,10 +21,6 @@ from tests.test_papers_daily import (
 )
 
 
-def _sent(args: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.CompletedProcess(args, 0, "", "")
-
-
 def test_every_top_level_file_a_pass_and_a_copy_leave_is_declared_state_or_scratch(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -32,7 +28,7 @@ def test_every_top_level_file_a_pass_and_a_copy_leave_is_declared_state_or_scrat
     root = paper_store(tmp_path, [paper("10.1101/c", pdf=False, hosts=(link,))])
     use(monkeypatch, DailyWeb(hosts={link: Headed(PDF, 200)}), [])
     daily(root)
-    monkeypatch.setattr(copy_mod, "_run_rclone", _sent)
+    FakeGcs.install(monkeypatch, tmp_path / "gcs", "gcs:bucket/papers")
     copy_mod.copy(open_paper_store(root), "gcs:bucket/papers", full=True)
 
     kinds = {p.name: paths.kind(p.name) for p in root.iterdir()}

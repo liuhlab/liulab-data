@@ -79,7 +79,7 @@ A copy first checks the login with one listing call. When the login has expired,
 exits cleanly:
 
 ```text
-rclone's Google login has expired, so the bucket is behind the store. Run `rclone config reconnect gcs:`, then `labdata store copy`.
+rclone's Google login has expired, so GCS is behind the store. Run `rclone config reconnect gcs:`, then `labdata store copy`.
 ```
 
 Log in, then run `labdata store copy` again. Files already sent are skipped. A refresh that
