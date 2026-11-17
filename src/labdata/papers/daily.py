@@ -20,7 +20,7 @@ from collections import Counter
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO
 
 from labdata._http import USER_AGENT, HttpTransport, RateLimiter, Transport
 from labdata.ncbi.entrez import EntrezClient
@@ -171,11 +171,16 @@ def _daily(
     _recompute(state, today)
     linked = set(store_links(store, state))
     fetch = _Fetcher(root, state, journal, transport, host_limiter, linked, today, log)
-    if openalex.accounts:
-        fetch.openalex(openalex.accounts)
-    else:
-        log("no OpenAlex accounts: the OpenAlex tier is skipped; see `labdata papers configure`")
-    fetch.hosts()
+    try:
+        if openalex.accounts:
+            fetch.openalex(openalex.accounts)
+        else:
+            log(
+                "no OpenAlex accounts: the OpenAlex tier is skipped; see `labdata papers configure`"
+            )
+        fetch.hosts()
+    finally:
+        journal.close()
     _recompute(state, today)
     state.save(root)
     journal.clear()
@@ -503,17 +508,27 @@ def _seconds(text: str | None) -> float | None:
 
 
 class _Journal:
-    """One JSON line per download, flushed to disk before the pass moves on."""
+    """One JSON line per download, flushed to disk before the pass moves on.
+
+    The file is opened at the first line and stays open until :meth:`close` or :meth:`clear`.
+    """
 
     def __init__(self, path: Path) -> None:
         self.path = path
+        self._fh: TextIO | None = None
 
     def add(self, kind: str, row: dict[str, Any]) -> None:
         line = json.dumps({"kind": kind, "row": row}, default=str)
-        with self.path.open("a", encoding="utf-8") as fh:
-            fh.write(line + "\n")
-            fh.flush()
-            os.fsync(fh.fileno())
+        if self._fh is None:
+            self._fh = self.path.open("a", encoding="utf-8")
+        self._fh.write(line + "\n")
+        self._fh.flush()
+        os.fsync(self._fh.fileno())
+
+    def close(self) -> None:
+        if self._fh is not None:
+            self._fh.close()
+            self._fh = None
 
     def replay(self, state: PaperTables) -> bool:
         """Apply a stopped pass's rows to ``state``, skipping those already there."""
@@ -535,6 +550,7 @@ class _Journal:
         return True
 
     def clear(self) -> None:
+        self.close()
         self.path.unlink(missing_ok=True)
 
 

@@ -11,6 +11,7 @@ import contextlib
 import functools
 import importlib
 from collections.abc import Callable, Generator
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -55,6 +56,23 @@ def _own_id_converter_pace(monkeypatch: pytest.MonkeyPatch) -> None:
     for the last test's.
     """
     monkeypatch.setattr(pubmed, "IDCONV_LIMITER", RateLimiter(1000.0, 1))
+
+
+#: The ``workerinput`` key that names the folder every pytest-xdist worker builds the slices in.
+_SLICES_FOLDER = "labdata_slices"
+
+
+@pytest.hookimpl(optionalhook=True)
+def pytest_configure_node(node: Any) -> None:
+    """Give each pytest-xdist worker the one folder the slices are built in, once for the run."""
+    node.workerinput[_SLICES_FOLDER] = str(_slices.shared_folder())
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """In a pytest-xdist worker, build the slices in the folder the run shares."""
+    folder = getattr(config, "workerinput", {}).get(_SLICES_FOLDER)
+    if folder:
+        _slices.share(Path(folder))
 
 
 def pytest_collection_finish(session: pytest.Session) -> None:

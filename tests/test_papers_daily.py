@@ -122,6 +122,13 @@ def _isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(daily_mod, "_sleep", lambda _s: None)
 
 
+@pytest.fixture
+def quota(monkeypatch: pytest.MonkeyPatch) -> int:
+    """A daily quota of 10 downloads a key: the quota's rules on a tenth of the files."""
+    monkeypatch.setattr(daily_mod, "QUOTA", 10)
+    return 10
+
+
 def use(monkeypatch: pytest.MonkeyPatch, fake: FakeWeb, accounts: list[Account]) -> None:
     def client() -> EntrezClient:
         return EntrezClient(
@@ -198,41 +205,46 @@ def backlog(n: int) -> list[dict[str, Any]]:
     return [paper(str(42000000 + i), published=start + dt.timedelta(days=i)) for i in range(n)]
 
 
-def test_each_key_spends_100_new_papers_first_then_newest_and_a_rerun_spends_nothing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_each_key_spends_its_quota_new_papers_first_then_newest_and_a_rerun_spends_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, quota: int
 ) -> None:
     accounts = [*KEYS, Account("secret-key-c", "c@x.org")]
     new = paper("43000000", published=dt.date(2010, 1, 1), added=dt.date(2026, 11, 3))
-    root = paper_store(tmp_path, [*backlog(350), new])
+    n = len(accounts) * quota + 5
+    newest = str(42000000 + n - 1)
+    root = paper_store(tmp_path, [*backlog(n), new])
     fake = DailyWeb()
     use(monkeypatch, fake, accounts)
     out = daily(root)
 
-    assert fake.spent == {a.key: 100 for a in accounts}
+    assert fake.spent == {a.key: quota for a in accounts}
     papers = by_key(root, tables.PAPERS)
     fetched = {k for k, r in papers.items() if r["status"] == "fetched"}
-    assert len(fetched) == 300
+    assert len(fetched) == len(accounts) * quota
     assert "43000000" in fetched
-    # The 51 oldest of the backlog wait for tomorrow.
+    # The 6 oldest of the backlog wait for tomorrow.
     assert {k for k, r in papers.items() if r["status"] == "waiting"} == {
-        str(42000000 + i) for i in range(51)
+        str(42000000 + i) for i in range(6)
     }
-    one = papers["42000349"]
+    one = papers[newest]
     assert one["pdf_tier"] == "openalex"
-    pdf = root / paper_dir("42000349") / "42000349.pdf"
-    assert pdf.read_bytes() == PDF + b"W42000349"
+    pdf = root / paper_dir(newest) / f"{newest}.pdf"
+    assert pdf.read_bytes() == PDF + f"W{newest}".encode()
     files = by_key(root, tables.FILES)
-    assert files["42000349"]["tier"] == "openalex"
-    assert files["42000349"]["path"] == pdf.relative_to(root).as_posix()
-    assert files["42000349"]["size"] == pdf.stat().st_size
-    assert files["42000349"]["url"] == "https://content.openalex.org/works/W42000349.pdf"
+    assert files[newest]["tier"] == "openalex"
+    assert files[newest]["path"] == pdf.relative_to(root).as_posix()
+    assert files[newest]["size"] == pdf.stat().st_size
+    assert files[newest]["url"] == f"https://content.openalex.org/works/W{newest}.pdf"
 
     status = status_file(root)
-    assert status["quota"] == {"date": TODAY, "by_key": {a.email: 100 for a in accounts}}
-    assert status["fetches"] == {"date": TODAY, "by_tier": {"openalex": 300}}
+    assert status["quota"] == {"date": TODAY, "by_key": {a.email: quota for a in accounts}}
+    assert status["fetches"] == {"date": TODAY, "by_tier": {"openalex": len(fetched)}}
     assert status["last_daily_success"] == TODAY
     assert status["last_pass"]["kind"] == "daily"
-    assert status["counts"] == {"fetched": {"": 300}, "waiting": {"openalex-backlog": 51}}
+    assert status["counts"] == {
+        "fetched": {"": len(fetched)},
+        "waiting": {"openalex-backlog": 6},
+    }
 
     # No key is sent in a URL, shown in the output or written to the store.
     assert not any("secret" in u for u in fake.urls_seen)
@@ -247,14 +259,16 @@ def test_each_key_spends_100_new_papers_first_then_newest_and_a_rerun_spends_not
     assert len(fake.calls) - calls == fake.calls[calls:].count("medline")
 
 
-def test_a_429_stops_that_key_for_the_day(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    root = paper_store(tmp_path, backlog(250))
-    fake = DailyWeb(stop_key="secret-key-b", stop_after=10)
+def test_a_429_stops_that_key_for_the_day(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, quota: int
+) -> None:
+    root = paper_store(tmp_path, backlog(3 * quota))
+    fake = DailyWeb(stop_key="secret-key-b", stop_after=3)
     use(monkeypatch, fake, KEYS)
     daily(root)
-    assert fake.spent == {"secret-key-a": 100, "secret-key-b": 10}
+    assert fake.spent == {"secret-key-a": quota, "secret-key-b": 3}
     assert fake.count("content-429") == 1
-    assert status_file(root)["quota"]["by_key"] == {"a@x.org": 100, "b@x.org": 10}
+    assert status_file(root)["quota"]["by_key"] == {"a@x.org": quota, "b@x.org": 3}
 
     calls = len(fake.calls)
     daily(root)
@@ -263,7 +277,7 @@ def test_a_429_stops_that_key_for_the_day(tmp_path: Path, monkeypatch: pytest.Mo
 
     # Tomorrow both keys spend again.
     daily(root, "2026-11-08")
-    assert fake.spent["secret-key-a"] == 200
+    assert fake.spent["secret-key-a"] == 2 * quota
 
 
 def test_three_openalex_errors_move_a_paper_to_its_host_link_then_to_manual(

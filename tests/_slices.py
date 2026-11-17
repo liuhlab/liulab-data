@@ -6,8 +6,10 @@ Three fixture folders under ``tests/data/`` hold the thin-slice records:
 
 from __future__ import annotations
 
+import fcntl
 import gzip
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -128,11 +130,17 @@ def built_root(path: Path, slice_name: str) -> Path:
 
 #: Each fixture fetched and built once by :func:`prebuild`, kept for :func:`copy_built`.
 _BUILT: dict[str, Path] = {}
-#: The folder :func:`start_prebuild` builds in, and the process building there.
+#: The folder the fixtures are built in; every pytest-xdist worker is given the same one.
 _folder: Path | None = None
+#: Whether this process made the folder, and so removes it.
+_owned = False
+#: The build this process started, if it started one.
 _builder: subprocess.Popen[bytes] | None = None
 #: Why the build failed, raised again on every later :func:`prebuild`.
 _failed: str | None = None
+
+#: In the folder: the lock a build holds until it ends, its output, and the mark of success.
+_LOCK, _LOG, _DONE = "build.lock", "log.txt", "done"
 
 
 class Decompressor:
@@ -160,40 +168,70 @@ def defaults(patch: pytest.MonkeyPatch) -> None:
 
 
 def _build_all(folder: str) -> None:
-    """Fetch and build every fixture under ``folder``, under the test defaults."""
+    """Fetch and build every fixture under ``folder``, under the test defaults, then mark it done."""
     with pytest.MonkeyPatch.context() as patch:
         defaults(patch)
         for name in SLICES:
             built_root(Path(folder) / name, name)
+    (Path(folder) / _DONE).touch()
+
+
+def shared_folder() -> Path:
+    """Return the folder to build in, made by this process, which removes it at the end."""
+    global _folder, _owned
+    if _folder is None:
+        _folder = Path(tempfile.mkdtemp(prefix="labdata-slices-"))
+        _owned = True
+    return _folder
+
+
+def share(folder: Path) -> None:
+    """Build in ``folder``, which another process made and removes: a pytest-xdist worker's."""
+    global _folder
+    _folder = folder
 
 
 def start_prebuild() -> None:
-    """Start fetching and building every fixture once, in a child process, in a new folder."""
-    global _folder, _builder
-    if _folder is None:
-        _folder = Path(tempfile.mkdtemp(prefix="labdata-slices-"))
+    """Start fetching and building every fixture once, in a child process, unless one started.
+
+    The child holds the folder's lock until it exits, so a worker that did not start it waits
+    for it there. A folder with a log holds a build that ran, so none starts again.
+    """
+    global _builder
+    folder = shared_folder()
+    if _builder is not None or _BUILT or _failed is not None:
+        return
+    lock = os.open(folder / _LOCK, os.O_RDWR | os.O_CREAT)
+    try:
         try:
-            with (_folder / "log.txt").open("wb") as log:
-                _builder = subprocess.Popen(
-                    [
-                        sys.executable,
-                        "-c",
-                        f"from tests import _slices; _slices._build_all({str(_folder)!r})",
-                    ],
-                    cwd=Path(__file__).parents[1],
-                    stdout=log,
-                    stderr=subprocess.STDOUT,
-                )
-        except BaseException:
-            remove_prebuilt()
-            raise
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return  # another worker's build holds it
+        if (folder / _LOG).exists():
+            return
+        with (folder / _LOG).open("wb") as log:
+            _builder = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-c",
+                    f"from tests import _slices; _slices._build_all({str(folder)!r})",
+                ],
+                cwd=Path(__file__).parents[1],
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                pass_fds=(lock,),
+            )
+    except BaseException:
+        remove_prebuilt()
+        raise
+    finally:
+        os.close(lock)
 
 
 def prebuild() -> None:
     """Wait for the fixtures :func:`start_prebuild` builds, starting it if it has not started.
 
-    A failed build removes the folder and raises with the child's output, then and on every
-    later call.
+    A failed build raises with the child's output, then and on every later call.
     """
     global _builder, _failed
     if _failed is not None:
@@ -201,20 +239,25 @@ def prebuild() -> None:
     if _BUILT:
         return
     start_prebuild()
-    assert _folder is not None
-    assert _builder is not None
+    folder = shared_folder()
     try:
-        code = _builder.wait()
+        if _builder is not None:
+            _builder.wait()
+            _builder = None
+        lock = os.open(folder / _LOCK, os.O_RDWR | os.O_CREAT)
+        try:
+            fcntl.flock(lock, fcntl.LOCK_SH)
+        finally:
+            os.close(lock)
     except BaseException:
         remove_prebuilt()
         raise
-    _builder = None
-    if code:
-        log = (_folder / "log.txt").read_text(encoding="utf-8", errors="replace")
+    if not (folder / _DONE).is_file():
+        log = (folder / _LOG).read_text(encoding="utf-8", errors="replace")
         remove_prebuilt()
         _failed = f"building the thin slices failed:\n{log}"
         raise RuntimeError(_failed)
-    _BUILT.update((name, _folder / name) for name in SLICES)
+    _BUILT.update((name, folder / name) for name in SLICES)
 
 
 def copy_built(path: Path, slice_name: str) -> Path:
@@ -243,13 +286,18 @@ def copy_store(root: Path, path: Path) -> Path:
 
 
 def remove_prebuilt() -> None:
-    """Stop the build :func:`start_prebuild` started, if it runs, and delete its folder."""
-    global _folder, _builder
+    """End the build this process started, and delete the folder if this process made it.
+
+    A build in a folder this process did not make is waited for, not stopped: another
+    pytest-xdist worker may need it.
+    """
+    global _folder, _owned, _builder
     if _builder is not None:
-        _builder.kill()
+        if _owned:
+            _builder.kill()
         _builder.wait()
         _builder = None
-    if _folder is not None:
+    if _owned and _folder is not None:
         shutil.rmtree(_folder, ignore_errors=True)
-        _folder = None
+        _folder, _owned = None, False
     _BUILT.clear()
