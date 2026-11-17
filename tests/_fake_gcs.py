@@ -1,7 +1,7 @@
 """``FakeGcs``: GCS behind the rclone seam, a folder that applies the rclone calls the code makes.
 
-It knows ``copy``, ``copyto``, ``delete`` and ``lsjson``, with the flags the copies pass, and
-fails on any other. Each object keeps its MD5, as GCS keeps it in object metadata.
+It knows ``copy``, ``copyto``, ``delete`` and ``lsjson``, with the flags the copies and the
+restore pass, and fails on any other. Each object keeps its MD5, as GCS keeps it in object metadata.
 """
 
 from __future__ import annotations
@@ -20,7 +20,16 @@ import pytest
 EXPIRED = "Failed to create file system: couldn't fetch token: invalid_grant: maybe it has expired"
 
 _VALUED = {"--max-depth"}
-_FLAGS = {"--no-traverse", "--files-from-raw", "--max-depth", "--hash", "--filter"}
+_FLAGS = {
+    "--no-traverse",
+    "--files-from-raw",
+    "--max-depth",
+    "--hash",
+    "--filter",
+    "--recursive",
+    "--files-only",
+    "--ignore-times",
+}
 
 
 class KilledError(Exception):
@@ -36,6 +45,7 @@ class _Call:
     traverse: bool = True
     depth: int | None = None
     hashes: bool = False
+    recursive: bool = False
 
 
 class FakeGcs:
@@ -183,6 +193,10 @@ class FakeGcs:
         prefix = self._key(call.where[0])
         assert prefix is not None, "FakeGcs lists only GCS"
         base = self.folder / prefix
+        if call.recursive:
+            # Files only, as rclone lists them with --files-only.
+            names = [n for n in _tree(base) if call.listed is None or n in call.listed]
+            return json.dumps([self._entry(base, n, call.hashes) for n in sorted(names)])
         entries = []
         for path in sorted(base.iterdir()) if base.is_dir() else []:
             folder = path.is_dir()
@@ -193,6 +207,13 @@ class FakeGcs:
                 entry["Hashes"] = {"md5": self.md5[path.relative_to(self.folder).as_posix()]}
             entries.append(entry)
         return json.dumps(entries)
+
+    def _entry(self, base: Path, name: str, hashes: bool) -> dict[str, object]:
+        path = base / name
+        entry: dict[str, object] = {"Path": name, "Size": path.stat().st_size, "IsDir": False}
+        if hashes:
+            entry["Hashes"] = {"md5": self.md5[path.relative_to(self.folder).as_posix()]}
+        return entry
 
 
 def _parse(args: list[str]) -> _Call:
@@ -219,6 +240,8 @@ def _parse(args: list[str]) -> _Call:
             call.depth = int(value)
         elif name == "--hash":
             call.hashes = True
+        elif name == "--recursive":
+            call.recursive = True
     return call
 
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import atexit
 import datetime as dt
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -302,6 +303,33 @@ def papers_copy(
     )
 
 
+@papers_app.command("restore")
+def papers_restore(
+    root: Path | None = typer.Option(
+        None, help="Paper store root, empty or behind GCS; default: LABDATA_PAPERS, then pointer."
+    ),
+    source: str | None = typer.Option(
+        None, "--from", help="rclone path <remote>:<bucket>/<path>; default: copy_to in the marker."
+    ),
+    accept_download: bool = typer.Option(
+        False, "--accept-download", help="Download more than 1 GB without asking."
+    ),
+) -> None:
+    """Fill a work disk from GCS: the paper store as the copy record in GCS names it.
+
+    Downloads only what the disk lacks or holds differently, deletes the state files GCS no
+    longer holds and leaves hidden scratch files alone. It prints the download size and asks
+    before more than 1 GB; without a terminal it then needs --accept-download. Holds the paper
+    store's lock: stop the paper job first.
+    """
+    from labdata.papers.copy import restore
+    from labdata.papers.root import PAPERS_ENV, pointer_path
+    from labdata.store.root import resolve_root
+
+    where = _restore_root(resolve_root(root, PAPERS_ENV, pointer_path(), "papers"))
+    _restore(lambda ok: restore(where, source, approve=ok), where, accept_download)
+
+
 @papers_app.command("serve")
 def papers_serve(
     root: Path | None = typer.Option(
@@ -586,6 +614,65 @@ def store_copy(
         typer.echo(str(err), err=True)
         raise typer.Exit(1) from err
     typer.echo(result.message if result.skipped else f"Copied the store to {result.destination}")
+
+
+@store_app.command("restore")
+def store_restore(
+    root: Path | None = typer.Option(
+        None, help="Store root, empty or behind GCS; default: LABDATA_STORE, then pointer."
+    ),
+    source: str | None = typer.Option(
+        None, "--from", help="rclone path <remote>:<bucket>/<path>; default: copy_to in the marker."
+    ),
+    accept_download: bool = typer.Option(
+        False, "--accept-download", help="Download more than 1 GB without asking."
+    ),
+) -> None:
+    """Fill a work disk from GCS: the store's current state as the copy record in GCS names it.
+
+    Downloads only what the disk lacks or holds differently, deletes the state files GCS no
+    longer holds and leaves work/, support/ and extracts/ alone. It prints the download size
+    and asks before more than 1 GB; without a terminal it then needs --accept-download.
+    """
+    from labdata.store.gcs import restore
+    from labdata.store.root import STORE_ENV, pointer_path, resolve_root
+
+    where = _restore_root(resolve_root(root, STORE_ENV, pointer_path(), "store"))
+    _restore(lambda ok: restore(where, source, approve=ok), where, accept_download)
+
+
+def _restore_root(root: Path | None) -> Path:
+    """Return the root a restore fills; exit 1 when none is set."""
+    if root is None:
+        typer.echo("no root: pass --root", err=True)
+        raise typer.Exit(1)
+    return root
+
+
+def _restore(
+    run: Callable[[Callable[[int, int], bool]], str | None], root: Path, accept: bool
+) -> None:
+    """Run a restore that prints its download size and asks before more than 1 GB."""
+    from labdata import _gcs
+
+    def approve(files: int, size: int) -> bool:
+        typer.echo(f"The restore downloads {files} files, {size / 1e9:.2f} GB.")
+        if size <= _gcs.ASK_ABOVE or accept:
+            return True
+        if sys.stdin.isatty():
+            return typer.confirm("Download more than 1 GB out of GCS?")
+        typer.echo("More than 1 GB needs a yes: pass --accept-download.", err=True)
+        return False
+
+    try:
+        stopped = run(approve)
+    except LabdataError as err:
+        typer.echo(str(err), err=True)
+        raise typer.Exit(1) from err
+    if stopped:
+        typer.echo(stopped, err=True)
+        raise typer.Exit(1)
+    typer.echo(f"Restored {root} from GCS")
 
 
 @store_app.command("coverage")
