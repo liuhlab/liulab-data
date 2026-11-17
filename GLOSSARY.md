@@ -79,11 +79,11 @@ _Avoid_: write, save (for `raw/` itself)
 
 ### Extract
 
-The Parquet copy of one snapshot under `work/extract/<source>-<date>/`. Every build reads the
-extracts of its snapshots, so the current snapshots' extracts are kept with the store, not
-treated as scratch. Prune deletes an extract with its snapshot.
+The Parquet copy of one snapshot, cut into parts a build reads in parallel. It holds nothing its
+snapshot lacks, so GCS does not hold it: a step that needs a missing extract first makes it
+again from the snapshot. Prune deletes an extract with its snapshot.
 
-_Avoid_: scratch, cache (both say it can be deleted)
+_Avoid_: snapshot (the downloaded file an extract is made from)
 
 ### Removal candidate
 
@@ -98,11 +98,13 @@ it deletes the rows saved before it, and a row saved after it wins.
 
 ### Status record
 
-`refresh-status.json` in the store root: the last refresh's start, end and outcome, the date
-of the last successful refresh, the records it added, replaced and removed per source, and
-whether the GCS copy is pending. The date is written only after the switch to the new build.
-It also names the refresh DAG version that started the refresh; a refresh another version
-started is not resumed.
+Each store's record of its last update: its start, end and outcome, and whether it is
+finalized. The GEO/SRA store's, `refresh-status.json`, also holds the date of the last
+successful refresh, written only after the switch to the new build, the records the refresh
+added, replaced and removed per source, and the refresh DAG version that started it; a refresh
+another version started is not resumed. The paper store's, `paper-status.json`, holds its
+passes' dates and paper counts. GCS holds each store's status record as the copy that finalized
+its last update left it, so GCS never holds one that is running or pending.
 
 _Avoid_: status file, refresh log
 
@@ -206,9 +208,26 @@ The papers in manual status, newest first, handed to the maintainer to save in P
 
 ### Copy record
 
-A store's list of what its GCS copy holds, as the last successful copy left it, kept in the
-store and in the bucket. A routine copy compares it with what the store holds now, so it sends
-only the changes and deletes in the bucket only what left the store, never what the work disk
-lacks.
+A store's list of what GCS holds, as the last successful copy left it, kept on the work disk and
+in GCS. A routine copy compares it with what the store holds now, so it sends only the changes
+and deletes in GCS only what left the store, never what the work disk lacks.
 
 _Avoid_: record (alone), which reads as a store record or the status record
+
+### Finalized
+
+An update is finalized once GCS holds the state it made, which is when the copy record in GCS
+names that state: for the GEO/SRA store, the current build and the raw files and snapshots it
+read; for the paper store, the paper files and the tables that name them. Until then the update
+is not done, even when readers on the work disk already use it. GCS is the only source of truth
+for both stores.
+
+_Avoid_: synced, done, succeeded (for an update whose copy has not worked)
+
+### Restore
+
+Filling a work disk from GCS, the copy run the other way: it brings the state files the copy
+record in GCS names that the disk lacks or holds differently, never scratch. An empty disk gets
+the whole store; a disk that fell behind gets only the difference.
+
+_Avoid_: pull, sync
