@@ -5,8 +5,9 @@ pass and its copy together. A pass records its outcome, then finalizes, whatever
 when the ``files`` table and the copy record on the work disk name different paper files or a
 copy is pending. Finalizing takes in a stopped daily pass's journal, marks a copy pending and
 the store not finalized, then copies to GCS; the copy sends the status record last, marked
-finalized and no longer pending. A copy that is skipped, fails or is cut off leaves it pending,
-for the paper job's next idle tick.
+finalized and no longer pending, and a pass it records as running, which was stopped, as
+failed. A copy that is skipped, fails or is cut off leaves it pending, for the paper job's next
+idle tick.
 
 This module is the only writer of ``paper-status.json``.
 """
@@ -288,6 +289,8 @@ def _send(
     """Mark a copy pending, then copy; a copy that works sends the record marked finalized."""
     root = store.root
     owed = replace(read_status(root), copy_pending=True, finalized=False)
+    if owed.last_pass.get("outcome") == "running":  # under the lock, it was stopped
+        owed = replace(owed, last_pass={**owed.last_pass, "outcome": "failed"})
     _write(root, owed)
     start = dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     done = replace(owed, copy_pending=False, finalized=True, last_copy_success=start)

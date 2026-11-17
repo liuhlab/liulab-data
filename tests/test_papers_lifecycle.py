@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import json
 import urllib.parse
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
@@ -164,3 +165,21 @@ def test_a_pass_run_by_hand_ends_finalized_and_exits_1_while_its_copy_is_pending
     assert gcs.read(path) == (root / path).read_bytes()
     assert (read_status(root).finalized, read_status(root).copy_pending) == (True, False)
     assert gcs.read(STATUS) == (root / STATUS).read_bytes()
+
+
+def test_a_copy_after_a_killed_pass_sends_that_pass_as_failed_never_running(
+    tmp_path: Path, gcs: FakeGcs
+) -> None:
+    root = copied_store(tmp_path, [paper("41000001")])
+    killed = {"kind": "daily", "start": "2026-11-07T00:30:00+00:00", "outcome": "running"}
+    (root / STATUS).write_text(json.dumps({"last_pass": killed, "finalized": True}))
+    hold(root, "2")
+
+    lifecycle.copy(open_paper_store(root))
+
+    sent = json.loads(gcs.read(STATUS))
+    assert (sent["last_pass"]["outcome"], sent["finalized"], sent["copy_pending"]) == (
+        "failed",
+        True,
+        False,
+    )
