@@ -67,6 +67,12 @@ RAW_SOURCES: dict[str, tuple[str, str]] = {
         "The SRA EXPERIMENT_PACKAGE XML of each experiment, one row per experiment.",
         f"{_EUTILS}/efetch.fcgi?db=sra&rettype=full&retmode=xml",
     ),
+    raw.SRA_FETCH_FAILED: (
+        "Each SRA experiment the E-utilities lane asked for and could not fetch, one row per "
+        "experiment: the last error. The build notes it as fetch-failed while sra-xml holds "
+        "no package for it.",
+        f"{_EUTILS}/efetch.fcgi?db=sra&rettype=full&retmode=xml, as answered",
+    ),
     raw.PUBMED_SI: (
         "The PubMed IDs that list each accession in their accession field, one row per "
         "accession queried, one PMID per line. An empty text means none.",

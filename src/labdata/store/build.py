@@ -39,7 +39,6 @@ from labdata.exceptions import StoreBuildError
 from labdata.store import (
     _limits,
     _parse,
-    eutils,
     extract,
     gaps,
     known,
@@ -314,13 +313,11 @@ def _build_into(
         gaps.Note(str(v["example"]), gaps.UNKNOWN_LABEL, f"{label}: {v['links']} links")
         for label, v in labels.items()
     ]
-    _, sra_date = extract.done_dir(source.root, snapshots.SRA_ACCESSIONS)
     note_counts = gaps.write_notes(
         root,
         tmp,
         target_list,
         [*copy_notes, *label_notes, *unparsable, *_no_package_notes(root, source, empty)],
-        experiments=eutils.list_path(source.root, sra_date),
         source=source,
     )
     provenance.document_build(

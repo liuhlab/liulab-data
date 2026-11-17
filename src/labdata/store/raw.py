@@ -43,6 +43,9 @@ GEO_FILELIST = "geo-filelist"
 #: Raw folder of each GEO Series the fetch could not save, one row per Series: its gap
 #: reason, then any detail after a newline (see :mod:`labdata.store.gaps`).
 GEO_GAPS = "geo-gaps"
+#: Raw folder of each SRA experiment the E-utilities lane asked for and could not fetch, one
+#: row per experiment: the last error. The build notes it while ``sra-xml`` holds none.
+SRA_FETCH_FAILED = "sra-fetch-failed"
 
 #: Accession numbers per bucket, a power of ten per source.
 WIDTHS: dict[str, int] = {
@@ -52,6 +55,7 @@ WIDTHS: dict[str, int] = {
     PUBMED_SI: 1_000_000,
     ENTREZ_LINKS: 1_000_000,
     GEO_GAPS: 1_000_000,
+    SRA_FETCH_FAILED: 1_000_000,
 }
 #: Raw text sorted in memory as one chunk before it is written.
 SORT_CHUNK_BYTES = 32 << 20
