@@ -46,15 +46,18 @@ def test_a_build_writes_the_root_readme_for_the_build_it_switched_to(root: Path)
     assert "Current build: `b1`" in text
     assert f"switched to it at {switched}" in text
     assert "| `geo-series` | 2026-10-14 |" in text
-    for heading in ("labdata-store.toml", "builds/", "raw/", "snapshots/", "support/", "work/"):
+    headings = (
+        "labdata-store.toml",
+        "builds/",
+        "raw/",
+        "snapshots/",
+        "extracts/",
+        "support/",
+        "work/",
+    )
+    for heading in headings:
         assert re.search(rf"^## {re.escape(heading)}", text, re.MULTILINE), heading
     assert str(root) not in text
-
-
-def test_the_readme_says_to_keep_the_extracts_when_cleaning_work(root: Path) -> None:
-    text = (root / "README.md").read_text(encoding="utf-8")
-    work = text.split("\n## work/\n", 1)[1].split("\n## ", 1)[0]
-    assert "Keep `work/extract/`" in work
 
 
 def test_the_readme_command_rewrites_it_with_this_copys_sizes(root: Path) -> None:

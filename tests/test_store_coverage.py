@@ -160,7 +160,7 @@ def _failed(build_dir: Path) -> list[str]:
 
 
 def _state_copy(root: Path, to: Path) -> Path:
-    """Copy only the store's state files, then remake its extracts, as a restore would."""
+    """Copy only the store's state files, as a restore would; the build remakes its extracts."""
     for rel in paths.declared(paths.STATE):
         src = root / rel
         if src.is_dir():
@@ -168,8 +168,6 @@ def _state_copy(root: Path, to: Path) -> Path:
         elif src.is_file():
             to.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, to / rel)
-    for source in extract.SOURCES:
-        extract.extract(to, source, workers=1)
     return to
 
 

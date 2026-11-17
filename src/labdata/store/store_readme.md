@@ -29,6 +29,7 @@ ${snapshot_table}
   builds/<build-id>/            the tables, built from raw/ and snapshots/ (query these)
   raw/<source>/                 the text NCBI served for each record, by source
   snapshots/<source>/<date>/    whole NCBI bulk files, as downloaded
+  extracts/<source>-<date>/     Parquet extracts of the snapshots, which builds read
   support/                      kept run logs
   work/                         working files of the download (not part of the store)
 ```
@@ -158,6 +159,17 @@ labdata store verify --root <store>
   It needs `curl`, and `aria2c` for faster downloads. The next `labdata store run` uses the
   newest date of each source.
 
+## extracts/
+
+- **What:** `extracts/<source>-<date>/` holds the Parquet extract of one snapshot, cut into
+  parts that a build reads in parallel. It holds nothing its snapshot lacks, so
+  `labdata store copy` leaves it out.
+- **Made by:** `labdata store extract --source <source>`. A build that needs a missing extract
+  makes it first, which is slow on a large snapshot. A sample build
+  (`labdata store build --sample-of <store>`) makes a missing one in its own root, never here.
+- **Refresh:** nothing to do. Each refresh extracts its new snapshots, and
+  `labdata store prune` deletes an extract with its snapshot.
+
 ## support/
 
 - **What:** run logs kept with this copy of the store. Nothing reads them, and
@@ -184,21 +196,17 @@ labdata store verify --root <store>
 
 ## work/
 
-- **What:** working files of the download and of each refresh: fetch parts, snapshot extracts,
-  the target Series list, step markers and logs, and the build lock. `labdata store copy`
-  leaves it out.
-- **Keep `work/extract/`.** `work/extract/<source>-<date>/` holds the Parquet extract of one
-  snapshot. Every build reads the extracts of the snapshots it uses, so a sample build
-  (`labdata store build --sample-of <store>`) and a rebuild of this store fail without them.
-  `labdata store prune` deletes an extract with its snapshot. If an extract is lost,
-  `labdata store extract --source <source>` makes it again, which is slow on a large
-  snapshot.
+- **What:** working files of the download and of each refresh: fetch parts, the target
+  Series list, step markers and logs, and the build lock. `labdata store copy` leaves it out.
+  An older store kept its extracts in `work/extract/`; the next extract or build moves them
+  to `extracts/`.
 - **Refresh:** none. [Clean up](#clean-up) lists what in `work/` you may delete.
 
 ## Clean up
 
-When no run is going and `refresh-status.json` says the last refresh succeeded, you may delete
-the paths below. They are on this computer only, and the next run makes what it needs again.
+You may delete the paths below only while no refresh or full run is running, and once
+`refresh-status.json` says the last refresh succeeded. They are on this computer only, and the
+next run makes what it needs again.
 Keep the run logs in `support/` first, as its section says. Fetch steps still skip every item
 saved in `raw/`.
 
@@ -213,8 +221,9 @@ saved in `raw/`.
 - `work/eutils/`
 - `work/tmp/`
 - `work/sra-removal/`
+- `work/extract/`, where an older store kept its extracts; the refresh moved the ones in use
 
-Keep everything else, `work/extract/` among it.
+Keep everything else.
 
 ## How to refresh
 
