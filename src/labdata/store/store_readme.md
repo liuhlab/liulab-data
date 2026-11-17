@@ -212,6 +212,7 @@ saved in `raw/`.
 
 - `support/`, once you no longer need its run logs
 - `work/build.lock`
+- `work/run.lock`
 - `work/build/`
 - `work/parts/`
 - `work/run/`
@@ -241,7 +242,10 @@ NCBI:
    successful refresh and their SRA experiments, removes the GEO Series that a fetch confirms
    are withdrawn, builds the tables, checks their coverage, switches the store to the new build,
    deletes builds and snapshots out of use for longer than a grace period, and copies the store
-   to GCS. If it stops, run the same command again: it goes on from the first unfinished step.
+   to GCS. If it stops, run the same command again: within 7 days of its start it goes on from
+   the first unfinished step, and later it starts a new refresh. It refuses while another
+   update runs on the store. If it says it cannot check that update and you know the update
+   has ended, add `--owner-gone`.
 
 3. Read `refresh-status.json`. It gives the refresh's start, end and outcome, the date of the
    last successful refresh, the records added, replaced and removed in each `raw/` source, and

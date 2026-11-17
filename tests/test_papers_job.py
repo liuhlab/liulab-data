@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+from labdata import _slurm
 from labdata._http import RateLimiter
 from labdata.cli import app
 from labdata.ncbi import entrez as entrez_mod
@@ -63,9 +64,7 @@ def _isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.delenv("LABDATA_PAPERS", raising=False)
     monkeypatch.delenv("OPENALEX_API_KEYS", raising=False)
     monkeypatch.setattr(entrez_mod.time, "sleep", lambda _s: None)
-    monkeypatch.setattr(
-        job_mod, "_show_job", lambda _id: show_job(f"{RUN}/labdata-papers.{JOB}.log")
-    )
+    monkeypatch.setattr(_slurm, "show_job", lambda _id: show_job(f"{RUN}/labdata-papers.{JOB}.log"))
 
 
 def show_job(stdout: str) -> str:
@@ -304,7 +303,7 @@ def test_the_successor_logs_into_the_folder_of_the_job_before_it(
     output: str | None,
 ) -> None:
     root = synced(paper_store(tmp_path))
-    monkeypatch.setattr(job_mod, "_show_job", lambda _id: shown)
+    monkeypatch.setattr(_slurm, "show_job", lambda _id: shown)
     serve(root, Clock(utc("2026-11-05 07:00")), until=utc("2026-11-05 07:01"))
 
     logs = [[a for a in args if a.startswith("--output=")] for args in sbatch.calls]
@@ -365,8 +364,8 @@ def test_two_jobs_stay_queued_behind_the_running_one(
     sbatch = Sbatch(first=4300)
     monkeypatch.setattr(job_mod, "_submit", sbatch)
     monkeypatch.setattr(
-        job_mod,
-        "_show_job",
+        _slurm,
+        "show_job",
         lambda id_: (
             show_job(f"{RUN}/labdata-papers.{id_}.log")
             + f"   JobState={shown.get(id_, 'PENDING')} Reason=Dependency\n"

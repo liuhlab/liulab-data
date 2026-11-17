@@ -326,8 +326,8 @@ def test_a_resumed_refresh_says_it_keeps_its_own_since_date(
 ) -> None:
     root = tmp_path / "store"
     init_store(root)
-    started = "2026-11-01T02:00:00Z"
-    folder = "work/refresh/2026-11-01T020000Z"
+    started = f"{dt.datetime.now(dt.UTC) - dt.timedelta(days=1):%Y-%m-%dT%H:%M:%SZ}"
+    folder = f"work/refresh/{started.replace(':', '')}"
     unfinished = {
         "started": started,
         "outcome": "failed",
@@ -377,7 +377,7 @@ def test_a_refresh_an_older_dag_opened_is_left_and_a_new_one_starts(
     status = lifecycle.read_status(root)
     assert status["since"] == _OLD
     assert status["folder"] != folder
-    assert f"left unfinished: {folder}" in caplog.text
+    assert f"{folder} is not resumed: an older refresh DAG opened it" in caplog.text
     # The new refresh, cut off in turn, resumes in its own folder.
     assert CliRunner().invoke(app, again).exit_code == 1
     assert seen[1] == seen[0]

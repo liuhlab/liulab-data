@@ -75,6 +75,8 @@ EXTRACTS = Declared("extracts/", REBUILDABLE)
 #: Run logs kept by hand; nothing reads them.
 SUPPORT = Declared("support/", SCRATCH)
 BUILD_LOCK = Declared("work/build.lock", SCRATCH)
+#: The run lock: the record of the process running an update, while it runs.
+RUN_LOCK = Declared("work/run.lock", SCRATCH)
 #: A running build's parse parts, ``<build-id>/``.
 BUILD_WORK = Declared("work/build/", SCRATCH)
 #: Fetch and removal parts that pack merges into ``raw/``, ``<source>/``.
@@ -108,6 +110,7 @@ LAYOUT = (
     EXTRACTS,
     SUPPORT,
     BUILD_LOCK,
+    RUN_LOCK,
     BUILD_WORK,
     PARTS,
     RUNS,

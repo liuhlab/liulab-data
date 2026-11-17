@@ -11,7 +11,7 @@ import datetime as dt
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NoReturn
 
 import typer
 
@@ -35,6 +35,15 @@ from labdata.tenx import bamtofastq
 
 if TYPE_CHECKING:
     from labdata.store.gaps import Coverage
+
+#: The run lock's holder has ended, though this host cannot check it.
+_OWNER_GONE = typer.Option(
+    False,
+    "--owner-gone",
+    help="The update holding the store's run lock has ended, though this host cannot check "
+    "it (no Slurm answer, another host).",
+)
+
 
 app = typer.Typer(
     help="Liu Lab data curation, download, and organization utilities.",
@@ -512,6 +521,7 @@ def store_build(
         hidden=True,
         help="Write the build only: a run's switch step checks it, then switches to it.",
     ),
+    owner_gone: bool = _OWNER_GONE,
 ) -> None:
     """Build the store's tables from raw/ and snapshots/ with no network, then switch to them.
 
@@ -536,15 +546,19 @@ def store_build(
     else:
         target, source = root, open_store(sample_of).root
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
-    out = lifecycle.build(
-        target,
-        build_id,
-        workers=workers,
-        chunk_bytes=chunk_mb << 20,
-        fraction=_fraction(fraction),
-        sample_of=source,
-        switch=not no_switch,
-    )
+    try:
+        out = lifecycle.build(
+            target,
+            build_id,
+            workers=workers,
+            chunk_bytes=chunk_mb << 20,
+            fraction=_fraction(fraction),
+            sample_of=source,
+            switch=not no_switch,
+            owner_gone=owner_gone,
+        )
+    except lifecycle.StoreBusyError as err:
+        _busy(err)
     if no_switch:
         typer.echo(f"Built {out}; the run's switch step checks it, then switches to it")
         return
@@ -582,18 +596,28 @@ def store_prune(
         help="Hours a build stays after the store switched away from it; "
         "default: labdata.store.prune.GRACE.",
     ),
+    owner_gone: bool = _OWNER_GONE,
 ) -> None:
     """Delete old builds and unread snapshots once they are out of use for --grace hours.
 
     Never deletes the current build or the snapshots it reads. `--grace 0` is a one-off for
-    tidying a store nobody is reading: a reader of an old build loses it at once.
+    tidying a store nobody is reading: a reader of an old build loses it at once. Also deletes
+    abandoned refresh folders.
     """
     import datetime as dt
 
+    from labdata.store.lifecycle import StoreBusyError
     from labdata.store.prune import GRACE, prune
 
     store = open_store(root)
-    report = prune(store.root, grace=GRACE if grace is None else dt.timedelta(hours=grace))
+    try:
+        report = prune(
+            store.root,
+            grace=GRACE if grace is None else dt.timedelta(hours=grace),
+            owner_gone=owner_gone,
+        )
+    except StoreBusyError as err:
+        _busy(err)
     for path in report.deleted:
         typer.echo(f"Deleted {path}")
     if not report.deleted:
@@ -744,6 +768,12 @@ def _echo_coverage(report: Coverage) -> None:
         typer.echo(f"  ... and {report.failures - len(report.failing)} more")
 
 
+def _busy(err: LabdataError) -> NoReturn:
+    """Exit 1 with the message: another update holds the store's run lock."""
+    typer.echo(str(err), err=True)
+    raise typer.Exit(1) from err
+
+
 def _fraction(fraction: float | None) -> float | None:
     from labdata.store import targets
 
@@ -765,6 +795,7 @@ def store_run(
     root: Path | None = typer.Option(
         None, help="Store root; default: LABDATA_STORE, then pointer."
     ),
+    owner_gone: bool = _OWNER_GONE,
 ) -> None:
     """Fetch, pack, build, check, switch, prune and copy the store in one resumable run.
 
@@ -779,7 +810,11 @@ def store_run(
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     try:
         code = pipeline.run(
-            open_store(root).root, fraction=_fraction(fraction), cores=cores, ncbi=ncbi
+            open_store(root).root,
+            fraction=_fraction(fraction),
+            cores=cores,
+            ncbi=ncbi,
+            owner_gone=owner_gone,
         )
     except LabdataError as err:
         typer.echo(str(err), err=True)
@@ -804,12 +839,15 @@ def store_refresh(
     root: Path | None = typer.Option(
         None, help="Store root; default: LABDATA_STORE, then pointer."
     ),
+    owner_gone: bool = _OWNER_GONE,
 ) -> None:
     """Bring the store to the sources' current state in one resumable run.
 
     Renews the snapshots, fetches what GEO and SRA changed, removes what is confirmed gone,
     builds, switches, prunes and copies. Rerun the same command to resume an unfinished
-    refresh. The outcome is in refresh-status.json in the store root.
+    refresh that started within the last 7 days; an older one is not resumed. It refuses
+    while another update holds the store's run lock. The outcome is in refresh-status.json
+    in the store root.
     """
     import logging
 
@@ -819,7 +857,9 @@ def store_refresh(
         _date(since, "--since")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     try:
-        code = refresh.run(open_store(root).root, since=since, cores=cores, ncbi=ncbi)
+        code = refresh.run(
+            open_store(root).root, since=since, cores=cores, ncbi=ncbi, owner_gone=owner_gone
+        )
     except LabdataError as err:
         typer.echo(str(err), err=True)
         raise typer.Exit(1) from err
@@ -1066,6 +1106,7 @@ def store_remove_sra(
     root: Path | None = typer.Option(
         None, help="Store root; default: LABDATA_STORE, then pointer."
     ),
+    owner_gone: bool = _OWNER_GONE,
 ) -> None:
     """Remove withdrawn SRA experiments and runs: the yearly maintenance step.
 
@@ -1079,7 +1120,10 @@ def store_remove_sra(
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     store = open_store(root)
-    report = lifecycle.remove_sra(store.root, client=_store_client())
+    try:
+        report = lifecycle.remove_sra(store.root, client=_store_client(), owner_gone=owner_gone)
+    except lifecycle.StoreBusyError as err:
+        _busy(err)
     typer.echo(
         f"SRA removal: {report.candidates} candidates ({report.non_public} non-public, "
         f"{report.with_runs} with a non-public run, {report.unreached} reached by no live "

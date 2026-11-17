@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import datetime as dt
 import posixpath
-import re
 import subprocess
 import threading
 import time
@@ -23,6 +22,7 @@ import traceback
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
 
+from labdata import _slurm
 from labdata._http import HttpTransport, Transport
 from labdata.ncbi.entrez import EntrezClient
 from labdata.papers import lifecycle, paths
@@ -54,17 +54,6 @@ QUEUED = 2
 def _submit(args: list[str]) -> subprocess.CompletedProcess[str]:
     """Run ``sbatch``; the one seam through which the job submits its successor."""
     return subprocess.run(args, capture_output=True, text=True, check=False)
-
-
-def _show_job(job_id: str) -> str:
-    """Return ``scontrol show job`` output, or ``""``; the seam that reads a job's state."""
-    try:
-        done = subprocess.run(
-            ["scontrol", "show", "job", job_id], capture_output=True, text=True, check=False
-        )
-    except OSError:
-        return ""
-    return done.stdout if done.returncode == 0 else ""
 
 
 def due(
@@ -251,13 +240,13 @@ def _submit_successor(
 
 def _waiting(job_id: str) -> bool:
     """Return whether Slurm shows ``job_id`` pending or running, or shows nothing."""
-    state = re.search(r"\bJobState=(\S+)", _show_job(job_id))
-    return state is None or state[1] in {"PENDING", "RUNNING"}
+    state = _slurm.job_state(job_id)
+    return not state or state in {"PENDING", "RUNNING"}
 
 
 def _log_dir(job_id: str) -> str | None:
     """Return the folder of this job's log, as Slurm reports it, or ``None``."""
-    for line in _show_job(job_id).splitlines():
+    for line in (_slurm.show_job(job_id) or "").splitlines():
         key, _, value = line.strip().partition("=")
         if key == "StdOut" and value:
             return posixpath.dirname(value)

@@ -111,7 +111,9 @@ it deletes the rows saved before it, and a row saved after it wins.
 Each store's record of its last update: its start, end and outcome, and whether it is
 finalized. The GEO/SRA store's, `refresh-status.json`, names the update (a refresh, a full run,
 a build by hand or the SRA removal) and its new build; its outcome is running, failed (stopped
-before its switch), abandoned, built (switched on the work disk, not finalized) or finalized.
+before its switch), built (switched on the work disk, not finalized) or finalized. A run that
+a newer update replaces before its switch is abandoned: its folder keeps its record, marked
+abandoned, and prune removes a refresh's folder.
 It also holds the date of the last successful refresh, written only at a refresh's switch to
 the new build, the records the refresh added, replaced and removed per source, and the refresh
 DAG version that started it; a refresh another version started is not resumed. The paper store's, `paper-status.json`, holds its
@@ -119,6 +121,17 @@ passes' dates and paper counts. GCS holds each store's status record as the copy
 its last update left it, so GCS never holds one that is running or pending.
 
 _Avoid_: status file, refresh log
+
+### Run lock
+
+The GEO/SRA store's record of the process running an update, `work/run.lock`: its Slurm job,
+host, process and start time. One update holds it at a time: a refresh, a full run, a build by
+hand, the SRA removal or a prune. A start that finds it asks whether the owner still runs, by
+Slurm or on the owner's host. It refuses while the owner runs, and takes the lock once the owner
+is gone. When it cannot check, it refuses unless told the owner is gone (`--owner-gone`). An
+unfinished refresh whose owner is gone resumes only within 7 days of its start.
+
+_Avoid_: build lock (the lock one build, prune or copy holds while it writes)
 
 ### Maintenance run
 

@@ -25,6 +25,8 @@ src/labdata/
   _cache.py          cache-dir resolution ($XDG_CACHE_HOME/liulab-data)
   exceptions.py      LabdataError hierarchy
   _http.py, _rclone.py  the HTTP and rclone seams every client shares
+  _slurm.py          the Slurm query seam (scontrol) and whether a lock's owner still runs;
+                       the paper job and the store's run lock use it
   _gcs.py            the GCS protocol both stores share: copy and restore; store/gcs.py and
                        papers/copy.py are its adapters
   cli.py             thin Typer CLI (labdata version, labdata ncbi configure,
@@ -43,8 +45,12 @@ src/labdata/
                        way to open a build); layout.py (every build table's
                        declaration, the only writer of build tables);
                        lifecycle.py (an update's life cycle: the status
-                       record, the switch after the checks, the copy outcome);
-                       pipeline.py + pipeline.smk (the full-run DAG);
+                       record, the run lock, the switch after the checks, the
+                       copy outcome);
+                       pipeline.py (pipeline.drive, the one driver of both
+                       store DAGs) + pipeline.smk (the full-run DAG);
+                       closing.smk (the closing steps both DAGs include:
+                       extract, build, switch, prune, copy);
                        changes.py (a refresh's re-fetch list), removals.py
                        (confirm and remove withdrawn Series), sra_removal.py
                        (the yearly removal of withdrawn SRA records),
@@ -112,7 +118,8 @@ slow and live lanes run in one process.
   seams: `sratools._run` (sra-tools/pigz), `geo.pipeline._run_snakemake` and
   `store.pipeline._run_snakemake` (Snakemake), `labdata._rclone.run` (rclone; both
   stores' copies and restores call it through `labdata._gcs`),
-  `papers.job._submit` (sbatch), `papers.job._show_job` (scontrol) and `store.extract._popen` (rapidgzip/pigz). Tests mock the seams, never the real binaries.
+  `papers.job._submit` (sbatch), `labdata._slurm.show_job` (scontrol; the paper job and the
+  store's run lock) and `store.extract._popen` (rapidgzip/pigz). Tests mock the seams, never the real binaries.
 - **Pipelines are Snakemake DAGs with typed resources.** The download DAG
   (`prefetch → extract → compress`) lives in `pipeline.smk`, driven by
   `labdata.geo.pipeline`. labdata owns per-stage logic (tool calls, resume flags, cleanup,
@@ -120,7 +127,9 @@ slow and live lanes run in one process.
   (`labdata geo _prefetch/_extract/_compress`); Snakemake owns scheduling/resume/retries.
   An `ncbi` resource caps concurrent network jobs independently of `--cores` (total CPU),
   keeping the link busy while cores extract/compress. The store DAG adds a `mem_mb` resource:
-  each step gets its share as `LABDATA_MEMORY_MB` and caps DuckDB and Ray inside it.
+  each step gets its share as `LABDATA_MEMORY_MB` and caps DuckDB and Ray inside it. One
+  driver, `store.pipeline.drive`, runs the full run and the refresh under the store's run
+  lock, and both DAGs include the same closing steps, `closing.smk`.
   Future pipelines follow this split. The paper job is the exception: one process with a
   lock (ADR 0007).
 - **Lazy, cached domain objects.** `Series(...)` is cheap; network happens on first
