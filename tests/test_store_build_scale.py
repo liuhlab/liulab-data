@@ -28,7 +28,7 @@ import pytest
 from labdata.exceptions import StoreBuildError
 from labdata.store import _parse, extract, init_store, layout, open_store
 from labdata.store import build as build_module
-from labdata.store.build import build
+from labdata.store.lifecycle import build
 from tests._slices import DATA, SLICES, BuiltStore, copy_snapshots
 
 _STAGE1 = json.loads((DATA / "stage1_tables.json").read_text())

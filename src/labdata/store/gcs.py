@@ -5,7 +5,7 @@ the current build and the raw files and snapshot folders it read, as its manifes
 with the README and manifest beside each, the marker and the root ``README.md``. ``work/``,
 ``support/`` and older builds stay behind. The copy record, :data:`COPIED`, is JSON: each file
 with its sha256, or null for a file sent every time. The status record goes up last, marked
-finalized, as :func:`labdata.store.refresh.finalized` gives it.
+finalized, as :func:`labdata.store.lifecycle.finalized` gives it.
 
 A routine copy with no copy record on the work disk or in GCS seeds one from the build the
 marker in GCS names, when GCS is known to hold exactly that build; otherwise it is skipped and
@@ -116,8 +116,8 @@ def copy(
         )
     if full and accept_deletes:
         raise StoreCopyError("--full deletes nothing, so it takes no --accept-deletes")
-    # Imported here: the refresh imports this module.
-    from labdata.store.refresh import note_copy
+    # Imported here: the life-cycle module imports this one.
+    from labdata.store.lifecycle import note_copy
 
     try:
         with build_lock(root):
@@ -188,8 +188,8 @@ class _Adapter(_gcs.Adapter):
         return (json.dumps(files, indent=1, sort_keys=True) + "\n").encode()
 
     def finalized(self) -> bytes | None:
-        # Imported here: the refresh imports this module.
-        from labdata.store.refresh import finalized
+        # Imported here: the life-cycle module imports this one.
+        from labdata.store.lifecycle import finalized
 
         return finalized(self.root)
 

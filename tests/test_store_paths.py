@@ -25,7 +25,7 @@ def test_the_copy_sends_the_state_files_and_the_readme_frees_the_scratch_ones_no
 ) -> None:
     root = built_store(tmp_path / "store", "geo_slice")
     files = [p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file()]
-    state = {p for p in files if paths.kind(p) is paths.Kind.STATE}
+    state = {p for p in files if paths.kind(p) is paths.Kind.STATE} - {paths.STATUS.rel}
     fake = FakeGcs.install(monkeypatch, tmp_path / "gcs", "gcs:bucket/store")
 
     gcs.copy(root, "gcs:bucket/store", full=True)

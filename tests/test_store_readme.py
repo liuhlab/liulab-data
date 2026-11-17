@@ -16,7 +16,7 @@ from typer.testing import CliRunner
 
 from labdata.cli import app
 from labdata.store import readme
-from labdata.store.build import build
+from labdata.store.lifecycle import build
 from tests._slices import BuiltStore
 
 

@@ -1,4 +1,4 @@
-"""Build the store's tables from ``raw/`` and ``snapshots/``, then switch the marker to them.
+"""Build the store's tables from ``raw/`` and ``snapshots/`` into a new build folder.
 
 No network. Reads family SOFT, ``elink`` results, SRA packages, ``[si]`` results and
 ``filelist.txt`` from ``raw/``, and the snapshots only through their extracts
@@ -9,8 +9,9 @@ and ``notes.parquet``, with the folder's README and manifest.
 
 Memory is bounded by a chunk, not by the store: workers parse raw buckets a chunk at a time
 into Parquet parts under ``work/build/<build-id>/``, and DuckDB merges and sorts those parts
-out of core into the tables. The folder appears by a rename once whole, and the marker
-switches to it by a rename, so readers never see half a build.
+out of core into the tables. The folder appears by a rename once whole, so readers never
+see half a build. A build never switches the marker: :mod:`labdata.store.lifecycle` does,
+once the update's checks pass.
 
 A sample build reads another store's ``raw/`` and ``snapshots/`` and writes into a scratch
 root. Only the raw rows whose accession is in the seeded sample are parsed, with every record
@@ -46,7 +47,6 @@ from labdata.store import (
     paths,
     provenance,
     raw,
-    readme,
     snapshots,
     suppl,
     targets,
@@ -108,7 +108,7 @@ def build(
     fraction: float | None = None,
     sample_of: Path | None = None,
 ) -> Path:
-    """Build every table into a new ``builds/<build-id>/`` and point the marker at it.
+    """Build every table into a new ``builds/<build-id>/``, without switching to it.
 
     Parameters
     ----------
@@ -242,8 +242,6 @@ def _build(
     finally:
         shutil.rmtree(work, ignore_errors=True)
         shutil.rmtree(tmp, ignore_errors=True)
-    paths.switch(root, build_id)
-    readme.try_write(root)
     return out
 
 

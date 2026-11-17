@@ -25,7 +25,7 @@ ${snapshot_table}
 <store>/
   README.md                     this file
   labdata-store.toml            the marker: format version and the current build
-  refresh-status.json           the status record: the last refresh and its outcome
+  refresh-status.json           the status record: the last update and its outcome
   builds/<build-id>/            the tables, built from raw/ and snapshots/ (query these)
   raw/<source>/                 the text NCBI served for each record, by source
   snapshots/<source>/<date>/    whole NCBI bulk files, as downloaded
@@ -205,8 +205,8 @@ labdata store verify --root <store>
 ## Clean up
 
 You may delete the paths below only while no refresh or full run is running, and once
-`refresh-status.json` says the last refresh succeeded or is finalized. They are on this
-computer only, and the next run makes what it needs again.
+`refresh-status.json` says the last update is `finalized`, or `built` in a store with no
+`copy_to`. They are on this computer only, and the next run makes what it needs again.
 Keep the run logs in `support/` first, as its section says. Fetch steps still skip every item
 saved in `raw/`.
 
@@ -239,15 +239,15 @@ NCBI:
 
    It downloads new snapshots, fetches the GEO Series changed or added since the last
    successful refresh and their SRA experiments, removes the GEO Series that a fetch confirms
-   are withdrawn, builds the tables, switches the store to the new build, deletes builds and snapshots
-   out of use for longer than a grace period, and copies the store to GCS. If it stops, run
-   the same command again: it goes on from the first unfinished step.
+   are withdrawn, builds the tables, checks their coverage, switches the store to the new build,
+   deletes builds and snapshots out of use for longer than a grace period, and copies the store
+   to GCS. If it stops, run the same command again: it goes on from the first unfinished step.
 
 3. Read `refresh-status.json`. It gives the refresh's start, end and outcome, the date of the
    last successful refresh, the records added, replaced and removed in each `raw/` source, and
-   `copy_pending`. The outcome is `finalized` once GCS holds the refresh's build. When
-   `copy_pending` is `true`, the GCS copy is behind the store. Log in to rclone again, then
-   run `labdata store copy --root <store>`.
+   `copy_pending`. The outcome is `finalized` once GCS holds the refresh's build. When it is
+   `built`, the store uses the new build but GCS does not hold it yet. Log in to rclone again,
+   then run the same refresh command: it only copies.
 
 4. Keep the refresh's logs, as `support/` says above.
 

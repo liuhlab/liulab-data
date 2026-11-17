@@ -30,8 +30,18 @@ from labdata.cli import app
 from labdata.exceptions import NotFound
 from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
-from labdata.store import geo_lane, init_store, open_store, paths, pipeline, raw, refresh
+from labdata.store import (
+    geo_lane,
+    init_store,
+    lifecycle,
+    open_store,
+    paths,
+    pipeline,
+    raw,
+    refresh,
+)
 from labdata.store.fetch import soft_url
+from labdata.store.gcs import COPIED
 from tests._fake_gcs import FakeGcs
 from tests._scripts import compare
 from tests._slices import copy_store
@@ -274,8 +284,8 @@ def test_refresh_hands_snakemake_the_refresh_dag_in_step_order(
         "confirm": {"eutils.done"},
         "pack": {"confirm.done"},
         "build": {"pack.done", *(f"extract-{s}.done" for s in _EXTRACTS)},
-        "status": {"build.done"},
-        "prune": {"status.done"},
+        "switch": {"build.done"},
+        "prune": {"switch.done"},
         "copy": {"prune.done"},
         "all": {"copy.done"},
     }
@@ -306,7 +316,6 @@ def test_refresh_hands_snakemake_the_refresh_dag_in_step_order(
     plan = config["mem_mb"]
     for group in (("geo", "eutils", "extract"), ("pack", "extract"), ("build",)):
         assert sum(plan[s] for s in group) <= total, group
-    assert refresh.read_status(root)["outcome"] == "succeeded"
 
 
 _EXTRACTS = ("biosample", "bioproject", "sra-accessions", "geo-series")
@@ -326,7 +335,7 @@ def test_a_resumed_refresh_says_it_keeps_its_own_since_date(
         "since": _OLD,
         "dag": refresh.DAG,
     }
-    refresh.write_status(root, unfinished)
+    lifecycle.write_status(root, unfinished)
     seen: list[str] = []
 
     def fake(argv: list[str], *, verbose: bool) -> int:
@@ -351,7 +360,7 @@ def test_a_refresh_an_older_dag_opened_is_left_and_a_new_one_starts(
     for marker in ("snapshots", "targets", "eutils", "confirm", "reach", "pack"):
         (root / folder / f"{marker}.done").touch()
     old = {"started": "2026-11-01T02:00:00Z", "outcome": "failed", "folder": folder, "since": _OLD}
-    refresh.write_status(root, old)
+    lifecycle.write_status(root, old)
     seen: list[str] = []
 
     def fake(argv: list[str], *, verbose: bool) -> int:
@@ -365,7 +374,7 @@ def test_a_refresh_an_older_dag_opened_is_left_and_a_new_one_starts(
 
     assert Path(seen[0]) != root / folder
     assert not list(Path(seen[0]).glob("*.done"))
-    status = refresh.read_status(root)
+    status = lifecycle.read_status(root)
     assert status["since"] == _OLD
     assert status["folder"] != folder
     assert f"left unfinished: {folder}" in caplog.text
@@ -423,7 +432,7 @@ def test_a_refresh_adds_replaces_removes_and_switches_while_an_open_store_keeps_
     # opened before the switch, it still reads b1
     before.open(WITHDRAWN)
     assert "(revised)" not in before.raw([CHANGED])[CHANGED].text
-    status = refresh.read_status(root)
+    status = lifecycle.read_status(root)
     today = dt.datetime.now(dt.UTC).date().isoformat()
     assert status["outcome"] == "finalized"
     assert status["last_success"] == today
@@ -431,7 +440,8 @@ def test_a_refresh_adds_replaces_removes_and_switches_while_an_open_store_keeps_
     assert status["ended"] >= status["started"]
     assert status["counts"][raw.GEO_SOFT] == {"added": 1, "replaced": 1, "removed": 1}
     assert status["copy_pending"] is False
-    assert gcs.read(refresh.STATUS) == (root / refresh.STATUS).read_bytes()
+    assert gcs.read(lifecycle.STATUS) == (root / lifecycle.STATUS).read_bytes()
+    assert f"builds/{_current(root).name}/manifest.json" in json.loads(gcs.read(COPIED))
     # The layout declares every file the refresh left.
     for path in (p for p in root.rglob("*") if p.is_file()):
         paths.kind(path.relative_to(root).as_posix())
@@ -445,7 +455,7 @@ def test_a_refresh_killed_after_pack_reruns_only_the_later_steps_and_asks_ncbi_n
     _executor(monkeypatch, snakemake, stop_after="pack")
     result = CliRunner().invoke(app, ["store", "refresh", "--root", str(root), "--cores", "1"])
     assert result.exit_code == 1
-    assert refresh.read_status(root)["outcome"] == "failed"
+    assert lifecycle.read_status(root)["outcome"] == "failed"
     assert open_store(root).settings["build"] == "b1"
     ncbi.fetched.clear()
     ncbi.terms.clear()
@@ -453,12 +463,13 @@ def test_a_refresh_killed_after_pack_reruns_only_the_later_steps_and_asks_ncbi_n
 
     _refresh(root)
 
-    assert ran == ["build", "status", "prune", "copy", "all"]
+    assert ran == ["build", "switch", "prune", "copy", "all"]
     assert ncbi.fetched == []
     assert ncbi.terms == []
     assert "(revised)" in open_store(root).raw([CHANGED])[CHANGED].text
-    status = refresh.read_status(root)
-    assert status["outcome"] == "succeeded"
+    status = lifecycle.read_status(root)
+    # The store names no destination, so it cannot be finalized.
+    assert status["outcome"] == "built"
     assert status["counts"][raw.GEO_SOFT] == {"added": 1, "replaced": 1, "removed": 1}
 
 
@@ -479,22 +490,22 @@ def test_a_refresh_killed_after_pack_and_rerun_gives_the_uninterrupted_build(
     _executor(monkeypatch, snakemake, stop_after="pack")
     result = CliRunner().invoke(app, ["store", "refresh", "--root", str(cut), "--cores", "1"])
     assert result.exit_code == 1
-    assert refresh.read_status(cut)["outcome"] == "failed"
+    assert lifecycle.read_status(cut)["outcome"] == "failed"
     assert open_store(cut).settings["build"] == "b1"
     cut_ncbi.fetched.clear()
     cut_ncbi.terms.clear()
     _, ran = _executor(monkeypatch, snakemake)
     _refresh(cut)
 
-    assert ran == ["build", "status", "prune", "copy", "all"]
+    assert ran == ["build", "switch", "prune", "copy", "all"]
     assert cut_ncbi.fetched == []
     assert cut_ncbi.terms == []
     for source in (raw.GEO_SOFT, raw.SRA_XML, raw.GEO_FILELIST):
         assert _held(cut, source) == _held(whole, source), source
     _same_build(_current(whole), _current(cut))
-    status = refresh.read_status(cut)
-    assert status["outcome"] == "succeeded"
-    assert status["counts"] == refresh.read_status(whole)["counts"]
+    status = lifecycle.read_status(cut)
+    assert status["outcome"] == "built"
+    assert status["counts"] == lifecycle.read_status(whole)["counts"]
 
 
 def test_a_refresh_after_a_success_searches_from_that_success(
@@ -510,7 +521,7 @@ def test_a_refresh_after_a_success_searches_from_that_success(
         "last_success": "2026-11-01",
         "dag": refresh.DAG,
     }
-    refresh.write_status(root, done)
+    lifecycle.write_status(root, done)
     seen: list[str] = []
 
     def fake(argv: list[str], *, verbose: bool) -> int:
@@ -522,7 +533,7 @@ def test_a_refresh_after_a_success_searches_from_that_success(
 
     # `_changes` searches from this date less the overlap.
     assert seen == ["2026-11-01"]
-    assert refresh.read_status(root)["last_success"] == "2026-11-01"
+    assert lifecycle.read_status(root)["last_success"] == "2026-11-01"
 
 
 @pytest.mark.slow
@@ -557,7 +568,7 @@ def _mirrored(root: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Fa
     return gcs
 
 
-def test_an_expired_login_leaves_the_copy_pending_and_a_later_copy_clears_it(
+def test_a_refresh_whose_copy_meets_an_expired_login_ends_built_and_reruns_only_the_copy(
     built: tuple[Path, _Geo], monkeypatch: pytest.MonkeyPatch, snakemake: Runner, tmp_path: Path
 ) -> None:
     root, ncbi = built
@@ -566,19 +577,23 @@ def test_an_expired_login_leaves_the_copy_pending_and_a_later_copy_clears_it(
     _change(ncbi)
     _executor(monkeypatch, snakemake)
     old = _current(root).name
+    again = ["store", "refresh", "--root", str(root), "--cores", "1"]
 
-    _refresh(root)
+    assert CliRunner().invoke(app, again).exit_code == 1
 
-    status = refresh.read_status(root)
-    assert status["outcome"] == "succeeded"
-    assert status["copy_pending"] is True
+    status = lifecycle.read_status(root)
+    assert (status["outcome"], status["copy_pending"]) == ("built", True)
+    assert _current(root).name != old
     assert gcs.log == []
 
     gcs.expired = False
+    _, ran = _executor(monkeypatch, snakemake)
     # No --full: the copy seeds its record from the old build, then deletes it in GCS.
-    assert "Copied the store" in _cli("copy", "--root", str(root))
-    assert refresh.read_status(root)["outcome"] == "finalized"
-    assert gcs.read(refresh.STATUS) == (root / refresh.STATUS).read_bytes()
+    _refresh(root)
+
+    assert ran == ["copy", "all"]
+    assert lifecycle.read_status(root)["outcome"] == "finalized"
+    assert gcs.read(lifecycle.STATUS) == (root / lifecycle.STATUS).read_bytes()
     assert f"builds/{old}/manifest.json" in gcs.deleted()
     assert not any(p.startswith(f"builds/{_current(root).name}/") for p in gcs.deleted())
 

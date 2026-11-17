@@ -15,9 +15,9 @@ import pytest
 from typer.testing import CliRunner, Result
 
 from labdata.cli import app
-from labdata.store import extract, raw, refresh
-from labdata.store.build import build
+from labdata.store import extract, lifecycle, raw
 from labdata.store.gcs import COPIED
+from labdata.store.lifecycle import build
 from labdata.store.pack import pack
 from labdata.store.prune import GRACE, prune
 from tests._fake_gcs import FakeGcs, KilledError
@@ -332,20 +332,20 @@ def test_a_copy_cut_off_before_its_copy_record_ends_the_same_when_run_again(
     # GCS holds the new build, but its copy record still names the old one.
     assert gcs.read(COPIED) == before
     assert (root / COPIED).read_bytes() == before
-    assert refresh.read_status(root)["copy_pending"] is True
+    assert lifecycle.read_status(root)["copy_pending"] is True
 
     gcs.kill = ""
     assert _copy(root).exit_code == 0
     _holds_its_record(gcs, root)
     assert (root / COPIED).read_bytes() == gcs.read(COPIED)
-    assert refresh.read_status(root)["copy_pending"] is False
+    assert lifecycle.read_status(root)["copy_pending"] is False
 
 
 def test_a_copy_sends_the_status_record_last_marked_finalized_and_again_if_cut_off(
     root: Path, gcs: FakeGcs
 ) -> None:
     _copy_to(root)
-    # The full run writes no status record: the first copy writes a finalized one.
+    # The build by hand left the store built: the first copy finalizes it.
     _full(root)
     assert gcs.sent()[-2:] == [COPIED, _STATUS]
     assert _finalized(gcs, root)["outcome"] == "finalized"
@@ -353,7 +353,7 @@ def test_a_copy_sends_the_status_record_last_marked_finalized_and_again_if_cut_o
     build(root, "b2")
     # A refresh past its switch, copying as its last step.
     switched = {"last_success": "2026-11-01", "copy_pending_at_switch": False, "ended": None}
-    _status(root, **switched, outcome="running", copy_pending=True)
+    _status(root, **switched, copy_pending=True)
     gcs.kill = _STATUS
 
     assert isinstance(_copy(root).exception, KilledError)
@@ -385,7 +385,7 @@ def test_a_copy_leaves_the_status_record_of_a_refresh_that_has_not_switched(
     assert _STATUS not in gcs.sent()
     assert gcs.read(_STATUS) == before
     # A rerun of the refresh resumes it.
-    status = refresh.read_status(root)
+    status = lifecycle.read_status(root)
     assert (status["outcome"], status["copy_pending"]) == (outcome, False)
 
 
@@ -472,7 +472,7 @@ def _gcs_marker(gcs: FakeGcs, root: Path, build_id: str) -> None:
 
 
 def _status(root: Path, **status: object) -> None:
-    refresh.write_status(root, {"outcome": "succeeded", **status})
+    lifecycle.write_status(root, {"outcome": "built", **status})
 
 
 def _lose_record(root: Path, gcs: FakeGcs) -> None:
@@ -530,13 +530,14 @@ def test_with_no_record_a_copy_that_cannot_trust_gcs_skips_and_asks_for_full(
     root: Path, gcs: FakeGcs, marker_build: str, status: dict[str, object]
 ) -> None:
     _copy_to(root)
+    (root / _STATUS).unlink()
     if status:
         _status(root, **status)
     _gcs_marker(gcs, root, marker_build)
 
     result = _copy(root)
 
-    assert result.exit_code == 0, result.output
+    assert result.exit_code == 1, result.output
     assert "labdata store copy --full" in result.output
     assert gcs.sent() == []
     assert gcs.files() == ["labdata-store.toml"]
@@ -550,7 +551,7 @@ def test_with_no_record_on_disk_or_in_gcs_a_copy_sends_nothing_and_asks_for_full
 
     result = _copy(root)
 
-    assert result.exit_code == 0, result.output
+    assert result.exit_code == 1, result.output
     assert "labdata store copy --full" in result.output
     assert gcs.log == []
     assert gcs.files() == []
@@ -594,7 +595,7 @@ def test_copy_needs_a_destination(root: Path, gcs: FakeGcs) -> None:
 def test_an_expired_login_skips_the_copy_and_says_how_to_log_in(root: Path, gcs: FakeGcs) -> None:
     gcs.expired = True
     result = _copy(root, "--to", _DEST)
-    assert result.exit_code == 0, result.output
+    assert result.exit_code == 1, result.output
     assert "is behind" in result.output
     assert "rclone config reconnect gcs:" in result.output
     assert gcs.log == []
@@ -620,7 +621,7 @@ def test_any_failure_past_the_destination_marks_the_copy_pending(
         (root / COPIED).write_text("not json")
 
     assert _copy(root).exit_code == 1
-    assert refresh.read_status(root)["copy_pending"] is True
+    assert lifecycle.read_status(root)["copy_pending"] is True
 
 
 def test_a_restore_onto_a_disk_without_a_copy_record_downloads_only_what_it_lacks(
