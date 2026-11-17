@@ -42,13 +42,15 @@ src/labdata/
                        reader.py (the build reader, the only
                        way to open a build); layout.py (every build table's
                        declaration, the only writer of build tables);
+                       lifecycle.py (an update's life cycle: the status
+                       record, the switch after the checks, the copy outcome);
                        pipeline.py + pipeline.smk (the full-run DAG);
                        changes.py (a refresh's re-fetch list), removals.py
                        (confirm and remove withdrawn Series), sra_removal.py
                        (the yearly removal of withdrawn SRA records),
                        _removal.py (the helpers both removals share),
-                       refresh.py + refresh.smk (the refresh DAG, its status
-                       record; runs from a checkout, as it calls scripts/bulk/)
+                       refresh.py + refresh.smk (the refresh DAG; runs from
+                       a checkout, as it calls scripts/bulk/)
   papers/            the paper store: paths.py (its top-level paths and their kinds);
                        root.py (marker, pointer, lock, paper folders);
                        tables.py (the four tables' declaration and only writer);

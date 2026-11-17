@@ -10,6 +10,7 @@ import atexit
 import datetime as dt
 from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import typer
 
@@ -30,6 +31,9 @@ from labdata.papers.root import PaperStore
 from labdata.store import init_store, open_store, paths, save_pointer
 from labdata.store.changes import OVERLAP_DAYS
 from labdata.tenx import bamtofastq
+
+if TYPE_CHECKING:
+    from labdata.store.gaps import Coverage
 
 app = typer.Typer(
     help="Liu Lab data curation, download, and organization utilities.",
@@ -457,8 +461,16 @@ def store_build(
         help="Build a sample of the store at this root into --root, a scratch root that "
         "takes samples of this store only.",
     ),
+    no_switch: bool = typer.Option(
+        False,
+        "--no-switch",
+        hidden=True,
+        help="Write the build only: a run's switch step checks it, then switches to it.",
+    ),
 ) -> None:
     """Build the store's tables from raw/ and snapshots/ with no network, then switch to them.
+
+    The status record then says the build is built, not finalized, until a copy works.
 
     Memory is bounded by about one chunk per worker plus DuckDB's cap
     (LABDATA_DUCKDB_MEMORY, default a share of the job's memory).
@@ -468,7 +480,7 @@ def store_build(
     """
     import logging
 
-    from labdata.store.build import build as build_store
+    from labdata.store import lifecycle
 
     if sample_of is None:
         target, source = open_store(root).root, None
@@ -479,14 +491,18 @@ def store_build(
     else:
         target, source = root, open_store(sample_of).root
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
-    out = build_store(
+    out = lifecycle.build(
         target,
         build_id,
         workers=workers,
         chunk_bytes=chunk_mb << 20,
         fraction=_fraction(fraction),
         sample_of=source,
+        switch=not no_switch,
     )
+    if no_switch:
+        typer.echo(f"Built {out}; the run's switch step checks it, then switches to it")
+        return
     typer.echo(f"Built {out} and switched {'the store' if source is None else target} to it")
 
 
@@ -567,25 +583,21 @@ def store_copy(
     than a small share of the copied raw files and more than --accept-deletes. With no copy
     record, on the disk or in the bucket, it seeds one from the build the bucket's marker
     names when the status record shows the bucket holds that build; otherwise, or when
-    rclone's Google login has expired, it skips with a message and exits 0. The status record
+    rclone's Google login has expired, it skips with a message and exits 1. The status record
     marks the copy pending until one succeeds, which sends it last, marked finalized.
     """
-    from labdata.store import refresh
-    from labdata.store.gcs import copy
+    from labdata.store import lifecycle
 
     where = root if root is not None else open_store().root
     try:
-        result = copy(
-            where,
-            to,
-            full=full,
-            accept_deletes=accept_deletes,
-            bucket_matches_marker=refresh.bucket_matches_marker(where),
-        )
+        result = lifecycle.finalize(where, to, full=full, accept_deletes=accept_deletes)
     except LabdataError as err:
         typer.echo(str(err), err=True)
         raise typer.Exit(1) from err
-    typer.echo(result.message if result.skipped else f"Copied the store to {result.destination}")
+    if result.skipped:
+        typer.echo(result.message, err=True)
+        raise typer.Exit(1)
+    typer.echo(f"Copied the store to {result.destination}")
 
 
 @store_app.command("coverage")
@@ -604,6 +616,13 @@ def store_coverage(
     if not store.settings.get(paths.BUILD_KEY):
         raise typer.BadParameter("the store names no build; run `labdata store build`")
     report = coverage(store.root, store.reader)
+    _echo_coverage(report)
+    if not report.passed:
+        raise typer.Exit(1)
+
+
+def _echo_coverage(report: Coverage) -> None:
+    """Echo a coverage report: counts, then the failing Series when it fails."""
     typer.echo(f"Target Series: {report.target} (geo-series snapshot {report.snapshot_date})")
     typer.echo(f"Held: {report.held}")
     typer.echo(f"Gaps: {sum(report.gaps.values())}")
@@ -618,7 +637,6 @@ def store_coverage(
         typer.echo(f"  {accession}: {problem}")
     if report.failures > len(report.failing):
         typer.echo(f"  ... and {report.failures - len(report.failing)} more")
-    raise typer.Exit(1)
 
 
 def _fraction(fraction: float | None) -> float | None:
@@ -643,7 +661,7 @@ def store_run(
         None, help="Store root; default: LABDATA_STORE, then pointer."
     ),
 ) -> None:
-    """Fetch, pack, build, prune and copy the store in one resumable run.
+    """Fetch, pack, build, check, switch, prune and copy the store in one resumable run.
 
     Uses the newest snapshot of each source. Rerun the same command to resume: it starts at
     the first unfinished step and fetches only what is not saved yet. Markers and logs are
@@ -700,19 +718,27 @@ def store_refresh(
     typer.echo("The refresh finished: every step done.")
 
 
-@store_app.command("_refreshed", hidden=True)
-def store_refreshed(
+@store_app.command("_switch", hidden=True)
+def store_switch(
     root: Path | None = typer.Option(
         None, help="Store root; default: LABDATA_STORE, then pointer."
     ),
 ) -> None:
-    """Record the running refresh's date and counts in the status record, after the switch."""
-    from labdata.store import refresh
+    """Check the running update's new build, then switch the store to it; exit 1 if it fails."""
+    from labdata.store import lifecycle
 
-    status = refresh.switched(open_store(root).root)
-    typer.echo(f"Refreshed as of {status['last_success']}")
-    for source, counts in status["counts"].items():
-        typer.echo(f"{source}: " + ", ".join(f"{n} {key}" for key, n in counts.items()))
+    try:
+        status, report = lifecycle.switch(open_store(root).root)
+    except lifecycle.CheckError as err:
+        _echo_coverage(err.coverage)
+        typer.echo(str(err), err=True)
+        raise typer.Exit(1) from err
+    _echo_coverage(report)
+    typer.echo(f"Switched the store to {status['build']}")
+    if status.get("update") == lifecycle.REFRESH:
+        typer.echo(f"Refreshed as of {status['last_success']}")
+        for source, counts in status["counts"].items():
+            typer.echo(f"{source}: " + ", ".join(f"{n} {key}" for key, n in counts.items()))
 
 
 def _date(value: str, hint: str) -> dt.date:
@@ -933,16 +959,16 @@ def store_remove_sra(
     """Remove withdrawn SRA experiments and runs: the yearly maintenance step.
 
     It writes removal parts: run `labdata store pack`, then `labdata store build`, to
-    apply them. Rerun it to resume a cut-off run. The candidate and confirm rules are in
-    docs/adr/0008-yearly-sra-removal.md.
+    apply them, and `labdata store copy` to finalize them. Rerun it to resume a cut-off run.
+    The candidate and confirm rules are in docs/adr/0008-yearly-sra-removal.md.
     """
     import logging
 
-    from labdata.store import sra_removal
+    from labdata.store import lifecycle
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     store = open_store(root)
-    report = sra_removal.remove(store.root, client=_store_client())
+    report = lifecycle.remove_sra(store.root, client=_store_client())
     typer.echo(
         f"SRA removal: {report.candidates} candidates ({report.non_public} non-public, "
         f"{report.with_runs} with a non-public run, {report.unreached} reached by no live "

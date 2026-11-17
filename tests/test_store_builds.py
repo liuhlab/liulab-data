@@ -20,8 +20,9 @@ from labdata.exceptions import LabdataError, StoreBuildError
 from labdata.store import build as build_module
 from labdata.store import extract, init_store, open_store
 from labdata.store._limits import duckdb_memory, step_threads
-from labdata.store.build import build, build_lock
+from labdata.store.build import build_lock
 from labdata.store.fetch import fetch
+from labdata.store.lifecycle import build
 from labdata.store.reader import BuildReader
 from tests._slices import BuiltStore, copy_snapshots
 

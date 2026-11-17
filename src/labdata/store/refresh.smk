@@ -1,5 +1,5 @@
 # One refresh: snapshots || geo-series patch -> change list -> GEO lane || E-utilities lane
-# -> confirm withdrawn Series -> pack -> build (after the snapshot extracts) -> status -> prune
+# -> confirm withdrawn Series -> pack -> build (after the snapshot extracts) -> switch -> prune
 # -> copy.
 #
 # Driven by labdata.store.refresh.run, which runs snakemake in the refresh's folder,
@@ -12,7 +12,8 @@
 # resumes into the same folders; every later step reads the newest snapshot. The geo-series
 # snapshot is patched from the previous one in its own step, beside the FTP downloads. The E-utilities
 # lane runs beside the GEO lane on the experiments the saved SOFT names, and again after it on
-# those the new SOFT names. The status step writes the refresh's date and counts after the switch.
+# those the new SOFT names. The build does not switch the store to itself: the switch step checks
+# its coverage first, then switches and records the refresh's date and counts.
 
 import shlex
 
@@ -184,25 +185,25 @@ rule build:
         mem_mb=MEM["build"],
     threads: workflow.cores
     shell:
-        f"{STORE} build --workers {{threads}} {ROOT} {LOG}"
+        f"{STORE} build --workers {{threads}} --no-switch {ROOT} {LOG}"
 
 
-rule status:
+rule switch:
     input:
         "build.done",
     output:
-        touch("status.done"),
+        touch("switch.done"),
     log:
-        "logs/status.log",
+        "logs/switch.log",
     resources:
-        mem_mb=MEM["status"],
+        mem_mb=MEM["switch"],
     shell:
-        f"{STORE} _refreshed {ROOT} {LOG}"
+        f"{STORE} _switch {ROOT} {LOG}"
 
 
 rule prune:
     input:
-        "status.done",
+        "switch.done",
     output:
         touch("prune.done"),
     log:

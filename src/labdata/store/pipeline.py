@@ -1,4 +1,4 @@
-"""Drive one round of the full run with Snakemake: fetch, pack, extract, build, prune, copy.
+"""Drive one round of the full run with Snakemake, from the fetch to the copy.
 
 The DAG lives in the packaged ``pipeline.smk``. Each step is a ``labdata store`` subcommand,
 so labdata owns what a step does and Snakemake owns the order and the resume: a step's
@@ -24,7 +24,7 @@ from pathlib import Path
 
 from labdata import _pipeline
 from labdata._pipeline import RESILIENCE_FLAGS
-from labdata.store import _limits, extract, gcs, paths, snapshots, targets
+from labdata.store import _limits, extract, gcs, lifecycle, paths, snapshots, targets
 from labdata.store.root import open_store
 
 logger = logging.getLogger(__name__)
@@ -44,7 +44,8 @@ def memory_plan(total_mb: int) -> dict[str, int]:
     """Return each step's memory in MB, so the steps that can run at once fit in ``total_mb``.
 
     The fetch lanes, the target list and pack run beside a snapshot extract and take a small
-    share each; the extract takes the rest. The build and coverage run alone with all of it.
+    share each; the extract takes the rest. The build and the switch's check run alone with
+    all of it.
     """
     geo, lane = total_mb // 16, total_mb // 8
     return {
@@ -54,7 +55,7 @@ def memory_plan(total_mb: int) -> dict[str, int]:
         "pack": lane,
         "extract": total_mb - geo - lane,
         "build": total_mb,
-        "coverage": total_mb,
+        "switch": total_mb,
         "prune": lane,
         "copy": lane,
     }
@@ -85,9 +86,10 @@ def run(
     """Run one round: the seeded sample of ``fraction`` of the target list, or all of it.
 
     The round uses the newest snapshot of every source and records their dates in
-    ``run.json`` in its folder. A rerun of the same round resumes at the first unfinished
-    step; the fetch steps skip every item already saved, by this round or a smaller one. A
-    fetch lane that left items failed runs again, and so does every step after it.
+    ``run.json`` in its folder, and the round in the status record. A rerun of the same
+    round resumes at the first unfinished step; the fetch steps skip every item already
+    saved, by this round or a smaller one. A fetch lane that left items failed runs again,
+    and so does every step after it.
 
     Parameters
     ----------
@@ -105,7 +107,7 @@ def run(
     Returns
     -------
     int
-        Snakemake's exit code: ``0`` when every step finished, coverage included.
+        Snakemake's exit code: ``0`` when every step finished, the coverage check included.
 
     Raises
     ------
@@ -161,4 +163,7 @@ def run(
         *RESILIENCE_FLAGS,
         *(["--forcerun", *rerun] if rerun else []),
     ]
-    return _run_snakemake(argv, verbose=verbose)
+    lifecycle.start(root, lifecycle.RUN, work.relative_to(root).as_posix())
+    code = _run_snakemake(argv, verbose=verbose)
+    lifecycle.end(root)
+    return code

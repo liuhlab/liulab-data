@@ -14,8 +14,8 @@ from typer.testing import CliRunner
 import labdata.ncbi.entrez as entrez_mod
 from labdata.cli import app
 from labdata.store import eutils, extract, open_store, pack, paths, raw
-from labdata.store.build import build
 from labdata.store.gaps import FETCH_FAILED, SOFT_MISSING, gap_row
+from labdata.store.lifecycle import build
 from labdata.store.model import Link
 from tests.test_store_eutils import _client, _Ncbi
 

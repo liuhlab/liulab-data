@@ -20,6 +20,8 @@
 
 ::: labdata.store.root
 
+::: labdata.store.lifecycle
+
 ::: labdata.store.pipeline
 
 ::: labdata.store.targets

@@ -15,7 +15,7 @@ from typer.testing import CliRunner
 from labdata.cli import app
 from labdata.exceptions import StoreBuildError
 from labdata.store import _parse, extract, layout, open_store
-from labdata.store.build import build
+from labdata.store.lifecycle import build
 from labdata.store.targets import in_sample
 from tests._scripts import BENCHMARK_MODES, benchmark
 from tests._slices import BuiltStore

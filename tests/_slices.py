@@ -21,8 +21,8 @@ from typing import Any
 import pytest
 
 from labdata.store import extract
-from labdata.store.build import build
 from labdata.store.fetch import fetch
+from labdata.store.lifecycle import build
 from tests._fakes import FakeEntrezClient
 
 DATA = Path(__file__).parent / "data"

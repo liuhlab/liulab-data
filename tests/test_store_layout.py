@@ -13,7 +13,7 @@ import pytest
 from labdata.exceptions import StoreBuildError
 from labdata.store import build as build_module
 from labdata.store import extract, layout
-from labdata.store.build import build
+from labdata.store.lifecycle import build
 from tests._slices import BuiltStore
 
 

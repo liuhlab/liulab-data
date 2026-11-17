@@ -154,7 +154,7 @@ def test_run_hands_snakemake_the_rounds_dag_and_config(
         "pack": 1,
         "extract": 4,
         "build": 1,
-        "coverage": 1,
+        "switch": 1,
         "prune": 1,
         "copy": 1,
     }
@@ -196,7 +196,7 @@ def test_steps_that_can_run_together_fit_in_the_jobs_memory(
     assert result.exit_code == 0, result.output
     total = int(seen["resources"].removeprefix("mem_mb="))
     assert total <= 100000
-    assert set(planned) >= {"build", "coverage", *(s for group in _TOGETHER for s in group)}
+    assert set(planned) >= {"build", "switch", *(s for group in _TOGETHER for s in group)}
     assert max(planned.values()) <= total
     for group in _TOGETHER:
         assert sum(planned[s] for s in group) <= total, group
@@ -237,7 +237,7 @@ def test_a_lane_run_that_saves_every_item_clears_its_failed_file(
     assert not marker.exists()
 
 
-_AFTER_EUTILS = {"eutils_after_geo": 1, "pack": 1, "build": 1, "coverage": 1, "prune": 1, "copy": 1}
+_AFTER_EUTILS = {"eutils_after_geo": 1, "pack": 1, "build": 1, "switch": 1, "prune": 1, "copy": 1}
 
 
 @pytest.mark.parametrize(
@@ -257,7 +257,7 @@ def test_a_lane_that_left_items_failed_reruns_with_every_step_after_it(
     target_list.parent.mkdir(parents=True)
     target_list.touch()
     extracts = [f"extract-{s}" for s in ("biosample", "bioproject", "sra-accessions", "geo-series")]
-    steps = ["geo", "eutils-beside-geo", "eutils", "pack", "build", "coverage", "prune", "copy"]
+    steps = ["geo", "eutils-beside-geo", "eutils", "pack", "build", "switch", "prune", "copy"]
     for marker in [*extracts, *steps]:
         (work / f"{marker}.done").touch()
     if failed:
@@ -274,7 +274,7 @@ def test_a_lane_that_left_items_failed_reruns_with_every_step_after_it(
     assert seen["jobs"] == jobs
 
 
-def test_prune_and_copy_wait_for_coverage_to_pass(
+def test_prune_and_copy_wait_for_the_switch_which_checks_coverage_first(
     store: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     seen: dict[str, dict[str, int]] = {}
@@ -295,4 +295,4 @@ def test_prune_and_copy_wait_for_coverage_to_pass(
     monkeypatch.setattr(pipeline, "_run_snakemake", fake)
     result = CliRunner().invoke(app, ["store", "run", "--root", str(store)])
     assert result.exit_code == 0, result.output
-    assert seen["jobs"] == {"coverage": 1, "prune": 1, "copy": 1}
+    assert seen["jobs"] == {"switch": 1, "prune": 1, "copy": 1}

@@ -109,10 +109,12 @@ it deletes the rows saved before it, and a row saved after it wins.
 ### Status record
 
 Each store's record of its last update: its start, end and outcome, and whether it is
-finalized. The GEO/SRA store's, `refresh-status.json`, also holds the date of the last
-successful refresh, written only after the switch to the new build, the records the refresh
-added, replaced and removed per source, and the refresh DAG version that started it; a refresh
-another version started is not resumed. The paper store's, `paper-status.json`, holds its
+finalized. The GEO/SRA store's, `refresh-status.json`, names the update (a refresh, a full run,
+a build by hand or the SRA removal) and its new build; its outcome is running, failed (stopped
+before its switch), abandoned, built (switched on the work disk, not finalized) or finalized.
+It also holds the date of the last successful refresh, written only at a refresh's switch to
+the new build, the records the refresh added, replaced and removed per source, and the refresh
+DAG version that started it; a refresh another version started is not resumed. The paper store's, `paper-status.json`, holds its
 passes' dates and paper counts. GCS holds each store's status record as the copy that finalized
 its last update left it, so GCS never holds one that is running or pending.
 

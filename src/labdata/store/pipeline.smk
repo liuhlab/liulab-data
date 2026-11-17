@@ -1,5 +1,6 @@
 # One round of the full run: target list -> GEO lane || E-utilities lane -> pack -> build
-# -> coverage -> prune -> copy, with the snapshot extracts beside the fetch.
+# -> switch -> prune -> copy, with the snapshot extracts beside the fetch. The build does not
+# switch the store to itself: the switch step checks its coverage first.
 #
 # Driven by labdata.store.pipeline.run, which runs snakemake in the round's folder with
 # `--resources ncbi=<N> mem_mb=<job memory>` and `--cores <M>`. Each rule's mem_mb comes from
@@ -33,7 +34,6 @@ LOG = "2>&1 | tee -a {log}"
 rule all:
     input:
         "copy.done",
-        "coverage.done",
 
 
 rule targets:
@@ -131,26 +131,26 @@ rule build:
         mem_mb=MEM["build"],
     threads: workflow.cores
     shell:
-        f"{STORE} build --workers {{threads}} {FRACTION} {ROOT} {LOG}"
+        f"{STORE} build --workers {{threads}} --no-switch {FRACTION} {ROOT} {LOG}"
 
 
-rule coverage:
+# A build that fails coverage is never switched to, pruned for or copied.
+rule switch:
     input:
         "build.done",
     output:
-        touch("coverage.done"),
+        touch("switch.done"),
     log:
-        "logs/coverage.log",
+        "logs/switch.log",
     resources:
-        mem_mb=MEM["coverage"],
+        mem_mb=MEM["switch"],
     shell:
-        f"{STORE} coverage {ROOT} {LOG}"
+        f"{STORE} _switch {ROOT} {LOG}"
 
 
-# Prune and copy wait for coverage, so a round that fails it never changes the bucket.
 rule prune:
     input:
-        "coverage.done",
+        "switch.done",
     output:
         touch("prune.done"),
     log:

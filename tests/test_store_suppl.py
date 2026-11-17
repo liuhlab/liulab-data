@@ -16,8 +16,8 @@ import pytest
 
 from labdata.exceptions import AccessionError, EntrezError, PageNotFound
 from labdata.store import Store, open_store, raw
-from labdata.store.build import build
 from labdata.store.fetch import fetch
+from labdata.store.lifecycle import build
 from labdata.store.model import SupplementaryFile
 from tests._fakes import FakeEntrezClient
 from tests._slices import copy_snapshots
