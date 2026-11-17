@@ -23,6 +23,7 @@ from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
 from labdata.papers import daily as daily_mod
 from labdata.papers import init_paper_store, paper_dir, tables
+from labdata.papers.folder import TEMP
 from labdata.papers.openalex import Account, OpenAlex, load_accounts
 from tests._paper_fakes import FakeWeb, Reply, fixture_build
 
@@ -487,8 +488,11 @@ def test_a_killed_pass_rerun_downloads_nothing_twice_and_spends_no_quota_twice(
     assert status_file(root)["last_pass"]["outcome"] == "failed"
     assert len(fake.downloads) == 5
 
+    # A hard kill leaves its temporary file behind; the rerun clears it.
+    (root / TEMP / "41000001.pdf.part").write_bytes(b"%PDF")
     fake.kill_after = None
     daily(root)
+    assert not list((root / TEMP).iterdir())
     assert len(fake.downloads) == len(set(fake.downloads)) == 20
     assert status_file(root)["quota"]["by_key"] == {"a@x.org": 20}
     assert len(tables.read(root, tables.FILES)) == 20

@@ -25,12 +25,13 @@ from typing import Any, TextIO
 from labdata._http import USER_AGENT, HttpTransport, RateLimiter, Transport
 from labdata.ncbi.entrez import EntrezClient
 from labdata.papers import paths
+from labdata.papers.folder import PaperFolder
 from labdata.papers.openalex import Account, OpenAlex
 from labdata.papers.root import PaperStore, paper_dir, paper_lock
 from labdata.papers.status import read_status, write_status
 from labdata.papers.sync import status_of, store_links
 from labdata.papers.tables import PaperTables
-from labdata.store._files import temp_beside, write_atomic
+from labdata.store._files import write_atomic
 
 #: Downloads each OpenAlex account may spend a day; the budget resets at 00:00 UTC.
 QUOTA = 100
@@ -391,8 +392,7 @@ class _Fetcher:
 
     def _get(self, key: str, url: str, headers: dict[str, str]) -> _Got:
         name = paper_dir(key).name + ".pdf"
-        dest = self.root / paper_dir(key) / name
-        return _download(self.transport, url, dest, headers)
+        return _download(self.transport, url, self.state.folder, paper_dir(key) / name, headers)
 
     def _attempt(self, key: str, tier: str, account: str | None, outcome: str, detail: str) -> None:
         row = {
@@ -437,11 +437,12 @@ def _put_file(state: PaperTables, row: dict[str, Any]) -> None:
         state.papers[row["paper"]]["pdf_tier"] = row["tier"]
 
 
-def _download(transport: Transport, url: str, dest: Path, headers: dict[str, str]) -> _Got:
-    """GET a PDF to ``dest``, following redirects; anything but a PDF is a failure.
+def _download(
+    transport: Transport, url: str, folder: PaperFolder, dest: Path, headers: dict[str, str]
+) -> _Got:
+    """GET a PDF to ``dest`` in ``folder``, following redirects; anything but a PDF fails.
 
-    An ``Authorization`` header is not passed on to another host. ``dest`` is written through
-    a temp file and a rename, so it is whole or absent.
+    An ``Authorization`` header is not passed on to another host.
     """
     headers = {"User-Agent": USER_AGENT, "Accept": "application/pdf", **headers}
     for _ in range(_REDIRECTS + 1):
@@ -465,7 +466,7 @@ def _download(transport: Transport, url: str, dest: Path, headers: dict[str, str
                         detail=f"HTTP {r.status}",
                         retry_after=_seconds(r.getheader("Retry-After")),
                     )
-                return _save_pdf(r, dest)
+                return _save_pdf(r, folder, dest)
         except (OSError, ValueError, http.client.HTTPException) as err:
             return _Got(detail=type(err).__name__)
     return _Got(status=310, detail="too many redirects")
@@ -479,25 +480,19 @@ def _quoted(url: str) -> str:
     return urllib.parse.urlunsplit((parts.scheme, parts.netloc, path, query, ""))
 
 
-def _save_pdf(response: Any, dest: Path) -> _Got:
+def _save_pdf(response: Any, folder: PaperFolder, dest: Path) -> _Got:
     first = response.read(_CHUNK)
     if b"%PDF" not in first[:1024]:
         return _Got(status=200, detail="not a PDF")
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    tmp = temp_beside(dest)
     md5 = hashlib.md5(usedforsecurity=False)
     size = 0
-    try:
-        with tmp.open("wb") as fh:
-            chunk = first
-            while chunk:
-                fh.write(chunk)
-                md5.update(chunk)
-                size += len(chunk)
-                chunk = response.read(_CHUNK)
-        tmp.replace(dest)
-    finally:
-        tmp.unlink(missing_ok=True)
+    with folder.writing(dest) as fh:
+        chunk = first
+        while chunk:
+            fh.write(chunk)
+            md5.update(chunk)
+            size += len(chunk)
+            chunk = response.read(_CHUNK)
     return _Got(ok=True, status=200, size=size, md5=md5.hexdigest())
 
 

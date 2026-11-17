@@ -19,7 +19,7 @@ import pyarrow.parquet as pq
 
 from labdata.exceptions import NotMirrored
 from labdata.papers import tables
-from labdata.papers._zst import open_plain
+from labdata.papers.folder import open_plain
 from labdata.papers.root import is_placeholder, paper_key
 from labdata.store.model import kind_of
 from labdata.store.reader import BuildReader
