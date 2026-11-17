@@ -11,8 +11,8 @@ A routine copy with no copy record on the work disk or in GCS seeds one from the
 marker in GCS names, when GCS is known to hold exactly that build; otherwise it is skipped and
 asks for ``labdata store copy --full``, which uploads the current state and deletes nothing. A
 copy refuses, sending nothing, when it would delete more of the copy record's raw files than
-:func:`labdata._gcs.delete_limit` allows, unless the deletes are accepted by hand.
-:func:`restore` fills a work disk from GCS.
+:func:`labdata._gcs.delete_limit` allows, unless the deletes are accepted by hand, or when the work disk is not in step with GCS
+(:func:`check`). :func:`restore` fills a work disk from GCS.
 """
 
 from __future__ import annotations
@@ -133,6 +133,25 @@ def copy(
     return CopyResult(dest)
 
 
+def check(root: Path) -> bool:
+    """Check the work disk against the marker's destination, as :func:`labdata._gcs.check` does.
+
+    A store with no destination passes.
+
+    Returns
+    -------
+    bool
+        False when rclone's login has expired, so nothing was checked.
+
+    Raises
+    ------
+    StoreCopyError
+        If the work disk's copy record is not the one in GCS, or GCS holds none and it does.
+    """
+    dest = str(paths.read_marker(root).get(COPY_TO_KEY) or "")
+    return not dest or _gcs.check(_Adapter(root, seeds=False), dest)
+
+
 def restore(
     root: Path, source: str | None = None, *, approve: Callable[[int, int], bool]
 ) -> str | None:
@@ -174,6 +193,7 @@ class _Adapter(_gcs.Adapter):
     status = paths.STATUS.rel
     what = "store"
     command = "labdata store copy"
+    restorer = "labdata store restore"
     error = StoreCopyError
     seed_from = (paths.MARKER.rel,)
 

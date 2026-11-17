@@ -10,7 +10,8 @@ routine copy deletes: the disk does not hold the whole store.
 
 A copy refuses, sending nothing, when the ``files`` table is missing or empty, or when it would
 delete more of the copied paper files than :func:`labdata._gcs.delete_limit` allows, unless
-the deletes are accepted by hand.
+the deletes are accepted by hand, or when the work disk is not in step with GCS
+(:func:`check`).
 
 Hidden files stay behind, :data:`COPIED` aside: the lock, the daily pass's journal and every
 temp file. The status record goes up last, after the copy record, as
@@ -116,6 +117,22 @@ def send(
     return CopyResult(dest, skipped=skipped is not None, message=skipped or "")
 
 
+def check(store: PaperStore, dest: str) -> bool:
+    """Check the work disk against GCS at ``dest``, as :func:`labdata._gcs.check` does.
+
+    Returns
+    -------
+    bool
+        False when rclone's login has expired, so nothing was checked.
+
+    Raises
+    ------
+    PaperCopyError
+        If the work disk's copy record is not the one in GCS, or GCS holds none and it does.
+    """
+    return _gcs.check(_Adapter(store.root, b""), dest)
+
+
 def unsent(root: Path) -> bool:
     """Return whether the ``files`` table and the copy record name different paper files.
 
@@ -164,6 +181,7 @@ class _Adapter(_gcs.Adapter):
     status = STATUS
     what = "paper store"
     command = "labdata papers copy"
+    restorer = "labdata papers restore"
     error = PaperCopyError
     full_filters = ("--filter=- .*", "--filter=- .*/**", "--filter=- /*")
     full_checks = True

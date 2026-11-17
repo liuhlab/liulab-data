@@ -171,8 +171,8 @@ def test_one_daily_pass_a_day_after_0030_and_the_pmc_sync_on_the_3rd(
     ]
     assert status(root)["last_daily_success"] == "2026-11-04"
     assert status(root)["last_pmc_sync_success"] == "2026-11-03"
-    # These passes change no paper file, so GCS is left alone: the work disk tells it so.
-    assert gcs.calls == []
+    # These passes change no paper file, so GCS is only checked: nothing goes up or down.
+    assert gcs.log == []
     assert sbatch.calls == [
         ["sbatch", "--parsable", f"--dependency=afterany:{JOB}", OUTPUT, SCRIPT],
         ["sbatch", "--parsable", f"--dependency=afterany:{JOB}:4243", OUTPUT, SCRIPT],

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -30,6 +31,8 @@ from labdata.store._files import write_atomic
 from labdata.store.gaps import Coverage
 from labdata.store.reader import BuildReader, build_path
 from labdata.store.sra_removal import SraRemovalReport
+
+logger = logging.getLogger(__name__)
 
 #: The status record's file name in the store root.
 STATUS = paths.STATUS.rel
@@ -73,8 +76,10 @@ def write_status(root: Path, status: Mapping[str, Any]) -> None:
 def start(root: Path, update: str, folder: str | None = None, **fields: Any) -> dict[str, Any]:
     """Begin an update, or carry on the run in ``folder`` the status record names.
 
-    A new update keeps the last-success date and ``copy_pending``; ``fields`` add to it. A
-    run carried on is running again unless it has switched builds.
+    A run first checks the work disk against GCS (:func:`labdata.store.gcs.check`), and only
+    warns when rclone's login has expired. A new update keeps the last-success date and
+    ``copy_pending``; ``fields`` add to it. A run carried on is running again unless it has
+    switched builds.
 
     Parameters
     ----------
@@ -91,7 +96,14 @@ def start(root: Path, update: str, folder: str | None = None, **fields: Any) -> 
     -------
     dict
         The status record written.
+
+    Raises
+    ------
+    StoreCopyError
+        If a run's work disk is not in step with GCS; the copy is marked pending.
     """
+    if folder is not None:
+        _check(root)
     status = read_status(root)
     if folder is not None and status.get("folder") == folder:
         if status.get("outcome") in _UNSWITCHED:
@@ -283,6 +295,19 @@ def note_copy(root: Path, *, pending: bool) -> None:
     status = read_status(root)
     if status and status.get("copy_pending") != pending:
         write_status(root, status | {"copy_pending": pending})
+
+
+def _check(root: Path) -> None:
+    """Refuse a run on a work disk not in step with GCS, marking the copy pending."""
+    try:
+        checked = gcs.check(root)
+    except gcs.StoreCopyError:
+        note_copy(root, pending=True)
+        raise
+    if not checked:
+        logger.warning(
+            "rclone's Google login has expired, so the work disk was not checked against GCS"
+        )
 
 
 def _switched(root: Path, status: dict[str, Any]) -> dict[str, Any]:
