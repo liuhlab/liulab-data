@@ -119,7 +119,9 @@ log into the same folder. Between passes it looks like this:
 ```
 
 Each step can also run alone: `labdata papers daily`, `labdata papers pmc-sync` and
-`labdata papers copy`.
+`labdata papers copy`. A pass that changes paper files ends with the copy, run by hand or by
+the job. While a copy is pending, the job tries it again each idle minute, and a step run by
+hand exits 1.
 
 ## Read `paper-status.json`
 
@@ -179,9 +181,8 @@ It sends the changes and deletes those files in the bucket, up to that number.
 The routine check reads the status record and the copy record, and lists no paper folder.
 Run it between passes. The copy is current when both of these hold:
 
-- In `paper-status.json`, `copy_pending` is `false`, and `last_copy_success` is at or after
-  `last_pass.end`: the copy after the last pass worked. If `copy_pending` is `true`, log in
-  and run `labdata papers copy`.
+- In `paper-status.json`, `copy_pending` is `false` and `finalized` is `true`: the bucket
+  holds the last change. If `copy_pending` is `true`, log in and run `labdata papers copy`.
 - The copy record in the bucket matches the one on the disk. Each copy sends it last, after
   the files it lists:
 

@@ -1,7 +1,8 @@
 """``paper-status.json``: what the paper job did last and where the papers stand.
 
 The paper job reads it at start to find what is due: a day with no daily-pass success, a
-month with no PMC sync success, a GEO/SRA build no PMC sync has read.
+month with no PMC sync success, a GEO/SRA build no PMC sync has read. Only
+:mod:`labdata.papers.lifecycle` writes it.
 """
 
 from __future__ import annotations
@@ -12,7 +13,6 @@ from pathlib import Path
 from typing import Any
 
 from labdata.papers import paths
-from labdata.store._files import write_atomic
 
 #: The status file at the paper store root.
 STATUS = paths.STATUS.rel
@@ -46,8 +46,9 @@ class PaperStatus:
     paperpile_pending : bool
         The Paperpile step was skipped because the Drive login has expired.
     copy_pending : bool
-        The bucket is behind: the GCS copy failed, or was skipped because its login has
-        expired or no earlier copy exists.
+        A copy is owed: GCS lacks a change the work disk holds, and the copy that sends it
+        has not finished, failed, or was skipped because its login has expired or no
+        earlier copy exists.
     last_copy_success : str or None
         The UTC time, ISO 8601, the last successful GCS copy started.
     finalized : bool
@@ -86,26 +87,6 @@ def read_status(root: Path) -> PaperStatus:
     data = json.loads(path.read_text(encoding="utf-8"))
     names = {f.name for f in fields(PaperStatus)}
     return PaperStatus(**{k: v for k, v in data.items() if k in names})
-
-
-def write_status(root: Path, status: PaperStatus) -> Path:
-    """Write ``paper-status.json`` whole, through a temp file and a rename.
-
-    Parameters
-    ----------
-    root : pathlib.Path
-        The paper store root.
-    status : PaperStatus
-        The status to write.
-
-    Returns
-    -------
-    pathlib.Path
-        The file written.
-    """
-    path = root / STATUS
-    write_atomic(path, encode(status).decode())
-    return path
 
 
 def encode(status: PaperStatus) -> bytes:

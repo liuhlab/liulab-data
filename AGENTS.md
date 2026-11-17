@@ -52,7 +52,9 @@ src/labdata/
   papers/            the paper store: paths.py (its top-level paths and their kinds);
                        root.py (marker, pointer, lock, paper folders);
                        tables.py (the four tables' declaration and only writer);
-                       status.py (paper-status.json); reader.py (PaperReader);
+                       status.py (paper-status.json); lifecycle.py (each pass
+                       and copy under the lock; the only writer of
+                       paper-status.json); reader.py (PaperReader);
                        sync.py (the monthly PMC sync), pubmed.py, openalex.py,
                        pmc.py (the PMC bucket tier); folder.py (the only writer,
                        mover and deleter of paper files; zstd, temp files);

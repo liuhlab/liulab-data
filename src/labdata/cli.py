@@ -190,11 +190,12 @@ def papers_pmc_sync(
 ) -> None:
     """Take in the papers the current build links: IDs, PubMed details, OpenAlex, status.
 
-    Each paper is looked up at most once a month. Holds the paper store's lock.
+    Each paper is looked up at most once a month. Holds the paper store's lock, and then
+    copies to GCS what the store holds and GCS lacks; exits 1 while that copy is pending.
     """
     import time
 
-    from labdata.papers.sync import pmc_sync
+    from labdata.papers.lifecycle import pmc_sync
 
     day = dt.date.fromisoformat(today) if today else dt.datetime.now(dt.UTC).date()
     started = time.monotonic()
@@ -218,6 +219,7 @@ def papers_pmc_sync(
         typer.echo(f"{status}: {each}")
     typer.echo(f"NCBI: {client.traffic}")
     typer.echo(f"OpenAlex: {openalex.traffic}")
+    _exit_if_pending(store)
 
 
 @papers_app.command("daily")
@@ -229,14 +231,16 @@ def papers_daily(
 ) -> None:
     """Spend today's OpenAlex quota, try free host links, and rewrite the manual queue.
 
-    A rerun the same day spends only the quota left. Holds the paper store's lock.
+    A rerun the same day spends only the quota left. Holds the paper store's lock, and then
+    copies to GCS what the store holds and GCS lacks; exits 1 while that copy is pending.
     """
-    from labdata.papers.daily import NBIB, daily_pass
+    from labdata.papers.daily import NBIB
+    from labdata.papers.lifecycle import daily
 
     day = dt.date.fromisoformat(today) if today else dt.datetime.now(dt.UTC).date()
     store, client, openalex = _paper_setup(root)
     try:
-        report = daily_pass(
+        report = daily(
             store,
             client=client,
             openalex=openalex,
@@ -255,6 +259,16 @@ def papers_daily(
         each = ", ".join(f"{r or '-'}: {n}" for r, n in sorted(reasons.items()))
         typer.echo(f"{status}: {each}")
     typer.echo(f"manual queue: {report.queued} papers in {store.root / NBIB}")
+    _exit_if_pending(store)
+
+
+def _exit_if_pending(store: PaperStore) -> None:
+    """Exit 1 when the paper store's copy to GCS is still pending."""
+    from labdata.papers import read_status
+
+    if read_status(store.root).copy_pending:
+        typer.echo("the GCS copy is pending: the paper store is not finalized", err=True)
+        raise typer.Exit(1)
 
 
 @papers_app.command("copy")
@@ -286,21 +300,22 @@ def papers_copy(
     copied files and more than --accept-deletes; with --full, when the disk lacks more than
     that share of the files the bucket's copy record lists.
     Sends paper-status.json last, marked finalized; leaves out hidden files. When rclone's
-    Google login has expired, it sets copy_pending in paper-status.json and exits 0; rerun
+    Google login has expired, it sets copy_pending in paper-status.json and exits 1; rerun
     after `rclone config reconnect`.
     Holds the paper store's lock.
     """
     from labdata.papers import open_paper_store
-    from labdata.papers.copy import copy
+    from labdata.papers.lifecycle import copy
 
     try:
         result = copy(open_paper_store(root), to, full=full, accept_deletes=accept_deletes)
     except LabdataError as err:
         typer.echo(str(err), err=True)
         raise typer.Exit(1) from err
-    typer.echo(
-        result.message if result.skipped else f"Copied the paper store to {result.destination}"
-    )
+    if result.skipped:
+        typer.echo(result.message, err=True)
+        raise typer.Exit(1)
+    typer.echo(f"Copied the paper store to {result.destination}")
 
 
 @papers_app.command("restore")
@@ -345,8 +360,9 @@ def papers_serve(
     """Run the paper job: daily pass after 00:30 UTC, PMC sync on the 3rd and on a new build.
 
     Each pass reads the OpenAlex accounts afresh, so saved accounts count from the next pass.
-    Runs only what paper-status.json shows is due, one pass at a time, each followed by the
-    GCS copy. Inside a Slurm job, with --successor, it first keeps jobs queued behind
+    Runs only what paper-status.json shows is due, one pass at a time. A pass that changes
+    paper files ends with the GCS copy, and an idle minute retries a pending copy. Inside a
+    Slurm job, with --successor, it first keeps jobs queued behind
     this one, each with --dependency=afterany on the jobs before it.
     """
     import os
