@@ -6,8 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from labdata.papers import copy as copy_mod
-from labdata.papers import open_paper_store, paths
+from labdata.papers import lifecycle, open_paper_store, paths
 from tests._fake_gcs import FakeGcs
 from tests.test_papers_daily import (
     PDF,
@@ -29,7 +28,7 @@ def test_every_top_level_file_a_pass_and_a_copy_leave_is_declared_state_or_scrat
     use(monkeypatch, DailyWeb(hosts={link: Headed(PDF, 200)}), [])
     daily(root)
     FakeGcs.install(monkeypatch, tmp_path / "gcs", "gcs:bucket/papers")
-    copy_mod.copy(open_paper_store(root), "gcs:bucket/papers", full=True)
+    lifecycle.copy(open_paper_store(root), "gcs:bucket/papers", full=True)
 
     kinds = {p.name: paths.kind(p.name) for p in root.iterdir()}
 

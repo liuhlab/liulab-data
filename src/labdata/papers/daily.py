@@ -18,7 +18,7 @@ import time
 import urllib.parse
 from collections import Counter
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TextIO
 
@@ -27,8 +27,7 @@ from labdata.ncbi.entrez import EntrezClient
 from labdata.papers import paths
 from labdata.papers.folder import PaperFolder
 from labdata.papers.openalex import Account, OpenAlex
-from labdata.papers.root import PaperStore, paper_dir, paper_lock
-from labdata.papers.status import read_status, write_status
+from labdata.papers.root import PaperStore, paper_dir
 from labdata.papers.sync import status_of, store_links
 from labdata.papers.tables import PaperTables
 from labdata.store._files import write_atomic
@@ -95,7 +94,7 @@ def daily_pass(
     first and then the backlog newest first; tries each free host link once where OpenAlex
     has no copy or failed; recomputes every paper's status; and rewrites the manual queue.
     Only papers the current GEO/SRA build links get downloads; the others keep their rows
-    and files. Holds the paper store's lock; ``paper-status.json`` records the pass.
+    and files. Takes no lock: :func:`labdata.papers.lifecycle.daily` runs it.
 
     Parameters
     ----------
@@ -120,55 +119,12 @@ def daily_pass(
         Today's downloads and the papers by status and reason.
     """
     root = store.root
-    with paper_lock(root):
-        start = _now()
-        _record(root, {"kind": "daily", "start": start, "end": None, "outcome": "running"})
-        try:
-            report = _daily(
-                store,
-                client,
-                openalex,
-                today,
-                transport or HttpTransport(),
-                host_limiter or RateLimiter(*HOST_PACE),
-                log,
-            )
-        except BaseException:
-            _record(root, {"kind": "daily", "start": start, "end": _now(), "outcome": "failed"})
-            raise
-        status = read_status(root)
-        day = today.isoformat()
-        others = status.fetches.get("by_tier", {}) if status.fetches.get("date") == day else {}
-        write_status(
-            root,
-            replace(
-                status,
-                last_pass={"kind": "daily", "start": start, "end": _now(), "outcome": "success"},
-                last_daily_success=day,
-                fetches={"date": day, "by_tier": {**others, **report.fetched}},
-                quota={"date": day, "by_key": report.quota},
-                counts=report.counts,
-            ),
-        )
-    return report
-
-
-def _daily(
-    store: PaperStore,
-    client: EntrezClient,
-    openalex: OpenAlex,
-    today: dt.date,
-    transport: Transport,
-    host_limiter: RateLimiter,
-    log: Callable[[str], None],
-) -> DailyReport:
-    root = store.root
+    transport = transport or HttpTransport()
+    host_limiter = host_limiter or RateLimiter(*HOST_PACE)
+    if take_in(root):
+        log("took in the downloads a stopped pass left in its journal")
     state = PaperTables.load(root)
     journal = _Journal(root / JOURNAL)
-    if journal.replay(state):
-        log("took in the downloads a stopped pass left in its journal")
-        state.save(root)
-        journal.clear()
     # The Paperpile step goes here: it files the maintainer's saves before quota is spent.
     _recompute(state, today)
     linked = set(store_links(store, state))
@@ -187,7 +143,6 @@ def _daily(
     state.save(root)
     journal.clear()
     queued = _manual_queue(root, state, client, log)
-    # The paper job copies the store to GCS after the pass (`labdata papers copy`).
     report = DailyReport(queued=queued)
     todays = [a for a in state.attempts if a.get("date") == today]
     report.fetched = dict(Counter(a["tier"] for a in todays if a["outcome"] == "fetched"))
@@ -199,6 +154,29 @@ def _daily(
         counts.setdefault(row.get("status") or "", Counter())[row.get("reason") or ""] += 1
     report.counts = {s: dict(c) for s, c in counts.items()}
     return report
+
+
+def take_in(root: Path) -> bool:
+    """Save the downloads a stopped pass left in its journal to the tables, then drop it.
+
+    Parameters
+    ----------
+    root : pathlib.Path
+        The paper store root; the caller holds its lock.
+
+    Returns
+    -------
+    bool
+        Whether there was a journal.
+    """
+    journal = _Journal(root / JOURNAL)
+    if not journal.path.is_file():
+        return False
+    state = PaperTables.load(root)
+    journal.replay(state)
+    state.save(root)
+    journal.clear()
+    return True
 
 
 def _tries(state: PaperTables) -> dict[str, list[dict[str, Any]]]:
@@ -581,11 +559,3 @@ def _medline_records(text: str) -> dict[str, str]:
         if block.startswith("PMID-"):
             out[block.split("\n", 1)[0].removeprefix("PMID-").strip()] = block
     return out
-
-
-def _now() -> str:
-    return dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
-
-
-def _record(root: Path, last_pass: dict[str, Any]) -> None:
-    write_status(root, replace(read_status(root), last_pass=last_pass))

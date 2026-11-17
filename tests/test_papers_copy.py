@@ -14,7 +14,8 @@ from typer.testing import CliRunner
 
 from labdata.cli import app
 from labdata.papers import init_paper_store, open_paper_store, tables
-from labdata.papers.copy import COPIED, PaperCopyError, copy
+from labdata.papers.copy import COPIED, PaperCopyError
+from labdata.papers.lifecycle import copy
 from tests._fake_gcs import FakeGcs, KilledError
 from tests._paper_fakes import fixture_build
 

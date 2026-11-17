@@ -13,14 +13,13 @@ delete more of the copied paper files than :func:`labdata._gcs.delete_limit` all
 the deletes are accepted by hand.
 
 Hidden files stay behind, :data:`COPIED` aside: the lock, the daily pass's journal and every
-temp file. ``paper-status.json`` goes up last, after the copy record, marked ``finalized``. A
-skipped or refused copy sets ``copy_pending``; a later success clears it.
+temp file. The status record goes up last, after the copy record, as
+:mod:`labdata.papers.lifecycle` wrote it, which runs every copy under the paper store's lock.
 """
 
 from __future__ import annotations
 
-import datetime as dt
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 
 import pyarrow as pa
@@ -29,8 +28,8 @@ import pyarrow.parquet as pq
 from labdata import _gcs
 from labdata.exceptions import LabdataError
 from labdata.papers import paths
-from labdata.papers.root import MARKER, PaperStore, paper_lock
-from labdata.papers.status import STATUS, encode, read_status, write_status
+from labdata.papers.root import PaperStore
+from labdata.papers.status import STATUS
 from labdata.papers.tables import FILES
 
 #: The marker key naming the rclone destination, ``<remote>:<bucket>/<path>``.
@@ -75,19 +74,21 @@ def destination(store: PaperStore) -> str:
     return str(store.settings.get(COPY_TO_KEY) or "")
 
 
-def copy(
-    store: PaperStore, to: str | None = None, *, full: bool = False, accept_deletes: int = 0
+def send(
+    store: PaperStore, dest: str, status: bytes, *, full: bool = False, accept_deletes: int = 0
 ) -> CopyResult:
-    """Send the paper store's changes since the last successful copy to ``to``.
+    """Send the paper store's changes since the last successful copy to ``dest``.
 
-    Holds the paper store's lock, so a copy never runs beside a pass.
+    Takes no lock: :func:`labdata.papers.lifecycle.copy` runs it.
 
     Parameters
     ----------
     store : PaperStore
         The paper store.
-    to : str or None
-        An rclone path, ``<remote>:<bucket>/<path>``; defaults to the marker's ``copy_to``.
+    dest : str
+        An rclone path, ``<remote>:<bucket>/<path>``.
+    status : bytes
+        The status record, sent last, to GCS and then the work disk.
     full : bool
         Upload every file instead, and delete nothing. It lists every file on both sides; for
         a first copy or a repair.
@@ -104,33 +105,21 @@ def copy(
     Raises
     ------
     PaperCopyError
-        If no destination is set; if ``full`` comes with ``accept_deletes``; if the ``files``
-        table is missing or empty, or more of the copied paths left it than this copy deletes;
-        or if rclone fails for another reason. Any failure past the first two checks sets
-        ``copy_pending``.
+        If the ``files`` table is missing or empty, or more of the copied paths left it than
+        this copy deletes; or if rclone fails for another reason.
     """
-    root = store.root
-    dest = to or destination(store)
-    if not dest:
-        raise PaperCopyError(
-            f"no destination: pass --to <remote>:<bucket>/<path> or set "
-            f"{COPY_TO_KEY} in {root / MARKER}"
-        )
-    if full and accept_deletes:
-        raise PaperCopyError("--full deletes nothing, so it takes no --accept-deletes")
-    with paper_lock(root):
-        start = dt.datetime.now(dt.UTC)
-        try:
-            held = _held(root)
-            adapter = _Adapter(root, start.strftime("%Y-%m-%dT%H:%M:%SZ"))
-            skipped = _gcs.copy(adapter, dest, held, full=full, accept_deletes=accept_deletes)
-        except BaseException:
-            _pending(root, True)
-            raise
-        if skipped:
-            _pending(root, True)
-            return CopyResult(dest, skipped=True, message=skipped)
-    return CopyResult(dest)
+    held = _held(store.root)
+    adapter = _Adapter(store.root, status)
+    skipped = _gcs.copy(adapter, dest, held, full=full, accept_deletes=accept_deletes)
+    return CopyResult(dest, skipped=skipped is not None, message=skipped or "")
+
+
+def unsent(root: Path) -> bool:
+    """Return whether the ``files`` table and the copy record name different paper files.
+
+    Both are read on the work disk; nothing is downloaded.
+    """
+    return _papers(FILES.path(root)) != _papers(root / COPIED)
 
 
 class _Adapter(_gcs.Adapter):
@@ -142,15 +131,12 @@ class _Adapter(_gcs.Adapter):
     full_filters = ("--filter=- .*", "--filter=- .*/**", "--filter=- /*")
     full_checks = True
 
-    def __init__(self, root: Path, start: str) -> None:
+    def __init__(self, root: Path, status: bytes) -> None:
         super().__init__(root)
-        self.start = start
+        self.status_record = status
 
     def finalized(self) -> bytes:
-        old = read_status(self.root)
-        return encode(
-            replace(old, copy_pending=False, last_copy_success=self.start, finalized=True)
-        )
+        return self.status_record
 
     def load(self, data: bytes) -> _Held:
         return _signatures(pq.read_table(pa.BufferReader(data), columns=_COLUMNS, schema=_SCHEMA))
@@ -213,5 +199,9 @@ def _signatures(table: pa.Table) -> _Held:
     }
 
 
-def _pending(root: Path, pending: bool) -> None:
-    write_status(root, replace(read_status(root), copy_pending=pending))
+def _papers(path: Path) -> _Held:
+    """Return the paper files a ``files`` table or a copy record names; none for no file."""
+    if not path.is_file():
+        return {}
+    named = _signatures(pq.read_table(path, columns=_COLUMNS, schema=_SCHEMA))
+    return {p: sig for p, sig in named.items() if sig is not None}

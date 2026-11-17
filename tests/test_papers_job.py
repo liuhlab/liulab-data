@@ -19,7 +19,6 @@ from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
 from labdata.papers import init_paper_store, open_paper_store, tables
 from labdata.papers import job as job_mod
-from labdata.papers.copy import COPIED
 from labdata.papers.openalex import Account, OpenAlex, accounts_path, load_accounts, save_accounts
 from tests._fake_gcs import FakeGcs
 from tests._paper_fakes import Article, FakeWeb, fixture_build, work
@@ -172,9 +171,8 @@ def test_one_daily_pass_a_day_after_0030_and_the_pmc_sync_on_the_3rd(
     ]
     assert status(root)["last_daily_success"] == "2026-11-04"
     assert status(root)["last_pmc_sync_success"] == "2026-11-03"
-    # Every pass ends with a copy of its changes to GCS, never a full mirror.
-    assert gcs.sent().count(COPIED) == 5
-    assert gcs.walks == 0
+    # These passes change no paper file, so GCS is left alone: the work disk tells it so.
+    assert gcs.calls == []
     assert sbatch.calls == [
         ["sbatch", "--parsable", f"--dependency=afterany:{JOB}", OUTPUT, SCRIPT],
         ["sbatch", "--parsable", f"--dependency=afterany:{JOB}:4243", OUTPUT, SCRIPT],
@@ -451,8 +449,9 @@ def test_an_expired_login_sets_copy_pending_and_a_later_copy_clears_it(
 ) -> None:
     root = holding(paper_store(tmp_path))
     gcs.expired = True
-    out = full_copy(root)
-    assert "rclone config reconnect gcs:" in out
+    result = CliRunner().invoke(app, ["papers", "copy", "--root", str(root), "--full"])
+    assert result.exit_code == 1
+    assert "rclone config reconnect gcs:" in result.output
     assert status(root)["copy_pending"] is True
 
     gcs.expired = False
@@ -460,17 +459,33 @@ def test_an_expired_login_sets_copy_pending_and_a_later_copy_clears_it(
     assert status(root)["copy_pending"] is False
 
 
-def test_an_expired_login_does_not_fail_the_pass(
+def test_an_expired_login_leaves_the_copy_pending_and_each_idle_tick_tries_it_again(
     tmp_path: Path, sbatch: Sbatch, gcs: FakeGcs
 ) -> None:
     root = holding(synced(paper_store(tmp_path)))
     full_copy(root)
+    # A pass stopped before its copy: the store holds a paper file GCS lacks.
+    (root / "papers" / "2").mkdir()
+    (root / "papers" / "2" / "2.pdf").write_bytes(b"%PDF 2")
+    row = {"paper": "2", "kind": "pdf", "path": "papers/2/2.pdf", "size": 6, "md5": "b"}
+    tables.write(root, tables.FILES, [*tables.read(root, tables.FILES), row])
     gcs.expired = True
-    lines = serve(root, Clock(utc("2026-11-05 07:00")), until=utc("2026-11-05 07:10"))
+    back = utc("2026-11-05 07:03")
+    clock = EditingClock(
+        utc("2026-11-05 07:00"), at=back, edit=lambda: gcs.__setattr__("expired", False)
+    )
+    lines = serve(root, clock, until=utc("2026-11-05 07:10"))
 
+    # An expired login does not fail the pass.
     assert passes(lines) == ["2026-11-05T07:00Z daily pass 2026-11-05: success"]
-    assert status(root)["copy_pending"] is True
     assert status(root)["last_daily_success"] == "2026-11-05"
+    # The pass's copy, then one at each idle tick until the login is back, then no more.
+    assert len([line for line in lines if "rclone config reconnect gcs:" in line]) == 4
+    assert len([line for line in lines if line.startswith("copied the paper store")]) == 1
+    idle = [line.endswith("copy pending: yes") for line in lines if " idle;" in line]
+    assert idle == [True] * 3 + [False] * 7
+    assert gcs.read("papers/2/2.pdf") == b"%PDF 2"
+    assert (status(root)["finalized"], status(root)["copy_pending"]) == (True, False)
 
 
 def test_serve_submits_its_successor_from_the_slurm_job_id(
