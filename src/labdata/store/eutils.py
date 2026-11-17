@@ -31,7 +31,7 @@ import pyarrow.parquet as pq
 from labdata.exceptions import EntrezError
 from labdata.geo.sra_records import split_packages
 from labdata.ncbi.entrez import EntrezClient, FetchedRecords
-from labdata.store import extract, gaps, raw, snapshots
+from labdata.store import extract, gaps, paths, raw, snapshots
 from labdata.store._files import temp_beside
 from labdata.store.progress import EVERY, Progress
 
@@ -117,7 +117,7 @@ def experiment_list(
         If the store has no such snapshot.
     """
     snap = snapshots.snapshot(root, snapshots.SRA_ACCESSIONS, date)
-    folder = root / "work" / "eutils"
+    folder = paths.EUTILS.at(root)
     tab = _tab_experiments(snap, folder / f"tab-{snap.date}.parquet")
     wanted = None if series is None else set(series)
     soft = _soft_experiments(root, folder / "soft.parquet", wanted)
@@ -158,7 +158,7 @@ def experiment_list(
 
 def list_path(root: Path, date: str) -> Path:
     """Return where :func:`experiment_list` writes the list for one tab snapshot date."""
-    return root / "work" / "eutils" / f"experiments-{date}.parquet"
+    return paths.EUTILS.at(root, f"experiments-{date}.parquet")
 
 
 def _tab_experiments(snap: snapshots.Snapshot, out: Path) -> Path:
@@ -230,13 +230,13 @@ def _samples(root: Path, out: Path, series: set[str]) -> Path:
 def _soft_experiments(root: Path, out: Path, series: set[str] | None) -> Path:
     """Spill the SRX accessions of the saved SOFT of these Series, packed or in a part."""
     out.parent.mkdir(parents=True, exist_ok=True)
-    paths = sorted((root / "raw" / raw.GEO_SOFT).glob("*.parquet"))
-    paths += raw.part_files(root, raw.GEO_SOFT)
+    files = sorted(paths.RAW.at(root, raw.GEO_SOFT).glob("*.parquet"))
+    files += raw.part_files(root, raw.GEO_SOFT)
     tmp = temp_beside(out)
     try:
         with pq.ParquetWriter(tmp, _SOFT_SCHEMA) as writer:
             writer.write_table(_SOFT_SCHEMA.empty_table())
-            for path in paths:
+            for path in files:
                 found: set[str] = set()
                 columns = ["accession", "raw_text"]
                 for batch in pq.ParquetFile(path).iter_batches(batch_size=64, columns=columns):
@@ -386,7 +386,7 @@ def _fetch_once(
 ) -> tuple[LaneReport, set[str]]:
     """Run the lane once; also return the saved bad packages asked again whose call worked."""
     batch, inflight, part_size = sizes
-    spill = root / "work" / "eutils" / "spill"
+    spill = paths.EUTILS.at(root, "spill")
     shutil.rmtree(spill, ignore_errors=True)
     total = sum(len(p.todo) for p in _pieces(root, experiments, noted, settled, refetch))
     report = {"fetched": 0, "missing": 0, "failed": 0, "reasked": 0, "recovered": 0}
@@ -522,12 +522,12 @@ def _bad_saved(root: Path, status: dict[str, str], noted: set[str]) -> set[str]:
     and it is still not well-formed.
     """
     bucket = raw.bucket_of(raw.SRA_XML, next(iter(status)))
-    paths = [root / "raw" / raw.SRA_XML / f"{bucket}.parquet"]
-    paths += [p for p in raw.part_files(root, raw.SRA_XML) if raw.part_bucket(p) == bucket]
+    files = [paths.RAW.at(root, raw.SRA_XML, f"{bucket}.parquet")]
+    files += [p for p in raw.part_files(root, raw.SRA_XML) if raw.part_bucket(p) == bucket]
     look = sorted(noted.intersection(status))
     empty: set[str] = set()
     newest: dict[str, str] = {}
-    for path in filter(Path.is_file, paths):
+    for path in filter(Path.is_file, files):
         for chunk in pq.ParquetFile(path).iter_batches(columns=["accession", "hash"]):
             for accession, digest in zip(*chunk.to_pydict().values(), strict=True):
                 if digest == _EMPTY:

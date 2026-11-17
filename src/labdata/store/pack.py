@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pyarrow.parquet as pq
 
-from labdata.store import provenance, raw
+from labdata.store import paths, provenance, raw
 from labdata.store.raw import RawRow
 
 #: Rows read from each input at a time.
@@ -60,8 +60,8 @@ def pack(
         The bucket files rewritten or deleted. Each source's count of removed records is logged.
     """
     if sources is None:
-        found = {p.name for p in (root / "work" / "parts").glob("*") if p.is_dir()}
-        found |= {p.name for p in (root / "raw").glob("*") if p.is_dir()}
+        found = {p.name for p in paths.PARTS.at(root).glob("*") if p.is_dir()}
+        found |= {p.name for p in paths.RAW.at(root).glob("*") if p.is_dir()}
         sources = sorted(found)
     written: list[Path] = []
     for source in sources:
@@ -94,7 +94,7 @@ def write_rows(root: Path, source: str, rows: list[RawRow]) -> list[Path]:
 def _pack_source(
     root: Path, source: str, chunk_bytes: int, counts: Path | None
 ) -> tuple[list[Path], int]:
-    folder = root / "raw" / source
+    folder = paths.RAW.at(root, source)
     for stale in [*folder.glob(".*.tmp"), *raw.parts_dir(root, source).glob(".*")]:
         stale.unlink(missing_ok=True)
     for path in sorted(folder.glob("*.parquet")):

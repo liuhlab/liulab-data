@@ -31,7 +31,7 @@ from labdata.cli import app
 from labdata.exceptions import NotFound
 from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
-from labdata.store import geo_lane, init_store, open_store, pipeline, raw, refresh
+from labdata.store import geo_lane, init_store, open_store, paths, pipeline, raw, refresh
 from labdata.store.fetch import soft_url
 from tests._scripts import compare
 from tests._slices import copy_store
@@ -431,6 +431,9 @@ def test_a_refresh_adds_replaces_removes_and_switches_while_an_open_store_keeps_
     assert status["ended"] >= status["started"]
     assert status["counts"][raw.GEO_SOFT] == {"added": 1, "replaced": 1, "removed": 1}
     assert status["copy_pending"] is False
+    # The layout declares every file the refresh left.
+    for path in (p for p in root.rglob("*") if p.is_file()):
+        paths.kind(path.relative_to(root).as_posix())
 
 
 def test_a_refresh_killed_after_pack_reruns_only_the_later_steps_and_asks_ncbi_nothing(

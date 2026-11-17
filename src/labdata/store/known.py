@@ -19,7 +19,7 @@ from pathlib import Path
 import pyarrow.parquet as pq
 
 from labdata.exceptions import StoreBuildError
-from labdata.store import extract, layout, snapshots, targets
+from labdata.store import extract, layout, paths, snapshots, targets
 from labdata.store._files import temp_beside
 from labdata.store.layout import sql_string
 
@@ -83,7 +83,7 @@ def write(
         _sort(root, folders, dates, out, source.sample, held)
         return dates
     key = "_".join(f"{source}-{date}" for source, date in dates.items())
-    cached = root / "work" / "known" / f"known-public-{key}.parquet"
+    cached = paths.KNOWN.at(root, f"known-public-{key}.parquet")
     if not cached.is_file():
         cached.parent.mkdir(parents=True, exist_ok=True)
         tmp = temp_beside(cached)

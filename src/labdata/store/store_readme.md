@@ -192,11 +192,28 @@ labdata store verify --root <store>
   `labdata store prune` deletes an extract with its snapshot. If an extract is lost,
   `labdata store extract --source <source>` makes it again, which is slow on a large
   snapshot.
-- **Refresh:** none. When no run is going and `refresh-status.json` says the last refresh
-  succeeded, you may delete everything else in `work/`, after keeping the logs in `support/`:
-  `parts/`, `run/`, `refresh/`, `targets/`, `known/`, `eutils/`, `build/`, `tmp/` and
-  `sra-removal/`. The next run makes what it needs again. Fetch steps still skip every item
-  saved in `raw/`.
+- **Refresh:** none. [Clean up](#clean-up) lists what in `work/` you may delete.
+
+## Clean up
+
+When no run is going and `refresh-status.json` says the last refresh succeeded, you may delete
+the paths below. They are on this computer only, and the next run makes what it needs again.
+Keep the run logs in `support/` first, as its section says. Fetch steps still skip every item
+saved in `raw/`.
+
+- `support/`, once you no longer need its run logs
+- `work/build.lock`
+- `work/build/`
+- `work/parts/`
+- `work/run/`
+- `work/refresh/`
+- `work/targets/`
+- `work/known/`
+- `work/eutils/`
+- `work/tmp/`
+- `work/sra-removal/`
+
+Keep everything else, `work/extract/` among it.
 
 ## How to refresh
 

@@ -24,7 +24,7 @@ from pathlib import Path
 
 from labdata import _pipeline
 from labdata._pipeline import RESILIENCE_FLAGS
-from labdata.store import _limits, extract, gcs, snapshots, targets
+from labdata.store import _limits, extract, gcs, paths, snapshots, targets
 from labdata.store.root import open_store
 
 logger = logging.getLogger(__name__)
@@ -62,7 +62,7 @@ def memory_plan(total_mb: int) -> dict[str, int]:
 
 def round_dir(root: Path, date: str, fraction: float | None) -> Path:
     """Return the folder of one round's markers, logs and Snakemake state."""
-    return root / "work" / "run" / f"{date}-{targets.fraction_name(fraction)}"
+    return paths.RUNS.at(root, f"{date}-{targets.fraction_name(fraction)}")
 
 
 def _snakefile() -> Path:

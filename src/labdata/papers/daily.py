@@ -24,6 +24,7 @@ from typing import Any, TextIO
 
 from labdata._http import USER_AGENT, HttpTransport, RateLimiter, Transport
 from labdata.ncbi.entrez import EntrezClient
+from labdata.papers import paths
 from labdata.papers.folder import PaperFolder
 from labdata.papers.openalex import Account, OpenAlex
 from labdata.papers.root import PaperStore, paper_dir, paper_lock
@@ -42,11 +43,11 @@ OPENALEX_TRIES = 3
 CONTENT = "https://content.openalex.org/works"
 
 #: The manual queue: PubMed MEDLINE records for Paperpile, and one DOI a line.
-NBIB = "manual-queue.nbib"
-DOIS = "manual-queue-dois.txt"
+NBIB = paths.MANUAL_NBIB.rel
+DOIS = paths.MANUAL_DOIS.rel
 
 #: Downloads the running pass has not yet written to the tables.
-JOURNAL = ".daily-journal.jsonl"
+JOURNAL = paths.JOURNAL.rel
 
 #: The pace of free host links: requests a second, and how many at once.
 HOST_PACE = (1.0, 1)

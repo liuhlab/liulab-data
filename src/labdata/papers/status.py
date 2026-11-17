@@ -11,10 +11,11 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
+from labdata.papers import paths
 from labdata.store._files import write_atomic
 
 #: The status file at the paper store root.
-STATUS = "paper-status.json"
+STATUS = paths.STATUS.rel
 
 
 @dataclass(frozen=True, slots=True)

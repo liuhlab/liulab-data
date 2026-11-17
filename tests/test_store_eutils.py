@@ -22,7 +22,7 @@ import labdata.ncbi.entrez as entrez_mod
 from labdata._http import RateLimiter
 from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
-from labdata.store import build, eutils, gaps, pack, raw
+from labdata.store import eutils, gaps, pack, paths, raw
 
 TODAY = "2026-10-15"
 _HEADER = (
@@ -376,7 +376,7 @@ def _saved_spliced(tmp_path: Path) -> Path:
     folder.mkdir(parents=True)
     note = gaps.Note("SRX10340496", gaps.UNPARSABLE_PACKAGE, "not well-formed XML as saved")
     gaps.write_notes(root, folder, folder / "no-target-list.parquet", [note])
-    build.write_marker(root, {"format_version": 1, "build": "b1"})
+    paths.write_marker(root, {"format_version": 1, "build": "b1"})
     return root
 
 

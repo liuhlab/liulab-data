@@ -23,28 +23,28 @@ import json
 import shutil
 import subprocess
 import tempfile
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
 from labdata import _rclone
 from labdata.exceptions import LabdataError, NotAStoreError
+from labdata.store import paths
 from labdata.store._files import temp_beside
-from labdata.store.build import BUILD_KEY, build_lock
+from labdata.store.build import build_lock
 from labdata.store.layout import MANIFEST, manifest_path
 from labdata.store.provenance import README
 from labdata.store.reader import build_path
-from labdata.store.root import MARKER, open_store
+from labdata.store.root import open_store
 
 #: The marker key naming the rclone destination, ``<remote>:<bucket>/<path>``.
 COPY_TO_KEY = "copy_to"
 
 #: The copy record: each file the bucket holds, as the last successful copy left it, with its
 #: sha256, or null for a file that goes up every time. Kept here on the disk and in the bucket.
-COPIED = ".copied-files.json"
+COPIED = paths.COPY_RECORD.rel
 
 #: Sent after the rest: the marker, so the bucket's never names a build it lacks.
-_TOP = [README, MARKER]
+_TOP = [paths.README.rel, paths.MARKER.rel]
 
 #: Paths from the store root to their sha256; None for a file that goes up every time.
 _Files = dict[str, str | None]
@@ -116,7 +116,7 @@ def copy(
     if not dest:
         raise StoreCopyError(
             f"no destination: pass --to <remote>:<bucket>/<path> or set "
-            f"{COPY_TO_KEY} in {root / MARKER}"
+            f"{COPY_TO_KEY} in {paths.MARKER.at(root)}"
         )
     if full and accept_deletes:
         raise StoreCopyError("--full deletes nothing, so it takes no --accept-deletes")
@@ -125,7 +125,7 @@ def copy(
 
     try:
         with build_lock(root):
-            held = _current(root, store.settings.get(BUILD_KEY))
+            held = _current(root, store.settings.get(paths.BUILD_KEY))
             skipped = _send(
                 root,
                 dest,
@@ -162,13 +162,15 @@ def _send(
         if path.is_file():
             copied = json.loads(path.read_text(encoding="utf-8"))
         else:
-            fetched = _fetch(root, dest, [COPIED, MARKER])
+            fetched = _fetch(root, dest, [COPIED, paths.MARKER.rel])
             if fetched is None:
                 return expired
             if COPIED in fetched:
                 copied = json.loads(fetched[COPIED])
             else:
-                copied = _seed(root, fetched.get(MARKER)) if bucket_matches_marker else None
+                copied = (
+                    _seed(root, fetched.get(paths.MARKER.rel)) if bucket_matches_marker else None
+                )
                 if copied is None:
                     return (
                         "no copy record, on the disk or in the bucket, so the bucket is behind "
@@ -209,7 +211,7 @@ def _seed(root: Path, marker: str | None) -> _Files | None:
 
     The caller vouches that the bucket holds exactly that build and what it read.
     """
-    build = tomllib.loads(marker).get(BUILD_KEY) if marker else None
+    build = paths.parse_marker(marker).get(paths.BUILD_KEY) if marker else None
     if not build or not manifest_path(build_path(root, str(build))).is_file():
         return None
     return _build_files(root, str(build))[0]
@@ -261,7 +263,8 @@ def _gone(held: _Files, copied: _Files) -> list[str]:
 def _unit(path: str) -> str:
     """Return the folder that holds ``path`` in the current state, ``""`` for the top level."""
     parts = path.split("/")
-    return "/".join(parts[: {"builds": 2, "raw": 2, "snapshots": 3}.get(parts[0], 0)])
+    depth = {paths.BUILDS.name: 2, paths.RAW.name: 2, paths.SNAPSHOTS.name: 3}
+    return "/".join(parts[: depth.get(parts[0], 0)])
 
 
 def _check_deletes(held: _Files, copied: _Files, accepted: int) -> None:
@@ -300,7 +303,7 @@ def _put_copied(root: Path, dest: str, held: _Files) -> bool:
 def _current(root: Path, build: object) -> _Files:
     """Return the current state's files with their sha256, after checking it is all there."""
     if not build:
-        raise StoreCopyError(f"copy refused: {root / MARKER} names no build")
+        raise StoreCopyError(f"copy refused: {paths.MARKER.at(root)} names no build")
     folder = build_path(root, str(build))
     if not manifest_path(folder).is_file():
         rel = folder.relative_to(root).as_posix()
@@ -327,11 +330,11 @@ def _build_files(root: Path, build: str) -> tuple[_Files, list[str]]:
     held: _Files = {f"{rel}/{f['name']}": f.get("sha256") for f in data.get("files", [])}
     inputs = data.get("inputs", {})
     for source, files in inputs.get("raw", {}).items():
-        named = {f"raw/{source}/{f['name']}": f.get("sha256") for f in files}
+        named = {f"{paths.RAW.rel}{source}/{f['name']}": f.get("sha256") for f in files}
         missing += [p for p in named if not (root / p).is_file()]
-        held |= named | _side_files(root, f"raw/{source}")
+        held |= named | _side_files(root, f"{paths.RAW.rel}{source}")
     for source, snap in sorted(inputs.get("snapshots", {}).items()):
-        sub = f"snapshots/{source}/{snap['date']}"
+        sub = f"{paths.SNAPSHOTS.rel}{source}/{snap['date']}"
         if (root / sub).is_dir():
             held |= {f"{sub}/{p}": None for p in _listing(root / sub)}
         held[f"{sub}/{snap['name']}"] = snap.get("sha256")

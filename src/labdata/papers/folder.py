@@ -21,13 +21,14 @@ from pathlib import Path
 
 from backports import zstd
 
+from labdata.papers import paths
 from labdata.store._files import write_atomic
 
 #: The folder under the root that holds files being written; a pass empties it at its start.
-TEMP = ".tmp"
+TEMP = paths.TEMP.name
 
 #: The moves and deletes a save has yet to apply.
-PENDING = ".pending-files.json"
+PENDING = paths.PENDING.rel
 
 #: The ending a compressed file gets.
 SUFFIX = ".zst"
