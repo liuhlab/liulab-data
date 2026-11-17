@@ -34,6 +34,11 @@ labdata store never writes into it.
   papers/                   the paper files
 ```
 
+`.lock`, `.pending-files.json`, `.successor` and `.tmp/` are scratch. Delete them only while
+the paper job is stopped. Losing them may leave a paper file that no table names. Keep
+`.daily-journal.jsonl`: it holds downloads a stopped pass has not yet put in the tables, and
+without it the next pass downloads them again and spends quota twice.
+
 ## labdata-papers.toml
 
 - **What:** the marker that makes this folder a paper store.
