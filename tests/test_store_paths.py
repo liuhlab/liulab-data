@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
 from pathlib import Path
 
 import pytest
 
 from labdata.store import gcs, paths
+from tests._fake_gcs import FakeGcs
 from tests._slices import BuiltStore
 
 
@@ -19,21 +19,18 @@ def _isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.delenv("LABDATA_STORE", raising=False)
 
 
-def _sent(args: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.CompletedProcess(args, 0, "", "")
-
-
 def test_the_copy_sends_exactly_the_state_files_and_the_readme_frees_exactly_the_scratch_ones(
     built_store: BuiltStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = built_store(tmp_path / "store", "geo_slice")
     files = [p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file()]
     state = {p for p in files if paths.kind(p) is paths.Kind.STATE}
-    monkeypatch.setattr(gcs, "_run_rclone", _sent)
+    fake = FakeGcs.install(monkeypatch, tmp_path / "gcs", "gcs:bucket/store")
 
     gcs.copy(root, "gcs:bucket/store", full=True)
 
-    # The copy record names every file the copy left in GCS.
+    # GCS holds the state files, and the copy record names each.
+    assert set(fake.files()) == state | {paths.COPY_RECORD.rel}
     assert set(json.loads(paths.COPY_RECORD.at(root).read_text(encoding="utf-8"))) == state
     readme = paths.README.at(root).read_text(encoding="utf-8")
     cleanup = readme.split("\n## Clean up\n", 1)[1].split("\n## ", 1)[0]

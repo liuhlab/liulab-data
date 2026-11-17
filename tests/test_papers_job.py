@@ -19,7 +19,9 @@ from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
 from labdata.papers import init_paper_store, open_paper_store, tables
 from labdata.papers import job as job_mod
+from labdata.papers.copy import COPIED
 from labdata.papers.openalex import Account, OpenAlex, accounts_path, load_accounts, save_accounts
+from tests._fake_gcs import FakeGcs
 from tests._paper_fakes import Article, FakeWeb, fixture_build, work
 
 PMID = "41000001"
@@ -56,18 +58,6 @@ class Sbatch:
         return subprocess.CompletedProcess(args, self.returncode, f"{self.next - 1}\n", self.stderr)
 
 
-class Rclone:
-    """Stand-in for the rclone runner: records each command, answers with one result."""
-
-    def __init__(self, returncode: int = 0, stderr: str = "") -> None:
-        self.calls: list[list[str]] = []
-        self.returncode, self.stderr = returncode, stderr
-
-    def __call__(self, args: list[str]) -> subprocess.CompletedProcess[str]:
-        self.calls.append(args)
-        return subprocess.CompletedProcess(args, self.returncode, "", self.stderr)
-
-
 @pytest.fixture(autouse=True)
 def _isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
@@ -92,10 +82,8 @@ def sbatch(monkeypatch: pytest.MonkeyPatch) -> Sbatch:
 
 
 @pytest.fixture
-def rclone(monkeypatch: pytest.MonkeyPatch) -> Rclone:
-    fake = Rclone()
-    monkeypatch.setattr("labdata.papers.copy._run_rclone", fake)
-    return fake
+def gcs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> FakeGcs:
+    return FakeGcs.install(monkeypatch, tmp_path / "gcs", DEST)
 
 
 def paper_store(tmp_path: Path) -> Path:
@@ -167,11 +155,11 @@ def status(root: Path) -> dict:
 
 
 def test_one_daily_pass_a_day_after_0030_and_the_pmc_sync_on_the_3rd(
-    tmp_path: Path, sbatch: Sbatch, rclone: Rclone
+    tmp_path: Path, sbatch: Sbatch, gcs: FakeGcs
 ) -> None:
     root = holding(paper_store(tmp_path))
     full_copy(root)
-    rclone.calls.clear()
+    gcs.forget()
     clock = Clock(utc("2026-11-01 23:00"))
     lines = serve(root, clock, until=utc("2026-11-04 02:00"))
 
@@ -185,8 +173,8 @@ def test_one_daily_pass_a_day_after_0030_and_the_pmc_sync_on_the_3rd(
     assert status(root)["last_daily_success"] == "2026-11-04"
     assert status(root)["last_pmc_sync_success"] == "2026-11-03"
     # Every pass ends with a copy of its changes to GCS, never a full mirror.
-    assert len([c for c in rclone.calls if c[1] == "lsjson"]) == 5
-    assert not [c for c in rclone.calls if c[1] == "sync"]
+    assert gcs.sent().count(COPIED) == 5
+    assert gcs.walks == 0
     assert sbatch.calls == [
         ["sbatch", "--parsable", f"--dependency=afterany:{JOB}", OUTPUT, SCRIPT],
         ["sbatch", "--parsable", f"--dependency=afterany:{JOB}:4243", OUTPUT, SCRIPT],
@@ -197,7 +185,7 @@ def test_one_daily_pass_a_day_after_0030_and_the_pmc_sync_on_the_3rd(
 
 
 def test_after_a_restart_only_what_is_due_runs_and_no_more_successors_are_submitted(
-    tmp_path: Path, sbatch: Sbatch, rclone: Rclone
+    tmp_path: Path, sbatch: Sbatch, gcs: FakeGcs
 ) -> None:
     root = paper_store(tmp_path)
     (root / "paper-status.json").write_text(
@@ -242,7 +230,7 @@ def test_a_new_build_makes_the_pmc_sync_due_within_the_month(tmp_path: Path) -> 
     ids=["no marker", "unreadable marker", "no store folder"],
 )
 def test_a_store_that_will_not_open_does_not_end_the_job(
-    tmp_path: Path, sbatch: Sbatch, rclone: Rclone, breaks: Callable[[Path], object]
+    tmp_path: Path, sbatch: Sbatch, gcs: FakeGcs, breaks: Callable[[Path], object]
 ) -> None:
     root = synced(paper_store(tmp_path), build="b1")
     breaks(tmp_path / "store")
@@ -261,7 +249,7 @@ def test_a_store_that_will_not_open_does_not_end_the_job(
 
 
 def test_a_refresh_on_the_1st_starts_the_months_pmc_sync_and_none_follows_on_the_3rd(
-    tmp_path: Path, sbatch: Sbatch, rclone: Rclone
+    tmp_path: Path, sbatch: Sbatch, gcs: FakeGcs
 ) -> None:
     root = synced(paper_store(tmp_path), build="b1")
     refresh(tmp_path / "store")
@@ -273,7 +261,7 @@ def test_a_refresh_on_the_1st_starts_the_months_pmc_sync_and_none_follows_on_the
 
 
 def test_the_pmc_sync_logs_and_records_the_papers_it_moved_and_turned_away(
-    tmp_path: Path, sbatch: Sbatch, rclone: Rclone
+    tmp_path: Path, sbatch: Sbatch, gcs: FakeGcs
 ) -> None:
     unknown = ("GSE2", "DOI:10.1000/unknown", "SOFT Series_citation")
     store = fixture_build(tmp_path / "store", [("GSE1", f"PMID:{PMID}", "SOFT"), unknown])
@@ -291,7 +279,7 @@ def test_the_pmc_sync_logs_and_records_the_papers_it_moved_and_turned_away(
 
 
 def test_a_failed_successor_submission_is_logged_and_the_job_goes_on(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rclone: Rclone
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, gcs: FakeGcs
 ) -> None:
     root = synced(paper_store(tmp_path))
     monkeypatch.setattr(job_mod, "_submit", Sbatch(1, "sbatch: error: Access denied"))
@@ -313,7 +301,7 @@ def test_the_successor_logs_into_the_folder_of_the_job_before_it(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     sbatch: Sbatch,
-    rclone: Rclone,
+    gcs: FakeGcs,
     shown: str,
     output: str | None,
 ) -> None:
@@ -326,7 +314,7 @@ def test_the_successor_logs_into_the_folder_of_the_job_before_it(
 
 
 def test_a_failed_log_write_does_not_stop_the_job(
-    tmp_path: Path, sbatch: Sbatch, rclone: Rclone
+    tmp_path: Path, sbatch: Sbatch, gcs: FakeGcs
 ) -> None:
     root = synced(paper_store(tmp_path))
     clock = Clock(utc("2026-11-05 00:00"))
@@ -368,7 +356,7 @@ def dependency_of(args: list[str]) -> str:
 def test_two_jobs_stay_queued_behind_the_running_one(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    rclone: Rclone,
+    gcs: FakeGcs,
     record: str,
     shown: dict[str, str],
     after: list[str],
@@ -407,7 +395,7 @@ class EditingClock(Clock):
 
 
 def test_each_daily_pass_spends_the_accounts_saved_before_it(
-    tmp_path: Path, sbatch: Sbatch, rclone: Rclone
+    tmp_path: Path, sbatch: Sbatch, gcs: FakeGcs
 ) -> None:
     root = synced(paper_store(tmp_path))
     save_accounts([Account("k1", "a@lab.org")])
@@ -427,7 +415,7 @@ def test_each_daily_pass_spends_the_accounts_saved_before_it(
 
 
 def test_an_unreadable_accounts_file_fails_that_pass_and_the_job_goes_on(
-    tmp_path: Path, sbatch: Sbatch, rclone: Rclone
+    tmp_path: Path, sbatch: Sbatch, gcs: FakeGcs
 ) -> None:
     root = synced(paper_store(tmp_path))
     accounts_path().parent.mkdir(parents=True, exist_ok=True)
@@ -449,9 +437,9 @@ def full_copy(root: Path) -> str:
     return result.output
 
 
-def test_a_failed_copy_sets_copy_pending(tmp_path: Path, rclone: Rclone) -> None:
+def test_a_failed_copy_sets_copy_pending(tmp_path: Path, gcs: FakeGcs) -> None:
     root = holding(paper_store(tmp_path))
-    rclone.returncode, rclone.stderr = 3, "ERROR : bucket not found\n"
+    gcs.error = "ERROR : bucket not found\n"
     result = CliRunner().invoke(app, ["papers", "copy", "--root", str(root), "--full"])
     assert result.exit_code == 1
     assert "bucket not found" in result.output
@@ -459,25 +447,25 @@ def test_a_failed_copy_sets_copy_pending(tmp_path: Path, rclone: Rclone) -> None
 
 
 def test_an_expired_login_sets_copy_pending_and_a_later_copy_clears_it(
-    tmp_path: Path, rclone: Rclone
+    tmp_path: Path, gcs: FakeGcs
 ) -> None:
     root = holding(paper_store(tmp_path))
-    rclone.returncode, rclone.stderr = 1, "oauth2: cannot fetch token: invalid_grant"
+    gcs.expired = True
     out = full_copy(root)
     assert "rclone config reconnect gcs:" in out
     assert status(root)["copy_pending"] is True
 
-    rclone.returncode, rclone.stderr = 0, ""
+    gcs.expired = False
     full_copy(root)
     assert status(root)["copy_pending"] is False
 
 
 def test_an_expired_login_does_not_fail_the_pass(
-    tmp_path: Path, sbatch: Sbatch, rclone: Rclone
+    tmp_path: Path, sbatch: Sbatch, gcs: FakeGcs
 ) -> None:
     root = holding(synced(paper_store(tmp_path)))
     full_copy(root)
-    rclone.returncode, rclone.stderr = 1, "invalid_grant"
+    gcs.expired = True
     lines = serve(root, Clock(utc("2026-11-05 07:00")), until=utc("2026-11-05 07:10"))
 
     assert passes(lines) == ["2026-11-05T07:00Z daily pass 2026-11-05: success"]
