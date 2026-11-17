@@ -17,8 +17,10 @@ from __future__ import annotations
 
 import csv
 import datetime as dt
+import functools
 import gzip
 import hashlib
+import io
 import json
 import re
 import tempfile
@@ -29,6 +31,7 @@ import xml.etree.ElementTree as ET
 from collections import Counter
 from collections.abc import Callable, Collection
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -43,10 +46,9 @@ from labdata._http import (
     retry,
 )
 from labdata.exceptions import LabdataError
-from labdata.papers import _zst
+from labdata.papers.folder import SUFFIX, PaperFolder, compressed, open_plain
 from labdata.papers.root import paper_dir
 from labdata.papers.tables import PaperTables
-from labdata.store._files import temp_beside
 
 BUCKET = "https://pmc-oa-opendata.s3.amazonaws.com"
 
@@ -193,7 +195,7 @@ def fetch(
     bucket = _Bucket(transport, RateLimiter(RATE, WORKERS))
     try:
         clock = time.monotonic()
-        newest = bucket.inventory(set(pmcids.values()), today, root)
+        newest = bucket.inventory(set(pmcids.values()), today, state.folder.temp_dir())
         log(
             f"PMC inventory read in {time.monotonic() - clock:.0f} s: "
             f"{len(newest)} of {len(pmcids)} papers with a PMCID are in the bucket"
@@ -233,7 +235,7 @@ def fetch(
                 pool.submit(
                     _article,
                     bucket,
-                    root,
+                    state.folder,
                     key,
                     folder,
                     [r for r in by_paper.get(key, []) if r["tier"] == _TIER],
@@ -277,7 +279,7 @@ def fetch(
         finally:
             pool.shutdown(wait=True, cancel_futures=True)
         save()
-        replaced = _replace_other_pdfs(state, by_paper, pmcids, root)
+        replaced = _replace_other_pdfs(state, by_paper, pmcids)
         if replaced:
             save()
         replies = bucket.replies()
@@ -390,12 +392,11 @@ def _replace_other_pdfs(
     state: PaperTables,
     by_paper: dict[str, list[dict[str, Any]]],
     papers: Collection[str],
-    root: Path,
 ) -> int:
     """Remove the PDFs other tiers supplied for papers whose XML PMC holds; return how many.
 
-    The caller saves the PMC files first, so a kill here leaves both copies and the next
-    sync finishes. A file another remaining row points at is kept.
+    The caller saves the PMC files first; a PDF is deleted only once the tables without it
+    are saved. A file another remaining row points at is kept.
     """
     pointing = Counter(r["path"] for rows in by_paper.values() for r in rows if r["path"])
     replaced = 0
@@ -411,7 +412,7 @@ def _replace_other_pdfs(
                 pointing[r["path"]] -= 1
         for r in other:
             if r["path"] and pointing[r["path"]] <= 0:
-                (root / r["path"]).unlink(missing_ok=True)
+                state.folder.delete(r["path"])
         kept = [r for r in rows if r["kind"] != "pdf" or r["tier"] == _TIER]
         # PMC's PDF takes the paper's name, as for any PMC paper.
         name = f"{urllib.parse.quote(key, safe='')}.pdf"
@@ -429,7 +430,7 @@ def _replace_other_pdfs(
 
 def _article(
     bucket: _Bucket,
-    root: Path,
+    paper_files: PaperFolder,
     key: str,
     folder: str,
     old: list[dict[str, Any]],
@@ -440,9 +441,6 @@ def _article(
     out = _Outcome(key, [])
     previous = {(r["kind"], r["name"]): r for r in old}
     done: dict[tuple[str, str], dict[str, Any]] = {}
-    # A pass killed outright leaves its temporary files; this paper's folder is ours now.
-    for stale in (root / paper_dir(key)).rglob(".*.part"):
-        stale.unlink(missing_ok=True)
     try:
         record = json.loads(bucket.get(f"{folder}/{folder}.json"))
         if record.get("is_retracted"):
@@ -458,7 +456,7 @@ def _article(
         def take(kind: str, name: str, source: str, path: Path | None) -> dict[str, Any]:
             row = _file(
                 bucket,
-                root,
+                paper_files,
                 out,
                 previous.get((kind, name)),
                 kind,
@@ -489,7 +487,9 @@ def _article(
         figures: dict[str, tuple[str | None, str | None]] = {}
         inline: set[str] = set()
         if ("xml", f"{base}.xml") in done:
-            labels, figures, inline = _xml_files(root / done[("xml", f"{base}.xml")]["path"])
+            labels, figures, inline = _xml_files(
+                paper_files.root / done[("xml", f"{base}.xml")]["path"]
+            )
         chosen = _figure_files(listing, figures, set(labels))
         for name, href in chosen.items():
             path = _capped(folder_dir / "fig", name, listing[name][0])
@@ -539,7 +539,7 @@ def _stored_name(name: str) -> str:
 
 def _file(
     bucket: _Bucket,
-    root: Path,
+    paper_files: PaperFolder,
     out: _Outcome,
     old: dict[str, Any] | None,
     kind: str,
@@ -556,8 +556,9 @@ def _file(
     ``path`` is where the file goes, named as the publisher names it unless that name is
     too long for the file system; a file stored compressed
     gets ``.zst`` added. A file only listed (``path`` is ``None``, or a video) loses any
-    copy an earlier layout kept.
+    copy an earlier layout kept, once the tables are saved.
     """
+    root = paper_files.root
     size, etag = listing[source]
     # A single-part ETag is the MD5 of the object as stored; the record's MD5 can be stale
     # for a file rewritten after it, so either one vouches for the bytes.
@@ -593,30 +594,33 @@ def _file(
         path = None
     if path is None:
         if old and old["path"]:
-            (root / old["path"]).unlink(missing_ok=True)
+            paper_files.delete(old["path"])
             out.dropped += 1
         if _is_video(source):
             out.videos += 1
             out.video_bytes += size
         return row
-    compress = _zst.compressed(name)
-    stored = path.with_name(path.name + _zst.SUFFIX) if compress else path
+    compress = compressed(name)
+    stored = path.with_name(path.name + SUFFIX) if compress else path
     target = root / stored
     if old and old["path"] and old["etag"] == etag and (root / old["path"]).is_file():
         if old["path"] == stored.as_posix():
             return {**row, "md5": old["md5"], "path": old["path"], "fetched": old["fetched"]}
         # Held in an earlier layout: store it anew from the copy held, not the bucket.
-        md5 = _restore(root / old["path"], target, compress)
-        (root / old["path"]).unlink()
+        md5 = _restore(paper_files, old["path"], stored, compress)
+        paper_files.delete(old["path"])
         out.stored += target.stat().st_size
         return {**row, "md5": md5, "path": stored.as_posix(), "fetched": old["fetched"]}
     held = _md5_of(target) if target.is_file() and accepted else None
     if held in accepted:
         md5 = held
     else:
-        target.parent.mkdir(parents=True, exist_ok=True)
         try:
-            got, md5 = bucket.download(f"{folder}/{source}", target, accepted, compress)
+            got, md5 = bucket.download(
+                f"{folder}/{source}",
+                lambda: paper_files.writing(stored, compress=compress),
+                accepted,
+            )
         except _VideoError:
             out.videos += 1
             out.video_bytes += size
@@ -625,23 +629,17 @@ def _file(
         out.files += 1
         out.stored += target.stat().st_size
     if old and old["path"] and old["path"] != stored.as_posix():
-        (root / old["path"]).unlink(missing_ok=True)
+        paper_files.delete(old["path"])
     return {**row, "md5": md5, "path": stored.as_posix(), "fetched": today}
 
 
-def _restore(source: Path, target: Path, compress: bool) -> str:
-    """Copy a held file to ``target`` through a temporary name; return its plain MD5."""
+def _restore(folder: PaperFolder, source: str, target: Path, compress: bool) -> str:
+    """Store a held file anew at ``target``; return its plain MD5."""
     digest = hashlib.md5()
-    target.parent.mkdir(parents=True, exist_ok=True)
-    tmp = temp_beside(target, "part")
-    try:
-        with _zst.open_plain(source) as src, _zst.open_stored(tmp, compress) as dst:
-            while chunk := src.read(_CHUNK):
-                digest.update(chunk)
-                dst.write(chunk)
-        tmp.replace(target)
-    finally:
-        tmp.unlink(missing_ok=True)
+    with open_plain(folder.root / source) as src, folder.writing(target, compress=compress) as dst:
+        while chunk := src.read(_CHUNK):
+            digest.update(chunk)
+            dst.write(chunk)
     return digest.hexdigest()
 
 
@@ -673,7 +671,7 @@ def _xml_files(xml: Path) -> tuple[_Labels, _Labels, set[str]]:
     Supplements and figures map each href to its label and caption.
     """
     try:
-        with _zst.open_plain(xml) as fh:
+        with open_plain(xml) as fh:
             tree = ET.parse(fh)
     except (ET.ParseError, OSError):
         return {}, {}, set()
@@ -778,7 +776,7 @@ def _safe(name: str) -> bool:
 def _md5_of(path: Path) -> str:
     """Return the MD5 of a stored file's plain bytes."""
     h = hashlib.md5()
-    with _zst.open_plain(path) as fh:
+    with open_plain(path) as fh:
         while chunk := fh.read(_CHUNK):
             h.update(chunk)
     return h.hexdigest()
@@ -844,12 +842,15 @@ class _Bucket:
         return {key[len(folder) + 1 :]: (size, etag) for key, size, etag in objects}
 
     def download(
-        self, key: str, target: Path, md5s: Collection[str], compress: bool = False
+        self,
+        key: str,
+        write: Callable[[], AbstractContextManager[io.BufferedIOBase]],
+        md5s: Collection[str],
     ) -> tuple[int, str]:
-        """Stream one object to ``target`` through a temporary name; return its size and MD5.
+        """Stream one object into what ``write`` opens; return its size and MD5.
 
-        With ``compress``, the bytes are zstd-compressed as they are written; the size and
-        MD5 are those of the bytes downloaded.
+        An error inside ``write``'s block must leave no file. The size and MD5 are those of
+        the bytes downloaded.
 
         Raises
         ------
@@ -861,44 +862,39 @@ class _Bucket:
         url = f"{BUCKET}/{urllib.parse.quote(key)}"
 
         def once() -> tuple[int, str]:
-            tmp = temp_beside(target, "part")
-            try:
-                digest = hashlib.md5()
-                size = 0
-                with (
-                    self.limiter.turn(),
-                    self.transport.open(
-                        "GET", url, body=None, headers=_HEADERS, timeout=_TIMEOUT
-                    ) as response,
-                ):
-                    status = response.status
-                    kind = (response.getheader("Content-Type") or "").lower()
-                    if status == 200 and kind.startswith("video/"):
-                        raise _VideoError(key)
-                    if status == 200:
-                        with _zst.open_stored(tmp, compress) as out:
-                            while chunk := response.read(_CHUNK):
-                                digest.update(chunk)
-                                out.write(chunk)
-                                size += len(chunk)
-                self._check(status)
-                if md5s and digest.hexdigest() not in md5s:
-                    raise TryAgain("MD5 mismatch")
-                tmp.replace(target)
-                return size, digest.hexdigest()
-            finally:
-                tmp.unlink(missing_ok=True)
+            digest = hashlib.md5()
+            size = 0
+            with (
+                self.limiter.turn(),
+                self.transport.open(
+                    "GET", url, body=None, headers=_HEADERS, timeout=_TIMEOUT
+                ) as response,
+            ):
+                status = response.status
+                kind = (response.getheader("Content-Type") or "").lower()
+                if status == 200 and kind.startswith("video/"):
+                    raise _VideoError(key)
+                if status == 200:
+                    with write() as out:
+                        while chunk := response.read(_CHUNK):
+                            digest.update(chunk)
+                            out.write(chunk)
+                            size += len(chunk)
+                        if md5s and digest.hexdigest() not in md5s:
+                            raise TryAgain("MD5 mismatch")
+            self._check(status)
+            return size, digest.hexdigest()
 
         try:
             return retry(once, tries=TRIES, cap=30.0, sleep=_sleep, retried=self._retried)
         except GaveUp as err:
             raise PmcError(f"{key}: {err}") from None
 
-    def inventory(self, pmcids: set[str], today: dt.date, root: Path) -> dict[str, tuple[str, str]]:
+    def inventory(self, pmcids: set[str], today: dt.date, temp: Path) -> dict[str, tuple[str, str]]:
         """Return the newest version folder and record ETag of each of ``pmcids`` in the bucket.
 
         Reads the newest daily inventory dated ``today`` or earlier; its files stream to a
-        temporary folder under ``root`` and are read one line at a time.
+        temporary folder under ``temp`` and are read one line at a time.
         """
         _, folders = self.list(INVENTORY, "/")
         dated = sorted(
@@ -911,10 +907,14 @@ class _Bucket:
             raise PmcError(f"no PMC inventory dated {today} or earlier")
         manifest = json.loads(self.get(f"{dated[-1]}manifest.json"))
         newest: dict[str, tuple[int, str]] = {}
-        with tempfile.TemporaryDirectory(prefix=".pmc-inventory-", dir=root) as tmp:
+        with tempfile.TemporaryDirectory(prefix="pmc-inventory-", dir=temp) as tmp:
             for n, part in enumerate(manifest["files"]):
                 path = Path(tmp) / f"{n}.csv.gz"
-                self.download(part["key"], path, [m for m in [part.get("MD5checksum")] if m])
+                self.download(
+                    part["key"],
+                    functools.partial(path.open, "wb"),
+                    [m for m in [part.get("MD5checksum")] if m],
+                )
                 with gzip.open(path, "rt", encoding="utf-8", newline="") as fh:
                     for line in csv.reader(fh):
                         m = _RECORD.fullmatch(line[1]) if len(line) > 3 else None

@@ -337,9 +337,8 @@ def test_a_new_month_renews_details_and_releases_a_pmc_wait(
     assert fake.count("idconv") == 1
 
 
-def test_a_doi_only_paper_that_gains_a_pmid_moves_to_the_pmid_layout(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def rekey_store(tmp_path: Path) -> Path:
+    """Return a paper store holding a host PDF of a DOI-only paper OpenAlex gives a PMID."""
     root = paper_store(tmp_path, [("GSE8", f"DOI:{REKEY_DOI}", "SOFT Series_web_link")])
     old_dir = root / paper_dir(REKEY_DOI)
     old_dir.mkdir(parents=True)
@@ -365,20 +364,93 @@ def test_a_doi_only_paper_that_gains_a_pmid_moves_to_the_pmid_layout(
     tables.write(
         root, tables.ATTEMPTS, [{"paper": REKEY_DOI, "tier": "host", "outcome": "fetched"}]
     )
-    use(monkeypatch, web())
-    sync(root)
+    return root
 
+
+def rekeyed(root: Path) -> None:
+    """Assert the DOI paper and its PDF now sit under its PMID."""
     papers = by_key(root, tables.PAPERS)
     assert set(papers) == {REKEY_PMID}
     assert (papers[REKEY_PMID]["status"], papers[REKEY_PMID]["pdf_tier"]) == ("fetched", "host")
     new = paper_dir(REKEY_PMID) / f"{REKEY_PMID}.pdf"
     assert (root / new).read_bytes() == b"%PDF"
-    assert not old_dir.exists()
+    assert not (root / paper_dir(REKEY_DOI)).exists()
     assert [(f["paper"], f["name"], f["path"]) for f in tables.read(root, tables.FILES)] == [
         (REKEY_PMID, f"{REKEY_PMID}.pdf", new.as_posix())
     ]
     assert [a["paper"] for a in tables.read(root, tables.ATTEMPTS)] == [REKEY_PMID]
+
+
+def test_a_doi_only_paper_that_gains_a_pmid_moves_to_the_pmid_layout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = rekey_store(tmp_path)
+    use(monkeypatch, web())
+    sync(root)
+
+    rekeyed(root)
     assert by_key(root, tables.PAPER_INFO)[REKEY_PMID]["title"] == "Rekeyed paper"
+
+
+class KilledError(Exception):
+    pass
+
+
+def where_the_tables_say(root: Path) -> None:
+    """Assert every path the ``files`` table names is on disk, and no other paper file is."""
+    named = {f["path"] for f in tables.read(root, tables.FILES) if f["path"]}
+    on_disk = {p.relative_to(root).as_posix() for p in (root / "papers").rglob("*") if p.is_file()}
+    assert on_disk == named
+
+
+def test_a_rekey_killed_at_the_table_save_moves_no_file_and_the_next_sync_completes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = rekey_store(tmp_path)
+    use(monkeypatch, web())
+
+    def killed(*_args: object, **_kw: object) -> None:
+        raise KilledError
+
+    with monkeypatch.context() as m:
+        m.setattr(tables, "write", killed)
+        result = CliRunner().invoke(
+            app, ["papers", "pmc-sync", "--root", str(root), "--today", TODAY]
+        )
+    assert isinstance(result.exception, KilledError)
+    assert set(by_key(root, tables.PAPERS)) == {REKEY_DOI}
+    where_the_tables_say(root)
+
+    sync(root)
+    rekeyed(root)
+    where_the_tables_say(root)
+
+
+def test_a_rekey_killed_after_the_table_save_moves_its_files_at_the_next_sync(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = rekey_store(tmp_path)
+    old = root / paper_dir(REKEY_DOI) / "10.1000%2Frekey.pdf"
+    use(monkeypatch, web())
+    replace = Path.replace
+
+    def killed(self: Path, target: Path) -> Path:
+        if self == old:
+            raise KilledError
+        return replace(self, target)
+
+    with monkeypatch.context() as m:
+        m.setattr(Path, "replace", killed)
+        result = CliRunner().invoke(
+            app, ["papers", "pmc-sync", "--root", str(root), "--today", TODAY]
+        )
+    assert isinstance(result.exception, KilledError)
+    assert old.is_file()
+    assert set(by_key(root, tables.PAPERS)) == {REKEY_PMID}
+
+    sync(root)
+    rekeyed(root)
+    where_the_tables_say(root)
 
 
 def test_a_preprint_merged_into_its_journal_version_is_that_paper(

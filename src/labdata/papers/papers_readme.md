@@ -23,6 +23,8 @@ labdata store never writes into it.
   paper-status.json         the last pass of the paper job, and counts by status
   .lock                     held by a running pass, so two passes never overlap
   .daily-journal.jsonl      downloads a stopped daily pass has not yet put in the tables
+  .pending-files.json       file moves and deletes a stopped pass has not yet made
+  .tmp/                     files being written; each pass empties it at its start
   papers.parquet            one row per paper: IDs and status
   paper_info.parquet        one row per paper: title, authors, abstract
   files.parquet             one row per file, held or only listed
