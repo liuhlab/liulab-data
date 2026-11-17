@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import os
+import tomllib
 from pathlib import Path
+from typing import Any
+
+from labdata.exceptions import LabdataError, NotAStoreError
 
 
 def temp_beside(path: Path, tag: str = "tmp") -> Path:
@@ -36,5 +40,39 @@ def write_atomic(path: Path, text: str) -> None:
     try:
         tmp.write_text(text, encoding="utf-8")
         tmp.replace(path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def read_toml_marker(root: Path, marker: str, what: str) -> dict[str, Any]:
+    """Return a root's parsed marker file, ``marker``.
+
+    Raises
+    ------
+    NotAStoreError
+        If the root has no marker; the message says the root is not ``what``.
+    """
+    path = root / marker
+    if not path.is_file():
+        raise NotAStoreError(f"{root} is not {what}: it has no {marker}")
+    with path.open("rb") as fh:
+        return tomllib.load(fh)
+
+
+def create_marker(marker: Path, text: str, what: str) -> None:
+    """Write a marker file whole, or fail if it exists, so two inits cannot both win.
+
+    Raises
+    ------
+    LabdataError
+        If the marker already exists; the message names ``what`` is initialised.
+    """
+    tmp = temp_beside(marker, "init")
+    tmp.write_text(text, encoding="utf-8")
+    try:
+        # A hard link fails if the marker exists.
+        os.link(tmp, marker)
+    except FileExistsError:
+        raise LabdataError(f"{marker} already exists; this {what} is initialised") from None
     finally:
         tmp.unlink(missing_ok=True)

@@ -17,14 +17,13 @@ from labdata._cache import ensure_cache_dir, liulab_data_cache_dir
 from labdata.exceptions import (
     AccessionError,
     LabdataError,
-    NotAStoreError,
     NotFound,
     NotMirrored,
     StoreNotConfiguredError,
 )
 from labdata.geo.sra_records import Experiment, experiments_from_package_xml
-from labdata.store import snapshots
-from labdata.store._files import temp_beside, toml_line, write_atomic
+from labdata.store import paths, snapshots
+from labdata.store._files import create_marker, toml_line, write_atomic
 from labdata.store._offline import OfflineEntrezClient, StoredSdlClient
 from labdata.store.model import (
     ANNOTATION,
@@ -50,9 +49,6 @@ STORE_ENV = "LABDATA_STORE"
 
 #: Basename of the per-user pointer file, beside ``ncbi.toml``.
 POINTER_FILENAME = "store.toml"
-
-#: The marker file every store root carries.
-MARKER = "labdata-store.toml"
 
 #: The store layout version ``labdata store init`` writes.
 FORMAT_VERSION = 1
@@ -549,7 +545,7 @@ def open_store(root: str | os.PathLike[str] | None = None) -> Store:
             f"store not configured: pass open_store(root=...), set {STORE_ENV}, "
             "or run `labdata store configure <root>`"
         )
-    return Store(root=path, settings=read_marker(path))
+    return Store(root=path, settings=paths.read_marker(path))
 
 
 def resolve_root(
@@ -578,32 +574,6 @@ def resolve_root(
     return None if root is None else Path(root)
 
 
-def read_marker(root: Path) -> dict[str, Any]:
-    """Return the store's parsed ``labdata-store.toml``.
-
-    Raises
-    ------
-    NotAStoreError
-        If the root has no marker.
-    """
-    return read_toml_marker(root, MARKER, "a labdata store")
-
-
-def read_toml_marker(root: Path, marker: str, what: str) -> dict[str, Any]:
-    """Return a root's parsed marker file, ``marker``.
-
-    Raises
-    ------
-    NotAStoreError
-        If the root has no marker; the message says the root is not ``what``.
-    """
-    path = root / marker
-    if not path.is_file():
-        raise NotAStoreError(f"{root} is not {what}: it has no {marker}")
-    with path.open("rb") as fh:
-        return tomllib.load(fh)
-
-
 def init_store(root: str | os.PathLike[str]) -> Path:
     """Create the store root if missing and write its marker, ``format_version = 1``.
 
@@ -626,28 +596,9 @@ def init_store(root: str | os.PathLike[str]) -> Path:
     """
     path = Path(root)
     path.mkdir(parents=True, exist_ok=True)
-    marker = path / MARKER
+    marker = paths.MARKER.at(path)
     create_marker(marker, f"format_version = {FORMAT_VERSION}\n", "store")
     return marker
-
-
-def create_marker(marker: Path, text: str, what: str) -> None:
-    """Write a marker file whole, or fail if it exists, so two inits cannot both win.
-
-    Raises
-    ------
-    LabdataError
-        If the marker already exists; the message names ``what`` is initialised.
-    """
-    tmp = temp_beside(marker, "init")
-    tmp.write_text(text, encoding="utf-8")
-    try:
-        # A hard link fails if the marker exists.
-        os.link(tmp, marker)
-    except FileExistsError:
-        raise LabdataError(f"{marker} already exists; this {what} is initialised") from None
-    finally:
-        tmp.unlink(missing_ok=True)
 
 
 def pointer_path() -> Path:

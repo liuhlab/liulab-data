@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from labdata.exceptions import StoreBuildError
+from labdata.store import paths
 
 SRA_ACCESSIONS = "sra-accessions"
 BIOPROJECT = "bioproject"
@@ -53,7 +54,7 @@ def snapshot(root: Path, source: str, date: str | None = None) -> Snapshot:
     StoreBuildError
         If the store has no such dated folder holding the source's file.
     """
-    folder = root / "snapshots" / source
+    folder = paths.SNAPSHOTS.at(root, source)
     dates = (
         sorted(p.name for p in folder.glob("*") if _DATE.match(p.name)) if folder.is_dir() else []
     )

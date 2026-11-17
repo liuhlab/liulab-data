@@ -36,7 +36,10 @@ src/labdata/
                        (Snakemake driver), pipeline.smk (the download DAG)
   store/             the source record store: fetch lanes (geo_lane.py, eutils.py),
                        raw/ pieces and pack, snapshot extract, build, gaps, prune,
-                       GCS copy (gcs.py); reader.py (the build reader, the only
+                       GCS copy (gcs.py); paths.py (the store layout: every
+                       path in the root with its kind, state, rebuildable or
+                       scratch; the only reader and switcher of the marker);
+                       reader.py (the build reader, the only
                        way to open a build); layout.py (every build table's
                        declaration, the only writer of build tables);
                        pipeline.py + pipeline.smk (the full-run DAG);
@@ -46,11 +49,13 @@ src/labdata/
                        _removal.py (the helpers both removals share),
                        refresh.py + refresh.smk (the refresh DAG, its status
                        record; runs from a checkout, as it calls scripts/bulk/)
-  papers/            the paper store: root.py (marker, pointer, lock, paper folders);
+  papers/            the paper store: paths.py (its top-level paths and their kinds);
+                       root.py (marker, pointer, lock, paper folders);
                        tables.py (the four tables' declaration and only writer);
                        status.py (paper-status.json); reader.py (PaperReader);
                        sync.py (the monthly PMC sync), pubmed.py, openalex.py,
-                       pmc.py (the PMC bucket tier), _zst.py (zstd files);
+                       pmc.py (the PMC bucket tier); folder.py (the only writer,
+                       mover and deleter of paper files; zstd, temp files);
                        daily.py (quota, host links, manual queue); copy.py
                        (GCS copy); job.py (the long-running paper job)
 tests/               pytest suite, mirrors src; mocks the EntrezClient + subprocess seams

@@ -17,6 +17,7 @@ from labdata.ncbi import entrez as entrez_mod
 from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
 from labdata.papers import init_paper_store, open_paper_store, paper_dir, pmc, tables
+from labdata.papers.folder import TEMP
 from labdata.papers.openalex import OpenAlex
 from tests._paper_fakes import Article, FakeBucket, FakeWeb, Reply, fixture_build, md5
 
@@ -417,12 +418,13 @@ def test_a_kill_mid_sync_and_a_rerun_download_no_file_twice(
     assert isinstance(result.exception, KilledError)
     assert (root / paper_dir(OA) / "suppl" / "mmc1.xlsx").is_file()
     assert not list((root / paper_dir(OA)).rglob(".*"))
+    assert not list((root / TEMP).iterdir())
 
     # A hard kill leaves its temporary file behind; the rerun clears it.
-    (root / paper_dir(OA) / "suppl" / ".table.csv.999.part").write_bytes(b"a,")
+    (root / TEMP / "table.csv.part").write_bytes(b"a,")
     b.fail = None
     sync(root)
-    assert not list((root / paper_dir(OA)).rglob(".*"))
+    assert not list((root / TEMP).iterdir())
     # A video known only by its Content-Type is asked for again, but no byte of it is read.
     objects = [
         g for g in b.gets if g.startswith("PMC") and not g.endswith(".json") and g not in b.types
@@ -505,7 +507,45 @@ def test_pmc_replaces_a_pdf_another_tier_supplied(
     assert not [f for f in files(root).values() if f["gone"]]
 
 
-def test_a_sync_killed_before_the_swap_keeps_both_copies_and_the_next_sync_swaps(
+def on_disk_as_named(root: Path) -> None:
+    """Assert the paper files on disk are exactly those the ``files`` table names."""
+    named = {f["path"] for f in files(root).values() if f["path"]}
+    held = {p.relative_to(root).as_posix() for p in (root / "papers").rglob("*") if p.is_file()}
+    assert held == named
+
+
+def test_a_swap_killed_at_the_table_save_keeps_the_table_and_disk_agreeing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    b = bucket()
+    root = store(tmp_path, web(b), monkeypatch)
+    pdf = held_pdf(root, "openalex")
+    write = tables.write
+
+    def killed(at: Path, table: tables.PaperTable, rows: list[dict]) -> Path:
+        # The save that records the swap: the files table without the OpenAlex PDF.
+        if table is tables.FILES and not any(r["tier"] == "openalex" for r in rows):
+            raise KilledError
+        return write(at, table, rows)
+
+    with monkeypatch.context() as m:
+        m.setattr(tables, "write", killed)
+        result = CliRunner().invoke(
+            app, ["papers", "pmc-sync", "--root", str(root), "--today", TODAY]
+        )
+    assert isinstance(result.exception, KilledError)
+    assert (root / pdf).read_bytes() == b"%PDF from openalex"
+    assert files(root)[(OA, "pdf", f"{OA}.pdf")]["tier"] == "openalex"
+    on_disk_as_named(root)
+
+    gets = len(b.gets)
+    sync(root)
+    pmc_only(root)
+    on_disk_as_named(root)
+    assert bucket_gets(b, gets) == []
+
+
+def test_a_swap_killed_after_the_table_save_deletes_the_pdf_at_the_next_sync(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     b = bucket()
@@ -518,19 +558,20 @@ def test_a_sync_killed_before_the_swap_keeps_both_copies_and_the_next_sync_swaps
             raise KilledError
         unlink(self, missing_ok=missing_ok)
 
-    monkeypatch.setattr(Path, "unlink", killed)
-    result = CliRunner().invoke(app, ["papers", "pmc-sync", "--root", str(root), "--today", TODAY])
+    with monkeypatch.context() as m:
+        m.setattr(Path, "unlink", killed)
+        result = CliRunner().invoke(
+            app, ["papers", "pmc-sync", "--root", str(root), "--today", TODAY]
+        )
     assert isinstance(result.exception, KilledError)
-    assert (root / pdf).read_bytes() == b"%PDF from openalex"
-    rows = files(root)
-    assert rows[(OA, "pdf", f"{OA}.pdf")]["tier"] == "openalex"
-    assert (root / rows[(OA, "xml", f"{OA}.xml")]["path"]).is_file()
-    assert (root / rows[(OA, "figure", "gr1.jpg")]["path"]).is_file()
+    pmc_only_rows = files(root)
+    assert (OA, "pdf", f"{OA}.pdf") in pmc_only_rows
+    assert pmc_only_rows[(OA, "pdf", f"{OA}.pdf")]["tier"] == "pmc"
 
-    monkeypatch.setattr(Path, "unlink", unlink)
     gets = len(b.gets)
     sync(root)
     pmc_only(root)
+    on_disk_as_named(root)
     assert bucket_gets(b, gets) == []
 
 

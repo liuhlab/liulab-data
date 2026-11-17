@@ -24,7 +24,7 @@ EXTRACTS = config["extracts"]
 FTP = sorted(set(EXTRACTS) - {"geo-series"})
 DOWNLOAD = (
     f"{config['python']} -I {shlex.quote(config['downloader'])} "
-    f"{shlex.quote(config['root'] + '/snapshots')} --date {config['date']}"
+    f"{shlex.quote(config['snapshots'])} --date {config['date']}"
 )
 SNAPSHOTS = ["snapshots.done", "geo-series.done"]
 REFETCH = "--series refetch.txt --refetch refetch.txt --soft-only"

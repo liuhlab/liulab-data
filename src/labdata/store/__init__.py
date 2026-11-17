@@ -1,8 +1,6 @@
 """The source record store: a shared, offline copy of NCBI metadata records.
 
-Layout under the root: the ``labdata-store.toml`` marker, ``snapshots/<source>/<date>/``,
-``raw/<source>/`` and ``builds/<build-id>/``. ``work/`` holds intermediate files that a
-build remakes when they are missing.
+:mod:`labdata.store.paths` declares every path under the root, with its kind.
 """
 
 from labdata.store.model import Partial

@@ -25,14 +25,14 @@ from typing import Any
 import labdata
 from labdata._pipeline import RESILIENCE_FLAGS
 from labdata.exceptions import LabdataError
-from labdata.store import _limits, extract, gcs, pack, pipeline, provenance
+from labdata.store import _limits, extract, gcs, pack, paths, pipeline, provenance
 from labdata.store._files import write_atomic
 from labdata.store.layout import manifest_path
 from labdata.store.reader import build_path
 from labdata.store.root import open_store
 
 #: The status record's file name in the store root.
-STATUS = "refresh-status.json"
+STATUS = paths.STATUS.rel
 #: The status key keeping ``copy_pending`` as it stood when the refresh switched builds.
 AT_SWITCH = "copy_pending_at_switch"
 #: Outcomes the status record names.
@@ -66,13 +66,13 @@ def memory_plan(total_mb: int) -> dict[str, int]:
 
 def read_status(root: Path) -> dict[str, Any]:
     """Return the status record, or an empty dict when the store was never refreshed."""
-    path = root / STATUS
+    path = paths.STATUS.at(root)
     return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
 
 
 def write_status(root: Path, status: dict[str, Any]) -> None:
     """Write the status record whole."""
-    write_atomic(root / STATUS, json.dumps(status, indent=2, sort_keys=True) + "\n")
+    write_atomic(paths.STATUS.at(root), json.dumps(status, indent=2, sort_keys=True) + "\n")
 
 
 def downloader() -> Path:
@@ -158,10 +158,10 @@ def run(
             "started": started,
             "ended": None,
             "outcome": RUNNING,
-            "folder": f"work/refresh/{started.replace(':', '')}",
+            "folder": paths.REFRESHES.rel + started.replace(":", ""),
             "since": since
             or status.get("last_success")
-            or _first_since(root, store.settings.get("build")),
+            or _first_since(root, store.settings.get(paths.BUILD_KEY)),
             "last_success": status.get("last_success"),
             "counts": {},
             "copy_pending": bool(status.get("copy_pending")),
@@ -182,6 +182,7 @@ def run(
         "labdata": f"{shlex.quote(sys.executable)} -m labdata",
         "python": shlex.quote(sys.executable),
         "downloader": str(script),
+        "snapshots": str(paths.SNAPSHOTS.at(root)),
         "root": str(root),
         "date": status["started"][:10],
         "since": status["since"],
@@ -231,7 +232,7 @@ def switched(root: Path) -> dict[str, Any]:
     store = open_store(root)
     status = read_status(store.root)
     if status.get("outcome") not in (RUNNING, FAILED):
-        raise RefreshError(f"no refresh is running: {store.root / STATUS} says so")
+        raise RefreshError(f"no refresh is running: {paths.STATUS.at(store.root)} says so")
     status |= {
         "last_success": status["started"][:10],
         "counts": pack.read_counts(store.root / status["folder"] / PACK_COUNTS),

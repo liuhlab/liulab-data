@@ -43,6 +43,16 @@ writers hand it rows and it writes them as declared.
 
 _Avoid_: schema (names only the columns and their types)
 
+### Store layout
+
+The one declaration of every path in a store root and its kind. State is what GCS holds: a copy
+sends it and a restore brings it back. Rebuildable is remade on demand from state, never copied
+and kept by a cleanup. Scratch is on the work disk only, and a cleanup may delete it when no run
+is going. Each store has one, and the GEO/SRA store's is also the only reader and switcher of
+the marker.
+
+_Avoid_: table layout (the tables inside one build)
+
 ### Target Series list
 
 The GEO Series a full download must hold: the sequencing Series in a dated `geo-series`

@@ -16,29 +16,29 @@ copy refuses, sending nothing, when it would delete more of the copy record's ra
 from __future__ import annotations
 
 import json
-import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
 from labdata import _gcs
 from labdata.exceptions import LabdataError, NotAStoreError
-from labdata.store.build import BUILD_KEY, build_lock
+from labdata.store import paths
+from labdata.store.build import build_lock
 from labdata.store.layout import MANIFEST, manifest_path
 from labdata.store.provenance import README
 from labdata.store.reader import build_path
-from labdata.store.root import MARKER, open_store
+from labdata.store.root import open_store
 
 #: The marker key naming the rclone destination, ``<remote>:<bucket>/<path>``.
 COPY_TO_KEY = "copy_to"
 
 #: The copy record: each file GCS holds, as the last successful copy left it, with its
 #: sha256, or null for a file that goes up every time. Kept here on the disk and in GCS.
-COPIED = ".copied-files.json"
+COPIED = paths.COPY_RECORD.rel
 
 #: The files at the top of the root: they go up after the rest, so the marker in GCS never
 #: names a build GCS lacks.
-_TOP = [README, MARKER]
+_TOP = [paths.README.rel, paths.MARKER.rel]
 
 #: Paths from the store root to their sha256; None for a file that goes up every time.
 _Files = dict[str, str | None]
@@ -110,7 +110,7 @@ def copy(
     if not dest:
         raise StoreCopyError(
             f"no destination: pass --to <remote>:<bucket>/<path> or set "
-            f"{COPY_TO_KEY} in {root / MARKER}"
+            f"{COPY_TO_KEY} in {paths.MARKER.at(root)}"
         )
     if full and accept_deletes:
         raise StoreCopyError("--full deletes nothing, so it takes no --accept-deletes")
@@ -119,7 +119,7 @@ def copy(
 
     try:
         with build_lock(root):
-            held = _current(root, store.settings.get(BUILD_KEY))
+            held = _current(root, store.settings.get(paths.BUILD_KEY))
             adapter = _Adapter(root, seeds=bucket_matches_marker)
             skipped = _gcs.copy(adapter, dest, held, full=full, accept_deletes=accept_deletes)
     except BaseException:
@@ -136,7 +136,7 @@ class _Adapter(_gcs.Adapter):
     what = "store"
     command = "labdata store copy"
     error = StoreCopyError
-    seed_from = (MARKER,)
+    seed_from = (paths.MARKER.rel,)
 
     def __init__(self, root: Path, *, seeds: bool) -> None:
         super().__init__(root)
@@ -151,12 +151,13 @@ class _Adapter(_gcs.Adapter):
     def holder(self, path: str) -> str:
         """Return the build, raw source or snapshot that holds ``path``; ``""`` at the top."""
         parts = path.split("/")
-        return "/".join(parts[: {"builds": 2, "raw": 2, "snapshots": 3}.get(parts[0], 0)])
+        depth = {paths.BUILDS.name: 2, paths.RAW.name: 2, paths.SNAPSHOTS.name: 3}
+        return "/".join(parts[: depth.get(parts[0], 0)])
 
     def check_deletes(
         self, held: _gcs.Files, copied: _gcs.Files, accepted: int, *, full: bool
     ) -> None:
-        raw = {p for p, sha in copied.items() if p.startswith("raw/") and sha}
+        raw = {p for p, sha in copied.items() if p.startswith(paths.RAW.rel) and sha}
         gone = [p for p in self.gone(held, copied) if p in raw]
         limit = _gcs.delete_limit(len(raw), accepted)
         if len(gone) > limit:
@@ -172,10 +173,10 @@ class _Adapter(_gcs.Adapter):
 
         Only when the caller vouches that GCS holds exactly that build and what it read.
         """
-        marker = fetched.get(MARKER)
+        marker = fetched.get(paths.MARKER.rel)
         if not self.seeds or not marker:
             return None
-        build = tomllib.loads(marker.decode()).get(BUILD_KEY)
+        build = paths.parse_marker(marker.decode()).get(paths.BUILD_KEY)
         if not build:
             return None
         if not manifest_path(build_path(self.root, str(build))).is_file():
@@ -186,7 +187,7 @@ class _Adapter(_gcs.Adapter):
 def _current(root: Path, build: object) -> _Files:
     """Return the current state's files with their sha256, after checking it is all there."""
     if not build:
-        raise StoreCopyError(f"copy refused: {root / MARKER} names no build")
+        raise StoreCopyError(f"copy refused: {paths.MARKER.at(root)} names no build")
     folder = build_path(root, str(build))
     if not manifest_path(folder).is_file():
         rel = folder.relative_to(root).as_posix()
@@ -213,11 +214,11 @@ def _build_files(root: Path, build: str) -> tuple[_Files, list[str]]:
     held: _Files = {f"{rel}/{f['name']}": f.get("sha256") for f in data.get("files", [])}
     inputs = data.get("inputs", {})
     for source, files in inputs.get("raw", {}).items():
-        named = {f"raw/{source}/{f['name']}": f.get("sha256") for f in files}
+        named = {f"{paths.RAW.rel}{source}/{f['name']}": f.get("sha256") for f in files}
         missing += [p for p in named if not (root / p).is_file()]
-        held |= named | _side_files(root, f"raw/{source}")
+        held |= named | _side_files(root, f"{paths.RAW.rel}{source}")
     for source, snap in sorted(inputs.get("snapshots", {}).items()):
-        sub = f"snapshots/{source}/{snap['date']}"
+        sub = f"{paths.SNAPSHOTS.rel}{source}/{snap['date']}"
         if (root / sub).is_dir():
             held |= {f"{sub}/{p}": None for p in _listing(root / sub)}
         held[f"{sub}/{snap['name']}"] = snap.get("sha256")

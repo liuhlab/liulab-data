@@ -19,6 +19,7 @@ import duckdb
 
 from labdata._cache import liulab_data_cache_dir
 from labdata.exceptions import NotAStoreError
+from labdata.store import paths
 from labdata.store._limits import duckdb_memory, reader_threads
 from labdata.store.layout import (
     HOLDINGS,
@@ -33,13 +34,9 @@ from labdata.store.layout import (
     sql_string,
 )
 from labdata.store.model import RawText, Record, SupplementaryFile, kind_of
-from labdata.store.root import MARKER, read_marker
 
 if TYPE_CHECKING:
     import pyarrow as pa
-
-#: The folder under the store root that holds one folder per build.
-BUILDS = "builds"
 
 #: The record columns a ``Record`` is decoded from: all but the raw text.
 _RECORD_COLUMNS = tuple(c for c in RECORDS.column_names if c != "raw_text")
@@ -54,12 +51,14 @@ LinkRow = tuple[str, str, str, str]
 
 def build_path(root: Path, build_id: str) -> Path:
     """Return the folder of one build under the store root, which may not exist."""
-    return root / BUILDS / build_id
+    return paths.BUILDS.at(root, build_id)
 
 
 def build_folders(root: Path) -> list[Path]:
     """Return every finished build folder under the root, sorted; temp folders are left out."""
-    return sorted(p for p in (root / BUILDS).glob("*") if p.is_dir() and not p.name.startswith("."))
+    return sorted(
+        p for p in paths.BUILDS.at(root).glob("*") if p.is_dir() and not p.name.startswith(".")
+    )
 
 
 def named_build(root: Path, settings: Mapping[str, Any]) -> Path:
@@ -82,9 +81,9 @@ def named_build(root: Path, settings: Mapping[str, Any]) -> Path:
     NotAStoreError
         If the settings name no build.
     """
-    build = settings.get("build")
+    build = settings.get(paths.BUILD_KEY)
     if not build:
-        raise NotAStoreError(f"{root / MARKER} names no build; run `labdata store build`")
+        raise NotAStoreError(f"{paths.MARKER.at(root)} names no build; run `labdata store build`")
     return build_path(root, str(build))
 
 
@@ -106,7 +105,7 @@ def current_path(root: Path) -> Path:
     NotAStoreError
         If the root has no marker, or the marker names no build.
     """
-    return named_build(root, read_marker(root))
+    return named_build(root, paths.read_marker(root))
 
 
 def current_build(root: Path) -> str | None:

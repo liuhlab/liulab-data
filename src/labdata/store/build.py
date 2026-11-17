@@ -30,7 +30,6 @@ import shutil
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
 
 import duckdb
 import pyarrow as pa
@@ -45,6 +44,7 @@ from labdata.store import (
     gaps,
     known,
     layout,
+    paths,
     provenance,
     raw,
     readme,
@@ -52,7 +52,7 @@ from labdata.store import (
     suppl,
     targets,
 )
-from labdata.store._files import temp_beside, toml_line, write_atomic
+from labdata.store._files import temp_beside
 from labdata.store.layout import (
     HOLDINGS,
     KNOWN,
@@ -65,20 +65,11 @@ from labdata.store.layout import (
 )
 from labdata.store.model import RELATIONS
 from labdata.store.reader import build_path
-from labdata.store.root import MARKER, init_store, read_marker
+from labdata.store.root import init_store
 from labdata.store.sources import SOFT
-
-#: The marker key naming the current build.
-BUILD_KEY = "build"
-
-#: The marker key holding when the current build was switched to, in UTC.
-SWITCHED_KEY = "switched"
 
 #: The marker key of a scratch root naming the one store its sample builds read.
 SAMPLE_OF_KEY = "sample_of"
-
-#: The marker table mapping each earlier build to when it was switched away from, in UTC.
-SWITCHED_AWAY_KEY = "switched_away"
 
 #: The default bytes of source text a parse worker holds before it writes its parts.
 PARSE_CHUNK_BYTES = 1 << 26
@@ -170,20 +161,20 @@ def _scratch_root(root: Path, source: Path) -> Iterator[None]:
 
     A new scratch root gets a marker naming ``source``.
     """
-    read_marker(source)
+    paths.read_marker(source)
     if root.resolve() == source.resolve():
         raise StoreBuildError(f"a sample needs a scratch root apart from its source, not {root}")
-    held = [name for name in ("raw", "snapshots") if (root / name).exists()]
+    held = [d.name for d in (paths.RAW, paths.SNAPSHOTS) if d.at(root).exists()]
     if held:
         raise StoreBuildError(
             f"{root} holds {' and '.join(held)}/, so it is a store, not a scratch root for a sample"
         )
-    if not (root / MARKER).is_file():
+    if not paths.MARKER.at(root).is_file():
         init_store(root)
     with build_lock(root):
-        settings = read_marker(root)
+        settings = paths.read_marker(root)
         bound = settings.get(SAMPLE_OF_KEY)
-        if bound is None and settings.get(BUILD_KEY):
+        if bound is None and settings.get(paths.BUILD_KEY):
             raise StoreBuildError(
                 f"{root} holds a build that is not a sample; pick an empty scratch root"
             )
@@ -194,7 +185,7 @@ def _scratch_root(root: Path, source: Path) -> Iterator[None]:
             )
         if bound is None:
             settings[SAMPLE_OF_KEY] = str(source.absolute())
-            write_marker(root, settings)
+            paths.write_marker(root, settings)
         yield
 
 
@@ -207,7 +198,7 @@ def build_lock(root: Path) -> Iterator[None]:
     StoreBuildError
         If another process or caller holds it.
     """
-    lock = root / "work" / "build.lock"
+    lock = paths.BUILD_LOCK.at(root)
     lock.parent.mkdir(parents=True, exist_ok=True)
     with lock.open("a") as fh:
         try:
@@ -236,11 +227,11 @@ def _build(
     if out.exists():
         raise StoreBuildError(f"build {build_id} already exists: {out}")
     if sample_of is None:
-        for folder in sorted(p for p in (root / "raw").glob("*") if p.is_dir()):
+        for folder in sorted(p for p in paths.RAW.at(root).glob("*") if p.is_dir()):
             provenance.document_raw(root, folder.name)
     for stale in out.parent.glob(f".{glob.escape(build_id)}.*.tmp"):
         shutil.rmtree(stale, ignore_errors=True)
-    work = root / "work" / "build" / build_id
+    work = paths.BUILD_WORK.at(root, build_id)
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True)
     tmp = temp_beside(out)
@@ -252,7 +243,7 @@ def _build(
     finally:
         shutil.rmtree(work, ignore_errors=True)
         shutil.rmtree(tmp, ignore_errors=True)
-    _switch(root, build_id)
+    paths.switch(root, build_id)
     readme.try_write(root)
     return out
 
@@ -273,7 +264,7 @@ def _build_into(
     _summary_links(target_list, work / "links" / "summary.parquet")
     tasks: list[_parse.Task] = []
     for kind in _parse.RAW_KINDS:
-        files = sorted((source.root / "raw" / kind).glob("*.parquet"))
+        files = sorted(paths.RAW.at(source.root, kind).glob("*.parquet"))
         for run in _runs(files, _TASK_CHUNKS * chunk_bytes, workers):
             tasks.append(
                 _parse.Task(kind, run, work, len(tasks), chunk_bytes, sample=source.sample)
@@ -475,7 +466,7 @@ def _wanted_snapshots(
     ``[si]``-searched accessions count, and each snapshot's sampled accessions are added.
     """
     links = _read(work / "links")
-    searched = source.root / "raw" / raw.PUBMED_SI
+    searched = paths.RAW.at(source.root, raw.PUBMED_SI)
     sampled = ""
     tally = None
     if source.sample is not None:
@@ -652,31 +643,3 @@ def _no_package_notes(
         )
         for srx in sorted(set(experiments))
     ]
-
-
-def _switch(root: Path, build_id: str) -> None:
-    """Point the marker at the new build and record when the old one was switched away from."""
-    settings = read_marker(root)
-    now = dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    old = settings.get(BUILD_KEY)
-    if old and old != build_id:
-        settings.setdefault(SWITCHED_AWAY_KEY, {})[str(old)] = now
-    settings[BUILD_KEY] = build_id
-    settings[SWITCHED_KEY] = now
-    write_marker(root, settings)
-
-
-def write_marker(root: Path, settings: dict[str, Any]) -> None:
-    """Write the marker whole: its scalar settings, then each table."""
-    scalars = [toml_line(k, v) for k, v in settings.items() if not isinstance(v, dict)]
-    tables = [
-        f"\n[{name}]\n" + "".join(f"{_quoted(k)} = {_quoted(v)}\n" for k, v in rows.items())
-        for name, rows in settings.items()
-        if isinstance(rows, dict)
-    ]
-    write_atomic(root / MARKER, "".join(f"{line}\n" for line in scalars) + "".join(tables))
-
-
-def _quoted(key: str) -> str:
-    """Return ``key`` as a quoted TOML key."""
-    return toml_line("k", key)[len("k = ") :]

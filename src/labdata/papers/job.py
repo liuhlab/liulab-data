@@ -24,6 +24,7 @@ from contextlib import contextmanager, suppress
 
 from labdata._http import HttpTransport, Transport
 from labdata.ncbi.entrez import EntrezClient
+from labdata.papers import paths
 from labdata.papers.copy import copy, destination
 from labdata.papers.daily import daily_pass
 from labdata.papers.openalex import OpenAlex
@@ -46,7 +47,7 @@ TICK = 60.0
 RETRY = dt.timedelta(hours=1)
 
 #: Records the chain: a job, then the jobs queued behind it.
-SUCCESSOR = ".successor"
+SUCCESSOR = paths.SUCCESSOR.rel
 
 #: Jobs kept queued behind the running one.
 QUEUED = 2

@@ -27,7 +27,7 @@ from labdata.ncbi.config import (
 from labdata.ncbi.entrez import EntrezClient
 from labdata.papers.openalex import OpenAlex
 from labdata.papers.root import PaperStore
-from labdata.store import init_store, open_store, save_pointer
+from labdata.store import init_store, open_store, paths, save_pointer
 from labdata.store.changes import OVERLAP_DAYS
 from labdata.tenx import bamtofastq
 
@@ -398,12 +398,15 @@ def store_fetch(
     SRA_Accessions.tab snapshot. Items already saved are skipped, so a rerun resumes.
     """
     from labdata.store.fetch import fetch as fetch_raw
+    from labdata.store.raw import GEO_SOFT, SRA_XML
 
     store = open_store(root)
     report = fetch_raw(store.root, accessions, client=_store_client())
     if report.series:
-        typer.echo(f"Saved {len(report.series)} GEO Series to {store.root / 'raw' / 'geo-soft'}")
-    typer.echo(f"Saved {len(report.experiments)} SRA packages to {store.root / 'raw' / 'sra-xml'}")
+        typer.echo(f"Saved {len(report.series)} GEO Series to {paths.RAW.at(store.root, GEO_SOFT)}")
+    typer.echo(
+        f"Saved {len(report.experiments)} SRA packages to {paths.RAW.at(store.root, SRA_XML)}"
+    )
     for accession, pmids in report.pubmed_si.items():
         typer.echo(f"{accession}[si]: {', '.join(pmids) or 'no PubMed IDs'}")
 
@@ -429,7 +432,7 @@ def store_pack(
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     store = open_store(root)
     written = pack(store.root, counts=counts)
-    typer.echo(f"Packed {len(written)} bucket files into {store.root / 'raw'}")
+    typer.echo(f"Packed {len(written)} bucket files into {paths.RAW.at(store.root)}")
 
 
 @store_app.command("build")
@@ -597,7 +600,7 @@ def store_coverage(
     from labdata.store.gaps import coverage
 
     store = open_store(root)
-    if not store.settings.get("build"):
+    if not store.settings.get(paths.BUILD_KEY):
         raise typer.BadParameter("the store names no build; run `labdata store build`")
     report = coverage(store.root, store.reader)
     typer.echo(f"Target Series: {report.target} (geo-series snapshot {report.snapshot_date})")

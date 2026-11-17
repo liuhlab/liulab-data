@@ -27,6 +27,8 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from labdata.store import paths
+
 #: Raw folder of the SRA ``EXPERIMENT_PACKAGE`` XML, one row per experiment.
 SRA_XML = "sra-xml"
 #: Raw folder of PubMed ``<accession>[si]`` results, one row per queried accession.
@@ -123,7 +125,7 @@ class Piece:
 
 def parts_dir(root: Path, source: str) -> Path:
     """Return the folder of a source's parts, ``work/parts/<source>/``."""
-    return root / "work" / "parts" / source
+    return paths.PARTS.at(root, source)
 
 
 def part_files(root: Path, source: str) -> list[Path]:
@@ -204,10 +206,10 @@ def held(
     parts count: rows fetched since the last pack.
     """
     if accessions is None:
-        paths = part_files(root, source) if parts_only else source_files(root, source)
+        files = part_files(root, source) if parts_only else source_files(root, source)
         return {
             a
-            for path in paths
+            for path in files
             for a in pq.read_table(path, columns=["accession"]).column(0).to_pylist()
         }
     wanted = set(accessions)
@@ -221,7 +223,7 @@ def held(
 
 def source_files(root: Path, source: str) -> list[Path]:
     """Return every file holding a source's rows: its raw buckets, then its parts, oldest first."""
-    return sorted((root / "raw" / source).glob("*.parquet")) + part_files(root, source)
+    return sorted(paths.RAW.at(root, source).glob("*.parquet")) + part_files(root, source)
 
 
 def scan(
@@ -238,9 +240,9 @@ def scan(
     only the parts.
     """
     wanted = set(accessions)
-    paths = _bucket_paths(root, source, wanted, parts_only)
+    files = _bucket_paths(root, source, wanted, parts_only)
     found: set[str] = set()
-    for path in paths:
+    for path in files:
         batches = pq.ParquetFile(path).iter_batches(
             batch_size=64, columns=["accession", "raw_text"]
         )
@@ -254,9 +256,11 @@ def scan(
 def _bucket_paths(root: Path, source: str, accessions: set[str], parts_only: bool) -> list[Path]:
     """Return the raw buckets, then the parts, that may hold ``accessions``, oldest first."""
     buckets = {bucket_of(source, a) for a in accessions}
-    paths = [] if parts_only else [root / "raw" / source / f"{b}.parquet" for b in sorted(buckets)]
-    paths = [p for p in paths if p.is_file()]
-    return paths + [p for p in part_files(root, source) if part_bucket(p) in buckets]
+    files = (
+        [] if parts_only else [paths.RAW.at(root, source, f"{b}.parquet") for b in sorted(buckets)]
+    )
+    files = [p for p in files if p.is_file()]
+    return files + [p for p in part_files(root, source) if part_bucket(p) in buckets]
 
 
 def _done(
@@ -269,7 +273,7 @@ def _done(
     packed: dict[str, set[str]] = defaultdict(set)
     parted: dict[str, set[str]] = defaultdict(set)
     for bucket in buckets:
-        path = root / "raw" / source / f"{bucket}.parquet"
+        path = paths.RAW.at(root, source, f"{bucket}.parquet")
         if path.is_file():
             packed[bucket] |= set(pq.read_table(path, columns=["accession"]).column(0).to_pylist())
     for path in part_files(root, source):
@@ -511,9 +515,9 @@ def saved(
     part drops the rows saved before it. With ``parts_only``, only rows in parts count.
     """
     wanted = set(accessions)
-    paths = _bucket_paths(root, source, wanted, parts_only)
+    files = _bucket_paths(root, source, wanted, parts_only)
     out: dict[str, str] = {}
-    for path in paths:
+    for path in files:
         for accession in removed(path) if path.is_file() else []:
             out.pop(accession, None)
         out |= {row.accession: row.raw_text for row in _read(path) if row.accession in wanted}
@@ -539,7 +543,7 @@ def fetch_dates(root: Path, source: str, accessions: Iterable[str]) -> dict[str,
 
 def read_rows(root: Path, source: str) -> list[RawRow]:
     """Return every raw row of one source, sorted by accession."""
-    folder = root / "raw" / source
+    folder = paths.RAW.at(root, source)
     rows = [row for path in sorted(folder.glob("*.parquet")) for row in _read(path)]
     return sorted(rows, key=_key)
 

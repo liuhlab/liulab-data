@@ -16,17 +16,10 @@ import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from labdata.store import extract, readme
-from labdata.store.build import (
-    BUILD_KEY,
-    SWITCHED_AWAY_KEY,
-    SWITCHED_KEY,
-    build_lock,
-    write_marker,
-)
+from labdata.store import extract, paths, readme
+from labdata.store.build import build_lock
 from labdata.store.layout import manifest_path
 from labdata.store.reader import build_folders, build_path
-from labdata.store.root import MARKER, read_marker
 
 #: How long a build stays readable after the store switched away from it, by default.
 GRACE = dt.timedelta(hours=24)
@@ -72,15 +65,15 @@ def prune(
     """
     now = now or dt.datetime.now(dt.UTC)
     with build_lock(root):
-        marker = root / MARKER
-        settings = read_marker(root)
-        current = settings.get(BUILD_KEY)
+        marker = paths.MARKER.at(root)
+        settings = paths.read_marker(root)
+        current = settings.get(paths.BUILD_KEY)
         if not current:
             return PruneReport()
-        switched = _time(settings.get(SWITCHED_KEY)) or dt.datetime.fromtimestamp(
+        switched = _time(settings.get(paths.SWITCHED_KEY)) or dt.datetime.fromtimestamp(
             marker.stat().st_mtime, dt.UTC
         )
-        away: dict[str, str] = settings.get(SWITCHED_AWAY_KEY, {})
+        away: dict[str, str] = settings.get(paths.SWITCHED_AWAY_KEY, {})
         builds = build_folders(root)
         reads = {b.name: _reads(b) for b in builds}
         unused_since = {
@@ -89,7 +82,7 @@ def prune(
         old = [build_path(root, name) for name, t in unused_since.items() if now - t > grace]
         latest = dict(reads.get(str(current), set()))
         snaps = []
-        for folder in sorted((root / "snapshots").glob("*/*")):
+        for folder in sorted(paths.SNAPSHOTS.at(root).glob("*/*")):
             source, date = folder.parent.name, folder.name
             if not (folder.is_dir() and _DATE.match(date)) or date >= latest.get(source, date):
                 continue
@@ -103,8 +96,10 @@ def prune(
                 extract.extract_dir(root, folder.parent.name, folder.name), ignore_errors=True
             )
         if any(p.name in away for p in old):
-            settings[SWITCHED_AWAY_KEY] = {k: v for k, v in away.items() if not _gone(root, k)}
-            write_marker(root, settings)
+            settings[paths.SWITCHED_AWAY_KEY] = {
+                k: v for k, v in away.items() if not _gone(root, k)
+            }
+            paths.write_marker(root, settings)
         if old or snaps:
             readme.try_write(root)
         return PruneReport([*old, *snaps])
