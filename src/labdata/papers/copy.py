@@ -30,6 +30,7 @@ import pyarrow.parquet as pq
 
 from labdata import _rclone
 from labdata.exceptions import LabdataError
+from labdata.papers import paths
 from labdata.papers.root import MARKER, PaperStore, paper_lock
 from labdata.papers.status import STATUS, read_status, write_status
 from labdata.papers.tables import FILES
@@ -41,7 +42,7 @@ COPY_TO_KEY = "copy_to"
 #: The copy record: the ``files`` rows the bucket holds, as the last successful copy left
 #: them, each held path with its MD5, size and fetch date. Kept here on the disk and in the
 #: bucket.
-COPIED = ".copied-files.parquet"
+COPIED = paths.COPY_RECORD.rel
 
 #: Left out of the copy: hidden files and folders, and the status record, which the copy
 #: itself changes.

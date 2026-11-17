@@ -31,7 +31,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from labdata.exceptions import StoreBuildError
-from labdata.store import snapshots
+from labdata.store import paths, snapshots
 from labdata.store._files import temp_beside, write_atomic
 from labdata.store._limits import (
     OBJECT_STORE_SHARE,
@@ -99,7 +99,7 @@ class Task:
 
 def extract_dir(root: Path, source: str, date: str) -> Path:
     """Return the folder holding one snapshot's parts."""
-    return root / "work" / "extract" / f"{source}-{date}"
+    return paths.EXTRACTS.at(root, f"{source}-{date}")
 
 
 def extract(
@@ -190,7 +190,7 @@ def connect(root: Path) -> Iterator[duckdb.DuckDBPyConnection]:
     It runs on :func:`step_threads` threads. Each process spills to its own folder, removed
     on exit. Insertion order is not kept, so a query that needs an order says ``ORDER BY``.
     """
-    temp = root / "work" / "tmp" / str(os.getpid())
+    temp = paths.TMP.at(root, str(os.getpid()))
     temp.mkdir(parents=True, exist_ok=True)
     con = duckdb.connect(
         ":memory:",
