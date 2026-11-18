@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, overload
 
 from labdata._cache import ensure_cache_dir, liulab_data_cache_dir
+from labdata._files import create_marker, toml_line, write_atomic
 from labdata.exceptions import (
     AccessionError,
     LabdataError,
@@ -23,7 +24,6 @@ from labdata.exceptions import (
 )
 from labdata.geo.sra_records import Experiment, experiments_from_package_xml
 from labdata.store import paths, snapshots
-from labdata.store._files import create_marker, toml_line, write_atomic
 from labdata.store._offline import OfflineEntrezClient, StoredSdlClient
 from labdata.store.model import (
     ANNOTATION,

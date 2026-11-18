@@ -18,9 +18,9 @@ from pathlib import Path
 
 import pyarrow.parquet as pq
 
+from labdata._files import temp_beside
 from labdata.exceptions import StoreBuildError
 from labdata.store import extract, layout, paths, snapshots, targets
-from labdata.store._files import temp_beside
 from labdata.store.layout import sql_string
 
 logger = logging.getLogger(__name__)

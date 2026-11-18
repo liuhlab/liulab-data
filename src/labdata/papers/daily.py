@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TextIO
 
+from labdata._files import write_atomic
 from labdata._http import USER_AGENT, HttpTransport, RateLimiter, Transport
 from labdata.ncbi.entrez import EntrezClient
 from labdata.papers import paths
@@ -30,7 +31,6 @@ from labdata.papers.openalex import Account, OpenAlex
 from labdata.papers.root import PaperStore, paper_dir
 from labdata.papers.sync import status_of, store_links
 from labdata.papers.tables import PaperTables
-from labdata.store._files import write_atomic
 
 #: Downloads each OpenAlex account may spend a day; the budget resets at 00:00 UTC.
 QUOTA = 100

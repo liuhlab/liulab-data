@@ -6,12 +6,15 @@ run lock records its :class:`Owner` and asks :func:`alive` whether that owner st
 
 from __future__ import annotations
 
-import datetime as dt
 import os
 import re
 import socket
 import subprocess
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import asdict, dataclass
+from typing import Any
+
+from labdata._files import utc_stamp
 
 #: The states of a job that has ended; any other state counts as running.
 ENDED = frozenset(
@@ -76,8 +79,25 @@ class Owner:
             job=os.environ.get("SLURM_JOB_ID") or None,
             host=socket.gethostname(),
             pid=os.getpid(),
-            started=dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            started=utc_stamp(),
         )
+
+    def record(self) -> dict[str, Any]:
+        """Return the owner as a JSON object; :meth:`from_record` reads it back."""
+        return asdict(self)
+
+    @classmethod
+    def from_record(cls, record: Mapping[str, Any]) -> Owner | None:
+        """Return the owner a :meth:`record` names; None when it does not name one whole."""
+        try:
+            return cls(
+                job=record["job"] and str(record["job"]),
+                host=str(record["host"]),
+                pid=int(record["pid"]),
+                started=str(record["started"]),
+            )
+        except (KeyError, TypeError, ValueError):
+            return None
 
     def __str__(self) -> str:
         job = f"Slurm job {self.job}, " if self.job else ""

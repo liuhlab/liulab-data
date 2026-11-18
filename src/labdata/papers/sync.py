@@ -426,9 +426,10 @@ def _work_info(key: str, work: Work) -> dict[str, Any]:
 def _rekey(state: PaperTables, doi: str, key: str, own_doi: str) -> None:
     """Move a DOI paper to ``key``, the PMID or DOI of the paper it is, whose DOI is ``own_doi``.
 
-    Rows are re-keyed and files moved once the tables are saved; nothing is fetched again. ``doi`` joins the paper's
-    ``other_dois`` unless it is the paper's DOI. When the store already holds ``key``'s
-    paper, the DOI paper's files join it unless it holds a file of the same kind and name.
+    Rows are re-keyed and files moved once the tables are saved; nothing is fetched again.
+    ``doi`` joins the paper's ``other_dois`` unless it is the paper's DOI. When the store
+    already holds ``key``'s paper, the DOI paper's files join it unless it holds a file of the
+    same kind and name.
     """
     old_row = state.papers.pop(doi)
     state.info.pop(doi, None)

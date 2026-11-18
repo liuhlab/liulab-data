@@ -5,10 +5,10 @@ daily-pass success that day. The PMC sync is due when it records no PMC sync suc
 month, from the 3rd, or records a GEO/SRA build other than the store's current one. The file
 and the store's marker are read afresh before each check, so after a restart only what is
 due runs. Each pass and its copy to GCS run through :mod:`labdata.papers.lifecycle`; an idle
-tick retries a pending copy once :data:`RETRY` has passed since the last try. At start the job keeps ``QUEUED`` jobs queued
-behind it, each to start once the jobs before it end for any reason, so one that fails at
-start does not end the chain. A running job cannot see its successor fail, as the successor
-starts only once it ends.
+tick retries a pending copy once :data:`RETRY` has passed since the last try. At start the job
+keeps ``QUEUED`` jobs queued behind it, each to start once the jobs before it end for any
+reason, so one that fails at start does not end the chain. A running job cannot see its
+successor fail, as the successor starts only once it ends.
 """
 
 from __future__ import annotations
@@ -23,13 +23,13 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
 
 from labdata import _slurm
+from labdata._files import write_atomic
 from labdata._http import HttpTransport, Transport
 from labdata.ncbi.entrez import EntrezClient
 from labdata.papers import lifecycle, paths
 from labdata.papers.openalex import OpenAlex
 from labdata.papers.root import PaperStore
 from labdata.papers.status import PaperStatus, read_status
-from labdata.store._files import write_atomic
 from labdata.store.reader import current_build
 
 #: The daily pass waits this long after midnight UTC, past OpenAlex's quota reset.

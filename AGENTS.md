@@ -29,6 +29,8 @@ src/labdata/
                        the paper job and the store's run lock use it
   _gcs.py            the GCS protocol both stores share: copy and restore; store/gcs.py and
                        papers/copy.py are its adapters
+  _paths.py          the path kinds both stores declare (state, rebuildable, scratch)
+  _files.py          files written whole (atomic write and create), the UTC stamp
   cli.py             thin Typer CLI (labdata version, labdata ncbi configure,
                        labdata geo download, + hidden per-stage subcommands)
   ncbi/              NCBI E-utilities: credential config + EntrezClient seam

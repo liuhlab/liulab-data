@@ -16,8 +16,8 @@ from typing import Any
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from labdata._files import temp_beside
 from labdata.papers.folder import PaperFolder
-from labdata.store._files import temp_beside
 
 #: Paper statuses: the store holds its XML or PDF; a tier serves it later; only a Paperpile
 #: save can serve it; it is retracted.

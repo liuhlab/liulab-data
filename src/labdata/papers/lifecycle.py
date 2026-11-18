@@ -20,16 +20,17 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+from labdata._files import utc_stamp, write_atomic
+from labdata._gcs import COPY_TO_KEY, CopyResult
 from labdata._http import RateLimiter, Transport
 from labdata.ncbi.entrez import EntrezClient
 from labdata.papers import copy as copy_mod
 from labdata.papers import daily as daily_mod
 from labdata.papers import sync as sync_mod
-from labdata.papers.copy import COPY_TO_KEY, CopyResult, PaperCopyError, destination
+from labdata.papers.copy import PaperCopyError, destination
 from labdata.papers.openalex import OpenAlex
 from labdata.papers.root import MARKER, PaperStore, paper_lock
 from labdata.papers.status import STATUS, PaperStatus, encode, read_status
-from labdata.store._files import write_atomic
 from labdata.store.reader import current_build
 from labdata.store.targets import check_fraction
 
@@ -303,7 +304,7 @@ def _send(
     if owed.last_pass.get("outcome") == "running":  # under the lock, it was stopped
         owed = replace(owed, last_pass={**owed.last_pass, "outcome": "failed"})
     _write(root, owed)
-    start = dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    start = utc_stamp()
     done = replace(owed, copy_pending=False, finalized=True, last_copy_success=start)
     return copy_mod.send(store, dest, encode(done), full=full, accept_deletes=accept_deletes)
 

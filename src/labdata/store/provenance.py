@@ -8,7 +8,6 @@ for code. Every write is a temporary file renamed into place.
 
 from __future__ import annotations
 
-import datetime as dt
 import functools
 import hashlib
 import json
@@ -19,9 +18,9 @@ from typing import Any
 
 import pyarrow.parquet as pq
 
+from labdata._files import utc_stamp, write_atomic
 from labdata.exceptions import StoreBuildError
 from labdata.store import paths, raw, snapshots
-from labdata.store._files import write_atomic
 from labdata.store.layout import MANIFEST
 from labdata.store.reader import build_folders
 from labdata.store.targets import BuildSource
@@ -202,7 +201,7 @@ def document_build(
             else f"a seeded sample of raw/ and snapshots/ of {sample_of.root.absolute()}; "
             "see inputs"
         ),
-        "date": built or dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "date": built or utc_stamp(),
         "build": build_id,
         "layout": (
             "records/<type>.parquet, one per record type, sorted by accession; "

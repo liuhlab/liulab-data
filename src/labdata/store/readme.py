@@ -15,8 +15,8 @@ import stat
 import string
 from pathlib import Path
 
+from labdata._files import write_atomic
 from labdata.store import paths
-from labdata.store._files import write_atomic
 from labdata.store.layout import manifest_path
 from labdata.store.reader import current_path
 

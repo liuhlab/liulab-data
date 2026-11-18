@@ -24,8 +24,8 @@ from typing import TYPE_CHECKING
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from labdata._files import temp_beside
 from labdata.store import paths, snapshots
-from labdata.store._files import temp_beside
 from labdata.store.sources import GEO_SUMMARY, LinkRow
 
 if TYPE_CHECKING:

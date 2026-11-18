@@ -31,9 +31,9 @@ import duckdb
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from labdata._files import temp_beside, write_atomic
 from labdata.exceptions import StoreBuildError
 from labdata.store import paths, snapshots
-from labdata.store._files import temp_beside, write_atomic
 from labdata.store._limits import (
     OBJECT_STORE_SHARE,
     default_workers,

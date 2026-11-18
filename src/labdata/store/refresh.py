@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import labdata
+from labdata._files import utc_stamp
 from labdata.exceptions import LabdataError
 from labdata.store import lifecycle, paths, pipeline, provenance
 from labdata.store.layout import manifest_path
@@ -128,7 +129,7 @@ def _plan(root: Path, status: dict[str, Any], since: str | None) -> pipeline.Rou
         started, since, fields = status["started"], status["since"], {}
         work = root / status["folder"]
     else:
-        started = dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        started = utc_stamp()
         since = (
             since
             or status.get("last_success")
