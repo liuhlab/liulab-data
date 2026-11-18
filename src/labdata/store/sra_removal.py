@@ -12,7 +12,7 @@ import gzip
 import json
 import logging
 import re
-from collections import defaultdict
+import shutil
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -26,7 +26,7 @@ from labdata.exceptions import EntrezError
 from labdata.geo.sra_records import split_packages
 from labdata.ncbi.entrez import EntrezClient
 from labdata.store import eutils, extract, paths, raw, snapshots
-from labdata.store._removal import INFLIGHT, State, ask_alone, pending_removals, write_removals
+from labdata.store._removal import INFLIGHT, State, ask_alone, write_removals
 from labdata.store.layout import read_parquet_sql, sql_string
 
 #: Candidates confirmed between writes of removal parts and progress.
@@ -142,15 +142,16 @@ def candidates(root: Path) -> Path:
     if out.is_file():
         return out
     folder.mkdir(parents=True, exist_ok=True)
-    files = raw.source_files(root, raw.SRA_XML)
-    if not files:
-        pq.write_table(_CANDIDATE_SCHEMA.empty_table(), out)
-        return out
-    tab = _tab_non_public(snapshots.snapshot(root, snapshots.SRA_ACCESSIONS), folder)
-    reached = _reached(root, folder)
-    held = read_parquet_sql(files)
+    scratch = folder / "merged"
     tmp = temp_beside(out)
     try:
+        files = raw.merged_files(root, raw.SRA_XML, scratch / raw.SRA_XML)
+        if not files:
+            pq.write_table(_CANDIDATE_SCHEMA.empty_table(), out)
+            return out
+        tab = _tab_non_public(snapshots.snapshot(root, snapshots.SRA_ACCESSIONS), folder)
+        reached = _reached(root, folder, scratch / raw.ENTREZ_LINKS)
+        held = read_parquet_sql(files)
         with extract.connect(root) as con:
             con.execute(
                 f"""
@@ -186,6 +187,7 @@ def candidates(root: Path) -> Path:
         tmp.replace(out)
     finally:
         tmp.unlink(missing_ok=True)
+        shutil.rmtree(scratch, ignore_errors=True)
     return out
 
 
@@ -217,7 +219,7 @@ def remove(root: Path, *, client: EntrezClient, date: str | None = None) -> SraR
         report.unreached,
     )
     progress = listing.parent / "settled.txt"
-    skip = _settled(progress) | pending_removals(root, raw.SRA_XML)
+    skip = _settled(progress) | raw.removing(root, raw.SRA_XML)
     report.asked = sum(1 for c in _read(listing) if c.accession not in skip)
     done = 0
     with ThreadPoolExecutor(INFLIGHT, thread_name_prefix="sra-removal") as pool:
@@ -265,12 +267,7 @@ def _confirm(
             report.kept += 1
     report.gone += len(gone)
     write_removals(root, raw.SRA_XML, gone, report.removals)
-    by_bucket: dict[str, list[raw.RawRow]] = defaultdict(list)
-    for row in saved:
-        by_bucket[raw.bucket_of(raw.SRA_XML, row.accession)].append(row)
-    for bucket, rows in sorted(by_bucket.items()):
-        todo = tuple(sorted(row.accession for row in rows))
-        raw.write_part(root, raw.Piece(raw.SRA_XML, bucket, todo), rows)
+    raw.save(root, raw.SRA_XML, saved)
     failed = {c.accession for c, (state, _) in answers.items() if state is State.FAILED}
     return {c.accession for c in batch} - failed
 
@@ -394,12 +391,12 @@ def _tab_non_public(snap: snapshots.Snapshot, folder: Path) -> Path:
     return out
 
 
-def _reached(root: Path, folder: Path) -> Path:
+def _reached(root: Path, folder: Path, scratch: Path) -> Path:
     """Write the experiments live Series reach: SOFT, tab GSM rows and Entrez links."""
     live = _live_series(root)
     listed = eutils.experiment_list(root, series=live, out=folder / "reached-list.parquet")
     out = folder / "reached.parquet"
-    links = raw.source_files(root, raw.ENTREZ_LINKS)
+    links = raw.merged_files(root, raw.ENTREZ_LINKS, scratch)
     tmp = temp_beside(out)
     try:
         with extract.connect(root) as con:

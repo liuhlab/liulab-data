@@ -238,7 +238,7 @@ def _fetch_again(
 
 def _raw(root: Path, source: str) -> dict[str, str]:
     pack.pack(root)
-    return {row.accession: row.raw_text for row in raw.read_rows(root, source)}
+    return {row.accession: row.raw_text for row in raw.rows(root, source)}
 
 
 def test_a_changed_series_replaces_its_soft_filelist_related_series_and_packages(

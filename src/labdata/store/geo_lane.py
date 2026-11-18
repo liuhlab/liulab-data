@@ -119,7 +119,7 @@ def run(
             what = "retry of failed" if retried else f"round {rounds}"
             _fetch_soft(root, pool, todo, date, f"Series SOFT, {what}", again)
             named = raw.scan(
-                root, raw.GEO_SOFT, again.intersection(todo), RELATION, parts_only=True
+                root, raw.GEO_SOFT, again.intersection(todo), RELATION, since_pack=True
             )
             late = named - again
             again |= late
@@ -127,10 +127,10 @@ def run(
             if not todo and not retried:
                 retried = True
                 unsaved = seen - _soft_held(root, seen)
-                unsaved |= again - raw.held(root, raw.GEO_SOFT, again, parts_only=True)
+                unsaved |= again - raw.held(root, raw.GEO_SOFT, again, since_pack=True)
                 todo = sorted(_failed(root, unsaved))
         held = sorted(_soft_held(root, seen))
-        renewed = raw.held(root, raw.GEO_SOFT, again, parts_only=True)
+        renewed = raw.held(root, raw.GEO_SOFT, again, since_pack=True)
         for _ in range(2):
             if raw.pieces(root, raw.GEO_FILELIST, held, renewed):
                 _fetch_filelists(root, pool, held, date, renewed)
@@ -202,7 +202,7 @@ def _fetch_soft(
     """Fetch the SOFT of every unsaved Series; a re-fetch one is skipped only for a new gap."""
     again = again.intersection(accessions)
     gap_rows = raw.saved(root, raw.GEO_GAPS, set(accessions) - again)
-    gap_rows |= raw.saved(root, raw.GEO_GAPS, again, parts_only=True)
+    gap_rows |= raw.saved(root, raw.GEO_GAPS, again, since_pack=True)
     missing = {gse for gse, text in gap_rows.items() if text.split("\n", 1)[0] == gaps.SOFT_MISSING}
     pieces = raw.pieces(
         root, raw.GEO_SOFT, [a for a in accessions if a not in missing], again - missing

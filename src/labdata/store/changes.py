@@ -73,10 +73,15 @@ def related(root: Path, series: Iterable[str]) -> set[str]:
 
 
 def refetch_experiments(root: Path, series: Iterable[str]) -> set[str]:
-    """Return the experiments the saved SOFT of ``series`` and their related Series name."""
+    """Return the experiments the saved SOFT of ``series`` and their related Series name.
+
+    The SOFT a refresh fetched again counts with the one it replaces until pack, so an
+    experiment the new text dropped is fetched again too.
+    """
     from labdata.store import raw
 
-    return raw.scan(root, raw.GEO_SOFT, related(root, series), SRA_RELATION)
+    found = related(root, series)
+    return raw.scan(root, raw.GEO_SOFT, found, SRA_RELATION, every_version=True)
 
 
 def change_list(
@@ -139,8 +144,8 @@ def soft_failed(root: Path, series: Iterable[str]) -> set[str]:
 
     gap_rows = raw.saved(root, raw.GEO_GAPS, series)
     missing = {gse for gse, text in gap_rows.items() if text.split("\n", 1)[0] == gaps.SOFT_MISSING}
-    gap_dates = raw.fetch_dates(root, raw.GEO_GAPS, missing)
-    soft = raw.fetch_dates(root, raw.GEO_SOFT, missing)
+    gap_dates = raw.saved(root, raw.GEO_GAPS, missing, column="fetch_date")
+    soft = raw.saved(root, raw.GEO_SOFT, missing, column="fetch_date")
     return {gse for gse in missing if gse in soft and gap_dates[gse] > soft[gse]}
 
 

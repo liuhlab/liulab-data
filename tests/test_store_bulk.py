@@ -61,7 +61,7 @@ def test_a_doi_is_a_paper_looked_up_in_lower_case(sra_root: Path) -> None:
 
 
 def test_record_6_has_no_paper_and_the_empty_search_is_kept(sra_root: Path) -> None:
-    saved = {r.accession: r.raw_text for r in raw.read_rows(sra_root, raw.PUBMED_SI)}
+    saved = {r.accession: r.raw_text for r in raw.rows(sra_root, raw.PUBMED_SI)}
     assert saved[_RABBIT] == ""
     assert open_store(sra_root).follow(_RABBIT, "PubMed") == {_RABBIT: []}
     fetch(sra_root, [_RABBIT], client=ExplodingEntrezClient(), today="2026-10-15")
@@ -69,7 +69,7 @@ def test_record_6_has_no_paper_and_the_empty_search_is_kept(sra_root: Path) -> N
     store = open_store(sra_root)
     assert store.settings["build"] == "again"
     assert store.follow(_RABBIT, "PubMed") == {_RABBIT: []}
-    assert {r.accession: r.raw_text for r in raw.read_rows(sra_root, raw.PUBMED_SI)} == saved
+    assert {r.accession: r.raw_text for r in raw.rows(sra_root, raw.PUBMED_SI)} == saved
 
 
 # ---------------------------------------------------------------- bulk calls

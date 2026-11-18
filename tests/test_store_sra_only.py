@@ -210,7 +210,7 @@ def test_copies_of_a_study_that_differ_are_noted(root: Path) -> None:
     fetch(root, [_PROJECT], client=_client(), today="2026-10-14")
     from labdata.store import pack, raw
 
-    rows = raw.read_rows(root, raw.SRA_XML)
+    rows = list(raw.rows(root, raw.SRA_XML))
     changed = rows[-1].raw_text.replace("<STUDY_TITLE>A Single", "<STUDY_TITLE>One")
     pack.write_rows(root, raw.SRA_XML, [raw.RawRow(rows[-1].accession, changed, "2026-10-14")])
     out = build(root, "b1")

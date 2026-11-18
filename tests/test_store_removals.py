@@ -143,7 +143,7 @@ def _hold_series(root: Path, gse: str, soft: str | None = None) -> None:
 
 
 def _held(root: Path, source: str) -> dict[str, str]:
-    return {row.accession: row.raw_text for row in raw.read_rows(root, source)}
+    return {row.accession: row.raw_text for row in raw.rows(root, source)}
 
 
 def _gds(gse: str) -> tuple[str, str]:
@@ -164,6 +164,7 @@ def test_a_series_confirmed_gone_leaves_raw_with_its_series_keyed_rows(
     _use(monkeypatch, Ncbi({_gds("GSE3"): [Reply(_GONE_GDS % 200000003)]}))
 
     assert "1 confirmed gone" in _step(root, "_confirm")
+    assert removals.candidates(root) == []  # gone before pack
     with caplog.at_level("INFO"):
         _step(root, "pack")
 

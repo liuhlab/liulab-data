@@ -185,7 +185,7 @@ def _run(root: Path, ncbi: _Ncbi, **kw: Any) -> eutils.LaneReport:
 
 def _packed(root: Path, source: str) -> dict[str, str]:
     pack.pack(root, [source])
-    return {row.accession: row.raw_text for row in raw.read_rows(root, source)}
+    return {row.accession: row.raw_text for row in raw.rows(root, source)}
 
 
 @pytest.fixture
@@ -264,7 +264,7 @@ def test_a_resumed_lane_refetches_no_saved_part_and_packs_the_same_raw(
     cut = _store(tmp_path / "cut", _geo(*accessions))
     with pytest.raises(_Killed):
         _run(cut, _Ncbi(known=known, kill_after=5), batch=2, part_size=4, inflight=1)
-    saved = {a for p in raw.part_files(cut, raw.SRA_XML) for a in raw.asked(p)}
+    saved = raw.held(cut, raw.SRA_XML)
     assert len(saved) == 8  # two whole parts; the third was cut
     resumed = _Ncbi(known=known)
     _run(cut, resumed, batch=2, part_size=4, inflight=1)

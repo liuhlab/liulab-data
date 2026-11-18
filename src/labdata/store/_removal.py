@@ -81,8 +81,3 @@ def write_removals(
         return
     raw.write_removals(root, source, accessions)
     counts[source] = counts.get(source, 0) + len(accessions)
-
-
-def pending_removals(root: Path, source: str) -> set[str]:
-    """Return the accessions the pending removal parts of ``source`` list."""
-    return {a for path in raw.part_files(root, source) for a in raw.removed(path)}

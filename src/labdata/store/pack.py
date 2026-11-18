@@ -1,18 +1,15 @@
 """Pack: merge parts into ``raw/<source>/<bucket>.parquet``, the only writer of ``raw/``.
 
-A bucket is rewritten whole by a k-way merge of its sorted inputs, read a few rows at a
-time and written a chunk at a time, so memory holds a chunk, never a bucket or a source.
-For one accession, a part's row replaces the bucket's, and a newer part's an older one's.
-A removal part deletes the rows saved before it; a bucket left with no rows is deleted.
-A bucket file named for another width is first split into parts, so a width change
-repacks the same rows.
+A bucket is rewritten whole by :func:`labdata.store.raw.merge`, the merge every read of
+``raw/`` uses, its inputs read a few rows at a time and written a chunk at a time, so memory
+holds a chunk, never a bucket or a source. A bucket left with no rows is deleted. A bucket
+file named for another width is first split into parts, so a width change repacks the same
+rows.
 """
 
 from __future__ import annotations
 
 import hashlib
-import heapq
-import itertools
 import json
 import logging
 import os
@@ -25,8 +22,6 @@ import pyarrow.parquet as pq
 from labdata.store import paths, provenance, raw
 from labdata.store.raw import RawRow
 
-#: Rows read from each input at a time.
-READ_ROWS = 16
 #: Most sorted runs merged in one pass; more are merged in passes through spill files.
 FAN_IN = 8
 
@@ -82,12 +77,7 @@ def write_rows(root: Path, source: str, rows: list[RawRow]) -> list[Path]:
     list of pathlib.Path
         The bucket files rewritten.
     """
-    by_bucket: dict[str, list[RawRow]] = defaultdict(list)
-    for row in rows:
-        by_bucket[raw.bucket_of(source, row.accession)].append(row)
-    for bucket, chunk in sorted(by_bucket.items()):
-        piece = raw.Piece(source, bucket, tuple(sorted({row.accession for row in chunk})))
-        raw.write_part(root, piece, chunk)
+    raw.save(root, source, rows)
     return pack(root, [source])
 
 
@@ -99,21 +89,17 @@ def _pack_source(
         stale.unlink(missing_ok=True)
     for path in sorted(folder.glob("*.parquet")):
         _split_if_misnamed(root, source, path, chunk_bytes)
-    by_bucket: dict[str, list[Path]] = defaultdict(list)
-    for part in raw.part_files(root, source):
-        by_bucket[raw.part_bucket(part)].append(part)
     written = []
     removed = 0
-    for bucket, parts in sorted(by_bucket.items()):
+    for bucket, parts in sorted(raw.parts_by_bucket(root, source).items()):
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / f"{bucket}.parquet"
         spills: list[Path] = []
-        held = path.is_file()
+        runs, held = raw.layers(root, source, bucket, parts)
         # The old bucket is never spilled, so the merge can tell its rows from the parts'.
-        most = FAN_IN - 1 if held else FAN_IN
-        runs = _fewer(list(_runs(parts)), raw.parts_dir(root, source), spills, chunk_bytes, most)
+        newer = _fewer(runs[held:], raw.parts_dir(root, source), spills, chunk_bytes, FAN_IN - held)
         tally: dict[str, int] = dict.fromkeys(COUNTS, 0)
-        rows = _merged([_rows(path), *runs] if held else runs, tally, held=held)
+        rows = _merged([*runs[:held], *newer], tally, held=bool(held))
         if counts is not None:
             record = {"source": source, "bucket": bucket, "parts": _parts_tag(parts)}
             rows = _counted(rows, counts, record, tally)
@@ -168,15 +154,16 @@ def _counted(
 
 
 def _fewer(
-    runs: list[Iterator[RawRow]],
+    runs: list[raw.Run],
     folder: Path,
     spills: list[Path],
     chunk_bytes: int,
     most: int = FAN_IN,
-) -> list[Iterator[RawRow]]:
+) -> list[raw.Run]:
     """Merge neighbouring runs into spill files until at most ``most`` are left.
 
-    Merging neighbours keeps the runs' order, so the newer row still wins.
+    Merging neighbours keeps the runs' order, so the newer row still wins. A spill keeps a
+    removal as a row dated :data:`labdata.store.raw.REMOVED`.
     """
     while len(runs) > max(most, 1):
         fewer = []
@@ -189,7 +176,7 @@ def _fewer(
             rows = _merged(group, None, held=False)
             raw.write_sorted_runs(spill, rows, raw.SCHEMA, chunk_bytes=chunk_bytes)
             spills.append(spill)
-            fewer.append(_rows(spill))
+            fewer.append(raw.file_run(spill))
         runs = fewer
     return runs
 
@@ -211,7 +198,11 @@ def _split_if_misnamed(root: Path, source: str, path: Path, chunk_bytes: int) ->
     for bucket, members in sorted(by_bucket.items()):
         wanted = set(members)
         part = folder / raw.part_name(bucket, f"repack-{path.stem}")
-        rows = (row for row in _rows(path) if row.accession in wanted)
+        rows = (
+            RawRow(accession, *value)
+            for accession, value in raw.file_run(path)
+            if accession in wanted and isinstance(value, tuple)
+        )
         raw.write_sorted_runs(part, rows, raw.SCHEMA, chunk_bytes=chunk_bytes)
         _age(part)
     path.unlink()
@@ -221,71 +212,28 @@ def _age(path: Path) -> None:
     os.utime(path, ns=(0, 0))
 
 
-def _rows(path: Path, groups: list[int] | None = None) -> Iterator[RawRow]:
-    """Yield a file's rows, or some row groups', in file order, one row group at a time."""
-    with pq.ParquetFile(path, pre_buffer=False) as fh:
-        for group in range(fh.num_row_groups) if groups is None else groups:
-            for batch in fh.iter_batches(
-                batch_size=READ_ROWS,
-                row_groups=[group],
-                columns=["accession", "raw_text", "fetch_date"],
-            ):
-                data = batch.to_pydict()
-                yield from map(RawRow, data["accession"], data["raw_text"], data["fetch_date"])
+def _merged(runs: list[raw.Run], tally: dict[str, int] | None, *, held: bool) -> Iterator[RawRow]:
+    """Merge sorted runs into one sorted stream of each accession's newest row.
 
-
-def _runs(paths: list[Path]) -> Iterator[Iterator[RawRow]]:
-    """Yield each sorted run of the files, oldest first: row groups in order, by their stats.
-
-    A removal part is one run of removal rows.
+    With ``tally``, the stream is final: a removed accession is dropped. When ``held``, the
+    first run is the old bucket, and ``tally`` counts the accessions added, replaced with
+    another text and removed against it. Without ``tally``, a removal is kept, so a spill
+    file passes it on.
     """
-    for path in paths:
-        if gone := raw.removed(path):
-            yield (RawRow(accession, "", raw.REMOVED) for accession in gone)
-            continue
-        metadata = pq.read_metadata(path)
-        run: list[int] = []
-        last: str | None = None
-        for group in range(metadata.num_row_groups):
-            stats = metadata.row_group(group).column(0).statistics
-            low, high = (stats.min, stats.max) if stats and stats.has_min_max else (None, None)
-            if run and (low is None or last is None or low < last):
-                yield _rows(path, run)
-                run = []
-            run.append(group)
-            last = high
-        if run:
-            yield _rows(path, run)
-
-
-def _merged(
-    runs: list[Iterator[RawRow]], tally: dict[str, int] | None, *, held: bool
-) -> Iterator[RawRow]:
-    """Merge sorted runs into one sorted stream, keeping the last run's row per accession.
-
-    With ``tally``, the stream is final: a last row that is a removal is dropped. When
-    ``held``, the first run is the old bucket, and ``tally`` counts the accessions added,
-    replaced with another text and removed against it. Without ``tally``, removals are kept,
-    so a spill file passes them on.
-    """
-    streams = [_ranked(rank, run) for rank, run in enumerate(runs)]
-    merged = heapq.merge(*streams, key=lambda item: (item[0], item[1]))
-    for _, group in itertools.groupby(merged, key=lambda item: item[0]):
-        ranked = [(rank, row) for _, rank, row in group]
-        rank, last = ranked[-1]
-        gone = last.fetch_date == raw.REMOVED
-        if tally is None or not gone:
+    for accession, entries in raw.merge(runs):
+        rank, value = raw.newest(entries)
+        last = RawRow(accession, *value) if isinstance(value, tuple) else None
+        if last is not None:
             yield last
+        elif tally is None:
+            yield RawRow(accession, "", raw.REMOVED)
         if tally is None or (held and rank == 0):
             continue
-        old = ranked[0][1] if held and ranked[0][0] == 0 else None
-        if gone:
+        first_rank, first = entries[0]
+        old = first if held and first_rank == 0 and isinstance(first, tuple) else None
+        if last is None:
             tally["removed"] += old is not None
         elif old is None:
             tally["added"] += 1
-        elif old.raw_text != last.raw_text:
+        elif old[0] != last.raw_text:
             tally["replaced"] += 1
-
-
-def _ranked(rank: int, run: Iterator[RawRow]) -> Iterator[tuple[str, int, RawRow]]:
-    return ((row.accession, rank, row) for row in run)

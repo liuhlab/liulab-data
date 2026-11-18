@@ -156,7 +156,7 @@ def _r2() -> str:
     # GSMs in both a SubSeries and the SuperSeries
     soft = {
         r.accession: r.raw_text
-        for r in raw.read_rows(ROOT, raw.GEO_SOFT)
+        for r in raw.rows(ROOT, raw.GEO_SOFT)
         if r.accession in [*subs, "GSE246310"]
     }
     super_gsm = set(store.follow("GSE246310", "sample")["GSE246310"])
