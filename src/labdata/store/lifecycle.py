@@ -17,11 +17,13 @@ of the last successful refresh, written at its switch.
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import logging
 import os
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -62,6 +64,10 @@ ABANDONED_RECORD = "abandoned.json"
 RUN_OWNER = "LABDATA_RUN_OWNER"
 #: An outcome before the switch: the work disk still reads the build before the update's.
 _UNSWITCHED = (RUNNING, FAILED)
+#: What a store DAG's driver does, by :func:`plan`.
+RESUME, COPY, NEW, NOTHING = "resume", "copy", "new", "nothing"
+#: A refresh stopped before its switch resumes only within this time of its start.
+RESUME_WITHIN = dt.timedelta(days=7)
 
 
 class CheckError(StoreBuildError):
@@ -74,6 +80,89 @@ class CheckError(StoreBuildError):
 
 class StoreBusyError(StoreBuildError):
     """Another update holds the store's run lock."""
+
+
+@dataclass(frozen=True, slots=True)
+class Plan:
+    """What a store DAG's driver does next, as :func:`plan` decides it.
+
+    Parameters
+    ----------
+    action : str
+        :data:`RESUME` the run in ``folder``, :data:`COPY` only, start a :data:`NEW` update,
+        or :data:`NOTHING`.
+    folder : str or None
+        The run's folder, from the root: the one the status record names, to resume or copy;
+        else the one asked for, None for a new refresh.
+    abandoned : str or None
+        Why the run of this update stopped before its switch is not resumed.
+    """
+
+    action: str
+    folder: str | None = None
+    abandoned: str | None = None
+
+
+def plan(
+    status: Mapping[str, Any],
+    update: str,
+    folder: str | None = None,
+    *,
+    done: bool = False,
+    rerun: bool = False,
+    dag: int | None = None,
+    now: dt.datetime | None = None,
+) -> Plan:
+    """Decide how a store DAG goes on from the status record: one rule for both drivers.
+
+    A run of ``update`` stopped before its switch resumes; a refresh only within
+    :data:`RESUME_WITHIN` of its start and by the same ``dag``, else a new one starts. A run
+    switched with its copy pending is finished by the copy alone, whatever its age or DAG.
+    A full run's round whose last step is done runs nothing, unless ``rerun``.
+
+    Parameters
+    ----------
+    status : mapping
+        The status record.
+    update : str
+        :data:`REFRESH` or :data:`RUN`.
+    folder : str or None
+        The run's folder, from the root: a full run's round. None for a refresh, whose
+        unfinished run the status record names.
+    done : bool
+        The run in ``folder`` finished its last step.
+    rerun : bool
+        Steps of the run in ``folder`` are to run again: a lane left items failed.
+    dag : int or None
+        The refresh DAG's version.
+    now : datetime or None
+        The time a refresh's age is taken at; defaults to now.
+
+    Returns
+    -------
+    Plan
+    """
+    named = status.get("folder")
+    mine = update_of(status) == update and bool(named) and folder in (None, named)
+    outcome = status.get("outcome")
+    if mine and outcome == BUILT and status.get("copy_pending"):
+        return Plan(COPY, named)
+    if mine and outcome in _UNSWITCHED:
+        abandoned = _stale(status, dag, now) if update == REFRESH else None
+        return Plan(NEW, folder, abandoned) if abandoned else Plan(RESUME, named)
+    if done and not rerun:
+        return Plan(NOTHING, folder)
+    return Plan(RESUME, named) if mine and folder is not None else Plan(NEW, folder)
+
+
+def _stale(status: Mapping[str, Any], dag: int | None, now: dt.datetime | None) -> str | None:
+    """Return why a refresh stopped before its switch is not resumed, or None."""
+    if status.get("dag", 1) != dag:
+        return "an older refresh DAG opened it"
+    started = dt.datetime.fromisoformat(str(status["started"]))
+    if (now or dt.datetime.now(dt.UTC)) - started > RESUME_WITHIN:
+        return f"it started more than {RESUME_WITHIN.days} days ago"
+    return None
 
 
 @contextmanager
