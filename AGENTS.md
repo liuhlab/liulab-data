@@ -25,8 +25,7 @@ src/labdata/
   _cache.py          cache-dir resolution ($XDG_CACHE_HOME/liulab-data)
   exceptions.py      LabdataError hierarchy
   _http.py, _rclone.py  the HTTP and rclone seams every client shares
-  _slurm.py          the Slurm query seam (scontrol) and whether a lock's owner still runs;
-                       the paper job and the store's run lock use it
+  _slurm.py          the Slurm query seam (scontrol): does a lock's owner still run
   _gcs.py            the GCS protocol both stores share: copy and restore; store/gcs.py and
                        papers/copy.py are its adapters
   _paths.py          the path kinds both stores declare (state, rebuildable, scratch)
@@ -40,15 +39,13 @@ src/labdata/
                        (Snakemake driver), pipeline.smk (the download DAG)
   store/             the source record store: fetch lanes (geo_lane.py, eutils.py),
                        raw/ pieces and pack, snapshot extract, build, gaps, prune,
-                       GCS copy (gcs.py); paths.py (the store layout: every
-                       path in the root with its kind, state, rebuildable or
-                       scratch; the only reader and switcher of the marker);
+                       GCS copy (gcs.py); paths.py (every path in the root
+                       with its kind; the only reader and switcher of the marker);
                        reader.py (the build reader, the only
                        way to open a build); layout.py (every build table's
                        declaration, the only writer of build tables);
-                       lifecycle.py (an update's life cycle: the status
-                       record, the run lock, the switch after the checks, the
-                       copy outcome);
+                       lifecycle.py (an update's status record, run lock,
+                       switch and copy outcome);
                        pipeline.py (pipeline.drive, the one driver of both
                        store DAGs) + pipeline.smk (the full-run DAG);
                        closing.smk (the closing steps both DAGs include:
@@ -120,8 +117,7 @@ slow and live lanes run in one process.
   seams: `sratools._run` (sra-tools/pigz), `geo.pipeline._run_snakemake` and
   `store.pipeline._run_snakemake` (Snakemake), `labdata._rclone.run` (rclone; both
   stores' copies and restores call it through `labdata._gcs`),
-  `papers.job._submit` (sbatch), `labdata._slurm.show_job` (scontrol; the paper job and the
-  store's run lock) and `store.extract._popen` (rapidgzip/pigz). Tests mock the seams, never the real binaries.
+  `papers.job._submit` (sbatch), `labdata._slurm.show_job` (scontrol) and `store.extract._popen` (rapidgzip/pigz). Tests mock the seams, never the real binaries.
 - **Robust and gentle on NCBI before fast.** To save time, never raise the E-utilities rate
   (`EUTILS_LIMITER` in `labdata.ncbi.entrez`) or the `ncbi` resource cap, or shorten a retry.
 - **The paper store reads no license field**: no table holds one and no step filters on one.
@@ -136,9 +132,8 @@ slow and live lanes run in one process.
   (`labdata geo _prefetch/_extract/_compress`); Snakemake owns scheduling/resume/retries.
   An `ncbi` resource caps concurrent network jobs independently of `--cores` (total CPU),
   keeping the link busy while cores extract/compress. The store DAG adds a `mem_mb` resource:
-  each step gets its share as `LABDATA_MEMORY_MB` and caps DuckDB and Ray inside it. One
-  driver, `store.pipeline.drive`, runs the full run and the refresh under the store's run
-  lock, and both DAGs include the same closing steps, `closing.smk`.
+  each step gets its share as `LABDATA_MEMORY_MB` and caps DuckDB and Ray inside it.
+  `store.pipeline.drive` runs both store DAGs under the run lock.
   Future pipelines follow this split. The paper job is the exception: one process with a
   lock (ADR 0007).
 - **Lazy, cached domain objects.** `Series(...)` is cheap; network happens on first
