@@ -14,7 +14,7 @@ Evidence classes, as in the earlier notes. **Measured** means a query or script 
 2026-11-06 and the number is its output. **Read** means an official page or API says it.
 **Inferred** means reasoned from measured or read facts and not checked directly.
 
-The pilots are in `scripts/research/geo_change/` (`es.py` is the shared helper; `exp.py` to
+The pilots are in `docs/research/geo-change-detection/` (`es.py` is the shared helper; `exp.py` to
 `exp4.py` are the four pilots below). They read the brief SOFT text of one record from
 `https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=<ACC>&targ=self&form=text&view=brief`.
 

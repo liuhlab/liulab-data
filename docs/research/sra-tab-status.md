@@ -1,3 +1,8 @@
+---
+search:
+  exclude: true
+---
+
 # Can the SRA tab's status mark a record gone?
 
 Question: can the `Status` column of `SRA_Accessions.tab` be trusted to mark an SRA experiment

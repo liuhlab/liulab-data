@@ -1,3 +1,8 @@
+---
+search:
+  exclude: true
+---
+
 # How a refresh learns a record is gone
 
 Question: for each record type the store holds (GEO Series and sample, SRA experiment and run,
