@@ -17,7 +17,7 @@ from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
 from labdata.store import lifecycle, open_store, raw
 from labdata.store.gcs import COPIED, StoreCopyError
-from labdata.store.lifecycle import COPY, NEW, NOTHING, RESUME
+from labdata.store.lifecycle import Action
 from tests._fake_gcs import FakeGcs
 from tests._slices import BuiltStore
 
@@ -37,15 +37,15 @@ def _refresh(days: int, outcome: str, **more: Any) -> dict[str, Any]:
 @pytest.mark.parametrize(
     ("status", "action", "abandoned"),
     [
-        (_refresh(1, "running"), RESUME, None),
-        (_refresh(6, "failed"), RESUME, None),
-        (_refresh(8, "failed"), NEW, "it started more than 7 days ago"),
-        (_refresh(1, "failed", dag=3), NEW, "an older refresh DAG"),
-        (_refresh(8, "built", copy_pending=True, dag=3), COPY, None),
-        (_refresh(1, "built", copy_pending=False), NEW, None),
-        (_refresh(1, "finalized"), NEW, None),
-        ({"update": "run", "folder": _ROUND, "outcome": "failed"}, NEW, None),
-        ({}, NEW, None),
+        (_refresh(1, "running"), Action.RESUME, None),
+        (_refresh(6, "failed"), Action.RESUME, None),
+        (_refresh(8, "failed"), Action.NEW, "it started more than 7 days ago"),
+        (_refresh(1, "failed", dag=3), Action.NEW, "an older refresh DAG"),
+        (_refresh(8, "built", copy_pending=True, dag=3), Action.COPY, None),
+        (_refresh(1, "built", copy_pending=False), Action.NEW, None),
+        (_refresh(1, "finalized"), Action.NEW, None),
+        ({"update": "run", "folder": _ROUND, "outcome": "failed"}, Action.NEW, None),
+        ({}, Action.NEW, None),
     ],
 )
 def test_a_refresh_resumes_before_its_switch_within_a_week_of_one_dag_and_after_it_only_copies(
@@ -54,7 +54,7 @@ def test_a_refresh_resumes_before_its_switch_within_a_week_of_one_dag_and_after_
     plan = lifecycle.plan(status, lifecycle.REFRESH, dag=4, now=_NOW)
 
     assert plan.action == action
-    assert plan.folder == (status["folder"] if action in (RESUME, COPY) else None)
+    assert plan.folder == (status["folder"] if action in (Action.RESUME, Action.COPY) else None)
     assert (plan.abandoned or "").startswith(abandoned or "")
     assert (plan.abandoned is None) is (abandoned is None)
 
@@ -67,19 +67,25 @@ def _run(outcome: str, **more: Any) -> dict[str, Any]:
     ("status", "done", "rerun", "action", "running"),
     [
         # A full run has no age or DAG rule: its round folder is what makes it the same run.
-        (_run("failed"), False, False, RESUME, True),
-        (_run("running"), False, True, RESUME, True),
-        (_run("built", copy_pending=True), False, True, COPY, False),
-        (_run("built", copy_pending=False), False, False, RESUME, False),
+        (_run("failed"), False, False, Action.RESUME, True),
+        (_run("running"), False, True, Action.RESUME, True),
+        (_run("built", copy_pending=True), False, True, Action.COPY, False),
+        (_run("built", copy_pending=False), False, False, Action.RESUME, False),
         # Steps run again in a finalized round: it is running until it switches again.
-        (_run("finalized"), True, True, RESUME, True),
-        (_run("finalized"), True, False, NOTHING, False),
+        (_run("finalized"), True, True, Action.RESUME, True),
+        (_run("finalized"), True, False, Action.NOTHING, False),
         # GCS holds the round's build, so a missing last marker reruns nothing.
-        (_run("finalized"), False, False, NOTHING, False),
-        ({"update": "build", "outcome": "finalized", "build": "b1"}, True, False, NOTHING, False),
-        ({"update": "build", "outcome": "finalized", "build": "b1"}, True, True, NEW, True),
-        (_run("failed") | {"folder": "work/run/2026-09-01-all"}, False, False, NEW, True),
-        (_refresh(1, "built", copy_pending=True), False, False, NEW, True),
+        (_run("finalized"), False, False, Action.NOTHING, False),
+        (
+            {"update": "build", "outcome": "finalized", "build": "b1"},
+            True,
+            False,
+            Action.NOTHING,
+            False,
+        ),
+        ({"update": "build", "outcome": "finalized", "build": "b1"}, True, True, Action.NEW, True),
+        (_run("failed") | {"folder": "work/run/2026-09-01-all"}, False, False, Action.NEW, True),
+        (_refresh(1, "built", copy_pending=True), False, False, Action.NEW, True),
     ],
 )
 def test_a_full_run_carries_on_in_its_round_folder_unless_only_the_copy_or_nothing_is_left(
@@ -142,7 +148,7 @@ def test_a_refresh_switched_on_an_expired_login_ends_built_and_the_next_copy_fin
     assert (status["outcome"], status["copy_pending"]) == ("built", True)
     assert status["last_success"] == "2026-11-01"
     # A rerun of the refresh only copies.
-    assert lifecycle.plan(status, "refresh").action == COPY
+    assert lifecycle.plan(status, "refresh").action == Action.COPY
     assert not _gcs_names(gcs, "b2")
 
     gcs.expired = False
@@ -150,7 +156,7 @@ def test_a_refresh_switched_on_an_expired_login_ends_built_and_the_next_copy_fin
 
     status = lifecycle.read_status(root)
     assert (status["outcome"], status["copy_pending"]) == ("finalized", False)
-    assert lifecycle.plan(status, "refresh").action == NEW
+    assert lifecycle.plan(status, "refresh").action == Action.NEW
     assert _gcs_names(gcs, "b2")
     assert gcs.read(lifecycle.STATUS) == (root / lifecycle.STATUS).read_bytes()
 

@@ -25,6 +25,7 @@ from collections import defaultdict
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -52,14 +53,15 @@ RUNNING, FAILED, ABANDONED, BUILT, FINALIZED = (
 )
 #: The updates the status record names, by the command that runs each.
 REFRESH, RUN, BUILD, REMOVE_SRA = "refresh", "run", "build", "remove-sra"
-#: The other holders of the run lock; a copy holds it as :data:`COPY`.
-PRUNE, RESTORE, PACK, FETCH, EXTRACT, README = (
+#: The other holders of the run lock, each a command's name.
+PRUNE, RESTORE, PACK, FETCH, EXTRACT, README, COPY = (
     "prune",
     "restore",
     "pack",
     "fetch",
     "extract",
     "readme",
+    "copy",
 )
 #: The status key keeping ``copy_pending`` as it stood when the update switched builds.
 AT_SWITCH = "copy_pending_at_switch"
@@ -72,8 +74,6 @@ ABANDONED_RECORD = "abandoned.json"
 RUN_OWNER = "LABDATA_RUN_OWNER"
 #: An outcome before the switch: the work disk still reads the build before the update's.
 _UNSWITCHED = (RUNNING, FAILED)
-#: What a store DAG's driver does, by :func:`plan`.
-RESUME, COPY, NEW, NOTHING = "resume", "copy", "new", "nothing"
 #: A refresh stopped before its switch resumes only within this time of its start.
 RESUME_WITHIN = dt.timedelta(days=7)
 
@@ -90,15 +90,23 @@ class StoreBusyError(StoreBuildError):
     """Another update holds the store's run lock."""
 
 
+class Action(StrEnum):
+    """What a store DAG's driver does, by :func:`plan`."""
+
+    RESUME = "resume"
+    COPY = "copy"
+    NEW = "new"
+    NOTHING = "nothing"
+
+
 @dataclass(frozen=True, slots=True)
 class Plan:
     """What a store DAG's driver does next, as :func:`plan` decides it.
 
     Parameters
     ----------
-    action : str
-        :data:`RESUME` the run in ``folder``, :data:`COPY` only, start a :data:`NEW` update,
-        or :data:`NOTHING`.
+    action : Action
+        Resume the run in ``folder``, copy only, start a new update, or do nothing.
     folder : str or None
         The run's folder, from the root: the one the status record names, to resume or copy;
         else the one asked for, None for a new refresh.
@@ -109,7 +117,7 @@ class Plan:
         may run.
     """
 
-    action: str
+    action: Action
     folder: str | None = None
     abandoned: str | None = None
     running: bool = False
@@ -159,16 +167,18 @@ def plan(
     mine = update_of(status) == update and bool(named) and folder in (None, named)
     outcome = status.get("outcome")
     if mine and outcome == BUILT and status.get("copy_pending"):
-        return Plan(COPY, named)
+        return Plan(Action.COPY, named)
     if mine and outcome in _UNSWITCHED:
         abandoned = _stale(status, dag, now) if update == REFRESH else None
         if abandoned:
-            return Plan(NEW, folder, abandoned, running=True)
-        return Plan(RESUME, named, running=True)
+            return Plan(Action.NEW, folder, abandoned, running=True)
+        return Plan(Action.RESUME, named, running=True)
     carried = mine and folder is not None
     if not rerun and (done or (carried and outcome == FINALIZED)):
-        return Plan(NOTHING, folder)
-    return Plan(RESUME, named, running=rerun) if carried else Plan(NEW, folder, running=True)
+        return Plan(Action.NOTHING, folder)
+    if carried:
+        return Plan(Action.RESUME, named, running=rerun)
+    return Plan(Action.NEW, folder, running=True)
 
 
 def _stale(status: Mapping[str, Any], dag: int | None, now: dt.datetime | None) -> str | None:
