@@ -5,7 +5,8 @@ daily-pass success that day. The PMC sync is due when it records no PMC sync suc
 month, from the 3rd, or records a GEO/SRA build other than the store's current one. The file
 and the store's marker are read afresh before each check, so after a restart only what is
 due runs. Each pass and its copy to GCS run through :mod:`labdata.papers.lifecycle`; an idle
-tick retries a pending copy once :data:`RETRY` has passed since the last try. At start the job
+tick copies a store that is not finalized, or whose copy is pending, once :data:`RETRY` has
+passed since the last try; a store with no GCS destination skips it. At start the job
 keeps ``QUEUED`` jobs queued behind it, each to start once the jobs before it end for any
 reason, so one that fails at start does not end the chain. A running job cannot see its
 successor fail, as the successor starts only once it ends.
@@ -27,6 +28,7 @@ from labdata._files import write_atomic
 from labdata._http import HttpTransport, Transport
 from labdata.ncbi.entrez import EntrezClient
 from labdata.papers import lifecycle, paths
+from labdata.papers.copy import destination
 from labdata.papers.openalex import OpenAlex
 from labdata.papers.root import PaperStore
 from labdata.papers.status import PaperStatus, read_status
@@ -165,7 +167,7 @@ def serve(
             if retry_at.get(k, now) <= now
         ]
         if not ready:
-            if status.copy_pending and retry_at.get(_COPY, now) <= now:
+            if _owes_copy(store, status) and retry_at.get(_COPY, now) <= now:
                 retry_at[_COPY] = now + RETRY
                 lifecycle.finalize(store, log)
                 status = read_status(store.root)
@@ -257,6 +259,17 @@ def _log_dir(job_id: str) -> str | None:
         if key == "StdOut" and value:
             return posixpath.dirname(value)
     return None
+
+
+def _owes_copy(store: PaperStore, status: PaperStatus) -> bool:
+    """Return whether GCS lacks the store's last change and there is a place to send it.
+
+    A pass killed outright leaves the status record running and not finalized, with no copy
+    pending. A store that has run no pass has nothing to send.
+    """
+    if not destination(store):
+        return False
+    return status.copy_pending or (bool(status.last_pass) and not status.finalized)
 
 
 def _idle(status: PaperStatus, now: dt.datetime, log: Callable[[str], None]) -> None:
