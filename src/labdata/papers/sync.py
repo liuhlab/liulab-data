@@ -14,7 +14,7 @@ import datetime as dt
 import time
 from collections import Counter
 from collections.abc import Callable, Collection
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -26,12 +26,11 @@ from labdata.ncbi.entrez import EntrezClient
 from labdata.papers import pmc
 from labdata.papers.openalex import OpenAlex, Work
 from labdata.papers.pubmed import Details, details, pmc_ids
-from labdata.papers.root import PaperStore, is_placeholder, paper_dir, paper_key, paper_lock
-from labdata.papers.status import read_status, write_status
+from labdata.papers.root import PaperStore, is_placeholder, paper_dir, paper_key
 from labdata.papers.tables import PaperTables
 from labdata.store.gaps import build_targets
 from labdata.store.layout import HOLDINGS, LINKS_BY_TO, sql_string
-from labdata.store.reader import current_build, current_path
+from labdata.store.reader import current_path
 from labdata.store.targets import check_fraction, in_sample
 
 #: The PubMed publication type of a retracted paper.
@@ -159,13 +158,15 @@ def pmc_sync(
     transport: Transport | None = None,
     sample: float | None = None,
     log: Callable[[str], None] = print,
+    report: SyncReport | None = None,
 ) -> SyncReport:
     """Run the PMC sync over the paper store's current GEO/SRA build.
 
     New linked papers are added; papers not looked up this month get their PMCID, PubMed
     details and, unless fetched, OpenAlex work; then the PMC bucket tier runs and every
     linked paper's status is recomputed. The tables are saved after each chunk of papers, so
-    a killed sync resumes where it stopped. ``paper-status.json`` records the pass.
+    a killed sync resumes where it stopped. Takes no lock:
+    :func:`labdata.papers.lifecycle.pmc_sync` runs it.
 
     Parameters
     ----------
@@ -181,62 +182,19 @@ def pmc_sync(
         Sends the PMC bucket's requests; kept-open connections by default.
     sample : float or None
         Take only this seeded share of the linked papers, for a trial; ``None`` takes all.
-        Only a sync over all papers records its date and the build it read as the last
-        successful PMC sync.
     log : callable
         Takes one progress line.
+    report : SyncReport or None
+        Filled as the sync goes, so a caller sees what a sync that raised did; a new one by
+        default.
 
     Returns
     -------
     SyncReport
         Counts of what the sync did, and papers by status and reason.
     """
-    sample = check_fraction(sample)
-    root = store.root
-    with paper_lock(root):
-        start = _now()
-        # Read before the sync: a build that becomes current during it makes the next one due.
-        build = current_build(store.store.root)
-
-        def last_pass(end: str | None, outcome: str) -> dict[str, Any]:
-            return {
-                "kind": "pmc-sync",
-                "start": start,
-                "end": end,
-                "outcome": outcome,
-                "sample": sample,
-            }
-
-        def with_report(record: dict[str, Any]) -> dict[str, Any]:
-            return {
-                **record,
-                "rekeyed": report.rekeyed,
-                "turned_away": report.turned_away,
-                "bucket_retries": report.bucket.retries,
-                "bucket_throttled": report.bucket.throttled,
-            }
-
-        _record(root, last_pass(None, "running"))
-        report = SyncReport()
-        try:
-            _sync(store, client, openalex, today, transport, sample, log, report)
-        except BaseException:
-            _record(root, with_report(last_pass(_now(), "failed")))
-            raise
-        status = read_status(root)
-        write_status(
-            root,
-            replace(
-                status,
-                last_pass=with_report(last_pass(_now(), "success")),
-                # A sampled sync is a backfill round, never the month's sync.
-                last_pmc_sync_success=(
-                    today.isoformat() if sample is None else status.last_pmc_sync_success
-                ),
-                last_pmc_sync_build=build if sample is None else status.last_pmc_sync_build,
-                counts=report.counts,
-            ),
-        )
+    report = SyncReport() if report is None else report
+    _sync(store, client, openalex, today, transport, check_fraction(sample), log, report)
     return report
 
 
@@ -285,7 +243,7 @@ def _sync(
     clock = time.monotonic()
     for i in range(0, len(todo), CHUNK):
         chunk = todo[i : i + CHUNK]
-        rekeyed = _look_up(state, chunk, client, openalex, today, report, log, root)
+        rekeyed = _look_up(state, chunk, client, openalex, today, report, log)
         for old, new in rekeyed.items():
             linked[new] = linked.pop(old, set()) | linked.get(new, set())
         state.save(root)
@@ -328,7 +286,6 @@ def _look_up(
     today: dt.date,
     report: SyncReport,
     log: Callable[[str], None],
-    root: Path,
 ) -> dict[str, str]:
     """Look one chunk of papers up, changing ``state``; return the DOI papers re-keyed.
 
@@ -367,7 +324,7 @@ def _look_up(
             _set_work(row, work)
             row["published"] = work.published
             if key != doi:
-                _rekey(state, root, doi, key, work.doi or doi)
+                _rekey(state, doi, key, work.doi or doi)
                 rekeyed[doi] = key
                 report.rekeyed += 1
             if not key.isdigit():
@@ -466,12 +423,13 @@ def _work_info(key: str, work: Work) -> dict[str, Any]:
     }
 
 
-def _rekey(state: PaperTables, root: Path, doi: str, key: str, own_doi: str) -> None:
+def _rekey(state: PaperTables, doi: str, key: str, own_doi: str) -> None:
     """Move a DOI paper to ``key``, the PMID or DOI of the paper it is, whose DOI is ``own_doi``.
 
-    Rows are re-keyed and files renamed; nothing is fetched again. ``doi`` joins the paper's
-    ``other_dois`` unless it is the paper's DOI. When the store already holds ``key``'s
-    paper, the DOI paper's files join it unless it holds a file of the same kind and name.
+    Rows are re-keyed and files moved once the tables are saved; nothing is fetched again.
+    ``doi`` joins the paper's ``other_dois`` unless it is the paper's DOI. When the store
+    already holds ``key``'s paper, the DOI paper's files join it unless it holds a file of the
+    same kind and name.
     """
     old_row = state.papers.pop(doi)
     state.info.pop(doi, None)
@@ -494,21 +452,21 @@ def _rekey(state: PaperTables, root: Path, doi: str, key: str, own_doi: str) -> 
         name = f["name"]
         if f["kind"] in ("xml", "pdf") and name.startswith(old_dir.name):
             name = new_dir.name + name[len(old_dir.name) :]
-        if (f["kind"], name) in taken:
-            continue
         path = f["path"]
+        if (f["kind"], name) in taken:
+            if path:
+                state.folder.delete(path)
+            continue
         if path:
             rel = Path(path).relative_to(old_dir)
             new_path = new_dir / rel.parent / name if f["kind"] != "supplement" else new_dir / rel
-            (root / new_path).parent.mkdir(parents=True, exist_ok=True)
-            (root / path).replace(root / new_path)
+            state.folder.move(path, new_path.as_posix())
             path = new_path.as_posix()
         kept.append({**f, "paper": key, "name": name, "path": path})
     state.files[:] = kept
     for attempt in state.attempts:
         if attempt["paper"] == doi:
             attempt["paper"] = key
-    _remove_empty(root / old_dir)
 
 
 def _drop(state: PaperTables, keys: set[str]) -> None:
@@ -524,24 +482,3 @@ def _drop(state: PaperTables, keys: set[str]) -> None:
         state.info.pop(key, None)
     state.files[:] = [f for f in state.files if f["paper"] not in keys]
     state.attempts[:] = [a for a in state.attempts if a["paper"] not in keys]
-
-
-def _remove_empty(folder: Path) -> None:
-    """Remove a paper folder that its files have left, empty sub-folders first."""
-    if not folder.is_dir():
-        return
-    for sub in sorted(folder.rglob("*"), reverse=True):
-        if sub.is_dir():
-            try:
-                sub.rmdir()
-            except OSError:
-                return
-    folder.rmdir()
-
-
-def _now() -> str:
-    return dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
-
-
-def _record(root: Path, last_pass: dict[str, Any]) -> None:
-    write_status(root, replace(read_status(root), last_pass=last_pass))

@@ -32,8 +32,8 @@ from labdata.exceptions import (
 )
 from labdata.geo import Experiment
 from labdata.store import Store, open_store, pack, raw
-from labdata.store.build import build
 from labdata.store.fetch import fetch
+from labdata.store.lifecycle import build
 from tests._fakes import ExplodingEntrezClient, FakeEntrezClient
 from tests._slices import BuiltStore, copy_snapshots
 

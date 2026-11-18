@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import atexit
 import datetime as dt
+import sys
 from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING, NoReturn
 
 import typer
 
-from labdata import BioProject, Run, Series, TenxConverter, experiments_for
+from labdata import BioProject, Run, Series, TenxConverter, _gcs, experiments_for
 from labdata import __version__ as _package_version
 from labdata._http import Transport
 from labdata.exceptions import LabdataError
@@ -27,9 +29,24 @@ from labdata.ncbi.config import (
 from labdata.ncbi.entrez import EntrezClient
 from labdata.papers.openalex import OpenAlex
 from labdata.papers.root import PaperStore
-from labdata.store import init_store, open_store, save_pointer
+from labdata.store import init_store, open_store, paths, save_pointer
 from labdata.store.changes import OVERLAP_DAYS
 from labdata.tenx import bamtofastq
+
+if TYPE_CHECKING:
+    from labdata.store.gaps import Coverage
+
+#: The run lock's holder has ended, though this host cannot check it.
+#: The download size past which a restore asks first, for messages.
+_ASK_ABOVE = f"{_gcs.ASK_ABOVE / 1e9:g} GB"
+
+_OWNER_GONE = typer.Option(
+    False,
+    "--owner-gone",
+    help="The update holding the store's run lock has ended, though this host cannot check "
+    "it (no Slurm answer, another host).",
+)
+
 
 app = typer.Typer(
     help="Liu Lab data curation, download, and organization utilities.",
@@ -189,11 +206,12 @@ def papers_pmc_sync(
 ) -> None:
     """Take in the papers the current build links: IDs, PubMed details, OpenAlex, status.
 
-    Each paper is looked up at most once a month. Holds the paper store's lock.
+    Each paper is looked up at most once a month. Holds the paper store's lock, and then
+    copies to GCS what the store holds and GCS lacks; exits 1 while that copy is pending.
     """
     import time
 
-    from labdata.papers.sync import pmc_sync
+    from labdata.papers.lifecycle import pmc_sync
 
     day = dt.date.fromisoformat(today) if today else dt.datetime.now(dt.UTC).date()
     started = time.monotonic()
@@ -217,6 +235,7 @@ def papers_pmc_sync(
         typer.echo(f"{status}: {each}")
     typer.echo(f"NCBI: {client.traffic}")
     typer.echo(f"OpenAlex: {openalex.traffic}")
+    _exit_if_pending(store)
 
 
 @papers_app.command("daily")
@@ -228,14 +247,16 @@ def papers_daily(
 ) -> None:
     """Spend today's OpenAlex quota, try free host links, and rewrite the manual queue.
 
-    A rerun the same day spends only the quota left. Holds the paper store's lock.
+    A rerun the same day spends only the quota left. Holds the paper store's lock, and then
+    copies to GCS what the store holds and GCS lacks; exits 1 while that copy is pending.
     """
-    from labdata.papers.daily import NBIB, daily_pass
+    from labdata.papers.daily import NBIB
+    from labdata.papers.lifecycle import daily
 
     day = dt.date.fromisoformat(today) if today else dt.datetime.now(dt.UTC).date()
     store, client, openalex = _paper_setup(root)
     try:
-        report = daily_pass(
+        report = daily(
             store,
             client=client,
             openalex=openalex,
@@ -254,6 +275,16 @@ def papers_daily(
         each = ", ".join(f"{r or '-'}: {n}" for r, n in sorted(reasons.items()))
         typer.echo(f"{status}: {each}")
     typer.echo(f"manual queue: {report.queued} papers in {store.root / NBIB}")
+    _exit_if_pending(store)
+
+
+def _exit_if_pending(store: PaperStore) -> None:
+    """Exit 1 when the paper store's copy to GCS is still pending."""
+    from labdata.papers import read_status
+
+    if read_status(store.root).copy_pending:
+        typer.echo("the GCS copy is pending: the paper store is not finalized", err=True)
+        raise typer.Exit(1)
 
 
 @papers_app.command("copy")
@@ -280,25 +311,55 @@ def papers_copy(
     """Send the paper store's changes since the last successful copy to a bucket with rclone.
 
     Lists neither the paper folders nor the bucket. With no copy record, on the disk or in the
-    bucket, it does nothing and asks for --full. It refuses, exiting 1, when the
-    files table is missing or empty, or when it would delete more than a small share of the
+    bucket, it does nothing and asks for --full. It refuses, exiting 1, when the work disk's
+    copy record is not the one in GCS (run `labdata papers restore`), when the files table is
+    missing or empty, or when it would delete more than a small share of the
     copied files and more than --accept-deletes; with --full, when the disk lacks more than
     that share of the files the bucket's copy record lists.
-    Leaves out paper-status.json and hidden files. When rclone's Google login has expired, it
-    sets copy_pending in paper-status.json and exits 0; rerun after `rclone config reconnect`.
+    Sends paper-status.json last, marked finalized; leaves out hidden files. When rclone's
+    Google login has expired, it sets copy_pending in paper-status.json and exits 1; rerun
+    after `rclone config reconnect`.
     Holds the paper store's lock.
     """
     from labdata.papers import open_paper_store
-    from labdata.papers.copy import copy
+    from labdata.papers.lifecycle import copy
 
     try:
         result = copy(open_paper_store(root), to, full=full, accept_deletes=accept_deletes)
     except LabdataError as err:
         typer.echo(str(err), err=True)
         raise typer.Exit(1) from err
-    typer.echo(
-        result.message if result.skipped else f"Copied the paper store to {result.destination}"
-    )
+    if result.skipped:
+        typer.echo(result.message, err=True)
+        raise typer.Exit(1)
+    typer.echo(f"Copied the paper store to {result.destination}")
+
+
+@papers_app.command("restore")
+def papers_restore(
+    root: Path | None = typer.Option(
+        None, help="Paper store root, empty or behind GCS; default: LABDATA_PAPERS, then pointer."
+    ),
+    source: str | None = typer.Option(
+        None, "--from", help="rclone path <remote>:<bucket>/<path>; default: copy_to in the marker."
+    ),
+    accept_download: bool = typer.Option(
+        False, "--accept-download", help=f"Download more than {_ASK_ABOVE} without asking."
+    ),
+) -> None:
+    """Fill a work disk from GCS: the paper store as the copy record in GCS names it.
+
+    Downloads only what the disk lacks or holds differently, deletes the state files GCS no
+    longer holds and leaves hidden scratch files alone. It prints the download size and asks
+    before a large one; without a terminal it then needs --accept-download. Holds the paper
+    store's lock: stop the paper job first.
+    """
+    from labdata.papers.copy import restore
+    from labdata.papers.root import PAPERS_ENV, pointer_path
+    from labdata.store.root import resolve_root
+
+    where = _restore_root(resolve_root(root, PAPERS_ENV, pointer_path(), "papers"))
+    _restore(lambda ok: restore(where, source, approve=ok), where, accept_download)
 
 
 @papers_app.command("serve")
@@ -316,8 +377,9 @@ def papers_serve(
     """Run the paper job: daily pass after 00:30 UTC, PMC sync on the 3rd and on a new build.
 
     Each pass reads the OpenAlex accounts afresh, so saved accounts count from the next pass.
-    Runs only what paper-status.json shows is due, one pass at a time, each followed by the
-    GCS copy. Inside a Slurm job, with --successor, it first keeps jobs queued behind
+    Runs only what paper-status.json shows is due, one pass at a time. Every pass ends with
+    the GCS copy, and an idle tick retries a pending copy once an hour. Inside a
+    Slurm job, with --successor, it first keeps jobs queued behind
     this one, each with --dependency=afterany on the jobs before it.
     """
     import os
@@ -398,12 +460,15 @@ def store_fetch(
     SRA_Accessions.tab snapshot. Items already saved are skipped, so a rerun resumes.
     """
     from labdata.store.fetch import fetch as fetch_raw
+    from labdata.store.raw import GEO_SOFT, SRA_XML
 
     store = open_store(root)
     report = fetch_raw(store.root, accessions, client=_store_client())
     if report.series:
-        typer.echo(f"Saved {len(report.series)} GEO Series to {store.root / 'raw' / 'geo-soft'}")
-    typer.echo(f"Saved {len(report.experiments)} SRA packages to {store.root / 'raw' / 'sra-xml'}")
+        typer.echo(f"Saved {len(report.series)} GEO Series to {paths.RAW.at(store.root, GEO_SOFT)}")
+    typer.echo(
+        f"Saved {len(report.experiments)} SRA packages to {paths.RAW.at(store.root, SRA_XML)}"
+    )
     for accession, pmids in report.pubmed_si.items():
         typer.echo(f"{accession}[si]: {', '.join(pmids) or 'no PubMed IDs'}")
 
@@ -429,7 +494,7 @@ def store_pack(
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     store = open_store(root)
     written = pack(store.root, counts=counts)
-    typer.echo(f"Packed {len(written)} bucket files into {store.root / 'raw'}")
+    typer.echo(f"Packed {len(written)} bucket files into {paths.RAW.at(store.root)}")
 
 
 @store_app.command("build")
@@ -453,8 +518,17 @@ def store_build(
         help="Build a sample of the store at this root into --root, a scratch root that "
         "takes samples of this store only.",
     ),
+    no_switch: bool = typer.Option(
+        False,
+        "--no-switch",
+        hidden=True,
+        help="Write the build only: a run's switch step checks it, then switches to it.",
+    ),
+    owner_gone: bool = _OWNER_GONE,
 ) -> None:
     """Build the store's tables from raw/ and snapshots/ with no network, then switch to them.
+
+    The status record then says the build is built, not finalized, until a copy works.
 
     Memory is bounded by about one chunk per worker plus DuckDB's cap
     (LABDATA_DUCKDB_MEMORY, default a share of the job's memory).
@@ -464,7 +538,7 @@ def store_build(
     """
     import logging
 
-    from labdata.store.build import build as build_store
+    from labdata.store import lifecycle
 
     if sample_of is None:
         target, source = open_store(root).root, None
@@ -475,14 +549,22 @@ def store_build(
     else:
         target, source = root, open_store(sample_of).root
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
-    out = build_store(
-        target,
-        build_id,
-        workers=workers,
-        chunk_bytes=chunk_mb << 20,
-        fraction=_fraction(fraction),
-        sample_of=source,
-    )
+    try:
+        out = lifecycle.build(
+            target,
+            build_id,
+            workers=workers,
+            chunk_bytes=chunk_mb << 20,
+            fraction=_fraction(fraction),
+            sample_of=source,
+            switch=not no_switch,
+            owner_gone=owner_gone,
+        )
+    except lifecycle.StoreBusyError as err:
+        _busy(err)
+    if no_switch:
+        typer.echo(f"Built {out}; the run's switch step checks it, then switches to it")
+        return
     typer.echo(f"Built {out} and switched {'the store' if source is None else target} to it")
 
 
@@ -517,18 +599,28 @@ def store_prune(
         help="Hours a build stays after the store switched away from it; "
         "default: labdata.store.prune.GRACE.",
     ),
+    owner_gone: bool = _OWNER_GONE,
 ) -> None:
     """Delete old builds and unread snapshots once they are out of use for --grace hours.
 
     Never deletes the current build or the snapshots it reads. `--grace 0` is a one-off for
-    tidying a store nobody is reading: a reader of an old build loses it at once.
+    tidying a store nobody is reading: a reader of an old build loses it at once. Also deletes
+    abandoned refresh folders.
     """
     import datetime as dt
 
+    from labdata.store.lifecycle import StoreBusyError
     from labdata.store.prune import GRACE, prune
 
     store = open_store(root)
-    report = prune(store.root, grace=GRACE if grace is None else dt.timedelta(hours=grace))
+    try:
+        report = prune(
+            store.root,
+            grace=GRACE if grace is None else dt.timedelta(hours=grace),
+            owner_gone=owner_gone,
+        )
+    except StoreBusyError as err:
+        _busy(err)
     for path in report.deleted:
         typer.echo(f"Deleted {path}")
     if not report.deleted:
@@ -559,29 +651,90 @@ def store_copy(
 
     It sends the current build and the raw files and snapshots it read, and deletes in the
     bucket, by name, the files the last copy sent that the current build no longer reads. It
-    refuses, exiting 1, unless the current build is complete, or when it would delete more
-    than a small share of the copied raw files and more than --accept-deletes. With no copy
+    refuses, exiting 1, unless the current build is complete, when the work disk's copy record
+    is not the one in GCS (run `labdata store restore`), or when it would delete more than a
+    small share of the copied raw files and more than --accept-deletes. With no copy
     record, on the disk or in the bucket, it seeds one from the build the bucket's marker
     names when the status record shows the bucket holds that build; otherwise, or when
-    rclone's Google login has expired, it skips with a message and exits 0. The status record
-    marks the copy pending until one succeeds.
+    rclone's Google login has expired, it skips with a message and exits 1. The status record
+    marks the copy pending until one succeeds, which sends it last, marked finalized.
     """
-    from labdata.store import refresh
-    from labdata.store.gcs import copy
+    from labdata.store import lifecycle
 
     where = root if root is not None else open_store().root
     try:
-        result = copy(
-            where,
-            to,
-            full=full,
-            accept_deletes=accept_deletes,
-            bucket_matches_marker=refresh.bucket_matches_marker(where),
-        )
+        result = lifecycle.finalize(where, to, full=full, accept_deletes=accept_deletes)
     except LabdataError as err:
         typer.echo(str(err), err=True)
         raise typer.Exit(1) from err
-    typer.echo(result.message if result.skipped else f"Copied the store to {result.destination}")
+    if result.skipped:
+        typer.echo(result.message, err=True)
+        raise typer.Exit(1)
+    typer.echo(f"Copied the store to {result.destination}")
+
+
+@store_app.command("restore")
+def store_restore(
+    root: Path | None = typer.Option(
+        None, help="Store root, empty or behind GCS; default: LABDATA_STORE, then pointer."
+    ),
+    source: str | None = typer.Option(
+        None, "--from", help="rclone path <remote>:<bucket>/<path>; default: copy_to in the marker."
+    ),
+    accept_download: bool = typer.Option(
+        False, "--accept-download", help=f"Download more than {_ASK_ABOVE} without asking."
+    ),
+    owner_gone: bool = _OWNER_GONE,
+) -> None:
+    """Fill a work disk from GCS: the store's current state as the copy record in GCS names it.
+
+    Downloads only what the disk lacks or holds differently, deletes the state files GCS no
+    longer holds and leaves work/, support/ and extracts/ alone. It prints the download size
+    and asks before a large one; without a terminal it then needs --accept-download.
+    Holds the store's run lock, so it refuses while an update runs.
+    """
+    from labdata.store.lifecycle import restore
+    from labdata.store.root import STORE_ENV, pointer_path, resolve_root
+
+    where = _restore_root(resolve_root(root, STORE_ENV, pointer_path(), "store"))
+    _restore(
+        lambda ok: restore(where, source, approve=ok, owner_gone=owner_gone),
+        where,
+        accept_download,
+    )
+
+
+def _restore_root(root: Path | None) -> Path:
+    """Return the root a restore fills; exit 1 when none is set."""
+    if root is None:
+        typer.echo("no root: pass --root", err=True)
+        raise typer.Exit(1)
+    return root
+
+
+def _restore(
+    run: Callable[[Callable[[int, int], bool]], str | None], root: Path, accept: bool
+) -> None:
+    """Run a restore that prints its download size and asks before a large one."""
+
+    def approve(files: int, size: int) -> bool:
+        typer.echo(f"The restore downloads {files} files, {size / 1e9:.2f} GB.")
+        if size <= _gcs.ASK_ABOVE or accept:
+            return True
+        if sys.stdin.isatty():
+            return typer.confirm(f"Download more than {_ASK_ABOVE} out of GCS?")
+        typer.echo(f"More than {_ASK_ABOVE} needs a yes: pass --accept-download.", err=True)
+        return False
+
+    try:
+        stopped = run(approve)
+    except LabdataError as err:
+        typer.echo(str(err), err=True)
+        raise typer.Exit(1) from err
+    if stopped:
+        typer.echo(stopped, err=True)
+        raise typer.Exit(1)
+    typer.echo(f"Restored {root} from GCS")
 
 
 @store_app.command("coverage")
@@ -597,9 +750,16 @@ def store_coverage(
     from labdata.store.gaps import coverage
 
     store = open_store(root)
-    if not store.settings.get("build"):
+    if not store.settings.get(paths.BUILD_KEY):
         raise typer.BadParameter("the store names no build; run `labdata store build`")
     report = coverage(store.root, store.reader)
+    _echo_coverage(report)
+    if not report.passed:
+        raise typer.Exit(1)
+
+
+def _echo_coverage(report: Coverage) -> None:
+    """Echo a coverage report: counts, then the failing Series when it fails."""
     typer.echo(f"Target Series: {report.target} (geo-series snapshot {report.snapshot_date})")
     typer.echo(f"Held: {report.held}")
     typer.echo(f"Gaps: {sum(report.gaps.values())}")
@@ -614,7 +774,12 @@ def store_coverage(
         typer.echo(f"  {accession}: {problem}")
     if report.failures > len(report.failing):
         typer.echo(f"  ... and {report.failures - len(report.failing)} more")
-    raise typer.Exit(1)
+
+
+def _busy(err: LabdataError) -> NoReturn:
+    """Exit 1 with the message: another update holds the store's run lock."""
+    typer.echo(str(err), err=True)
+    raise typer.Exit(1) from err
 
 
 def _fraction(fraction: float | None) -> float | None:
@@ -638,8 +803,9 @@ def store_run(
     root: Path | None = typer.Option(
         None, help="Store root; default: LABDATA_STORE, then pointer."
     ),
+    owner_gone: bool = _OWNER_GONE,
 ) -> None:
-    """Fetch, pack, build, prune and copy the store in one resumable run.
+    """Fetch, pack, build, check, switch, prune and copy the store in one resumable run.
 
     Uses the newest snapshot of each source. Rerun the same command to resume: it starts at
     the first unfinished step and fetches only what is not saved yet. Markers and logs are
@@ -650,7 +816,17 @@ def store_run(
     from labdata.store import pipeline
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
-    code = pipeline.run(open_store(root).root, fraction=_fraction(fraction), cores=cores, ncbi=ncbi)
+    try:
+        code = pipeline.run(
+            open_store(root).root,
+            fraction=_fraction(fraction),
+            cores=cores,
+            ncbi=ncbi,
+            owner_gone=owner_gone,
+        )
+    except LabdataError as err:
+        typer.echo(str(err), err=True)
+        raise typer.Exit(1) from err
     if code:
         typer.echo(f"The run stopped with steps unfinished (snakemake exit {code}).", err=True)
         raise typer.Exit(code)
@@ -671,12 +847,15 @@ def store_refresh(
     root: Path | None = typer.Option(
         None, help="Store root; default: LABDATA_STORE, then pointer."
     ),
+    owner_gone: bool = _OWNER_GONE,
 ) -> None:
     """Bring the store to the sources' current state in one resumable run.
 
     Renews the snapshots, fetches what GEO and SRA changed, removes what is confirmed gone,
     builds, switches, prunes and copies. Rerun the same command to resume an unfinished
-    refresh. The outcome is in refresh-status.json in the store root.
+    refresh that started within the last 7 days; an older one is not resumed. It refuses
+    while another update holds the store's run lock. The outcome is in refresh-status.json
+    in the store root.
     """
     import logging
 
@@ -686,7 +865,9 @@ def store_refresh(
         _date(since, "--since")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     try:
-        code = refresh.run(open_store(root).root, since=since, cores=cores, ncbi=ncbi)
+        code = refresh.run(
+            open_store(root).root, since=since, cores=cores, ncbi=ncbi, owner_gone=owner_gone
+        )
     except LabdataError as err:
         typer.echo(str(err), err=True)
         raise typer.Exit(1) from err
@@ -696,19 +877,27 @@ def store_refresh(
     typer.echo("The refresh finished: every step done.")
 
 
-@store_app.command("_refreshed", hidden=True)
-def store_refreshed(
+@store_app.command("_switch", hidden=True)
+def store_switch(
     root: Path | None = typer.Option(
         None, help="Store root; default: LABDATA_STORE, then pointer."
     ),
 ) -> None:
-    """Record the running refresh's date and counts in the status record, after the switch."""
-    from labdata.store import refresh
+    """Check the running update's new build, then switch the store to it; exit 1 if it fails."""
+    from labdata.store import lifecycle
 
-    status = refresh.switched(open_store(root).root)
-    typer.echo(f"Refreshed as of {status['last_success']}")
-    for source, counts in status["counts"].items():
-        typer.echo(f"{source}: " + ", ".join(f"{n} {key}" for key, n in counts.items()))
+    try:
+        status, report = lifecycle.switch(open_store(root).root)
+    except lifecycle.CheckError as err:
+        _echo_coverage(err.coverage)
+        typer.echo(str(err), err=True)
+        raise typer.Exit(1) from err
+    _echo_coverage(report)
+    typer.echo(f"Switched the store to {status['build']}")
+    if lifecycle.update_of(status) == lifecycle.REFRESH:
+        typer.echo(f"Refreshed as of {status['last_success']}")
+        for source, counts in status["counts"].items():
+            typer.echo(f"{source}: " + ", ".join(f"{n} {key}" for key, n in counts.items()))
 
 
 def _date(value: str, hint: str) -> dt.date:
@@ -925,20 +1114,24 @@ def store_remove_sra(
     root: Path | None = typer.Option(
         None, help="Store root; default: LABDATA_STORE, then pointer."
     ),
+    owner_gone: bool = _OWNER_GONE,
 ) -> None:
     """Remove withdrawn SRA experiments and runs: the yearly maintenance step.
 
     It writes removal parts: run `labdata store pack`, then `labdata store build`, to
-    apply them. Rerun it to resume a cut-off run. The candidate and confirm rules are in
-    docs/adr/0008-yearly-sra-removal.md.
+    apply them, and `labdata store copy` to finalize them. Rerun it to resume a cut-off run.
+    The candidate and confirm rules are in docs/adr/0008-yearly-sra-removal.md.
     """
     import logging
 
-    from labdata.store import sra_removal
+    from labdata.store import lifecycle
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     store = open_store(root)
-    report = sra_removal.remove(store.root, client=_store_client())
+    try:
+        report = lifecycle.remove_sra(store.root, client=_store_client(), owner_gone=owner_gone)
+    except lifecycle.StoreBusyError as err:
+        _busy(err)
     typer.echo(
         f"SRA removal: {report.candidates} candidates ({report.non_public} non-public, "
         f"{report.with_runs} with a non-public run, {report.unreached} reached by no live "

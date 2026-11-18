@@ -18,7 +18,7 @@ from pathlib import Path
 from labdata.exceptions import PageNotFound
 from labdata.geo.sra_records import fetch_package_texts
 from labdata.ncbi.entrez import EntrezClient, docsum_uid
-from labdata.store import pack, provenance, raw, snapshots, sources
+from labdata.store import pack, paths, provenance, raw, snapshots, sources
 from labdata.store.model import kind_of
 
 #: Upper bound on PMIDs kept per ``[si]`` search.
@@ -134,7 +134,7 @@ def fetch(
         date,
     )
     pack.pack(root)
-    for folder in sorted(p for p in (root / "raw").glob("*") if p.is_dir()):
+    for folder in sorted(p for p in paths.RAW.at(root).glob("*") if p.is_dir()):
         provenance.document_raw(root, folder.name)
     return FetchReport(
         tuple(sorted(packages)),

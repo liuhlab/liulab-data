@@ -10,8 +10,10 @@ Only papers get rows. A DOI gets none when it names a dataset or the like, or wh
 does not know it; the next sync asks about it again. A placeholder PMID, a small number that
 only BioProject XML gives, gets none either.
 
-Any full copy of this folder is the paper store. Paths in this file are relative to the paper
-store root, written `<papers>`. The paper store never writes into the labdata store, and the
+Google Cloud Storage (GCS) holds the paper store, and its copy there is the one source of
+truth. Each pass runs on a work disk and is done, or finalized, once it is copied to GCS. A new
+work disk, or one behind GCS, is filled by `labdata papers restore`. Paths in this file are
+relative to the paper store root, written `<papers>`. The paper store never writes into the labdata store, and the
 labdata store never writes into it.
 
 ## Contents
@@ -23,6 +25,8 @@ labdata store never writes into it.
   paper-status.json         the last pass of the paper job, and counts by status
   .lock                     held by a running pass, so two passes never overlap
   .daily-journal.jsonl      downloads a stopped daily pass has not yet put in the tables
+  .pending-files.json       file moves and deletes a stopped pass has not yet made
+  .tmp/                     files being written; each pass empties it at its start
   papers.parquet            one row per paper: IDs and status
   paper_info.parquet        one row per paper: title, authors, abstract
   files.parquet             one row per file, held or only listed
@@ -31,6 +35,11 @@ labdata store never writes into it.
   manual-queue-dois.txt     the same papers, one DOI a line
   papers/                   the paper files
 ```
+
+`.lock`, `.pending-files.json`, `.successor` and `.tmp/` are scratch. Delete them only while
+the paper job is stopped. Losing them may leave a paper file that no table names. Keep
+`.daily-journal.jsonl`: it holds downloads a stopped pass has not yet put in the tables, and
+without it the next pass downloads them again and spends quota twice.
 
 ## labdata-papers.toml
 
@@ -50,8 +59,9 @@ labdata store never writes into it.
   next sync is due when the current build differs. `fetches` counts the papers fetched today
   by source, and `quota` counts the OpenAlex downloads spent today by key. `counts` gives
   papers by status, then by reason. `paperpile_pending` and `copy_pending` are true when a step was skipped because
-  its login has expired.
-- **Made by:** each pass of the paper job, at its start and its end.
+  its login has expired. `finalized` is true when GCS holds the store's last change.
+- **Made by:** each pass, at its start and its end, and each copy, which sends it to GCS
+  last. Every pass ends with that copy.
 
 ## The tables
 

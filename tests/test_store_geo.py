@@ -21,8 +21,8 @@ from typer.testing import CliRunner
 from labdata.cli import app
 from labdata.exceptions import AccessionError, LabdataError, NotFound, NotMirrored, StoreBuildError
 from labdata.store import Store, open_store, pack, raw
-from labdata.store.build import build
 from labdata.store.fetch import fetch
+from labdata.store.lifecycle import build
 from labdata.store.model import Link
 from tests._fakes import ExplodingEntrezClient, FakeEntrezClient
 from tests._slices import copy_snapshots

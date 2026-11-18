@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 from pathlib import Path
 
 import click
@@ -14,7 +15,7 @@ from typer.testing import CliRunner
 from labdata.cli import app
 from labdata.exceptions import StoreBuildError
 from labdata.store import _parse, extract, layout, open_store
-from labdata.store.build import build
+from labdata.store.lifecycle import build
 from labdata.store.targets import in_sample
 from tests._scripts import BENCHMARK_MODES, benchmark
 from tests._slices import BuiltStore
@@ -134,6 +135,22 @@ def test_a_sample_holds_the_sampled_snapshot_records_that_nothing_links_to(
     got = _accessions(out, "biosample")
     assert own - full, "the snapshot lists a sampled BioSample nothing links to"
     assert own <= got < full | listed
+
+
+def test_a_sample_makes_a_missing_extract_in_its_own_root_and_leaves_the_source_alone(
+    built_store: BuiltStore, tmp_path: Path
+) -> None:
+    source = built_store(tmp_path / "source", "prjna1027859")
+    folder, date = extract.done_dir(source, "biosample")
+    shutil.rmtree(folder)
+    before = _tree(source)
+    scratch = tmp_path / "scratch"
+
+    out = build(scratch, "s1", fraction=0.6, sample_of=source)
+
+    assert _tree(source) == before
+    assert (scratch / "extracts" / f"biosample-{date}" / "_DONE").is_file()
+    assert _accessions(out, "biosample")
 
 
 def test_the_same_fraction_gives_the_same_rows_and_a_smaller_one_lies_inside(

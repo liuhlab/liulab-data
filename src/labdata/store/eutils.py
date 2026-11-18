@@ -5,10 +5,11 @@ lines and the ``SRA_Accessions.tab`` experiments with ``Center=GEO`` and a GSM a
 its tab status. Packages come from ``efetch`` in batches, several calls in flight under the
 client's shared rate cap. Each bucket's piece is split into parts of a few thousand
 experiments, so a preempted run loses at most a few open parts. An experiment NCBI serves no
-package for is saved as an ``sra-xml`` row with empty text, which the build lists in its
-notes. Each run also asks again for a saved package that is empty while the tab says ``live``,
-or that the current build notes as not well-formed. Every step streams: the tab, the SOFT text and the list are read in chunks and spilled to
-Parquet under ``work/eutils/``.
+package for is saved as an ``sra-xml`` row with empty text, and one whose fetch failed twice as
+an ``sra-fetch-failed`` row; the build lists both in its notes. Each run also asks again for a
+saved package that is empty while the tab says ``live``, or that the current build notes as
+not well-formed. Every step streams: the tab, the SOFT text and the list are read in chunks
+and spilled to Parquet under ``work/eutils/``, which only this lane reads.
 """
 
 from __future__ import annotations
@@ -28,11 +29,11 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from labdata._files import temp_beside
 from labdata.exceptions import EntrezError
 from labdata.geo.sra_records import split_packages
 from labdata.ncbi.entrez import EntrezClient, FetchedRecords
-from labdata.store import extract, gaps, raw, snapshots
-from labdata.store._files import temp_beside
+from labdata.store import extract, gaps, paths, raw, snapshots
 from labdata.store.progress import EVERY, Progress
 
 #: Experiments per ``efetch`` call.
@@ -117,7 +118,7 @@ def experiment_list(
         If the store has no such snapshot.
     """
     snap = snapshots.snapshot(root, snapshots.SRA_ACCESSIONS, date)
-    folder = root / "work" / "eutils"
+    folder = paths.EUTILS.at(root)
     tab = _tab_experiments(snap, folder / f"tab-{snap.date}.parquet")
     wanted = None if series is None else set(series)
     soft = _soft_experiments(root, folder / "soft.parquet", wanted)
@@ -158,7 +159,7 @@ def experiment_list(
 
 def list_path(root: Path, date: str) -> Path:
     """Return where :func:`experiment_list` writes the list for one tab snapshot date."""
-    return root / "work" / "eutils" / f"experiments-{date}.parquet"
+    return paths.EUTILS.at(root, f"experiments-{date}.parquet")
 
 
 def _tab_experiments(snap: snapshots.Snapshot, out: Path) -> Path:
@@ -230,13 +231,13 @@ def _samples(root: Path, out: Path, series: set[str]) -> Path:
 def _soft_experiments(root: Path, out: Path, series: set[str] | None) -> Path:
     """Spill the SRX accessions of the saved SOFT of these Series, packed or in a part."""
     out.parent.mkdir(parents=True, exist_ok=True)
-    paths = sorted((root / "raw" / raw.GEO_SOFT).glob("*.parquet"))
-    paths += raw.part_files(root, raw.GEO_SOFT)
+    files = sorted(paths.RAW.at(root, raw.GEO_SOFT).glob("*.parquet"))
+    files += raw.part_files(root, raw.GEO_SOFT)
     tmp = temp_beside(out)
     try:
         with pq.ParquetWriter(tmp, _SOFT_SCHEMA) as writer:
             writer.write_table(_SOFT_SCHEMA.empty_table())
-            for path in paths:
+            for path in files:
                 found: set[str] = set()
                 columns = ["accession", "raw_text"]
                 for batch in pq.ParquetFile(path).iter_batches(batch_size=64, columns=columns):
@@ -263,7 +264,7 @@ class _Part:
     recovered: set[str] = field(default_factory=set)
     missing: list[str] = field(default_factory=list)
     kept: set[str] = field(default_factory=set)
-    failed: set[str] = field(default_factory=set)
+    failed: dict[str, str] = field(default_factory=dict)
     _writer: pq.ParquetWriter | None = None
 
     def add(self, got: FetchedRecords) -> int:
@@ -284,7 +285,7 @@ class _Part:
         self.fetched += len(got.records)
         self.recovered |= self.again & got.records.keys()
         self.missing += missing
-        self.failed |= set(got.failed)
+        self.failed |= got.failed
         self.batches -= 1
         return len(missing)
 
@@ -339,7 +340,8 @@ def fetch_packages(
     -------
     LaneReport
         Counts for this run. An experiment whose call failed is asked once more before the
-        lane ends; if that fails too it is not saved, so the next run asks for it again. A new
+        lane ends; if that fails too it is saved as an ``sra-fetch-failed`` row, not as a
+        package, so the next run asks for it again. A new
         one NCBI has no package for is saved with an empty text and counted in ``missing``.
         Saved bad packages are asked again: ``reasked`` counts them, ``recovered`` those that
         came back good and replace the saved copy. A re-fetch experiment NCBI serves none
@@ -348,13 +350,13 @@ def fetch_packages(
     sizes = (batch, inflight, part_size)
     noted = gaps.noted(root, gaps.UNPARSABLE_PACKAGE)
     again = frozenset(refetch)
-    first, settled = _fetch_once(
+    first, settled, failed = _fetch_once(
         root, experiments, client, date, sizes, log_every, noted, set(), again
     )
     report = first
     if first.failed:
         logger.info("asking again for the %d experiments whose calls failed", first.failed)
-        last, _ = _fetch_once(
+        last, _, failed = _fetch_once(
             root, experiments, client, date, sizes, log_every, noted, settled, again
         )
         report = LaneReport(
@@ -365,6 +367,7 @@ def fetch_packages(
             first.recovered + last.recovered,
             first.unserved | last.unserved,
         )
+    _record_failed(root, failed, date)
     logger.info(
         "asked again for %d saved bad packages; %d came back good",
         report.reasked,
@@ -383,15 +386,20 @@ def _fetch_once(
     noted: set[str],
     settled: set[str],
     refetch: frozenset[str],
-) -> tuple[LaneReport, set[str]]:
-    """Run the lane once; also return the saved bad packages asked again whose call worked."""
+) -> tuple[LaneReport, set[str], dict[str, str]]:
+    """Run the lane once.
+
+    Also return the saved bad packages asked again whose call worked, and each experiment
+    whose call failed with its error.
+    """
     batch, inflight, part_size = sizes
-    spill = root / "work" / "eutils" / "spill"
+    spill = paths.EUTILS.at(root, "spill")
     shutil.rmtree(spill, ignore_errors=True)
     total = sum(len(p.todo) for p in _pieces(root, experiments, noted, settled, refetch))
     report = {"fetched": 0, "missing": 0, "failed": 0, "reasked": 0, "recovered": 0}
     asked_again: set[str] = set()
     unserved: set[str] = set()
+    failed: dict[str, str] = {}
     jobs = _jobs(root, experiments, batch, part_size, spill, noted, settled, refetch)
     pending: dict[Future[FetchedRecords], _Part] = {}
     opened: set[_Part] = set()
@@ -434,10 +442,11 @@ def _fetch_once(
                     report["failed"] += len(part.failed)
                     report["reasked"] += len(part.again - refetch)
                     report["recovered"] += len(part.recovered - refetch)
-                    asked_again |= part.again - part.failed - refetch
+                    asked_again |= part.again - part.failed.keys() - refetch
                     unserved |= part.kept & refetch
+                    failed |= part.failed
             refill()
-    return LaneReport(**report, unserved=frozenset(unserved)), asked_again
+    return LaneReport(**report, unserved=frozenset(unserved)), asked_again, failed
 
 
 def _fetch(client: EntrezClient, ids: list[str]) -> FetchedRecords:
@@ -455,6 +464,17 @@ def _save(root: Path, part: _Part, date: str) -> None:
     if asked:
         raw.write_part(root, raw.Piece(raw.SRA_XML, bucket, asked), part.rows(date))
     part.spill.unlink(missing_ok=True)
+
+
+def _record_failed(root: Path, failed: dict[str, str], date: str) -> None:
+    """Save each experiment whose fetch failed as an ``sra-fetch-failed`` row: its last error."""
+    by_bucket: dict[str, list[str]] = defaultdict(list)
+    for accession in sorted(failed):
+        by_bucket[raw.bucket_of(raw.SRA_FETCH_FAILED, accession)].append(accession)
+    for bucket, todo in sorted(by_bucket.items()):
+        rows = (raw.RawRow(a, " ".join(failed[a].split()), date) for a in todo)
+        piece = raw.Piece(raw.SRA_FETCH_FAILED, bucket, tuple(todo))
+        raw.write_part(root, piece, rows, record_asked=False)
 
 
 def _jobs(
@@ -522,12 +542,12 @@ def _bad_saved(root: Path, status: dict[str, str], noted: set[str]) -> set[str]:
     and it is still not well-formed.
     """
     bucket = raw.bucket_of(raw.SRA_XML, next(iter(status)))
-    paths = [root / "raw" / raw.SRA_XML / f"{bucket}.parquet"]
-    paths += [p for p in raw.part_files(root, raw.SRA_XML) if raw.part_bucket(p) == bucket]
+    files = [paths.RAW.at(root, raw.SRA_XML, f"{bucket}.parquet")]
+    files += [p for p in raw.part_files(root, raw.SRA_XML) if raw.part_bucket(p) == bucket]
     look = sorted(noted.intersection(status))
     empty: set[str] = set()
     newest: dict[str, str] = {}
-    for path in filter(Path.is_file, paths):
+    for path in filter(Path.is_file, files):
         for chunk in pq.ParquetFile(path).iter_batches(columns=["accession", "hash"]):
             for accession, digest in zip(*chunk.to_pydict().values(), strict=True):
                 if digest == _EMPTY:

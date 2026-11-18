@@ -1,8 +1,19 @@
 # Run the full download
 
-One command fetches every target GEO Series and the records it links to, builds the tables,
-switches the store to the new build, deletes old builds and copies the store to the bucket.
-It runs on the cluster as one Slurm job, and you can stop and restart it at any time.
+One command fetches every target GEO Series and the records it links to, builds the tables
+and copies the store to GCS. It runs on the cluster as one Slurm job, and you can stop and
+restart it at any time.
+
+GCS holds the store, and updates run on a work disk on the cluster. Every update, the full
+download and the monthly refresh alike, goes through the same steps:
+
+1. **Restore**, by hand and only when the work disk is empty or behind GCS. See
+   [Restore the store from GCS](store-gcs.md#restore-the-store-from-gcs).
+2. **Update**: fetch, pack and build.
+3. **Check** the new build's coverage.
+4. **Switch** the work disk to the new build. Readers on the cluster use it from now on.
+   Then prune deletes the builds out of use.
+5. **Finalize**: copy the store to GCS. The update is done only once GCS holds it.
 
 ## Before you start
 
@@ -12,6 +23,9 @@ It runs on the cluster as one Slurm job, and you can stop and restart it at any 
 - To copy the store at the end, set `copy_to` in `labdata-store.toml` and log in to rclone
   that day. See [Copy the store to GCS](store-gcs.md). Without `copy_to`, the run skips the
   copy and says so.
+- Every update first checks the work disk against GCS: a run, a refresh, a build by hand and
+  the SRA removal. If the disk is behind, or has no copy record while GCS holds one, the
+  update stops and names the `labdata store restore` command to run.
 
 ## Start a round
 
@@ -60,7 +74,8 @@ SRA experiments fetch-failed: 0 (not Series gaps)
 Coverage passes.
 ```
 
-If coverage fails, the run stops there: it does not delete old builds or copy the store.
+If coverage fails, the run stops there. The store keeps its old build, and the run deletes
+nothing and copies nothing.
 
 ## Resume
 
@@ -101,8 +116,8 @@ deletes the current build or anything it reads.
 
 Once the full download is done, one command a month keeps the store current. It downloads new
 snapshots, fetches the GEO Series that changed or appeared since the last successful refresh,
-removes the GEO Series that a fetch confirms are withdrawn, builds, switches, prunes and
-copies. Run it from the repository folder:
+removes the GEO Series that a fetch confirms are withdrawn, builds, checks coverage, switches,
+prunes and copies. Run it from the repository folder:
 
 ```bash
 labdata store refresh
@@ -127,16 +142,28 @@ That folder holds the refresh's markers and logs.
 A refresh removes a GEO Series only when GEO no longer lists it, or the refresh got no record
 for it, and a fetch of it alone then says it is gone. It keeps every SRA record.
 
-A refresh that an older version of liulab-data started is not resumed: the next run starts a
-new one from the same date and leaves the old folder in place.
+A refresh that started more than 7 days ago, or that an older version of liulab-data started,
+is not resumed: the next run starts a new one from the same date, and `labdata store prune`
+deletes the old folder.
+
+A refresh, a full run, a build, the SRA removal and a prune each refuse to start while another
+of them runs on the store. If the message says it cannot check whether the other one still
+runs, check with `squeue` on its cluster. Once you know it has ended, run the same command
+again with `--owner-gone`.
+
+A refresh killed inside a job that still runs, such as a held interactive job, looks alive
+from another node, because Slurm says its job runs. Start the next refresh on the same node:
+there the check asks the process itself.
 
 `refresh-status.json` in the store root shows the outcome:
 
 ```json
 {
+  "update": "refresh",
+  "build": "20261107T020000Z",
   "started": "2026-11-07T02:00:00Z",
   "ended": "2026-11-07T03:24:10Z",
-  "outcome": "succeeded",
+  "outcome": "finalized",
   "since": "2026-10-14",
   "last_success": "2026-11-07",
   "folder": "work/refresh/2026-11-07T020000Z",
@@ -146,10 +173,20 @@ new one from the same date and leaves the old folder in place.
 }
 ```
 
+The outcome is one of these:
+
+| Outcome | Meaning |
+| --- | --- |
+| `running` | The refresh runs, or was killed before it could say so. |
+| `failed` | It stopped before the switch. The store keeps its old build. |
+| `built` | The work disk uses the new build, but GCS does not hold it yet. |
+| `finalized` | GCS holds the new build. The refresh is done. |
+
 `last_success` changes only once the store has switched to the new build. When rclone's login
-has expired, or the store still needs its first `--full` copy, the refresh still succeeds and
-`copy_pending` is `true`. Log in, then run `labdata store copy`, or `labdata store copy --full`
-if it asks for it. It copies the store and sets `copy_pending` back to `false`.
+has expired, the refresh ends `built`, `copy_pending` is `true`, and the job exits with an
+error. Log in, then run the same refresh command again: it does only the copy.
+`labdata store copy` does the same. If the copy asks for `--full`, run
+`labdata store copy --full`.
 `copy_pending_at_switch` keeps `copy_pending` as it was when the refresh switched builds.
 
 To keep the refresh's step logs with the store, copy them into `support/`. `<started>` is the
@@ -159,12 +196,9 @@ refresh's folder under `work/refresh/`, which `refresh-status.json` names:
 scripts/store/keep_run_logs.sh "$LABDATA_STORE" refresh/<started>
 ```
 
-Then you may delete everything in `work/` except `work/extract/`. That folder holds the
-Parquet extracts of the current snapshots, and every build reads them, a sample build
-(`labdata store build --sample-of`) and a rebuild of the store included. `labdata store prune`
-deletes an old snapshot's extract with the snapshot. If you lose an extract,
-`labdata store extract --source <source>` makes it again, slowly. The store's `README.md` lists
-the `work/` folders that are safe to delete.
+Then, once `refresh-status.json` says `finalized` and while no update runs, you may delete
+everything in `work/`. The Parquet extracts of the snapshots sit in `extracts/`, outside
+`work/`. A build that needs a missing one makes it again, slowly. The store's `README.md` lists what is safe to delete.
 
 ### What a refresh needs
 
@@ -184,7 +218,7 @@ counting; "not measured" means the step did not run in that refresh.
 | confirm | 1 core | 1 GB | – | one E-utilities call per removal candidate | not measured |
 | pack | 1 core | 3 GB | rewrites the raw buckets it touches | – | 7 min |
 | build | not measured | not measured | 22 GB, one build | – | 44 min in the last full build |
-| status | not measured | | | | |
+| switch, after the coverage check | not measured | | | | |
 | prune | not measured | | | | |
 | copy | not measured | | | the store, to GCS | |
 
@@ -211,16 +245,15 @@ order. The first two check the current build, so run them before the refresh:
     ```bash
     scratch=/path/to/scratch
     mkdir "$scratch"
-    cp "$LABDATA_STORE/labdata-store.toml" "$scratch/"
+    grep -v '^copy_to' "$LABDATA_STORE/labdata-store.toml" > "$scratch/labdata-store.toml"
     cp -al "$LABDATA_STORE/raw" "$LABDATA_STORE/snapshots" "$scratch/"
-    for source in geo-series sra-accessions bioproject biosample; do
-      labdata store extract --root "$scratch" --source "$source"
-    done
     unshare -rn labdata store build --root "$scratch" --build-id offline
     pixi run python scripts/store/compare_builds.py \
       "$LABDATA_STORE/builds/<current build>" "$scratch/builds/offline"
     ```
 
+    The scratch marker leaves out `copy_to`, so the build checks nothing against GCS. The
+    build first makes the extracts of the snapshots it reads, in the scratch store.
     `unshare -rn` blocks the network; leave it out where the node does not allow it. The
     compare prints each difference and ends with `the builds match` when there is none.
     Delete the scratch store after.
@@ -239,7 +272,7 @@ order. The first two check the current build, so run them before the refresh:
 
 4. **Remove withdrawn SRA records.** After the refresh, remove the SRA experiments and runs
     that NCBI no longer serves. Each one goes only after a fetch of it alone confirms it gone.
-    Then pack and build to apply the removals, and copy the store:
+    Then pack and build to apply the removals, and copy the store to finalize them:
 
     ```bash
     labdata store remove-sra --root "$LABDATA_STORE"
@@ -249,6 +282,7 @@ order. The first two check the current build, so run them before the refresh:
     ```
 
     If it stops, run it again: it goes on where it stopped and asks again for any that failed.
+    The removal is done once `refresh-status.json` says `finalized`.
     The [decision record](../adr/0008-yearly-sra-removal.md) says why this runs once a year.
 
 5. **Time the queries on a quiet node.** Run the full benchmark on the new build, on the

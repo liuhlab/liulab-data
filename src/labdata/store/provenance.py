@@ -8,7 +8,6 @@ for code. Every write is a temporary file renamed into place.
 
 from __future__ import annotations
 
-import datetime as dt
 import functools
 import hashlib
 import json
@@ -19,9 +18,9 @@ from typing import Any
 
 import pyarrow.parquet as pq
 
+from labdata._files import utc_stamp, write_atomic
 from labdata.exceptions import StoreBuildError
-from labdata.store import raw, snapshots
-from labdata.store._files import write_atomic
+from labdata.store import paths, raw, snapshots
 from labdata.store.layout import MANIFEST
 from labdata.store.reader import build_folders
 from labdata.store.targets import BuildSource
@@ -66,6 +65,12 @@ RAW_SOURCES: dict[str, tuple[str, str]] = {
     raw.SRA_XML: (
         "The SRA EXPERIMENT_PACKAGE XML of each experiment, one row per experiment.",
         f"{_EUTILS}/efetch.fcgi?db=sra&rettype=full&retmode=xml",
+    ),
+    raw.SRA_FETCH_FAILED: (
+        "Each SRA experiment the E-utilities lane asked for and could not fetch, one row per "
+        "experiment: the last error. The build notes it as fetch-failed while sra-xml holds "
+        "no package for it.",
+        f"{_EUTILS}/efetch.fcgi?db=sra&rettype=full&retmode=xml, as answered",
     ),
     raw.PUBMED_SI: (
         "The PubMed IDs that list each accession in their accession field, one row per "
@@ -122,7 +127,7 @@ def document_raw(root: Path, source: str) -> Path:
     pathlib.Path
         The folder.
     """
-    folder = root / "raw" / source
+    folder = paths.RAW.at(root, source)
     files = file_entries(folder)
     dates: set[str] = set()
     for entry in files:
@@ -196,7 +201,7 @@ def document_build(
             else f"a seeded sample of raw/ and snapshots/ of {sample_of.root.absolute()}; "
             "see inputs"
         ),
-        "date": built or dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "date": built or utc_stamp(),
         "build": build_id,
         "layout": (
             "records/<type>.parquet, one per record type, sorted by accession; "
@@ -289,9 +294,9 @@ def document_snapshot(folder: Path) -> list[Path]:
 def folders(root: Path) -> list[Path]:
     """Return every folder that carries a README and manifest, in a stable order."""
     snaps = sorted(
-        p for p in (root / "snapshots").glob("*/*") if p.is_dir() and _DATE.match(p.name)
+        p for p in paths.SNAPSHOTS.at(root).glob("*/*") if p.is_dir() and _DATE.match(p.name)
     )
-    raws = sorted(p for p in (root / "raw").glob("*") if p.is_dir())
+    raws = sorted(p for p in paths.RAW.at(root).glob("*") if p.is_dir())
     return [*snaps, *raws, *build_folders(root)]
 
 
@@ -314,9 +319,9 @@ def verify(root: Path, *, write_missing: bool = False) -> list[str]:
     for folder in folders(root):
         rel = folder.relative_to(root)
         if write_missing:
-            if folder.parent.parent.name == "snapshots":
+            if folder.parent.parent.name == paths.SNAPSHOTS.name:
                 document_snapshot(folder)
-            elif folder.parent.name == "raw" and not (folder / MANIFEST).is_file():
+            elif folder.parent.name == paths.RAW.name and not (folder / MANIFEST).is_file():
                 document_raw(root, folder.name)
         missing = [name for name in (MANIFEST, README) if not (folder / name).is_file()]
         if missing:
@@ -345,7 +350,7 @@ def verify(root: Path, *, write_missing: bool = False) -> list[str]:
 
 def _inputs(root: Path) -> dict[str, Any]:
     raws = {}
-    for folder in sorted(p for p in (root / "raw").glob("*") if p.is_dir()):
+    for folder in sorted(p for p in paths.RAW.at(root).glob("*") if p.is_dir()):
         manifest = json.loads((folder / MANIFEST).read_text(encoding="utf-8"))
         raws[folder.name] = [{"name": f["name"], "sha256": f["sha256"]} for f in manifest["files"]]
     snaps = {}

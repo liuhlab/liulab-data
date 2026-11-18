@@ -1,20 +1,15 @@
-"""Refresh the store with one resumable Snakemake run, and keep its status record.
+"""Refresh the store with one resumable Snakemake run.
 
-The DAG lives in the packaged ``refresh.smk``; :func:`run` drives it through the full run's
-Snakemake seam, :func:`labdata.store.pipeline._run_snakemake`. A refresh's markers, logs and
-Snakemake state sit in ``work/refresh/<started>/``. The status record,
-``refresh-status.json`` in the store root, names that folder until the refresh succeeds, so
-a rerun resumes there.
-
-GLOSSARY's *Status record* lists the record's fields; it also keeps the folder and the date
-the change search starts from (``since``). The date and the counts are written by the step
-after the switch, the success outcome when the whole DAG has finished.
+The DAG lives in the packaged ``refresh.smk``; :func:`run` hands it to the one driver,
+:func:`labdata.store.pipeline.drive`. A refresh's markers, logs and Snakemake state sit in
+``work/refresh/<started>/``. The status record (:mod:`labdata.store.lifecycle`) names that
+folder until the refresh is finalized, so a rerun within :data:`RESUME_WITHIN` of its start
+resumes there: at the copy, when only the copy is left. An older one is not resumed.
 """
 
 from __future__ import annotations
 
 import datetime as dt
-import importlib.resources
 import json
 import logging
 import shlex
@@ -23,25 +18,19 @@ from pathlib import Path
 from typing import Any
 
 import labdata
-from labdata._pipeline import RESILIENCE_FLAGS
+from labdata._files import utc_stamp
 from labdata.exceptions import LabdataError
-from labdata.store import _limits, extract, gcs, pack, pipeline, provenance
-from labdata.store._files import write_atomic
+from labdata.store import lifecycle, paths, pipeline, provenance
 from labdata.store.layout import manifest_path
 from labdata.store.reader import build_path
 from labdata.store.root import open_store
 
-#: The status record's file name in the store root.
-STATUS = "refresh-status.json"
-#: The status key keeping ``copy_pending`` as it stood when the refresh switched builds.
-AT_SWITCH = "copy_pending_at_switch"
-#: Outcomes the status record names.
-RUNNING, SUCCEEDED, FAILED = "running", "succeeded", "failed"
-#: The file in a refresh's folder each pack appends its per-bucket counts to.
-PACK_COUNTS = "pack-counts.jsonl"
 #: The version of ``refresh.smk``'s markers; raise it when a marker changes meaning, so an
 #: unfinished refresh an older DAG opened is left, not resumed.
-DAG = 3
+DAG = 4
+
+#: An unfinished refresh is resumed only within this time of its start.
+RESUME_WITHIN = dt.timedelta(days=7)
 
 logger = logging.getLogger(__name__)
 
@@ -50,42 +39,9 @@ class RefreshError(LabdataError):
     """A refresh cannot start: no date to search changes from, or no snapshot downloader."""
 
 
-def memory_plan(total_mb: int) -> dict[str, int]:
-    """Return each step's memory in MB, so the steps that can run at once fit in ``total_mb``.
-
-    A snapshot extract runs beside the steps from the target list to pack and takes what the
-    GEO lane and one other step leave; the build runs alone with all of it.
-    """
-    geo, lane = total_mb // 16, total_mb // 8
-    plan = dict.fromkeys(
-        ("snapshots", "geo_series", "targets", "changes", "eutils", "confirm", "pack"), lane
-    )
-    plan |= dict.fromkeys(("status", "prune", "copy"), lane)
-    return plan | {"geo": geo, "extract": total_mb - geo - lane, "build": total_mb}
-
-
-def read_status(root: Path) -> dict[str, Any]:
-    """Return the status record, or an empty dict when the store was never refreshed."""
-    path = root / STATUS
-    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
-
-
-def write_status(root: Path, status: dict[str, Any]) -> None:
-    """Write the status record whole."""
-    write_atomic(root / STATUS, json.dumps(status, indent=2, sort_keys=True) + "\n")
-
-
 def downloader() -> Path:
     """Return the bulk snapshot downloader of this checkout; it is not in the wheel."""
     return Path(labdata.__file__).resolve().parents[2] / provenance.DOWNLOADER
-
-
-def _snakefile() -> Path:
-    return Path(str(importlib.resources.files("labdata.store").joinpath("refresh.smk")))
-
-
-def _now() -> str:
-    return dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _first_since(root: Path, build: object) -> str:
@@ -107,8 +63,13 @@ def run(
     cores: int | None = None,
     ncbi: int = pipeline.NCBI_STEPS,
     verbose: bool = True,
+    owner_gone: bool = False,
 ) -> int:
     """Run a refresh, or resume the unfinished one the status record names.
+
+    The unfinished refresh is resumed when it started within :data:`RESUME_WITHIN` and an
+    older refresh DAG did not open it. Otherwise a new refresh starts in a new folder; one that
+    stopped before its switch is abandoned, and prune removes its folder.
 
     Parameters
     ----------
@@ -118,12 +79,8 @@ def run(
         The date to search GEO's changes from, ``YYYY-MM-DD``, less the overlap. Defaults
         to the last successful refresh's date, then the ``geo-series`` snapshot date of the
         current build. A resumed refresh keeps its own.
-    cores : int or None
-        Cores the steps may use; defaults to :func:`labdata.store._limits.default_workers`.
-    ncbi : int
-        Network steps that may run at once.
-    verbose : bool
-        Show Snakemake's and each step's output.
+    cores, ncbi, verbose, owner_gone
+        As for :func:`labdata.store.pipeline.drive`.
 
     Returns
     -------
@@ -134,17 +91,34 @@ def run(
     ------
     RefreshError
         If there is no date to search from, or a new refresh finds no snapshot downloader.
+    StoreBusyError
+        If another update holds the run lock.
     """
-    store = open_store(root)
-    root = store.root
-    status = read_status(root)
-    unfinished = status.get("outcome") in (RUNNING, FAILED) and status.get("folder")
+    root = open_store(root).root
+    return pipeline.drive(
+        root,
+        lifecycle.REFRESH,
+        lambda status: _plan(root, status, since),
+        snakefile="refresh.smk",
+        cores=cores,
+        ncbi=ncbi,
+        verbose=verbose,
+        owner_gone=owner_gone,
+    )
+
+
+def _plan(root: Path, status: dict[str, Any], since: str | None) -> pipeline.Round:
+    """Resume the unfinished refresh the status record names, or plan a new one."""
+    unfinished = lifecycle.unfinished(status, lifecycle.REFRESH)
+    left = None
     if unfinished and status.get("dag", 1) != DAG:
-        logger.warning(
-            "an older refresh DAG opened the unfinished refresh, so it is left unfinished: %s",
-            status["folder"],
-        )
-        since = since or status["since"]
+        left = "an older refresh DAG opened it"
+    elif unfinished and _age(status["started"]) > RESUME_WITHIN:
+        left = f"it started more than {RESUME_WITHIN.days} days ago"
+    if left:
+        logger.warning("the unfinished refresh in %s is not resumed: %s", status["folder"], left)
+        if status["outcome"] != lifecycle.BUILT:
+            since = since or status["since"]
         unfinished = False
     if unfinished:
         logger.info("resuming the refresh started %s", status["started"])
@@ -152,109 +126,31 @@ def run(
             logger.warning(
                 "--since %s is not used: the unfinished refresh keeps %s", since, status["since"]
             )
+        started, since, fields = status["started"], status["since"], {}
+        work = root / status["folder"]
     else:
-        started = _now()
-        status = {
-            "started": started,
-            "ended": None,
-            "outcome": RUNNING,
-            "folder": f"work/refresh/{started.replace(':', '')}",
-            "since": since
+        started = utc_stamp()
+        since = (
+            since
             or status.get("last_success")
-            or _first_since(root, store.settings.get("build")),
-            "last_success": status.get("last_success"),
-            "counts": {},
-            "copy_pending": bool(status.get("copy_pending")),
-            "dag": DAG,
-        }
-    work = root / status["folder"]
+            or _first_since(root, paths.read_marker(root).get(paths.BUILD_KEY))
+        )
+        fields = {"started": started, "since": since, "counts": {}, "dag": DAG}
+        work = paths.REFRESHES.at(root, started.replace(":", ""))
     script = downloader()
     if not (work / "snapshots.done").is_file() and not script.is_file():
         raise RefreshError(
             f"no snapshot downloader at {script}: run the refresh from a checkout of liulab-data"
         )
-    status |= {"outcome": RUNNING, "ended": None}
-    write_status(root, status)
-    work.mkdir(parents=True, exist_ok=True)
-    cores = cores or _limits.default_workers()
-    memory = int(_limits.allocation_mb() * pipeline.STEPS_SHARE)
     config = {
-        "labdata": f"{shlex.quote(sys.executable)} -m labdata",
         "python": shlex.quote(sys.executable),
         "downloader": str(script),
-        "root": str(root),
-        "date": status["started"][:10],
-        "since": status["since"],
-        "extracts": list(extract.SOURCES),
-        "copy": bool(store.settings.get(gcs.COPY_TO_KEY)),
-        "mem_mb": memory_plan(memory),
+        "snapshots": str(paths.SNAPSHOTS.at(root)),
+        "date": started[:10],
+        "since": since,
     }
-    config_path = work / "config.json"
-    config_path.write_text(json.dumps(config, indent=2, sort_keys=True) + "\n")
-    argv = [
-        "--snakefile",
-        str(_snakefile()),
-        "--directory",
-        str(work),
-        "--cores",
-        str(cores),
-        "--resources",
-        f"ncbi={ncbi}",
-        f"mem_mb={memory}",
-        "--configfile",
-        str(config_path),
-        "--printshellcmds",
-        *RESILIENCE_FLAGS,
-    ]
-    code = pipeline._run_snakemake(argv, verbose=verbose)
-    status = read_status(root)
-    status |= {"ended": _now(), "outcome": FAILED if code else SUCCEEDED}
-    write_status(root, status)
-    return code
+    return pipeline.Round(work, fields, config)
 
 
-def switched(root: Path) -> dict[str, Any]:
-    """Record the running refresh's date and counts once its build is switched to.
-
-    The copy is marked pending when the store names a destination.
-
-    Returns
-    -------
-    dict
-        The status record written.
-
-    Raises
-    ------
-    RefreshError
-        If no refresh is running.
-    """
-    store = open_store(root)
-    status = read_status(store.root)
-    if status.get("outcome") not in (RUNNING, FAILED):
-        raise RefreshError(f"no refresh is running: {store.root / STATUS} says so")
-    status |= {
-        "last_success": status["started"][:10],
-        "counts": pack.read_counts(store.root / status["folder"] / PACK_COUNTS),
-        # Kept when a resumed refresh records its switch again.
-        AT_SWITCH: bool(status.get(AT_SWITCH, status.get("copy_pending"))),
-        "copy_pending": bool(store.settings.get(gcs.COPY_TO_KEY)),
-    }
-    write_status(store.root, status)
-    return status
-
-
-def bucket_matches_marker(root: Path) -> bool:
-    """Return whether the bucket held exactly the build its marker names, by the status record.
-
-    That is, the copy was not pending when the last refresh switched builds, or, with no switch
-    recorded, it is not pending now. False when the store has no status record.
-    """
-    status = read_status(root)
-    return bool(status) and not status.get(AT_SWITCH, status.get("copy_pending"))
-
-
-def note_copy(root: Path, *, pending: bool) -> None:
-    """Mark the GCS copy pending or done in the status record, if the store has one."""
-    status = read_status(root)
-    if status:
-        write_status(root, status | {"copy_pending": pending})
+def _age(started: str) -> dt.timedelta:
+    return dt.datetime.now(dt.UTC) - dt.datetime.fromisoformat(started)

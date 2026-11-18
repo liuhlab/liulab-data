@@ -4,13 +4,22 @@ The paper store sits beside the GEO/SRA store. It holds the papers that the stor
 BioProjects link to, and the status of each one. One long-running Slurm job, the paper job,
 keeps it current. Each day it fetches what it can, and once a month it takes in new papers.
 
+Google Cloud Storage (GCS) holds the paper store, and the paper job changes it on a work disk
+on the cluster. Each pass goes through the same steps as a GEO/SRA store update:
+
+1. **Restore**, by hand and only when the work disk is empty or behind GCS. See
+   [Restore the store from GCS](#restore-the-store-from-gcs).
+2. **Check** that the work disk is in step with GCS.
+3. **Update**: the daily pass or the PMC sync changes the work disk.
+4. **Finalize**: copy the changes to GCS. A pass is done only once GCS holds it.
+
 ## Set up once
 
 Make the paper store and point it at the GEO/SRA store it reads:
 
 ```bash
 labdata papers init /path/to/paper-store --store /path/to/store \
-  --copy-to gcs:<bucket>/datalake/paper-store
+  --copy-to gcs:<gcs-bucket>/datalake/paper-store
 ```
 
 Save your logins. The NCBI one fetches PubMed records. The OpenAlex accounts buy paper
@@ -56,7 +65,7 @@ its `sample` share, but only a sync over all papers sets `last_pmc_sync_success`
 `last_pmc_sync_build`. So the paper job still runs the month's PMC sync after a sampled round.
 
 The first copy to GCS sends all of it, with `--full`. It uploads every file and deletes
-nothing in the bucket. Run it once by hand, as its own job,
+nothing in GCS. Run it once by hand, as its own job,
 after the first sync ends, so the paper job's daily pass does not wait behind it:
 
 ```bash
@@ -69,9 +78,8 @@ sbatch --job-name=labdata-papers-copy --partition=cpu_batch \
 Log in to rclone first: the login lasts one day. Later copies send only the files added,
 changed or deleted since the last copy that worked, so their cost follows the day's changes,
 not the size of the store. Each copy ends by sending its copy record, a hidden file at the
-paper store root that lists what the bucket holds. A new work disk without that file fetches
-it from the bucket. Until a full copy has worked once, the job's copies do nothing and the log asks for
-`--full`.
+paper store root that lists what GCS holds. Until a full copy has worked once, the job's copies
+do nothing and the log asks for `--full`.
 
 ## Start the paper job
 
@@ -85,7 +93,8 @@ It runs the daily pass each day after 00:30 UTC, and the PMC sync on the 3rd of 
 It also runs the PMC sync when a refresh makes a new GEO/SRA build current, so the papers the
 new build links come in soon after. That sync counts as the month's, so a refresh on the 1st or
 2nd leaves no sync for the 3rd.
-Each pass ends with a copy of its changes to GCS. The job never runs a full copy.
+Each pass ends with a copy of its changes to GCS, even a pass that fails. The job never runs a
+full copy.
 
 PMC gives the article text, figures and supplements, while OpenAlex and host links give a PDF
 only. So when a paper fetched from OpenAlex or a host link later appears in PMC, the PMC sync
@@ -119,7 +128,9 @@ log into the same folder. Between passes it looks like this:
 ```
 
 Each step can also run alone: `labdata papers daily`, `labdata papers pmc-sync` and
-`labdata papers copy`.
+`labdata papers copy`. Every pass ends with the copy, whatever it changed and whether it
+worked, run by hand or by the job. While a copy is pending, the job tries it again once an
+hour between passes, and a step run by hand exits 1.
 
 ## Read `paper-status.json`
 
@@ -149,19 +160,20 @@ The file at the paper store root says what the job did last and where the papers
   differs, the next PMC sync is due. A sampled sync leaves it alone too.
 - `quota` shows the copies each OpenAlex account bought today.
 - `counts` gives the papers per status, then per reason.
-- `copy_pending: true` means the bucket is behind: the GCS login had expired, a copy failed
-  or refused, or no full copy has worked yet. Log in, then run `labdata papers copy`, or
+- `copy_pending: true` means GCS is behind: the GCS login had expired, a copy failed or
+  refused, or no full copy has worked yet. Log in, then run `labdata papers copy`, or
   `labdata papers copy --full` if the log asks for it. A copy that works sets it back to
   `false`.
 - `last_copy_success` is when the last copy that worked started. The next copy sends what
   changed after it.
+- `finalized: true` means GCS holds the store's last change: a copy sent this record.
 
 The copy reads the changes from the `files` table, so it lists only the top level of the
-paper store and the bucket. It leaves out `paper-status.json`, the lock file and the files a
-pass writes while it runs.
+paper store and GCS. It sends `paper-status.json` last, after its copy record, marked
+`finalized`. It leaves out the lock file and the files a pass writes while it runs.
 
-GCS keeps the paper store for good; the cluster disk is a work area. So a copy deletes in the
-bucket only the files that left the `files` table. It refuses, sending nothing, when the table
+GCS keeps the paper store for good; the work disk is where passes run. So a copy deletes in
+GCS only the files that left the `files` table. It refuses, sending nothing, when the table
 is missing or empty, or when more than a small share of the copied files left it at once: the
 table may be damaged. The log says why, with the numbers. Check the table. If the files left
 on purpose, as when a change moves many files at once, run the copy by hand with the number
@@ -171,17 +183,27 @@ of files the log gives. For 1200 files:
 labdata papers copy --accept-deletes 1200
 ```
 
-It sends the changes and deletes those files in the bucket, up to that number.
+It sends the changes and deletes those files in GCS, up to that number.
+
+## When a pass refuses because the disk is behind
+
+Each pass and each copy first checks that the work disk's copy record is the one in GCS. It
+compares the MD5 hash GCS keeps for that file with the disk's, and downloads nothing. If the
+two differ, the disk is behind GCS, or another disk has sent to GCS since. A disk with no copy
+record while GCS holds one was never restored, and refuses the same way. The pass then does
+nothing, marks the copy pending, and the log names the command that fixes it,
+`labdata papers restore`. Stop the paper job, restore as
+[Restore the store from GCS](#restore-the-store-from-gcs) shows, then start the job again.
+An expired login skips this check with a warning in the log.
 
 ## Check the copy
 
 The routine check reads the status record and the copy record, and lists no paper folder.
 Run it between passes. The copy is current when both of these hold:
 
-- In `paper-status.json`, `copy_pending` is `false`, and `last_copy_success` is at or after
-  `last_pass.end`: the copy after the last pass worked. If `copy_pending` is `true`, log in
-  and run `labdata papers copy`.
-- The copy record in the bucket matches the one on the disk. Each copy sends it last, after
+- In `paper-status.json`, `copy_pending` is `false` and `finalized` is `true`: GCS holds the
+  last change. If `copy_pending` is `true`, log in and run `labdata papers copy`.
+- The copy record in GCS matches the one on the disk. Each copy sends it last, after
   the files it lists:
 
   ```bash
@@ -193,9 +215,10 @@ Run it between passes. The copy is current when both of these hold:
   side.
 
 A full check finds what differs when the copy record does not match, or after a change made
-in the bucket by hand. It lists every file on both sides, so run it only to repair the copy,
+in GCS by hand. It lists every file on both sides, so run it only to repair the copy,
 and only when the maintainer says yes. Run it between passes too: a pass that runs beside it
-changes files under it. Like the copy, it leaves out the hidden files and the status record:
+changes files under it. Like the copy, it leaves out the hidden files. The status record
+differs once a pass has run since the last copy:
 
 ```bash
 pixi run rclone check "$LABDATA_PAPERS" <copy_to> --one-way \
@@ -207,28 +230,35 @@ them. It deletes nothing.
 
 ## Restore the store from GCS
 
-GCS keeps the paper store for good. If the work disk is lost, get the store back from the
-bucket before the paper job runs again. The restore downloads the whole store out of GCS, which
-costs money, so run it only with the maintainer's yes.
+Restore the work disk when it is new or lost, or when a pass refuses because the disk is
+behind GCS. Restore before the paper job runs again. An empty disk gets the whole store; a disk that
+fell behind gets only the files that changed. Downloads out of GCS cost money, so run a large
+restore only with the maintainer's yes.
 
-Stop the paper job first, as [Start the paper job](#start-the-paper-job) shows. Then download
-the store as its own job:
+Stop the paper job first, as [Start the paper job](#start-the-paper-job) shows. Then run the
+restore as its own job:
 
 ```bash
 export LABDATA_PAPERS=/path/to/paper-store
 sbatch --job-name=labdata-papers-restore --partition=cpu_batch \
   --cpus-per-task=2 --mem=8G --time=1-00:00:00 \
   --output=labdata-papers-restore.%j.log \
-  --wrap "pixi run rclone copy <copy_to> $LABDATA_PAPERS --stats=1m --stats-one-line"
+  --wrap "pixi run labdata papers restore --from <copy_to> --accept-download"
 ```
+
+The restore prints how much it downloads. In a terminal it asks before more than 1 GB. A
+batch job has no terminal, so it needs `--accept-download` for that. Without the flag, a batch
+job prints the size and stops before a download of more than 1 GB.
 
 If it stops, submit it again: it skips the files it already has. If the GEO/SRA store moved
 too, set `store` in `labdata-papers.toml` to its new folder. Then start the paper job.
 
-The download brings the copy record, so the job's copies send only what changes from then on.
-It does not bring `paper-status.json`, so the job starts with a daily pass, and with the
-month's PMC sync from the 3rd.
+The restore saves the copy record last, so the job's copies send only what changes from then
+on. It saves `paper-status.json` as the last copy left it, so the job knows when the last
+daily pass and the last PMC sync ran. It leaves the hidden files of the disk alone, the daily
+pass's journal among them.
 
-Restore before any copy by hand. A full copy, `labdata papers copy --full`, first reads the
-list of files the bucket holds. It refuses, and sends nothing, when the disk lacks more than a
-few of them, as a disk that was not restored does. Its tables would replace the bucket's.
+Restore before any copy by hand. A copy refuses, and sends nothing, on a disk with no copy
+record while GCS holds one. A full copy, `labdata papers copy --full`, also reads the list of
+files GCS holds, and refuses when the disk lacks more than a few of them. Its tables would
+replace the ones in GCS.

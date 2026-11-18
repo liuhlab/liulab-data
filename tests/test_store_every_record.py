@@ -17,7 +17,7 @@ import pytest
 
 from labdata.exceptions import AccessionError, NotFound
 from labdata.store import Store, open_store
-from labdata.store.build import build
+from labdata.store.lifecycle import build
 from labdata.store.model import Record
 from tests._slices import SLICES, TODAY, BuiltStore
 

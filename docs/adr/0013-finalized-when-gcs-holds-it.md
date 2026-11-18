@@ -8,7 +8,7 @@ search:
 This amends [ADR 0011](0011-gcs-holds-the-paper-store.md) and
 [ADR 0012](0012-gcs-holds-the-store.md). GCS is the only source of truth for both stores, and a
 work disk is where updates run. An update is finalized only once the copy record in GCS names
-the state it made. This holds for a refresh, a full run, a manual build, an SRA removal and a
+the state it made. This holds for a refresh, a full run, a build by hand, an SRA removal and a
 paper pass. The copy sends the status record last, after the copy record, so GCS never holds
 one that is running or pending.
 
@@ -17,8 +17,9 @@ one that is running or pending.
 - A copy skipped on an expired login leaves the update built but not finalized, and the command
   exits non-zero. Run again after the login, it does only the copy.
 - Before it sends anything, every copy compares the hash GCS keeps for its copy record with the
-  work disk's record, and refuses on a mismatch. A restore, the copy run the other way, brings
-  the disk in step.
+  work disk's record, and refuses on a mismatch, or when only GCS holds a record. Every update
+  makes the same check at its start. A restore, the copy run the other way, brings the disk in
+  step.
 - An extract holds nothing its snapshot lacks. GCS does not hold extracts, and a step that
   needs a missing one makes it again.
 

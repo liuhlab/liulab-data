@@ -8,7 +8,7 @@ from labdata.papers.root import (
     paper_key,
     paper_lock,
 )
-from labdata.papers.status import PaperStatus, read_status, write_status
+from labdata.papers.status import PaperStatus, read_status
 
 __all__ = [
     "PaperStatus",
@@ -19,5 +19,4 @@ __all__ = [
     "paper_key",
     "paper_lock",
     "read_status",
-    "write_status",
 ]

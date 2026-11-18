@@ -4,17 +4,17 @@ From 00:30 UTC each day, the daily pass is due when ``paper-status.json`` record
 daily-pass success that day. The PMC sync is due when it records no PMC sync success this
 month, from the 3rd, or records a GEO/SRA build other than the store's current one. The file
 and the store's marker are read afresh before each check, so after a restart only what is
-due runs. Every pass ends with a copy to GCS. At start the job keeps ``QUEUED`` jobs queued
-behind it, each to start once the jobs before it end for any reason, so one that fails at
-start does not end the chain. A running job cannot see its successor fail, as the successor
-starts only once it ends.
+due runs. Each pass and its copy to GCS run through :mod:`labdata.papers.lifecycle`; an idle
+tick retries a pending copy once :data:`RETRY` has passed since the last try. At start the job
+keeps ``QUEUED`` jobs queued behind it, each to start once the jobs before it end for any
+reason, so one that fails at start does not end the chain. A running job cannot see its
+successor fail, as the successor starts only once it ends.
 """
 
 from __future__ import annotations
 
 import datetime as dt
 import posixpath
-import re
 import subprocess
 import threading
 import time
@@ -22,15 +22,14 @@ import traceback
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
 
+from labdata import _slurm
+from labdata._files import write_atomic
 from labdata._http import HttpTransport, Transport
 from labdata.ncbi.entrez import EntrezClient
-from labdata.papers.copy import copy, destination
-from labdata.papers.daily import daily_pass
+from labdata.papers import lifecycle, paths
 from labdata.papers.openalex import OpenAlex
 from labdata.papers.root import PaperStore
 from labdata.papers.status import PaperStatus, read_status
-from labdata.papers.sync import pmc_sync
-from labdata.store._files import write_atomic
 from labdata.store.reader import current_build
 
 #: The daily pass waits this long after midnight UTC, past OpenAlex's quota reset.
@@ -42,11 +41,14 @@ SYNC_DAY = 3
 #: Seconds between checks while idle; each prints one line.
 TICK = 60.0
 
-#: A failed pass is tried again after this long.
+#: A failed pass, or a pending copy, is tried again after this long.
 RETRY = dt.timedelta(hours=1)
 
+#: The key of the pending copy's next try, beside the passes' own.
+_COPY = "copy"
+
 #: Records the chain: a job, then the jobs queued behind it.
-SUCCESSOR = ".successor"
+SUCCESSOR = paths.SUCCESSOR.rel
 
 #: Jobs kept queued behind the running one.
 QUEUED = 2
@@ -55,17 +57,6 @@ QUEUED = 2
 def _submit(args: list[str]) -> subprocess.CompletedProcess[str]:
     """Run ``sbatch``; the one seam through which the job submits its successor."""
     return subprocess.run(args, capture_output=True, text=True, check=False)
-
-
-def _show_job(job_id: str) -> str:
-    """Return ``scontrol show job`` output, or ``""``; the seam that reads a job's state."""
-    try:
-        done = subprocess.run(
-            ["scontrol", "show", "job", job_id], capture_output=True, text=True, check=False
-        )
-    except OSError:
-        return ""
-    return done.stdout if done.returncode == 0 else ""
 
 
 def due(
@@ -174,15 +165,21 @@ def serve(
             if retry_at.get(k, now) <= now
         ]
         if not ready:
+            if status.copy_pending and retry_at.get(_COPY, now) <= now:
+                retry_at[_COPY] = now + RETRY
+                lifecycle.finalize(store, log)
+                status = read_status(store.root)
             _idle(status, now, log)
             sleep(TICK)
             continue
         kind = ready[0]
+        # The pass ends with its own copy.
+        retry_at[_COPY] = now + RETRY
         try:
             with _ticker(kind, log):
                 alex = openalex()
                 if kind == "daily":
-                    daily_pass(
+                    lifecycle.daily(
                         store,
                         client=client,
                         openalex=alex,
@@ -191,7 +188,7 @@ def serve(
                         log=log,
                     )
                 else:
-                    report = pmc_sync(
+                    report = lifecycle.pmc_sync(
                         store,
                         client=client,
                         openalex=alex,
@@ -206,19 +203,6 @@ def serve(
             retry_at[kind] = now + RETRY
             continue
         log(f"{stamp} {kind} pass {today}: success")
-        _copy(store, log)
-
-
-def _copy(store: PaperStore, log: Callable[[str], None]) -> None:
-    if not destination(store):
-        log("no copy_to in labdata-papers.toml: the GCS copy is skipped")
-        return
-    try:
-        result = copy(store)
-    except Exception as err:
-        log(f"GCS copy failed; copy_pending is set: {err}")
-        return
-    log(result.message if result.skipped else f"copied the paper store to {result.destination}")
 
 
 def _submit_successor(
@@ -262,13 +246,13 @@ def _submit_successor(
 
 def _waiting(job_id: str) -> bool:
     """Return whether Slurm shows ``job_id`` pending or running, or shows nothing."""
-    state = re.search(r"\bJobState=(\S+)", _show_job(job_id))
-    return state is None or state[1] in {"PENDING", "RUNNING"}
+    state = _slurm.job_state(job_id)
+    return not state or state in {"PENDING", "RUNNING"}
 
 
 def _log_dir(job_id: str) -> str | None:
     """Return the folder of this job's log, as Slurm reports it, or ``None``."""
-    for line in _show_job(job_id).splitlines():
+    for line in (_slurm.show_job(job_id) or "").splitlines():
         key, _, value = line.strip().partition("=")
         if key == "StdOut" and value:
             return posixpath.dirname(value)

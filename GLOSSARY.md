@@ -26,7 +26,13 @@ One pass that brings the store to the sources' current state: it adds new record
 changed ones, removes withdrawn GEO Series, renews the snapshots and ends in a new current build.
 A refresh never removes an SRA record; only a yearly maintenance run may.
 
-_Avoid_: update, sync (each says less than the whole pass)
+_Avoid_: sync (says less than the whole pass)
+
+### Update
+
+A change to a store that ends finalized. For the GEO/SRA store: a refresh, a full run, a build
+by hand or the SRA removal, one at a time under the run lock. For the paper store: a pass. Each
+checks the work disk against GCS at its start and ends with a copy.
 
 ### Build reader
 
@@ -42,6 +48,16 @@ compression and rows per row group. It is also the only code that writes a build
 writers hand it rows and it writes them as declared.
 
 _Avoid_: schema (names only the columns and their types)
+
+### Store layout
+
+The one declaration of every path in a store root and its kind. State is what GCS holds: a copy
+sends it and a restore brings it back. Rebuildable is remade on demand from state, never copied
+and kept by a cleanup. Scratch is on the work disk only, and a cleanup may delete it when no run
+is going. Each store has one, and the GEO/SRA store's is also the only reader and switcher of
+the marker.
+
+_Avoid_: table layout (the tables inside one build)
 
 ### Target Series list
 
@@ -99,14 +115,30 @@ it deletes the rows saved before it, and a row saved after it wins.
 ### Status record
 
 Each store's record of its last update: its start, end and outcome, and whether it is
-finalized. The GEO/SRA store's, `refresh-status.json`, also holds the date of the last
-successful refresh, written only after the switch to the new build, the records the refresh
-added, replaced and removed per source, and the refresh DAG version that started it; a refresh
-another version started is not resumed. The paper store's, `paper-status.json`, holds its
-passes' dates and paper counts. GCS holds each store's status record as the copy that finalized
-its last update left it, so GCS never holds one that is running or pending.
+finalized. The GEO/SRA store's keeps the name `refresh-status.json`, though it records every
+update: it names the update (a refresh, a full run, a build by hand or the SRA removal) and its
+new build; its outcome is running, failed (stopped before its switch), built (switched on the
+work disk, not finalized) or finalized. An unfinished run a newer update replaces leaves its
+record in its folder, and prune removes a refresh's folder; one replaced before its switch is
+abandoned. It also holds the date of the last successful refresh, written only at a refresh's
+switch, the records the refresh added, replaced and removed per source, and the refresh DAG
+version that started it; a refresh another version started is not resumed. The paper store's,
+`paper-status.json`, holds its passes' dates and paper counts. GCS holds each store's status
+record as the copy that finalized its last update left it, so GCS never holds one that is
+running or pending.
 
 _Avoid_: status file, refresh log
+
+### Run lock
+
+The GEO/SRA store's record of the process running an update, `work/run.lock`: its Slurm job,
+host, process and start time. One update holds it at a time: a refresh, a full run, a build by
+hand or the SRA removal; a prune and a restore hold it too. A start that finds it asks whether the owner still runs, by
+Slurm or on the owner's host. It refuses while the owner runs, and takes the lock once the owner
+is gone. When it cannot check, it refuses unless told the owner is gone (`--owner-gone`). An
+unfinished refresh whose owner is gone resumes only within 7 days of its start.
+
+_Avoid_: build lock (the lock one build, prune or copy holds while it writes)
 
 ### Maintenance run
 
@@ -121,7 +153,7 @@ _Avoid_: refresh (one step of a monthly maintenance run, not the whole of it)
 The file in the repository with one entry per maintenance run: its date, period, build, the
 commit it ran, each check's outcome and its time against budget.
 
-_Avoid_: status record (the refresh's own file in the store root)
+_Avoid_: status record (each store's own file of its last update)
 
 ### Gap
 
@@ -213,6 +245,13 @@ in GCS. A routine copy compares it with what the store holds now, so it sends on
 and deletes in GCS only what left the store, never what the work disk lacks.
 
 _Avoid_: record (alone), which reads as a store record or the status record
+
+### Held set
+
+What a store's copy sends to GCS, each file with a signature that changes with the file. For
+the GEO/SRA store, the current build and what it read; for the paper store, the paper files
+the `files` table names and the files at the top of the store. A copy saves it as the copy
+record.
 
 ### Finalized
 

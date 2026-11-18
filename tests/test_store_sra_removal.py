@@ -19,7 +19,7 @@ from labdata._http import RateLimiter
 from labdata.cli import app
 from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
-from labdata.store import raw, sra_removal
+from labdata.store import lifecycle, raw, sra_removal
 from tests._slices import DATA, BuiltStore
 from tests.test_store_refresh_fetch import Ncbi, _Reply
 
@@ -143,6 +143,10 @@ def test_only_candidates_ncbi_confirms_gone_are_removed(
     said = _step(root, "remove-sra")
     _step(root, "pack")
 
+    # An update of its own, not finalized until a build and a copy apply it.
+    status = lifecycle.read_status(root)
+    assert (status["update"], status["outcome"]) == ("remove-sra", "running")
+    assert lifecycle.finalized(root) is None
     after = _held(root, raw.SRA_XML)
     assert set(before) - set(after) == {SUPPRESSED, DROPPED_SRX}
     # the dropped Series' experiment NCBI still serves stays

@@ -11,8 +11,8 @@ import pytest
 from typer.testing import CliRunner
 
 from labdata.cli import app
-from labdata.papers import open_paper_store, paper_lock, read_status, write_status
-from labdata.papers.status import PaperStatus
+from labdata.papers import open_paper_store, paper_lock, read_status
+from labdata.papers.status import STATUS, PaperStatus, encode
 
 
 @pytest.fixture(autouse=True)
@@ -99,6 +99,6 @@ def test_status_round_trips_and_starts_empty(tmp_path: Path) -> None:
         counts={"fetched": {"": 1}, "manual": {"no-route": 2}},
         paperpile_pending=True,
     )
-    write_status(tmp_path, status)
+    (tmp_path / STATUS).write_bytes(encode(status))
     assert read_status(tmp_path) == status
     assert sorted(p.name for p in tmp_path.iterdir()) == ["paper-status.json"]

@@ -24,8 +24,8 @@ from typing import TYPE_CHECKING
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from labdata.store import snapshots
-from labdata.store._files import temp_beside
+from labdata._files import temp_beside
+from labdata.store import paths, snapshots
 from labdata.store.sources import GEO_SUMMARY, LinkRow
 
 if TYPE_CHECKING:
@@ -54,10 +54,14 @@ class BuildSource:
     sample : float or None
         The seeded share of raw rows and snapshot records kept (see :func:`in_sample`);
         ``None`` keeps all.
+    made_in : pathlib.Path or None
+        The root a missing extract is made in: a sample build's own, so it never writes to
+        ``root``. ``None`` makes it in ``root``.
     """
 
     root: Path
     sample: float | None
+    made_in: Path | None = None
 
 
 @dataclass(slots=True)
@@ -148,7 +152,7 @@ def list_path(root: Path, date: str, fraction: float | None = None) -> Path:
     """Return where :func:`target_list` writes the list of one snapshot date and fraction."""
     fraction = check_fraction(fraction)
     tag = "" if fraction is None else f"-{fraction_name(fraction)}"
-    return root / "work" / "targets" / f"geo-series-{date}{tag}.parquet"
+    return paths.TARGETS.at(root, f"geo-series-{date}{tag}.parquet")
 
 
 def target_list(

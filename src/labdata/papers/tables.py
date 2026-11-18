@@ -9,14 +9,15 @@ replaces the file by a rename, so a reader sees the old table or the new one, ne
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from labdata.store._files import temp_beside
+from labdata._files import temp_beside
+from labdata.papers.folder import PaperFolder
 
 #: Paper statuses: the store holds its XML or PDF; a tier serves it later; only a Paperpile
 #: save can serve it; it is retracted.
@@ -252,29 +253,47 @@ class PaperTables:
         ``papers`` and ``paper_info`` rows by ``paper``.
     files, attempts : list of dict
         ``files`` and ``attempts`` rows.
+    folder : PaperFolder
+        The paper files; its moves and deletes apply when the tables are saved.
     """
 
     papers: dict[str, dict[str, Any]]
     info: dict[str, dict[str, Any]]
     files: list[dict[str, Any]]
     attempts: list[dict[str, Any]]
+    folder: PaperFolder = field(repr=False, compare=False)
 
     @classmethod
     def load(cls, root: Path) -> PaperTables:
-        """Read every table of the paper store at ``root``."""
-        return cls(
+        """Read every table of the paper store at ``root``, starting a pass.
+
+        It finishes or drops what a stopped pass left in the paper folder, so the caller
+        holds the paper store's lock.
+        """
+        state = cls(
             papers={r["paper"]: r for r in read(root, PAPERS)},
             info={r["paper"]: r for r in read(root, PAPER_INFO)},
             files=read(root, FILES),
             attempts=read(root, ATTEMPTS),
+            folder=PaperFolder(root),
         )
+        state.folder.recover(state.named())
+        return state
 
     def save(self, root: Path) -> None:
-        """Write every table back, each through a temp file and a rename."""
-        write(root, PAPERS, self.papers.values())
-        write(root, PAPER_INFO, self.info.values())
-        write(root, FILES, self.files)
-        write(root, ATTEMPTS, self.attempts)
+        """Write every table back, each through a temp file and a rename, then move files."""
+
+        def write_all() -> None:
+            write(root, PAPERS, self.papers.values())
+            write(root, PAPER_INFO, self.info.values())
+            write(root, FILES, self.files)
+            write(root, ATTEMPTS, self.attempts)
+
+        self.folder.commit(write_all, self.named())
+
+    def named(self) -> set[str]:
+        """Return every path the ``files`` table names."""
+        return {f["path"] for f in self.files if f["path"]}
 
     def held(self) -> set[str]:
         """Return the papers whose XML or PDF the store holds."""

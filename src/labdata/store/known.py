@@ -18,9 +18,9 @@ from pathlib import Path
 
 import pyarrow.parquet as pq
 
+from labdata._files import temp_beside
 from labdata.exceptions import StoreBuildError
-from labdata.store import extract, layout, snapshots, targets
-from labdata.store._files import temp_beside
+from labdata.store import extract, layout, paths, snapshots, targets
 from labdata.store.layout import sql_string
 
 logger = logging.getLogger(__name__)
@@ -75,7 +75,8 @@ def write(
         If a source's snapshot is missing, not extracted, or extracted without a status column.
     """
     read = root if source is None else source.root
-    folders = {name: extract.done_dir(read, name) for name in SOURCES}
+    made_in = None if source is None else source.made_in
+    folders = {name: extract.done_dir(read, name, made_in=made_in) for name in SOURCES}
     for name in _STATUSED:
         _require_status(name, *folders[name])
     dates = {name: date for name, (_, date) in folders.items()}
@@ -83,7 +84,7 @@ def write(
         _sort(root, folders, dates, out, source.sample, held)
         return dates
     key = "_".join(f"{source}-{date}" for source, date in dates.items())
-    cached = root / "work" / "known" / f"known-public-{key}.parquet"
+    cached = paths.KNOWN.at(root, f"known-public-{key}.parquet")
     if not cached.is_file():
         cached.parent.mkdir(parents=True, exist_ok=True)
         tmp = temp_beside(cached)

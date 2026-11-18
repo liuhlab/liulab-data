@@ -19,17 +19,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from labdata._cache import liulab_data_cache_dir
+from labdata._files import create_marker, read_toml_marker, toml_line, write_atomic
 from labdata.exceptions import StoreNotConfiguredError
-from labdata.store._files import toml_line, write_atomic
+from labdata.papers import paths
 from labdata.store.model import norm_doi
-from labdata.store.root import (
-    Store,
-    create_marker,
-    open_store,
-    read_toml_marker,
-    resolve_root,
-    write_pointer,
-)
+from labdata.store.root import Store, open_store, resolve_root, write_pointer
 from labdata.store.sources import BIOPROJECT_XML
 
 if TYPE_CHECKING:
@@ -42,16 +36,16 @@ PAPERS_ENV = "LABDATA_PAPERS"
 POINTER_FILENAME = "papers.toml"
 
 #: The marker file every paper store root carries.
-MARKER = "labdata-papers.toml"
+MARKER = paths.MARKER.rel
 
 #: The lock file the paper job's passes hold.
-LOCK = ".lock"
+LOCK = paths.LOCK.rel
 
 #: The paper store layout version ``labdata papers init`` writes.
 FORMAT_VERSION = 1
 
 #: The folder under the root that holds one folder per paper.
-PAPERS_DIR = "papers"
+PAPERS_DIR = paths.PAPERS.name
 
 #: PMIDs below this, linked only from BioProject XML, are placeholders.
 PLACEHOLDER_BELOW = 100_000
@@ -160,7 +154,7 @@ def init_paper_store(
     ]
     create_marker(marker, "\n".join(lines) + "\n", "paper store")
     readme = importlib.resources.files("labdata.papers").joinpath("papers_readme.md")
-    write_atomic(path / "README.md", readme.read_text(encoding="utf-8"))
+    write_atomic(paths.README.at(path), readme.read_text(encoding="utf-8"))
     save_pointer(path)
     return marker
 

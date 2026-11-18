@@ -1,6 +1,6 @@
 """Extract each bulk snapshot once, in parallel, into Parquet parts the build reads.
 
-One pass per snapshot writes ``<root>/work/extract/<source>-<date>/part-NNNNN.parquet``, one
+One pass per snapshot writes ``<root>/extracts/<source>-<date>/part-NNNNN.parquet``, one
 part per byte range of the (decompressed) snapshot: a part holds each record that starts in
 its range, so each record lands in exactly one part. Records are found by byte scanning.
 
@@ -8,6 +8,7 @@ A plain snapshot is read by range, a worker seeking to each. A gzip snapshot is 
 as one stream and cut into the same ranges on the fly; no unpacked copy is written. Every step
 resumes: each part appears by a rename and is skipped when present, and ``_DONE`` marks the
 source finished. The part size is saved before the first part, so a rerun cuts the same way.
+An extract holds nothing its snapshot lacks, so a build makes a missing one first.
 """
 
 from __future__ import annotations
@@ -30,9 +31,9 @@ import duckdb
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from labdata._files import temp_beside, write_atomic
 from labdata.exceptions import StoreBuildError
-from labdata.store import snapshots
-from labdata.store._files import temp_beside, write_atomic
+from labdata.store import paths, snapshots
 from labdata.store._limits import (
     OBJECT_STORE_SHARE,
     default_workers,
@@ -99,13 +100,20 @@ class Task:
 
 def extract_dir(root: Path, source: str, date: str) -> Path:
     """Return the folder holding one snapshot's parts."""
-    return root / "work" / "extract" / f"{source}-{date}"
+    return paths.EXTRACTS.at(root, f"{source}-{date}")
 
 
 def extract(
-    root: Path, source: str, *, workers: int | None = None, part_bytes: int = PART_BYTES
+    root: Path,
+    source: str,
+    *,
+    made_in: Path | None = None,
+    workers: int | None = None,
+    part_bytes: int = PART_BYTES,
 ) -> Path:
     """Extract one source's newest snapshot into Parquet parts, resuming any earlier run.
+
+    An extract under ``work/extract/``, where they were kept before, is moved, not made again.
 
     Parameters
     ----------
@@ -113,6 +121,9 @@ def extract(
         The store root.
     source : str
         One of ``SOURCES``.
+    made_in : pathlib.Path or None
+        Another root to make a missing extract in, leaving ``root`` untouched; ``None`` makes
+        it in ``root``.
     workers : int or None
         Parallel workers; defaults to :func:`default_workers`. ``1`` runs without Ray.
     part_bytes : int
@@ -121,7 +132,7 @@ def extract(
     Returns
     -------
     pathlib.Path
-        The extract folder, ``<root>/work/extract/<source>-<date>/``, holding ``_DONE``.
+        The finished extract folder, holding ``_DONE``.
 
     Raises
     ------
@@ -133,9 +144,12 @@ def extract(
     if source not in SOURCES:
         raise ValueError(f"unknown source {source!r}; known: {', '.join(SOURCES)}")
     snap = snapshots.snapshot(root, source)
-    out = extract_dir(root, source, snap.date)
-    if (out / DONE).is_file():
-        return out
+    if made_in is None:
+        _move_old(root, source, snap.date)
+    found = _finished(root, source, snap.date, made_in)
+    if found is not None:
+        return found
+    out = extract_dir(made_in or root, source, snap.date)
     workers = workers or default_workers()
     out.mkdir(parents=True, exist_ok=True)
     if snap.path.suffix == ".gz":
@@ -160,8 +174,10 @@ def extract(
     return out
 
 
-def done_dir(root: Path, source: str) -> tuple[Path, str]:
+def done_dir(root: Path, source: str, *, made_in: Path | None = None) -> tuple[Path, str]:
     """Return a finished extract of the newest snapshot of ``source`` and the snapshot's date.
+
+    It is looked for in ``root``, then in ``made_in`` (see :func:`extract`).
 
     Raises
     ------
@@ -169,13 +185,31 @@ def done_dir(root: Path, source: str) -> tuple[Path, str]:
         If the snapshot is missing or not extracted yet; the message names the command.
     """
     snap = snapshots.snapshot(root, source)
-    out = extract_dir(root, source, snap.date)
-    if not (out / DONE).is_file():
+    found = _finished(root, source, snap.date, made_in)
+    if found is None:
         raise StoreBuildError(
             f"the {source} snapshot of {snap.date} is not extracted; "
             f"run `labdata store extract --source {source}` first"
         )
-    return out, snap.date
+    return found, snap.date
+
+
+def _finished(root: Path, source: str, date: str, made_in: Path | None) -> Path | None:
+    """Return the first finished extract of one snapshot, read in place, or None."""
+    name = f"{source}-{date}"
+    places = [paths.EXTRACTS.at(root, name), paths.OLD_EXTRACTS.at(root, name)]
+    if made_in is not None:
+        places.append(paths.EXTRACTS.at(made_in, name))
+    return next((p for p in places if (p / DONE).is_file()), None)
+
+
+def _move_old(root: Path, source: str, date: str) -> None:
+    """Move an extract, finished or not, from its old place unless the new one exists."""
+    old = paths.OLD_EXTRACTS.at(root, f"{source}-{date}")
+    new = extract_dir(root, source, date)
+    if old.is_dir() and not new.exists():
+        new.parent.mkdir(parents=True, exist_ok=True)
+        old.rename(new)
 
 
 def parts(folder: Path) -> str:
@@ -190,7 +224,7 @@ def connect(root: Path) -> Iterator[duckdb.DuckDBPyConnection]:
     It runs on :func:`step_threads` threads. Each process spills to its own folder, removed
     on exit. Insertion order is not kept, so a query that needs an order says ``ORDER BY``.
     """
-    temp = root / "work" / "tmp" / str(os.getpid())
+    temp = paths.TMP.at(root, str(os.getpid()))
     temp.mkdir(parents=True, exist_ok=True)
     con = duckdb.connect(
         ":memory:",

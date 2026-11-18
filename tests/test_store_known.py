@@ -16,8 +16,8 @@ import pytest
 
 from labdata.exceptions import AccessionError, NotFound, NotMirrored, StoreBuildError
 from labdata.store import Partial, Store, extract, known, open_store
-from labdata.store.build import build
 from labdata.store.fetch import fetch
+from labdata.store.lifecycle import build
 from tests._fakes import FakeEntrezClient
 from tests._slices import BuiltStore, copy_snapshots
 

@@ -1,4 +1,4 @@
-"""Build the store's tables from ``raw/`` and ``snapshots/``, then switch the marker to them.
+"""Build the store's tables from ``raw/`` and ``snapshots/`` into a new build folder.
 
 No network. Reads family SOFT, ``elink`` results, SRA packages, ``[si]`` results and
 ``filelist.txt`` from ``raw/``, and the snapshots only through their extracts
@@ -9,8 +9,9 @@ and ``notes.parquet``, with the folder's README and manifest.
 
 Memory is bounded by a chunk, not by the store: workers parse raw buckets a chunk at a time
 into Parquet parts under ``work/build/<build-id>/``, and DuckDB merges and sorts those parts
-out of core into the tables. The folder appears by a rename once whole, and the marker
-switches to it by a rename, so readers never see half a build.
+out of core into the tables. The folder appears by a rename once whole, so readers never
+see half a build. A build never switches the marker: :mod:`labdata.store.lifecycle` does,
+once the update's checks pass.
 
 A sample build reads another store's ``raw/`` and ``snapshots/`` and writes into a scratch
 root. Only the raw rows whose accession is in the seeded sample are parsed, with every record
@@ -30,29 +31,27 @@ import shutil
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
 
 import duckdb
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from labdata._files import temp_beside
 from labdata.exceptions import StoreBuildError
 from labdata.store import (
     _limits,
     _parse,
-    eutils,
     extract,
     gaps,
     known,
     layout,
+    paths,
     provenance,
     raw,
-    readme,
     snapshots,
     suppl,
     targets,
 )
-from labdata.store._files import temp_beside, toml_line, write_atomic
 from labdata.store.layout import (
     HOLDINGS,
     KNOWN,
@@ -65,20 +64,11 @@ from labdata.store.layout import (
 )
 from labdata.store.model import RELATIONS
 from labdata.store.reader import build_path
-from labdata.store.root import MARKER, init_store, read_marker
+from labdata.store.root import init_store
 from labdata.store.sources import SOFT
-
-#: The marker key naming the current build.
-BUILD_KEY = "build"
-
-#: The marker key holding when the current build was switched to, in UTC.
-SWITCHED_KEY = "switched"
 
 #: The marker key of a scratch root naming the one store its sample builds read.
 SAMPLE_OF_KEY = "sample_of"
-
-#: The marker table mapping each earlier build to when it was switched away from, in UTC.
-SWITCHED_AWAY_KEY = "switched_away"
 
 #: The default bytes of source text a parse worker holds before it writes its parts.
 PARSE_CHUNK_BYTES = 1 << 26
@@ -109,6 +99,11 @@ _GEO_TYPES = ("GEO Platform", "GEO Sample", "GEO Series")
 logger = logging.getLogger(__name__)
 
 
+def _extract_of(source: targets.BuildSource, name: str) -> tuple[Path, str]:
+    """Return the finished extract of a snapshot the build reads, and the snapshot's date."""
+    return extract.done_dir(source.root, name, made_in=source.made_in)
+
+
 def build(
     root: Path,
     build_id: str | None = None,
@@ -118,7 +113,7 @@ def build(
     fraction: float | None = None,
     sample_of: Path | None = None,
 ) -> Path:
-    """Build every table into a new ``builds/<build-id>/`` and point the marker at it.
+    """Build every table into a new ``builds/<build-id>/``, without switching to it.
 
     Parameters
     ----------
@@ -150,14 +145,14 @@ def build(
     Raises
     ------
     StoreBuildError
-        If a snapshot is missing or not extracted, a build of that id exists, another
+        If a snapshot is missing, a build of that id exists, another
         build of this store is running, or a sample's scratch root is its source, holds
         ``raw/`` or ``snapshots/``, or holds samples of another store.
     NotAStoreError
         If ``sample_of`` is not a store root.
     """
     fraction = targets.check_fraction(fraction)
-    source = None if sample_of is None else targets.BuildSource(sample_of, fraction)
+    source = None if sample_of is None else targets.BuildSource(sample_of, fraction, made_in=root)
     with build_lock(root) if source is None else _scratch_root(root, source.root):
         return _build(
             root, build_id, workers or _limits.default_workers(), chunk_bytes, fraction, source
@@ -170,20 +165,20 @@ def _scratch_root(root: Path, source: Path) -> Iterator[None]:
 
     A new scratch root gets a marker naming ``source``.
     """
-    read_marker(source)
+    paths.read_marker(source)
     if root.resolve() == source.resolve():
         raise StoreBuildError(f"a sample needs a scratch root apart from its source, not {root}")
-    held = [name for name in ("raw", "snapshots") if (root / name).exists()]
+    held = [d.name for d in (paths.RAW, paths.SNAPSHOTS) if d.at(root).exists()]
     if held:
         raise StoreBuildError(
             f"{root} holds {' and '.join(held)}/, so it is a store, not a scratch root for a sample"
         )
-    if not (root / MARKER).is_file():
+    if not paths.MARKER.at(root).is_file():
         init_store(root)
     with build_lock(root):
-        settings = read_marker(root)
+        settings = paths.read_marker(root)
         bound = settings.get(SAMPLE_OF_KEY)
-        if bound is None and settings.get(BUILD_KEY):
+        if bound is None and settings.get(paths.BUILD_KEY):
             raise StoreBuildError(
                 f"{root} holds a build that is not a sample; pick an empty scratch root"
             )
@@ -194,7 +189,7 @@ def _scratch_root(root: Path, source: Path) -> Iterator[None]:
             )
         if bound is None:
             settings[SAMPLE_OF_KEY] = str(source.absolute())
-            write_marker(root, settings)
+            paths.write_marker(root, settings)
         yield
 
 
@@ -207,7 +202,7 @@ def build_lock(root: Path) -> Iterator[None]:
     StoreBuildError
         If another process or caller holds it.
     """
-    lock = root / "work" / "build.lock"
+    lock = paths.BUILD_LOCK.at(root)
     lock.parent.mkdir(parents=True, exist_ok=True)
     with lock.open("a") as fh:
         try:
@@ -236,11 +231,11 @@ def _build(
     if out.exists():
         raise StoreBuildError(f"build {build_id} already exists: {out}")
     if sample_of is None:
-        for folder in sorted(p for p in (root / "raw").glob("*") if p.is_dir()):
+        for folder in sorted(p for p in paths.RAW.at(root).glob("*") if p.is_dir()):
             provenance.document_raw(root, folder.name)
     for stale in out.parent.glob(f".{glob.escape(build_id)}.*.tmp"):
         shutil.rmtree(stale, ignore_errors=True)
-    work = root / "work" / "build" / build_id
+    work = paths.BUILD_WORK.at(root, build_id)
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True)
     tmp = temp_beside(out)
@@ -252,8 +247,6 @@ def _build(
     finally:
         shutil.rmtree(work, ignore_errors=True)
         shutil.rmtree(tmp, ignore_errors=True)
-    _switch(root, build_id)
-    readme.try_write(root)
     return out
 
 
@@ -268,12 +261,14 @@ def _build_into(
     sample_of: targets.BuildSource | None,
 ) -> None:
     source = sample_of or targets.BuildSource(root, None)
-    _, geo_date = extract.done_dir(source.root, snapshots.GEO_SERIES)
+    for kind in extract.SOURCES:
+        extract.extract(source.root, kind, made_in=source.made_in, workers=workers)
+    _, geo_date = _extract_of(source, snapshots.GEO_SERIES)
     target_list = targets.target_list(root, geo_date, fraction, source=source)
     _summary_links(target_list, work / "links" / "summary.parquet")
     tasks: list[_parse.Task] = []
     for kind in _parse.RAW_KINDS:
-        files = sorted((source.root / "raw" / kind).glob("*.parquet"))
+        files = sorted(paths.RAW.at(source.root, kind).glob("*.parquet"))
         for run in _runs(files, _TASK_CHUNKS * chunk_bytes, workers):
             tasks.append(
                 _parse.Task(kind, run, work, len(tasks), chunk_bytes, sample=source.sample)
@@ -306,7 +301,7 @@ def _build_into(
         extract.run_parallel(_parse.run, ((t,) for t in wanted), workers)
         logger.info("writing record, link and supplementary-file tables")
         for folder in sorted((work / "records").glob("*")):
-            _write_records(con, source.root, folder, layout.records_path(tmp, folder.name))
+            _write_records(con, source, folder, layout.records_path(tmp, folder.name))
         _write_links(con, work, tmp)
         _write_holdings(con, tmp)
         suppl.write(
@@ -323,13 +318,11 @@ def _build_into(
         gaps.Note(str(v["example"]), gaps.UNKNOWN_LABEL, f"{label}: {v['links']} links")
         for label, v in labels.items()
     ]
-    _, sra_date = extract.done_dir(source.root, snapshots.SRA_ACCESSIONS)
     note_counts = gaps.write_notes(
         root,
         tmp,
         target_list,
         [*copy_notes, *label_notes, *unparsable, *_no_package_notes(root, source, empty)],
-        experiments=eutils.list_path(source.root, sra_date),
         source=source,
     )
     provenance.document_build(
@@ -475,7 +468,7 @@ def _wanted_snapshots(
     ``[si]``-searched accessions count, and each snapshot's sampled accessions are added.
     """
     links = _read(work / "links")
-    searched = source.root / "raw" / raw.PUBMED_SI
+    searched = paths.RAW.at(source.root, raw.PUBMED_SI)
     sampled = ""
     tally = None
     if source.sample is not None:
@@ -490,7 +483,7 @@ def _wanted_snapshots(
     }
     tasks: list[_parse.Task] = []
     for kind, (query, prefix) in wanted.items():
-        folder, date = extract.done_dir(source.root, kind)
+        folder, date = _extract_of(source, kind)
         if sampled:
             query += f" UNION SELECT accession FROM read_parquet({extract.parts(folder)}){sampled}"
         out = work / "snapshots" / kind
@@ -542,7 +535,9 @@ def _decompressed_bytes(folder: Path) -> int:
     return size
 
 
-def _write_records(con: duckdb.DuckDBPyConnection, root: Path, folder: Path, out: Path) -> None:
+def _write_records(
+    con: duckdb.DuckDBPyConnection, source: targets.BuildSource, folder: Path, out: Path
+) -> None:
     """Write one record type, keeping each record's copy as ``_kept_order`` ranks it.
 
     A large type is written in accession ranges, each sorted on its own and streamed out in
@@ -563,15 +558,15 @@ def _write_records(con: duckdb.DuckDBPyConnection, root: Path, folder: Path, out
             terms.append(f"accession >= {sql_string(lo)}")
         if hi is not None:
             terms.append(f"accession < {sql_string(hi)}")
-        ranges.append(_record_range(root, folder, " AND ".join(terms)))
+        ranges.append(_record_range(source, folder, " AND ".join(terms)))
     layout.write(con, RECORDS, out, ranges)
     logger.info("wrote %s in %d accession ranges", out.stem, len(ranges))
 
 
-def _record_range(root: Path, folder: Path, where: str) -> str:
+def _record_range(source: targets.BuildSource, folder: Path, where: str) -> str:
     """Return the query of one accession range; SRA records take typed columns from the tab."""
     if folder.name.startswith("sra-"):
-        tab, _ = extract.done_dir(root, snapshots.SRA_ACCESSIONS)
+        tab, _ = _extract_of(source, snapshots.SRA_ACCESSIONS)
         fields = ", ".join(f"{name}: {name}" for name in _TYPED)
         typed_join = (
             f"LEFT JOIN (SELECT accession, min({{{fields}}}) AS x "
@@ -639,7 +634,7 @@ def _no_package_notes(
     """
     if not experiments:
         return []
-    folder, _ = extract.done_dir(source.root, snapshots.SRA_ACCESSIONS)
+    folder, _ = _extract_of(source, snapshots.SRA_ACCESSIONS)
     listed = ", ".join(sql_string(a) for a in sorted(set(experiments)))
     with extract.connect(root) as con:
         rows = con.execute(
@@ -652,31 +647,3 @@ def _no_package_notes(
         )
         for srx in sorted(set(experiments))
     ]
-
-
-def _switch(root: Path, build_id: str) -> None:
-    """Point the marker at the new build and record when the old one was switched away from."""
-    settings = read_marker(root)
-    now = dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    old = settings.get(BUILD_KEY)
-    if old and old != build_id:
-        settings.setdefault(SWITCHED_AWAY_KEY, {})[str(old)] = now
-    settings[BUILD_KEY] = build_id
-    settings[SWITCHED_KEY] = now
-    write_marker(root, settings)
-
-
-def write_marker(root: Path, settings: dict[str, Any]) -> None:
-    """Write the marker whole: its scalar settings, then each table."""
-    scalars = [toml_line(k, v) for k, v in settings.items() if not isinstance(v, dict)]
-    tables = [
-        f"\n[{name}]\n" + "".join(f"{_quoted(k)} = {_quoted(v)}\n" for k, v in rows.items())
-        for name, rows in settings.items()
-        if isinstance(rows, dict)
-    ]
-    write_atomic(root / MARKER, "".join(f"{line}\n" for line in scalars) + "".join(tables))
-
-
-def _quoted(key: str) -> str:
-    """Return ``key`` as a quoted TOML key."""
-    return toml_line("k", key)[len("k = ") :]

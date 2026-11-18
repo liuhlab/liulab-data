@@ -18,18 +18,19 @@ import time
 import urllib.parse
 from collections import Counter
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TextIO
 
+from labdata._files import write_atomic
 from labdata._http import USER_AGENT, HttpTransport, RateLimiter, Transport
 from labdata.ncbi.entrez import EntrezClient
+from labdata.papers import paths
+from labdata.papers.folder import PaperFolder
 from labdata.papers.openalex import Account, OpenAlex
-from labdata.papers.root import PaperStore, paper_dir, paper_lock
-from labdata.papers.status import read_status, write_status
+from labdata.papers.root import PaperStore, paper_dir
 from labdata.papers.sync import status_of, store_links
 from labdata.papers.tables import PaperTables
-from labdata.store._files import temp_beside, write_atomic
 
 #: Downloads each OpenAlex account may spend a day; the budget resets at 00:00 UTC.
 QUOTA = 100
@@ -41,11 +42,11 @@ OPENALEX_TRIES = 3
 CONTENT = "https://content.openalex.org/works"
 
 #: The manual queue: PubMed MEDLINE records for Paperpile, and one DOI a line.
-NBIB = "manual-queue.nbib"
-DOIS = "manual-queue-dois.txt"
+NBIB = paths.MANUAL_NBIB.rel
+DOIS = paths.MANUAL_DOIS.rel
 
 #: Downloads the running pass has not yet written to the tables.
-JOURNAL = ".daily-journal.jsonl"
+JOURNAL = paths.JOURNAL.rel
 
 #: The pace of free host links: requests a second, and how many at once.
 HOST_PACE = (1.0, 1)
@@ -93,7 +94,7 @@ def daily_pass(
     first and then the backlog newest first; tries each free host link once where OpenAlex
     has no copy or failed; recomputes every paper's status; and rewrites the manual queue.
     Only papers the current GEO/SRA build links get downloads; the others keep their rows
-    and files. Holds the paper store's lock; ``paper-status.json`` records the pass.
+    and files. Takes no lock: :func:`labdata.papers.lifecycle.daily` runs it.
 
     Parameters
     ----------
@@ -118,55 +119,12 @@ def daily_pass(
         Today's downloads and the papers by status and reason.
     """
     root = store.root
-    with paper_lock(root):
-        start = _now()
-        _record(root, {"kind": "daily", "start": start, "end": None, "outcome": "running"})
-        try:
-            report = _daily(
-                store,
-                client,
-                openalex,
-                today,
-                transport or HttpTransport(),
-                host_limiter or RateLimiter(*HOST_PACE),
-                log,
-            )
-        except BaseException:
-            _record(root, {"kind": "daily", "start": start, "end": _now(), "outcome": "failed"})
-            raise
-        status = read_status(root)
-        day = today.isoformat()
-        others = status.fetches.get("by_tier", {}) if status.fetches.get("date") == day else {}
-        write_status(
-            root,
-            replace(
-                status,
-                last_pass={"kind": "daily", "start": start, "end": _now(), "outcome": "success"},
-                last_daily_success=day,
-                fetches={"date": day, "by_tier": {**others, **report.fetched}},
-                quota={"date": day, "by_key": report.quota},
-                counts=report.counts,
-            ),
-        )
-    return report
-
-
-def _daily(
-    store: PaperStore,
-    client: EntrezClient,
-    openalex: OpenAlex,
-    today: dt.date,
-    transport: Transport,
-    host_limiter: RateLimiter,
-    log: Callable[[str], None],
-) -> DailyReport:
-    root = store.root
+    transport = transport or HttpTransport()
+    host_limiter = host_limiter or RateLimiter(*HOST_PACE)
+    if take_in(root):
+        log("took in the downloads a stopped pass left in its journal")
     state = PaperTables.load(root)
     journal = _Journal(root / JOURNAL)
-    if journal.replay(state):
-        log("took in the downloads a stopped pass left in its journal")
-        state.save(root)
-        journal.clear()
     # The Paperpile step goes here: it files the maintainer's saves before quota is spent.
     _recompute(state, today)
     linked = set(store_links(store, state))
@@ -185,7 +143,6 @@ def _daily(
     state.save(root)
     journal.clear()
     queued = _manual_queue(root, state, client, log)
-    # The paper job copies the store to GCS after the pass (`labdata papers copy`).
     report = DailyReport(queued=queued)
     todays = [a for a in state.attempts if a.get("date") == today]
     report.fetched = dict(Counter(a["tier"] for a in todays if a["outcome"] == "fetched"))
@@ -197,6 +154,29 @@ def _daily(
         counts.setdefault(row.get("status") or "", Counter())[row.get("reason") or ""] += 1
     report.counts = {s: dict(c) for s, c in counts.items()}
     return report
+
+
+def take_in(root: Path) -> bool:
+    """Save the downloads a stopped pass left in its journal to the tables, then drop it.
+
+    Parameters
+    ----------
+    root : pathlib.Path
+        The paper store root; the caller holds its lock.
+
+    Returns
+    -------
+    bool
+        Whether there was a journal.
+    """
+    journal = _Journal(root / JOURNAL)
+    if not journal.path.is_file():
+        return False
+    state = PaperTables.load(root)
+    journal.replay(state)
+    state.save(root)
+    journal.clear()
+    return True
 
 
 def _tries(state: PaperTables) -> dict[str, list[dict[str, Any]]]:
@@ -390,8 +370,7 @@ class _Fetcher:
 
     def _get(self, key: str, url: str, headers: dict[str, str]) -> _Got:
         name = paper_dir(key).name + ".pdf"
-        dest = self.root / paper_dir(key) / name
-        return _download(self.transport, url, dest, headers)
+        return _download(self.transport, url, self.state.folder, paper_dir(key) / name, headers)
 
     def _attempt(self, key: str, tier: str, account: str | None, outcome: str, detail: str) -> None:
         row = {
@@ -436,11 +415,12 @@ def _put_file(state: PaperTables, row: dict[str, Any]) -> None:
         state.papers[row["paper"]]["pdf_tier"] = row["tier"]
 
 
-def _download(transport: Transport, url: str, dest: Path, headers: dict[str, str]) -> _Got:
-    """GET a PDF to ``dest``, following redirects; anything but a PDF is a failure.
+def _download(
+    transport: Transport, url: str, folder: PaperFolder, dest: Path, headers: dict[str, str]
+) -> _Got:
+    """GET a PDF to ``dest`` in ``folder``, following redirects; anything but a PDF fails.
 
-    An ``Authorization`` header is not passed on to another host. ``dest`` is written through
-    a temp file and a rename, so it is whole or absent.
+    An ``Authorization`` header is not passed on to another host.
     """
     headers = {"User-Agent": USER_AGENT, "Accept": "application/pdf", **headers}
     for _ in range(_REDIRECTS + 1):
@@ -464,7 +444,7 @@ def _download(transport: Transport, url: str, dest: Path, headers: dict[str, str
                         detail=f"HTTP {r.status}",
                         retry_after=_seconds(r.getheader("Retry-After")),
                     )
-                return _save_pdf(r, dest)
+                return _save_pdf(r, folder, dest)
         except (OSError, ValueError, http.client.HTTPException) as err:
             return _Got(detail=type(err).__name__)
     return _Got(status=310, detail="too many redirects")
@@ -478,25 +458,19 @@ def _quoted(url: str) -> str:
     return urllib.parse.urlunsplit((parts.scheme, parts.netloc, path, query, ""))
 
 
-def _save_pdf(response: Any, dest: Path) -> _Got:
+def _save_pdf(response: Any, folder: PaperFolder, dest: Path) -> _Got:
     first = response.read(_CHUNK)
     if b"%PDF" not in first[:1024]:
         return _Got(status=200, detail="not a PDF")
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    tmp = temp_beside(dest)
     md5 = hashlib.md5(usedforsecurity=False)
     size = 0
-    try:
-        with tmp.open("wb") as fh:
-            chunk = first
-            while chunk:
-                fh.write(chunk)
-                md5.update(chunk)
-                size += len(chunk)
-                chunk = response.read(_CHUNK)
-        tmp.replace(dest)
-    finally:
-        tmp.unlink(missing_ok=True)
+    with folder.writing(dest) as fh:
+        chunk = first
+        while chunk:
+            fh.write(chunk)
+            md5.update(chunk)
+            size += len(chunk)
+            chunk = response.read(_CHUNK)
     return _Got(ok=True, status=200, size=size, md5=md5.hexdigest())
 
 
@@ -585,11 +559,3 @@ def _medline_records(text: str) -> dict[str, str]:
         if block.startswith("PMID-"):
             out[block.split("\n", 1)[0].removeprefix("PMID-").strip()] = block
     return out
-
-
-def _now() -> str:
-    return dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
-
-
-def _record(root: Path, last_pass: dict[str, Any]) -> None:
-    write_status(root, replace(read_status(root), last_pass=last_pass))

@@ -25,6 +25,11 @@ src/labdata/
   _cache.py          cache-dir resolution ($XDG_CACHE_HOME/liulab-data)
   exceptions.py      LabdataError hierarchy
   _http.py, _rclone.py  the HTTP and rclone seams every client shares
+  _slurm.py          the Slurm query seam (scontrol): does a lock's owner still run
+  _gcs.py            the GCS protocol both stores share: copy and restore; store/gcs.py and
+                       papers/copy.py are its adapters
+  _paths.py          the path kinds both stores declare (state, rebuildable, scratch)
+  _files.py          files written whole (atomic write and create), the UTC stamp
   cli.py             thin Typer CLI (labdata version, labdata ncbi configure,
                        labdata geo download, + hidden per-stage subcommands)
   ncbi/              NCBI E-utilities: credential config + EntrezClient seam
@@ -34,21 +39,32 @@ src/labdata/
                        (Snakemake driver), pipeline.smk (the download DAG)
   store/             the source record store: fetch lanes (geo_lane.py, eutils.py),
                        raw/ pieces and pack, snapshot extract, build, gaps, prune,
-                       GCS copy (gcs.py); reader.py (the build reader, the only
+                       GCS copy (gcs.py); paths.py (every path in the root
+                       with its kind; the only reader and switcher of the marker);
+                       reader.py (the build reader, the only
                        way to open a build); layout.py (every build table's
                        declaration, the only writer of build tables);
-                       pipeline.py + pipeline.smk (the full-run DAG);
+                       lifecycle.py (an update's status record, run lock,
+                       switch and copy outcome);
+                       pipeline.py (pipeline.drive, the one driver of both
+                       store DAGs) + pipeline.smk (the full-run DAG);
+                       closing.smk (the closing steps both DAGs include:
+                       extract, build, switch, prune, copy);
                        changes.py (a refresh's re-fetch list), removals.py
                        (confirm and remove withdrawn Series), sra_removal.py
                        (the yearly removal of withdrawn SRA records),
                        _removal.py (the helpers both removals share),
-                       refresh.py + refresh.smk (the refresh DAG, its status
-                       record; runs from a checkout, as it calls scripts/bulk/)
-  papers/            the paper store: root.py (marker, pointer, lock, paper folders);
+                       refresh.py + refresh.smk (the refresh DAG; runs from
+                       a checkout, as it calls scripts/bulk/)
+  papers/            the paper store: paths.py (its top-level paths and their kinds);
+                       root.py (marker, pointer, lock, paper folders);
                        tables.py (the four tables' declaration and only writer);
-                       status.py (paper-status.json); reader.py (PaperReader);
+                       status.py (paper-status.json); lifecycle.py (each pass
+                       and copy under the lock; the only writer of
+                       paper-status.json); reader.py (PaperReader);
                        sync.py (the monthly PMC sync), pubmed.py, openalex.py,
-                       pmc.py (the PMC bucket tier), _zst.py (zstd files);
+                       pmc.py (the PMC bucket tier); folder.py (the only writer,
+                       mover and deleter of paper files; zstd, temp files);
                        daily.py (quota, host links, manual queue); copy.py
                        (GCS copy); job.py (the long-running paper job)
 tests/               pytest suite, mirrors src; mocks the EntrezClient + subprocess seams
@@ -99,9 +115,9 @@ slow and live lanes run in one process.
   `Bio.Entrez` directly); its HTTP, and every other web client's, goes through
   `labdata._http.HttpTransport`, which tests replace with a fake transport. Subprocess
   seams: `sratools._run` (sra-tools/pigz), `geo.pipeline._run_snakemake` and
-  `store.pipeline._run_snakemake` (Snakemake), `labdata._rclone.run` (rclone; the copies
-  call it through `store.gcs._run_rclone` and `papers.copy._run_rclone`),
-  `papers.job._submit` (sbatch), `papers.job._show_job` (scontrol) and `store.extract._popen` (rapidgzip/pigz). Tests mock the seams, never the real binaries.
+  `store.pipeline._run_snakemake` (Snakemake), `labdata._rclone.run` (rclone; both
+  stores' copies and restores call it through `labdata._gcs`),
+  `papers.job._submit` (sbatch), `labdata._slurm.show_job` (scontrol) and `store.extract._popen` (rapidgzip/pigz). Tests mock the seams, never the real binaries.
 - **Robust and gentle on NCBI before fast.** To save time, never raise the E-utilities rate
   (`EUTILS_LIMITER` in `labdata.ncbi.entrez`) or the `ncbi` resource cap, or shorten a retry.
 - **The paper store reads no license field**: no table holds one and no step filters on one.
@@ -117,6 +133,7 @@ slow and live lanes run in one process.
   An `ncbi` resource caps concurrent network jobs independently of `--cores` (total CPU),
   keeping the link busy while cores extract/compress. The store DAG adds a `mem_mb` resource:
   each step gets its share as `LABDATA_MEMORY_MB` and caps DuckDB and Ray inside it.
+  `store.pipeline.drive` runs both store DAGs under the run lock.
   Future pipelines follow this split. The paper job is the exception: one process with a
   lock (ADR 0007).
 - **Lazy, cached domain objects.** `Series(...)` is cheap; network happens on first
@@ -131,6 +148,8 @@ slow and live lanes run in one process.
 
 - No live network in CI. Mock the `EntrezClient` seam with canned responses; assert
   laziness (the client is hit once, then served from cache).
+- GCS is `tests._fake_gcs.FakeGcs`, a folder behind the rclone seam. Copy and restore tests
+  check what it holds, never the rclone command lines.
 - Live tests against real NCBI are marked `@pytest.mark.network`, deselected by default
   and held to neither time limit; run them with `pixi run test-network`.
 

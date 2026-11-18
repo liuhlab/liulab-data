@@ -6,8 +6,9 @@ runs, BioProjects and BioSamples. A target Series is a GEO Series whose type nam
 high-throughput sequencing. Each record is kept as the text NCBI served, and as rows in
 Parquet tables that you can query with the `labdata` Python package or with DuckDB.
 
-The store is not tied to one computer. Any full copy of this folder is the store. Paths in
-this file are relative to the store root, written `<store>`.
+Google Cloud Storage (GCS) holds the store, and its copy there is the one source of truth. A
+refresh runs on a work disk and is done, or finalized, once it is copied to GCS. Paths in this
+file are relative to the store root, written `<store>`.
 
 Current build: `${build}`. The store switched to it at ${switched}. It was made by
 ${made_by}
@@ -16,7 +17,7 @@ It reads these snapshots:
 
 ${snapshot_table}
 
-`labdata store build` writes this file each time it switches the store to a new build.
+The store writes this file each time it switches to a new build.
 `labdata store readme` writes it again for the current build, with fresh folder sizes.
 
 ## Contents
@@ -25,10 +26,11 @@ ${snapshot_table}
 <store>/
   README.md                     this file
   labdata-store.toml            the marker: format version and the current build
-  refresh-status.json           the status record: the last refresh and its outcome
+  refresh-status.json           the status record: the last update and its outcome
   builds/<build-id>/            the tables, built from raw/ and snapshots/ (query these)
   raw/<source>/                 the text NCBI served for each record, by source
   snapshots/<source>/<date>/    whole NCBI bulk files, as downloaded
+  extracts/<source>-<date>/     Parquet extracts of the snapshots, which builds read
   support/                      kept run logs
   work/                         working files of the download (not part of the store)
 ```
@@ -49,9 +51,10 @@ labdata store verify --root <store>
 - **Layout:** TOML. `format_version`; `build`, the current build ID; `switched`, when the store
   switched to that build (UTC); the `[switched_away]` table, when each older build went out of
   use; and, if set, `copy_to`, where `labdata store copy` sends the store.
-- **Made by:** `labdata store init` writes it. `labdata store build` sets `build` and
-  `switched` when a new build is whole. Do not edit `build` by hand.
-- **Refresh:** nothing to do. Each build updates it, and `labdata store prune` drops the
+- **Made by:** `labdata store init` writes it. A refresh or a full run sets `build` and
+  `switched` once the new build passes its checks; `labdata store build` sets them when the
+  build is whole. Do not edit `build` by hand.
+- **Refresh:** nothing to do. Each switch updates it, and `labdata store prune` drops the
   builds it deletes from `[switched_away]`.
 
 ## builds/
@@ -112,6 +115,7 @@ labdata store verify --root <store>
   | `geo-gaps` | target Series whose SOFT could not be saved, with the reason | the GEO fetch |
   | `entrez-links` | GEO Series: its Entrez links to SRA and BioProject, one per line | E-utilities `elink` and `esummary` |
   | `sra-xml` | SRA experiment: its `EXPERIMENT_PACKAGE` XML | E-utilities `efetch`, `db=sra` |
+  | `sra-fetch-failed` | SRA experiment whose package could not be fetched, with the last error | the E-utilities fetch |
   | `pubmed-si` | accession searched: the PubMed IDs that list it | E-utilities `esearch`, the `[si]` field |
 
   A `geo-soft` row with data tables cut out starts with two lines that give the size and
@@ -157,6 +161,17 @@ labdata store verify --root <store>
   It needs `curl`, and `aria2c` for faster downloads. The next `labdata store run` uses the
   newest date of each source.
 
+## extracts/
+
+- **What:** `extracts/<source>-<date>/` holds the Parquet extract of one snapshot, cut into
+  parts that a build reads in parallel. It holds nothing its snapshot lacks, so
+  `labdata store copy` leaves it out.
+- **Made by:** `labdata store extract --source <source>`. A build that needs a missing extract
+  makes it first, which is slow on a large snapshot. A sample build
+  (`labdata store build --sample-of <store>`) makes a missing one in its own root, never here.
+- **Refresh:** nothing to do. Each refresh extracts its new snapshots, and
+  `labdata store prune` deletes an extract with its snapshot.
+
 ## support/
 
 - **What:** run logs kept with this copy of the store. Nothing reads them, and
@@ -183,20 +198,35 @@ labdata store verify --root <store>
 
 ## work/
 
-- **What:** working files of the download and of each refresh: fetch parts, snapshot extracts,
-  the target Series list, step markers and logs, and the build lock. `labdata store copy`
-  leaves it out.
-- **Keep `work/extract/`.** `work/extract/<source>-<date>/` holds the Parquet extract of one
-  snapshot. Every build reads the extracts of the snapshots it uses, so a sample build
-  (`labdata store build --sample-of <store>`) and a rebuild of this store fail without them.
-  `labdata store prune` deletes an extract with its snapshot. If an extract is lost,
-  `labdata store extract --source <source>` makes it again, which is slow on a large
-  snapshot.
-- **Refresh:** none. When no run is going and `refresh-status.json` says the last refresh
-  succeeded, you may delete everything else in `work/`, after keeping the logs in `support/`:
-  `parts/`, `run/`, `refresh/`, `targets/`, `known/`, `eutils/`, `build/`, `tmp/` and
-  `sra-removal/`. The next run makes what it needs again. Fetch steps still skip every item
-  saved in `raw/`.
+- **What:** working files of the download and of each refresh: fetch parts, the target
+  Series list, step markers and logs, and the build lock. `labdata store copy` leaves it out.
+  An older store kept its extracts in `work/extract/`; the next extract or build moves them
+  to `extracts/`.
+- **Refresh:** none. [Clean up](#clean-up) lists what in `work/` you may delete.
+
+## Clean up
+
+You may delete the paths below only while no refresh or full run is running, and once
+`refresh-status.json` says the last update is `finalized`, or `built` in a store with no
+`copy_to`. They are on this computer only, and the next run makes what it needs again.
+Keep the run logs in `support/` first, as its section says. Fetch steps still skip every item
+saved in `raw/`.
+
+- `support/`, once you no longer need its run logs
+- `work/build.lock`
+- `work/run.lock`
+- `work/build/`
+- `work/parts/`
+- `work/run/`
+- `work/refresh/`
+- `work/targets/`
+- `work/known/`
+- `work/eutils/`
+- `work/tmp/`
+- `work/sra-removal/`
+- `work/extract/`, where an older store kept its extracts; the refresh moved the ones in use
+
+Keep everything else.
 
 ## How to refresh
 
@@ -204,7 +234,14 @@ Refresh the store once a month, from a checkout of liulab-data, on a computer th
 NCBI:
 
 1. Save your NCBI email and API key once: `labdata ncbi configure`.
-2. Run the refresh:
+2. If this work disk is new, or behind GCS, restore it first. `<copy_to>` is the place in GCS
+   that `labdata-store.toml` names:
+
+   ```bash
+   labdata store restore --root <store> --from <copy_to>
+   ```
+
+3. Run the refresh:
 
    ```bash
    labdata store refresh --root <store>
@@ -212,16 +249,21 @@ NCBI:
 
    It downloads new snapshots, fetches the GEO Series changed or added since the last
    successful refresh and their SRA experiments, removes the GEO Series that a fetch confirms
-   are withdrawn, builds the tables, switches the store to the new build, deletes builds and snapshots
-   out of use for longer than a grace period, and copies the store to GCS. If it stops, run
-   the same command again: it goes on from the first unfinished step.
+   are withdrawn, builds the tables, checks their coverage, switches the store to the new build,
+   deletes builds and snapshots out of use for longer than a grace period, and copies the store
+   to GCS. It first checks that this work disk is in step with GCS, and refuses, naming the
+   restore command, when it is not. If it stops, run the same command again: within 7 days of
+   its start it goes on from the first unfinished step, and later it starts a new refresh. It
+   refuses while another update runs on the store. If it says it cannot check that update and you know the update
+   has ended, add `--owner-gone`.
 
-3. Read `refresh-status.json`. It gives the refresh's start, end and outcome, the date of the
+4. Read `refresh-status.json`. It gives the refresh's start, end and outcome, the date of the
    last successful refresh, the records added, replaced and removed in each `raw/` source, and
-   `copy_pending`. When `copy_pending` is `true`, the GCS copy is behind the store. Log in to
-   rclone again, then run `labdata store copy --root <store>`.
+   `copy_pending`. The outcome is `finalized` once GCS holds the refresh's build. When it is
+   `built`, the store uses the new build but GCS does not hold it yet. Log in to rclone again,
+   then run the same refresh command: it only copies.
 
-4. Keep the refresh's logs, as `support/` says above.
+5. Keep the refresh's logs, as `support/` says above.
 
 The copy holds `labdata-store.toml`, this file, the snapshots the current build reads,
 `raw/` and the current build.

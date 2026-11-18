@@ -53,6 +53,7 @@ packages = ["src/labdata"]
 "src/labdata/tenx/pipeline.smk" = "labdata/tenx/pipeline.smk"
 "src/labdata/store/pipeline.smk" = "labdata/store/pipeline.smk"
 "src/labdata/store/refresh.smk" = "labdata/store/refresh.smk"
+"src/labdata/store/closing.smk" = "labdata/store/closing.smk"
 
 # -------- pixi --------
 

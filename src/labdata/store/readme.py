@@ -15,14 +15,13 @@ import stat
 import string
 from pathlib import Path
 
-from labdata.store._files import write_atomic
+from labdata._files import write_atomic
+from labdata.store import paths
 from labdata.store.layout import manifest_path
-from labdata.store.provenance import README
 from labdata.store.reader import current_path
-from labdata.store.root import read_marker
 
 #: The top-level folders whose sizes the README gives, after the current build.
-_SIZED = ("raw", "snapshots", "support", "work")
+_SIZED = sorted({d.rel.split("/")[0] for d in paths.LAYOUT if "/" in d.rel} - {paths.BUILDS.name})
 #: One DuckDB example of the README: its query, inside `duckdb.sql(f"""...""")`.
 _DUCKDB_EXAMPLE = re.compile(r'duckdb\.sql\(f"""(.*?)"""\)', re.DOTALL)
 
@@ -47,7 +46,7 @@ def write(root: Path) -> Path:
     NotAStoreError
         If the root has no marker, or the marker names no build.
     """
-    settings = read_marker(root)
+    settings = paths.read_marker(root)
     folder = current_path(root)
     build = folder.name
     path = manifest_path(folder)
@@ -59,7 +58,7 @@ def write(root: Path) -> Path:
     ]
     text = string.Template(_template()).substitute(
         build=build,
-        switched=settings.get("switched", "an unrecorded time"),
+        switched=settings.get(paths.SWITCHED_KEY, "an unrecorded time"),
         made_by=_made_by(made),
         snapshot_table=_table(
             ("Source", "Date", "File"),
@@ -67,7 +66,7 @@ def write(root: Path) -> Path:
         ),
         size_table=_table(("Folder", "Size"), [(f"`{n}`", _human(b)) for n, b in sizes]),
     )
-    out = root / README
+    out = paths.README.at(root)
     write_atomic(out, text)
     return out
 
@@ -84,7 +83,9 @@ def try_write(root: Path) -> Path | None:
         return write(root)
     except Exception as err:
         logger.warning(
-            "could not write %s: %s; run `labdata store readme` to write it", root / README, err
+            "could not write %s: %s; run `labdata store readme` to write it",
+            paths.README.at(root),
+            err,
         )
         return None
 
