@@ -4,12 +4,15 @@ A removal candidate is a Series ``raw/`` holds that the newest ``geo-series`` sn
 longer lists, or that this refresh's fetch got no record for. It is removed only when a fetch
 of it alone confirms it is gone: a record-level "cannot get document summary" in a 200 reply,
 or NCBI's "ID list is empty". Any other answer keeps it; the next refresh finds it again. A
-gone Series takes its rows in every Series-keyed source with it. SRA records are never
-candidates. Every read of ``raw/`` and pack apply removal parts (see :mod:`labdata.store.raw`).
+gone Series takes its rows in every Series-keyed source with it. One the newest snapshot lists
+may be a target Series, so its ``geo-gaps`` row becomes a ``withdrawn`` gap instead, which
+makes it no candidate and no fetch again. SRA records are never candidates. Every read of
+``raw/`` and pack apply removal parts (see :mod:`labdata.store.raw`).
 """
 
 from __future__ import annotations
 
+import datetime as dt
 import gzip
 import json
 import logging
@@ -85,6 +88,7 @@ def confirm(root: Path, accessions: Iterable[str], *, client: EntrezClient) -> C
         Counts for this run.
     """
     pending = raw.removing(root, raw.GEO_SOFT)
+    listed = _gds_series(root)
     series = set()
     for accession in accessions:
         if _is_series(accession):
@@ -98,7 +102,7 @@ def confirm(root: Path, accessions: Iterable[str], *, client: EntrezClient) -> C
         for start in range(0, len(todo), BATCH):
             batch = todo[start : start + BATCH]
             states = dict(zip(batch, pool.map(lambda a: _state(client, a), batch), strict=True))
-            _apply(root, states, report)
+            _apply(root, states, report, listed)
             logger.info(
                 "confirmed %d of %d: %d gone, %d served, %d failed",
                 start + len(batch),
@@ -131,20 +135,35 @@ def _state(client: EntrezClient, accession: str) -> State:
     return state
 
 
-def _apply(root: Path, states: dict[str, State], report: ConfirmReport) -> None:
-    """Write one batch's removal parts and count its answers."""
+def _apply(root: Path, states: dict[str, State], report: ConfirmReport, listed: set[str]) -> None:
+    """Write one batch's withdrawn gap rows and removal parts, and count its answers."""
     gone = {a for a, state in states.items() if state is State.GONE}
     report.gone += len(gone)
     report.failed += sum(state is State.FAILED for state in states.values())
     report.kept += sum(state is State.SERVED for state in states.values())
     if not gone:
         return
+    # Saved before the removal parts, which a rerun reads as this batch done.
+    today = dt.datetime.now(dt.UTC).date().isoformat()
+    withdrawn = gone & listed
+    raw.save(root, raw.GEO_GAPS, [gaps.gap_row(a, gaps.WITHDRAWN, today) for a in withdrawn])
     for source in SERIES_KEYED:
-        write_removals(root, source, raw.held(root, source, gone), report.removals)
+        drop = raw.held(root, source, gone)
+        if source == raw.GEO_GAPS:
+            drop -= withdrawn
+        write_removals(root, source, drop, report.removals)
 
 
 def _held_series(root: Path) -> set[str]:
-    return {a for source in SERIES_KEYED for a in raw.held(root, source) if a.startswith("GSE")}
+    """Return the Series held in a Series-keyed source, a ``withdrawn`` gap row aside."""
+    keyed = [source for source in SERIES_KEYED if source != raw.GEO_GAPS]
+    found = {a for source in keyed for a in raw.held(root, source)}
+    found |= {
+        a
+        for a, text in raw.saved(root, raw.GEO_GAPS).items()
+        if text.split("\n", 1)[0] != gaps.WITHDRAWN
+    }
+    return {a for a in found if a.startswith("GSE")}
 
 
 def _gds_series(root: Path) -> set[str]:

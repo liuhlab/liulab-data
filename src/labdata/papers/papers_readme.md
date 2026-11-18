@@ -21,7 +21,7 @@ labdata store never writes into it.
 ```text
 <papers>/
   README.md                 this file
-  labdata-papers.toml       the marker: the labdata store it reads, and where it is copied
+  labdata-papers.toml       the marker: where it is copied
   paper-status.json         the last pass of the paper job, and counts by status
   .lock                     held by a running pass, so two passes never overlap
   .daily-journal.jsonl      downloads a stopped daily pass has not yet put in the tables
@@ -43,9 +43,10 @@ without it the next pass downloads them again and spends quota twice.
 
 ## labdata-papers.toml
 
-- **What:** the marker that makes this folder a paper store.
-- **Layout:** TOML. `format_version`; `store`, the root of the labdata store whose current
-  build links the papers; `copy_to`, where the paper store is copied with rclone;
+- **What:** the marker that makes this folder a paper store. It names no labdata store: the
+  paper store reads the one `LABDATA_STORE` or the per-user pointer names. An older `store`
+  line is ignored.
+- **Layout:** TOML. `format_version`; `copy_to`, where the paper store is copied with rclone;
   `drive_remote` and `drive_folder`, the rclone remote and folder ID of the Paperpile folder
   on Google Drive.
 - **Made by:** `labdata papers init`.

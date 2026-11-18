@@ -23,9 +23,9 @@ from labdata.ncbi import entrez as entrez_mod
 from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
 from labdata.papers import daily as daily_mod
-from labdata.papers import init_paper_store, paper_dir, paths, tables
+from labdata.papers import paper_dir, paths, tables
 from labdata.papers.openalex import Account, OpenAlex, load_accounts
-from tests._paper_fakes import FakeWeb, Reply, fixture_build
+from tests._paper_fakes import FakeWeb, Reply, fixture_build, init_papers
 
 TODAY = "2026-11-07"
 PDF = b"%PDF-1.7\nfake paper\n"
@@ -188,7 +188,7 @@ def paper_store(tmp_path: Path, rows: list[dict[str, Any]], unlinked: tuple[str,
     ]
     store = fixture_build(tmp_path / "store", links or [("GSE1", "PMID:41000001", "SOFT")])
     root = tmp_path / "papers"
-    init_paper_store(root, store)
+    init_papers(root, store)
     tables.write(root, tables.PAPERS, rows)
     return root
 

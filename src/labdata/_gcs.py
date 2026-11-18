@@ -9,7 +9,9 @@ After one listing call checks rclone's login, :func:`copy` checks the work disk 
 (:func:`check`), then sends, in order: the new and changed files by name; the files at the
 top of the root, the marker among them; the deletes, by name, of the recorded files that left
 the held set; the copy record; and last the status record, marked finalized. Each record goes
-to GCS first, then the work disk. No copy deletes by comparing GCS with the work disk.
+to GCS first, then the work disk. The copy record waits on the disk under its pending name
+until it lands in GCS, and is then renamed over the old one; a copy cut between the two leaves
+a pending record :func:`check` adopts. No copy deletes by comparing GCS with the work disk.
 
 :func:`restore` runs the copy the other way: it fills a work disk with the state files the
 copy record in GCS names, and saves that record and the status record on the disk last.
@@ -58,8 +60,9 @@ class CopyResult:
 class Adapter(ABC):
     """One store's side of the protocol: its root, its copy record and its rules."""
 
-    #: The copy record's and the status record's file names at the store root.
+    #: The copy record's, its pending copy's and the status record's file names at the root.
     record: str
+    pending: str
     status: str
     #: The store's name and its copy and restore commands, for messages.
     what: str
@@ -226,8 +229,9 @@ def copy(
 def check(adapter: Adapter, dest: str) -> bool:
     """Check that the work disk's copy record is the one in GCS, by MD5, downloading nothing.
 
-    GCS's MD5 comes from the object's metadata. A disk with no copy record passes only when GCS
-    holds none either: the copy's seeding rules handle it.
+    GCS's MD5 comes from the object's metadata. A pending copy record with GCS's MD5, which a
+    copy cut after its upload leaves, first becomes the disk's. A disk with no copy record passes
+    only when GCS holds none either: the copy's seeding rules handle it.
 
     Returns
     -------
@@ -250,6 +254,9 @@ def _check(adapter: Adapter, dest: str, run: _Run, *, full: bool) -> bool:
     if listed is None:
         return False
     disk = adapter.root / adapter.record
+    pending = adapter.root / adapter.pending
+    if adapter.record in listed and _matches(pending, *listed[adapter.record]):
+        pending.replace(disk)
     if not disk.is_file():
         if adapter.record not in listed:
             return True
@@ -281,8 +288,9 @@ def restore(adapter: Adapter, source: str, *, approve: Callable[[int, int], bool
 
     It downloads the files whose entries differ between the copy record in GCS and the disk's,
     or every file when the disk has none, leaving out a file present with GCS's size and MD5.
-    Then it deletes the state files the disk's copy record names and GCS's does not, and saves
-    GCS's copy record and status record on the disk last. Scratch and rebuildable files stay.
+    Then it deletes the state files the disk's copy record names and GCS's does not, or, on a
+    disk with no copy record, every state file on it GCS's does not name. It saves GCS's copy
+    record and status record on the disk last. Scratch and rebuildable files stay.
 
     Parameters
     ----------
@@ -342,7 +350,8 @@ def restore(adapter: Adapter, source: str, *, approve: Callable[[int, int], bool
             pull, names, folder=root, run=run, error=adapter.error
         ):
             return expired
-    for path in sorted(p for p in had or {} if p not in held and adapter.state(p)):
+    named = _state_files(adapter) if had is None else had
+    for path in sorted(p for p in named if p not in held and adapter.state(p)):
         _remove(root, path)
     for name in (adapter.record, adapter.status):
         if name in fetched:
@@ -393,6 +402,17 @@ def _matches(path: Path, size: int, md5: str) -> bool:
         while chunk := fh.read(1 << 20):
             digest.update(chunk)
     return digest.hexdigest() == md5
+
+
+def _state_files(adapter: Adapter) -> list[str]:
+    """Return the state files on the work disk, the two records aside, as paths from the root."""
+    root = adapter.root
+    found = []
+    for rel in _paths.declared(_paths.STATE, adapter.layout):
+        path = root / rel
+        files = path.rglob("*") if rel.endswith("/") else [path]
+        found += [p.relative_to(root).as_posix() for p in files if p.is_file()]
+    return [p for p in found if p not in (adapter.record, adapter.status)]
 
 
 def _remove(root: Path, path: str) -> None:
@@ -457,10 +477,12 @@ def _fetch(adapter: Adapter, dest: str, names: list[str], run: _Run) -> dict[str
 def _put(adapter: Adapter, dest: str, name: str, data: bytes, run: _Run) -> bool:
     """Save ``data`` as the file ``name`` at the top of the root, in GCS first, then on the disk.
 
+    The copy record goes up from its pending name, which a cut leaves for :func:`check`.
     Returns False when rclone's login has expired.
     """
     path = adapter.root / name
-    tmp = temp_beside(path)
+    record = name == adapter.record
+    tmp = adapter.root / adapter.pending if record else temp_beside(path)
     try:
         tmp.write_bytes(data)
         to = f"{dest.rstrip('/')}/{name}"
@@ -470,7 +492,8 @@ def _put(adapter: Adapter, dest: str, name: str, data: bytes, run: _Run) -> bool
             return False
         tmp.replace(path)
     finally:
-        tmp.unlink(missing_ok=True)
+        if not record:
+            tmp.unlink(missing_ok=True)
     return True
 
 

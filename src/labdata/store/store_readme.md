@@ -112,7 +112,7 @@ labdata store verify --root <store>
   | --- | --- | --- |
   | `geo-soft` | GEO Series: its family SOFT file, data tables cut out | GEO FTP site, `geo/series/<GSEnnn>/<GSE>/soft/` |
   | `geo-filelist` | GEO Series: its `filelist.txt` of supplementary files | GEO FTP site, `geo/series/<GSEnnn>/<GSE>/suppl/` |
-  | `geo-gaps` | target Series whose SOFT could not be saved, with the reason | the GEO fetch |
+  | `geo-gaps` | target Series whose SOFT could not be saved or that GEO withdrew, with the reason | the GEO fetch, confirm |
   | `entrez-links` | GEO Series: its Entrez links to SRA and BioProject, one per line | E-utilities `elink` and `esummary` |
   | `sra-xml` | SRA experiment: its `EXPERIMENT_PACKAGE` XML | E-utilities `efetch`, `db=sra` |
   | `sra-fetch-failed` | SRA experiment whose package could not be fetched, with the last error | the E-utilities fetch |
@@ -212,6 +212,7 @@ You may delete the paths below only while no refresh or full run is running, and
 Keep the run logs in `support/` first, as its section says. Fetch steps still skip every item
 saved in `raw/`.
 
+- `.copied-files.json.pending`
 - `support/`, once you no longer need its run logs
 - `work/build.lock`
 - `work/run.lock`

@@ -45,7 +45,7 @@ src/labdata/
                        way to open a build); layout.py (every build table's
                        declaration, the only writer of build tables);
                        lifecycle.py (an update's status record, run lock,
-                       switch and copy outcome);
+                       resume plan, switch and copy outcome);
                        pipeline.py (pipeline.drive, the one driver of both
                        store DAGs) + pipeline.smk (the full-run DAG);
                        closing.smk (the closing steps both DAGs include:

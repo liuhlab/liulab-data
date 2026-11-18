@@ -156,7 +156,8 @@ On a disk that already has the store's marker, `--from` defaults to its `copy_to
   difference. A file already on the disk with the size and hash GCS gives is not
   downloaded again.
 - It deletes the files the disk's copy record names and the one in GCS does not, such as
-  an old build.
+  an old build. On a disk with no copy record, it deletes every file in `builds/`, `raw/`
+  and `snapshots/` that GCS's copy record does not name.
 - It leaves `work/`, `support/` and `extracts/` alone. A build makes a missing extract
   from its snapshot.
 - It saves the copy record and `refresh-status.json` last, as GCS holds them. The status

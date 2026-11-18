@@ -58,8 +58,9 @@ RAW_SOURCES: dict[str, tuple[str, str]] = {
         f"{_FTP}/geo/series/<GSEnnn>/<GSE>/suppl/filelist.txt",
     ),
     raw.GEO_GAPS: (
-        "Each target GEO Series whose family SOFT the fetch could not save, one row per "
-        "Series: the gap reason (soft-missing or fetch-failed), then any detail after a newline.",
+        "Each target GEO Series whose family SOFT the fetch could not save or that GEO "
+        "withdrew, one row per Series: the gap reason (soft-missing, fetch-failed or "
+        "withdrawn), then any detail after a newline.",
         f"{_FTP}/geo/series/<GSEnnn>/<GSE>/soft/<GSE>_family.soft.gz, as answered",
     ),
     raw.SRA_XML: (

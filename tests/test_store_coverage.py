@@ -13,11 +13,16 @@ from typer.testing import CliRunner
 
 import labdata.ncbi.entrez as entrez_mod
 from labdata.cli import app
-from labdata.store import eutils, extract, open_store, pack, paths, raw
+from labdata.ncbi.config import NcbiCredentials
+from labdata.ncbi.entrez import EntrezClient
+from labdata.store import eutils, extract, geo_lane, open_store, pack, paths, raw, removals
 from labdata.store.gaps import FETCH_FAILED, SOFT_MISSING, gap_row
 from labdata.store.lifecycle import build
 from labdata.store.model import Link
 from tests.test_store_eutils import _client, _Ncbi
+from tests.test_store_geo_lane import Reply, Site
+from tests.test_store_geo_lane import client as site_client
+from tests.test_store_removals import _GONE_GDS, Ncbi, _gds
 
 _DATA = Path(__file__).parent / "data" / "geo_slice"
 _DATE = "2026-10-14"
@@ -93,7 +98,7 @@ def test_build_writes_gaps_and_type_notes_for_the_target_list(root: Path) -> Non
         "snapshot_date": _DATE,
         "target": 4,
         "held": 2,
-        "gaps": {"soft-missing": 1, "fetch-failed": 0, "unexplained": 1},
+        "gaps": {"soft-missing": 1, "fetch-failed": 0, "withdrawn": 0, "unexplained": 1},
     }
 
 
@@ -111,6 +116,34 @@ def test_coverage_fails_and_names_an_unexplained_gap(root: Path) -> None:
     assert "soft-missing: 1" in output
     assert "unexplained: 1" in output
     assert "GSE28772: unexplained" in output
+
+
+def test_a_target_series_confirmed_withdrawn_is_an_explained_gap_and_no_later_candidate(
+    root: Path,
+) -> None:
+    pack.write_rows(root, raw.GEO_GAPS, [gap_row("GSE28772", FETCH_FAILED, _DATE)])
+    raw.save(root, raw.GEO_GAPS, [gap_row("GSE28771", SOFT_MISSING, "2026-11-01")])
+    gone = Ncbi({_gds("GSE28771"): [Reply(_GONE_GDS % 200028771)]})
+    found = removals.candidates(root)
+    ncbi = EntrezClient(NcbiCredentials("t@t.org", "abc"), transport=gone)
+    assert removals.confirm(root, found, client=ncbi).gone == 1
+    pack.pack(root)
+
+    gaps = _rows(build(root, "b1") / "gaps.parquet")
+    assert {"accession": "GSE28771", "reason": "withdrawn", "detail": None} in gaps
+    code, output = _coverage(root)
+    assert code == 0, output
+    assert "withdrawn: 1" in output
+
+    # The next refresh asks GEO nothing about it, whether or not GEO still lists it.
+    site = Site()
+    geo_lane.run(root, ["GSE28771"], client=site_client(site), date="2026-12-01")
+    assert site.calls == []
+    newer = root / "snapshots" / "geo-series" / "2026-12-01" / "gds_gse_esummary.jsonl.gz"
+    newer.parent.mkdir()
+    with gzip.open(newer, "wt", encoding="utf-8") as fh:
+        fh.writelines(json.dumps(r) + "\n" for r in _SNAPSHOT if r["accession"] != "GSE28771")
+    assert "GSE28771" not in removals.candidates(root)
 
 
 def test_coverage_passes_when_every_target_series_is_held_or_explained(root: Path) -> None:

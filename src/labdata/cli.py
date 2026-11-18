@@ -146,22 +146,20 @@ def store_configure(
 @papers_app.command("init")
 def papers_init(
     root: Path = typer.Argument(..., help="The paper store root; created if missing."),
-    store: Path | None = typer.Option(
-        None, help="The GEO/SRA store it reads; default: LABDATA_STORE, then pointer."
-    ),
     copy_to: str = typer.Option("", help="rclone destination <remote>:<bucket>/<path>."),
     drive_remote: str = typer.Option("", help="rclone remote of the Paperpile Drive."),
     drive_folder: str = typer.Option("", help="Drive ID of the Paperpile folder."),
 ) -> None:
     """Make a paper store: write labdata-papers.toml and README.md, and point to it.
 
-    Refuses if the root already has a labdata-papers.toml.
+    Refuses if the root already has a labdata-papers.toml, or if no GEO/SRA store opens
+    (LABDATA_STORE, then the pointer `labdata store configure` saves).
     """
     from labdata.papers import init_paper_store
 
     try:
         marker = init_paper_store(
-            root, store, copy_to=copy_to, drive_remote=drive_remote, drive_folder=drive_folder
+            root, copy_to=copy_to, drive_remote=drive_remote, drive_folder=drive_folder
         )
     except LabdataError as err:
         typer.echo(str(err), err=True)
@@ -853,10 +851,11 @@ def store_refresh(
     """Bring the store to the sources' current state in one resumable run.
 
     Renews the snapshots, fetches what GEO and SRA changed, removes what is confirmed gone,
-    builds, switches, prunes and copies. Rerun the same command to resume an unfinished
-    refresh that started within the last 7 days; an older one is not resumed. It refuses
-    while another update holds the store's run lock. The outcome is in refresh-status.json
-    in the store root.
+    builds, switches, prunes and copies. Rerun the same command to resume a refresh stopped
+    before its switch that started within the last 7 days; an older one is not resumed. One
+    that switched and only failed to copy is finished by the copy alone. It refuses while
+    another update holds the store's run lock. The outcome is in refresh-status.json in the
+    store root.
     """
     import logging
 
