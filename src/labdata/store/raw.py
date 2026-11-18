@@ -428,7 +428,25 @@ def saved(
     """Yield each held accession of ``accessions`` and one column of its newest row.
 
     With None, every held accession's, in accession order. Memory holds a few rows of each
-    part, never a bucket. With ``since_pack``, only rows saved since the last pack count.
+    part, never a bucket.
+
+    Parameters
+    ----------
+    root : pathlib.Path
+        The store root.
+    source : str
+        The raw source.
+    accessions : iterable of str or None
+        The accessions asked for; None for every one held.
+    column : str
+        The column yielded.
+    since_pack : bool
+        Only rows saved since the last pack count.
+
+    Yields
+    ------
+    tuple of str
+        The accession and its column's value.
     """
     for accession, (value,) in _saved(root, source, accessions, (column,), since_pack):
         yield accession, value
@@ -439,6 +457,20 @@ def files(root: Path, source: str, scratch: Path | None = None) -> list[Path]:
 
     Without ``scratch`` they are the bucket files. With it, a bucket with parts is merged
     into ``scratch``.
+
+    Parameters
+    ----------
+    root : pathlib.Path
+        The store root.
+    source : str
+        The raw source.
+    scratch : pathlib.Path or None
+        The folder merged buckets are written to.
+
+    Returns
+    -------
+    list of pathlib.Path
+        The files, bucket files first.
 
     Raises
     ------

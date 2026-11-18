@@ -194,7 +194,7 @@ def run_lock(root: Path, update: str, *, owner_gone: bool = False) -> Iterator[N
     root : pathlib.Path
         The store root.
     update : str
-        What takes the lock, for the record: an update, :data:`PRUNE` or :data:`RESTORE`.
+        What takes the lock, for the record: an update or a command's name, such as :data:`PACK`.
     owner_gone : bool
         The holder has ended, though this host cannot check it.
 
@@ -584,6 +584,16 @@ def read_counts(path: Path) -> dict[str, dict[str, int]]:
     """Return the records added, replaced and removed per source, from a pack's counts file.
 
     A bucket packed again from the same parts, after a kill, counts once: its first record.
+
+    Parameters
+    ----------
+    path : pathlib.Path
+        The counts file; a missing one counts nothing.
+
+    Returns
+    -------
+    dict
+        Each source's counts by name, as :data:`labdata.store.raw.COUNTS` names them.
     """
     out: dict[str, dict[str, int]] = defaultdict(lambda: dict.fromkeys(raw.COUNTS, 0))
     seen: set[tuple[str, str, str]] = set()

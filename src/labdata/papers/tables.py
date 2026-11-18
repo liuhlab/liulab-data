@@ -408,6 +408,11 @@ class PaperTables:
         """Remove papers from every table, but a paper the ``files`` table lists.
 
         Its files stay on disk, so its rows stay too: the GCS copy deletes a file its row left.
+
+        Parameters
+        ----------
+        keys : collection of str
+            The papers' keys.
         """
         keys = set(keys) - {f["paper"] for f in self.files}
         for key in keys:
@@ -434,6 +439,11 @@ class PaperTables:
         """Add a ``files`` row, or replace the one of the same paper, kind and name.
 
         A replaced row's file at another path is deleted once a save stops naming it.
+
+        Parameters
+        ----------
+        row : mapping
+            The ``files`` row; a missing column is null.
         """
         row = _whole(FILES, row)
         self._journal_line("file", row)
@@ -452,12 +462,26 @@ class PaperTables:
             self._folder.delete(old["path"])
 
     def rekey(self, doi: str, key: str, own_doi: str) -> None:
-        """Move a DOI paper to ``key``, the PMID or DOI of the paper it is, whose DOI is ``own_doi``.
+        """Move a DOI paper to ``key``, the PMID or DOI of the paper it is.
 
         Its rows move now and its files once the save naming them lands; nothing is fetched
         again. ``doi`` joins the paper's ``other_dois`` unless it is the paper's DOI. When the
         store holds ``key``'s paper already, the DOI paper's files join it, but a file of a
         kind and name it holds is dropped.
+
+        Parameters
+        ----------
+        doi : str
+            The DOI paper's key.
+        key : str
+            The key it moves to.
+        own_doi : str
+            The DOI of ``key``'s paper.
+
+        Raises
+        ------
+        KeyError
+            If the tables hold no paper ``doi``.
         """
         old_row = self._papers.pop(doi)
         self._info.pop(doi, None)
@@ -563,6 +587,13 @@ def heal(root: Path, today: dt.date) -> None:
 
     It reads the tables only when a step left file moves or a journal. The caller holds the
     paper store's lock.
+
+    Parameters
+    ----------
+    root : pathlib.Path
+        The paper store root.
+    today : datetime.date
+        The UTC date of the step, as for :meth:`PaperTables.load`.
     """
     _finish_save(root)
     if (root / PENDING).is_file() or (root / JOURNAL).is_file():
