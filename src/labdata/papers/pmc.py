@@ -46,6 +46,7 @@ from labdata._http import (
     retry,
 )
 from labdata.exceptions import LabdataError
+from labdata.papers import ladder
 from labdata.papers.folder import SUFFIX, PaperFolder, compressed, open_plain
 from labdata.papers.root import paper_dir
 from labdata.papers.tables import PaperTables
@@ -91,7 +92,6 @@ WORKERS = 4
 #: Tries per request; a bad MD5 counts as a failed try.
 TRIES = 3
 
-_TIER = "pmc"
 _TIMEOUT = 60.0
 _CHUNK = 2**20
 # Most file systems cap one name at 255 bytes; this leaves room for ``.zst``.
@@ -150,13 +150,12 @@ def fetch(
 ) -> Replies:
     """Fetch what the PMC bucket holds for ``papers`` into the store, changing ``state``.
 
-    It adds or renews ``files`` rows, writes the files under each paper's folder, sets
-    ``xml_tier`` and ``pdf_tier`` on ``papers`` rows and adds one ``attempts`` row per paper
-    tried. A file the bucket no longer serves keeps its copy and gets a ``gone`` date. Once
-    PMC holds a paper's XML, the PDF another tier supplied is removed, after the PMC files are
-    saved; until then PMC's PDF is listed as ``<PMCID>.pdf``. The tables are saved every few
-    minutes; the caller recomputes status and saves at the end. Papers with no PMCID are
-    passed over.
+    It adds or renews ``files`` rows, writes the files under each paper's folder and adds one
+    ``attempts`` row per paper tried. A file the bucket no longer serves keeps its copy and
+    gets a ``gone`` date. The PDFs :func:`labdata.papers.ladder.replaced` names are removed
+    after the PMC files are saved; until then PMC's PDF is listed as ``<PMCID>.pdf``. The
+    tables are saved every few minutes, each save settling the papers on the tier ladder.
+    Papers with no PMCID are passed over.
 
     Parameters
     ----------
@@ -212,10 +211,10 @@ def fetch(
             if entry is None:
                 if outcome.get(key) != "absent":
                     state.attempts.append(
-                        {"paper": key, "tier": _TIER, "date": today, "outcome": "absent"}
+                        {"paper": key, "tier": ladder.PMC, "date": today, "outcome": "absent"}
                     )
                 for row in by_paper.get(key, []):
-                    if row["tier"] == _TIER and row["gone"] is None:
+                    if row["tier"] == ladder.PMC and row["gone"] is None:
                         row["gone"] = today
                         tally.gone += 1
             elif last.get(key) != _fetch_detail(*entry):
@@ -226,7 +225,7 @@ def fetch(
 
         def save() -> None:
             state.files[:] = [row for rows in by_paper.values() for row in rows]
-            state.save(root)
+            state.save(root, today)
 
         pool = ThreadPoolExecutor(WORKERS)
         saved = logged = time.monotonic()
@@ -238,9 +237,9 @@ def fetch(
                     state.folder,
                     key,
                     folder,
-                    [r for r in by_paper.get(key, []) if r["tier"] == _TIER],
+                    [r for r in by_paper.get(key, []) if r["tier"] == ladder.PMC],
                     any(
-                        r["kind"] == "pdf" and r["path"] and r["tier"] != _TIER
+                        r["kind"] == "pdf" and r["path"] and r["tier"] != ladder.PMC
                         for r in by_paper.get(key, [])
                     ),
                     today,
@@ -250,15 +249,14 @@ def fetch(
             etags = {key: _fetch_detail(folder, etag) for key, folder, etag in todo}
             for done, future in enumerate(as_completed(futures), 1):
                 out = future.result()
-                other = [r for r in by_paper.get(out.paper, []) if r["tier"] != _TIER]
+                other = [r for r in by_paper.get(out.paper, []) if r["tier"] != ladder.PMC]
                 by_paper[out.paper] = other + out.rows
-                _set_tiers(state.papers[out.paper], out.rows)
                 if out.retracted:
                     state.papers[out.paper]["retracted"] = True
                 state.attempts.append(
                     {
                         "paper": out.paper,
-                        "tier": _TIER,
+                        "tier": ladder.PMC,
                         "date": today,
                         "outcome": "failed"
                         if out.error
@@ -360,7 +358,7 @@ def _last_fetch(attempts: list[dict[str, Any]]) -> dict[str, str]:
     """Return each paper's last PMC fetch, as :func:`_fetch_detail` wrote it."""
     last: dict[str, tuple[dt.date, str]] = {}
     for a in attempts:
-        if a["tier"] == _TIER and a["outcome"] == "fetched" and a["detail"]:
+        if a["tier"] == ladder.PMC and a["outcome"] == "fetched" and a["detail"]:
             date = a["date"] or dt.date.min
             if a["paper"] not in last or date >= last[a["paper"]][0]:
                 last[a["paper"]] = (date, a["detail"])
@@ -371,21 +369,11 @@ def _last_outcome(attempts: list[dict[str, Any]]) -> dict[str, str]:
     """Return the outcome of each paper's latest PMC attempt."""
     last: dict[str, tuple[dt.date, str]] = {}
     for a in attempts:
-        if a["tier"] == _TIER:
+        if a["tier"] == ladder.PMC:
             date = a["date"] or dt.date.min
             if a["paper"] not in last or date >= last[a["paper"]][0]:
                 last[a["paper"]] = (date, a["outcome"])
     return {k: v for k, (_, v) in last.items()}
-
-
-def _set_tiers(row: dict[str, Any], files: list[dict[str, Any]]) -> None:
-    held = {f["kind"] for f in files if f["path"]}
-    if "xml" in held:
-        row["xml_tier"] = _TIER
-    if "pdf" in held:
-        row["pdf_tier"] = _TIER
-    elif row.get("pdf_tier") == _TIER:
-        row["pdf_tier"] = None
 
 
 def _replace_other_pdfs(
@@ -393,7 +381,7 @@ def _replace_other_pdfs(
     by_paper: dict[str, list[dict[str, Any]]],
     papers: Collection[str],
 ) -> int:
-    """Remove the PDFs other tiers supplied for papers whose XML PMC holds; return how many.
+    """Remove the PDFs the ladder says PMC's copy replaces; return how many.
 
     The caller saves the PMC files first; a PDF is deleted only once the tables without it
     are saved. A file another remaining row points at is kept.
@@ -402,9 +390,7 @@ def _replace_other_pdfs(
     replaced = 0
     for key in papers:
         rows = by_paper.get(key, [])
-        if not any(r["tier"] == _TIER and r["kind"] == "xml" and r["path"] for r in rows):
-            continue
-        other = [r for r in rows if r["kind"] == "pdf" and r["tier"] != _TIER]
+        other = ladder.replaced(rows)
         if not other:
             continue
         for r in other:
@@ -413,7 +399,7 @@ def _replace_other_pdfs(
         for r in other:
             if r["path"] and pointing[r["path"]] <= 0:
                 state.folder.delete(r["path"])
-        kept = [r for r in rows if r["kind"] != "pdf" or r["tier"] == _TIER]
+        kept = [r for r in rows if r not in other]
         # PMC's PDF takes the paper's name, as for any PMC paper.
         name = f"{urllib.parse.quote(key, safe='')}.pdf"
         if not any(r["kind"] == "pdf" and r["name"] == name for r in kept):
@@ -421,9 +407,6 @@ def _replace_other_pdfs(
             if pmc_pdfs:
                 pmc_pdfs[0]["name"] = name
         by_paper[key] = kept
-        row = state.papers[key]
-        row["xml_tier"] = _TIER
-        row["pdf_tier"] = _TIER if any(r["kind"] == "pdf" and r["path"] for r in kept) else None
         replaced += len(other)
     return replaced
 
@@ -573,7 +556,7 @@ def _file(
         "size": size,
         "md5": md5,
         "url": f"{BUCKET}/{folder}/{urllib.parse.quote(source)}",
-        "tier": _TIER,
+        "tier": ladder.PMC,
         "label": None,
         "caption": None,
         "fetched": None,

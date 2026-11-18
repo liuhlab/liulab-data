@@ -143,7 +143,7 @@ def _hold_series(root: Path, gse: str, soft: str | None = None) -> None:
 
 
 def _held(root: Path, source: str) -> dict[str, str]:
-    return {row.accession: row.raw_text for row in raw.read_rows(root, source)}
+    return {row.accession: row.raw_text for row in raw.rows(root, source)}
 
 
 def _gds(gse: str) -> tuple[str, str]:
@@ -164,6 +164,7 @@ def test_a_series_confirmed_gone_leaves_raw_with_its_series_keyed_rows(
     _use(monkeypatch, Ncbi({_gds("GSE3"): [Reply(_GONE_GDS % 200000003)]}))
 
     assert "1 confirmed gone" in _step(root, "_confirm")
+    assert removals.candidates(root) == []  # gone before pack
     with caplog.at_level("INFO"):
         _step(root, "pack")
 
@@ -334,12 +335,12 @@ def test_writing_the_same_removal_again_keeps_its_place_before_later_rows(tmp_pa
 
 def _one_tick(root: Path, source: str) -> None:
     """Give every part one mtime, as files written within one clock tick can have."""
-    for path in raw.part_files(root, source):
-        os.utime(path, ns=(0, 0))
+    for parts in raw.parts_by_bucket(root, source).values():
+        for path in parts:
+            os.utime(path, ns=(0, 0))
 
 
 def _part(root: Path, source: str, *rows: raw.RawRow) -> Path:
     """Write rows as one part, as a fetch in this refresh does."""
-    todo = tuple(sorted(row.accession for row in rows))
-    piece = raw.Piece(source, raw.bucket_of(source, todo[0]), todo)
-    return raw.write_part(root, piece, rows)
+    [part] = raw.save(root, source, rows, asked=sorted(row.accession for row in rows))
+    return part

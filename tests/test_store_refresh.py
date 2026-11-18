@@ -239,7 +239,7 @@ def _refresh(root: Path, *extra: str) -> str:
 
 
 def _held(root: Path, source: str) -> dict[str, str]:
-    return {row.accession: row.raw_text for row in raw.read_rows(root, source)}
+    return {row.accession: row.raw_text for row in raw.rows(root, source)}
 
 
 def _current(root: Path) -> Path:
@@ -279,7 +279,7 @@ def test_refresh_hands_snakemake_the_refresh_dag_in_step_order(
         "targets": {"snapshots.done", "geo-series.done"},
         "changes": {"targets.done"},
         "geo": {"refetch.txt"},
-        "eutils_beside_geo": {"refetch.txt"},
+        "eutils_beside_geo": {"refetch.txt", "refetch-experiments.txt"},
         "eutils_after_geo": {"geo.done", "eutils-beside-geo.done"},
         "confirm": {"eutils.done"},
         "pack": {"confirm.done"},

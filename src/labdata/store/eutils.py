@@ -229,23 +229,19 @@ def _samples(root: Path, out: Path, series: set[str]) -> Path:
 
 
 def _soft_experiments(root: Path, out: Path, series: set[str] | None) -> Path:
-    """Spill the SRX accessions of the saved SOFT of these Series, packed or in a part."""
+    """Spill the SRX accessions of the saved SOFT of these Series, or of every held Series."""
     out.parent.mkdir(parents=True, exist_ok=True)
-    files = sorted(paths.RAW.at(root, raw.GEO_SOFT).glob("*.parquet"))
-    files += raw.part_files(root, raw.GEO_SOFT)
     tmp = temp_beside(out)
     try:
         with pq.ParquetWriter(tmp, _SOFT_SCHEMA) as writer:
             writer.write_table(_SOFT_SCHEMA.empty_table())
-            for path in files:
-                found: set[str] = set()
-                columns = ["accession", "raw_text"]
-                for batch in pq.ParquetFile(path).iter_batches(batch_size=64, columns=columns):
-                    for gse, text in zip(*batch.to_pydict().values(), strict=True):
-                        if series is not None and gse not in series:
-                            continue
-                        found.update(m.decode() for m in _SOFT_SRX.findall(text.encode()))
-                writer.write_table(pa.table({"accession": sorted(found)}, schema=_SOFT_SCHEMA))
+            found: set[str] = set()
+            for row in raw.rows(root, raw.GEO_SOFT, series):
+                found.update(m.decode() for m in _SOFT_SRX.findall(row.raw_text.encode()))
+                if len(found) >= _ROWS:
+                    writer.write_table(pa.table({"accession": sorted(found)}, schema=_SOFT_SCHEMA))
+                    found = set()
+            writer.write_table(pa.table({"accession": sorted(found)}, schema=_SOFT_SCHEMA))
         tmp.replace(out)
     finally:
         tmp.unlink(missing_ok=True)
@@ -459,22 +455,16 @@ def _fetch(client: EntrezClient, ids: list[str]) -> FetchedRecords:
 
 def _save(root: Path, part: _Part, date: str) -> None:
     """Write the part; an experiment whose call failed is left unasked, to be fetched again."""
-    bucket = part.piece.bucket
-    asked = tuple(a for a in part.piece.todo if a not in part.failed)
+    asked = [a for a in part.piece.todo if a not in part.failed]
     if asked:
-        raw.write_part(root, raw.Piece(raw.SRA_XML, bucket, asked), part.rows(date))
+        raw.save(root, raw.SRA_XML, part.rows(date), asked=asked)
     part.spill.unlink(missing_ok=True)
 
 
 def _record_failed(root: Path, failed: dict[str, str], date: str) -> None:
     """Save each experiment whose fetch failed as an ``sra-fetch-failed`` row: its last error."""
-    by_bucket: dict[str, list[str]] = defaultdict(list)
-    for accession in sorted(failed):
-        by_bucket[raw.bucket_of(raw.SRA_FETCH_FAILED, accession)].append(accession)
-    for bucket, todo in sorted(by_bucket.items()):
-        rows = (raw.RawRow(a, " ".join(failed[a].split()), date) for a in todo)
-        piece = raw.Piece(raw.SRA_FETCH_FAILED, bucket, tuple(todo))
-        raw.write_part(root, piece, rows, record_asked=False)
+    rows = [raw.RawRow(a, " ".join(text.split()), date) for a, text in failed.items()]
+    raw.save(root, raw.SRA_FETCH_FAILED, rows)
 
 
 def _jobs(
@@ -541,25 +531,10 @@ def _bad_saved(root: Path, status: dict[str, str], noted: set[str]) -> set[str]:
     A package is bad when it is empty while the tab says ``live``, or when ``noted`` lists it
     and it is still not well-formed.
     """
-    bucket = raw.bucket_of(raw.SRA_XML, next(iter(status)))
-    files = [paths.RAW.at(root, raw.SRA_XML, f"{bucket}.parquet")]
-    files += [p for p in raw.part_files(root, raw.SRA_XML) if raw.part_bucket(p) == bucket]
-    look = sorted(noted.intersection(status))
-    empty: set[str] = set()
-    newest: dict[str, str] = {}
-    for path in filter(Path.is_file, files):
-        for chunk in pq.ParquetFile(path).iter_batches(columns=["accession", "hash"]):
-            for accession, digest in zip(*chunk.to_pydict().values(), strict=True):
-                if digest == _EMPTY:
-                    empty.add(accession)
-                else:
-                    empty.discard(accession)
-        if look:
-            found = pq.read_table(
-                path, columns=["accession", "raw_text"], filters=[("accession", "in", look)]
-            )
-            newest |= dict(zip(*found.to_pydict().values(), strict=True))
-    live = {a for a in empty if status.get(a) == "live"}
+    hashes = raw.saved(root, raw.SRA_XML, status, column="hash")
+    live = {a for a, digest in hashes.items() if digest == _EMPTY and status[a] == "live"}
+    look = noted.intersection(status)
+    newest = raw.saved(root, raw.SRA_XML, look) if look else {}
     return live | {a for a, text in newest.items() if text and not _well_formed(text)}
 
 

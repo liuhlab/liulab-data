@@ -109,8 +109,8 @@ confirms it is gone.
 
 ### Removal part
 
-A part that lists accessions to delete instead of holding rows. Pack applies it in part order:
-it deletes the rows saved before it, and a row saved after it wins.
+A part that lists accessions to delete instead of holding rows. Every read of `raw/` and pack
+apply it in part order: it drops the rows saved before it, and a row saved after it wins.
 
 ### Status record
 
@@ -212,6 +212,12 @@ One source the paper job tries for a paper, in a fixed order: the PMC bucket, Op
 copy, a free host link, then the manual queue in Paperpile. A paper moves to the next tier only
 when the one before cannot serve it. If PMC later serves a paper, its copy replaces the PDF a
 later tier gave.
+
+### Tier ladder
+
+The one rule that turns a paper's row, attempts and files into its paper status, its reason and
+the tier to try next. Tiers only record attempts and files; the daily pass and the PMC sync both
+settle papers on the ladder, so they always agree.
 
 ### Paper job
 

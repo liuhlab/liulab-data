@@ -2,7 +2,10 @@
 
 The list holds the target Series GEO updated since the last successful refresh, less
 :data:`OVERLAP_DAYS`; the target Series not yet held; the held target Series whose last SOFT
-fetch failed; and every Series a relation line in their saved SOFT names. The fetch lanes take it as their ``refetch`` Series.
+fetch failed; and every Series a relation line in their saved SOFT names. The fetch lanes
+take it as their ``refetch`` Series. Beside it, :func:`experiments_path` holds the experiments
+their saved SOFT named when the list was made, so the E-utilities lane fetches again one a new
+SOFT drops, whenever pack runs.
 
 The store modules are imported where they are used, so the CLI reads :data:`OVERLAP_DAYS`
 without loading pyarrow.
@@ -72,11 +75,22 @@ def related(root: Path, series: Iterable[str]) -> set[str]:
     return found
 
 
-def refetch_experiments(root: Path, series: Iterable[str]) -> set[str]:
-    """Return the experiments the saved SOFT of ``series`` and their related Series name."""
+def experiments_path(listed: Path) -> Path:
+    """Return the file beside a re-fetch list of the experiments its Series' SOFT named."""
+    return listed.with_name(f"{listed.stem}-experiments{listed.suffix}")
+
+
+def refetch_experiments(root: Path, listed: Path) -> set[str]:
+    """Return the experiments to fetch again for the re-fetch list at ``listed``.
+
+    They are the experiments the saved SOFT of its Series and their related Series name, and
+    those :func:`experiments_path` recorded when the list was made.
+    """
     from labdata.store import raw
 
-    return raw.scan(root, raw.GEO_SOFT, related(root, series), SRA_RELATION)
+    found = related(root, listed.read_text().split())
+    named = raw.scan(root, raw.GEO_SOFT, found, SRA_RELATION)
+    return named | set(experiments_path(listed).read_text().split())
 
 
 def change_list(
@@ -96,7 +110,7 @@ def change_list(
     last_refresh : datetime.date
         The date of the last successful refresh.
     out : pathlib.Path
-        The file to write; it appears whole.
+        The file to write; it appears whole, after its :func:`experiments_path`.
     client : EntrezClient
         The NCBI seam, for the ``gds`` search.
     snapshot_date : str or None
@@ -124,6 +138,8 @@ def change_list(
     failed = soft_failed(root, wanted) - updated
     listed = related(root, updated | unheld | failed)
     out.parent.mkdir(parents=True, exist_ok=True)
+    named = raw.scan(root, raw.GEO_SOFT, listed, SRA_RELATION)
+    write_atomic(experiments_path(out), "".join(f"{srx}\n" for srx in sorted(named)))
     write_atomic(out, "".join(f"{gse}\n" for gse in sorted(listed, key=_number)))
     rest = listed - updated - unheld - failed
     return ChangeList(out, len(updated), len(unheld), len(failed), len(rest), len(listed))
@@ -139,8 +155,8 @@ def soft_failed(root: Path, series: Iterable[str]) -> set[str]:
 
     gap_rows = raw.saved(root, raw.GEO_GAPS, series)
     missing = {gse for gse, text in gap_rows.items() if text.split("\n", 1)[0] == gaps.SOFT_MISSING}
-    gap_dates = raw.fetch_dates(root, raw.GEO_GAPS, missing)
-    soft = raw.fetch_dates(root, raw.GEO_SOFT, missing)
+    gap_dates = raw.saved(root, raw.GEO_GAPS, missing, column="fetch_date")
+    soft = raw.saved(root, raw.GEO_SOFT, missing, column="fetch_date")
     return {gse for gse in missing if gse in soft and gap_dates[gse] > soft[gse]}
 
 

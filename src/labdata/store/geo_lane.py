@@ -119,7 +119,7 @@ def run(
             what = "retry of failed" if retried else f"round {rounds}"
             _fetch_soft(root, pool, todo, date, f"Series SOFT, {what}", again)
             named = raw.scan(
-                root, raw.GEO_SOFT, again.intersection(todo), RELATION, parts_only=True
+                root, raw.GEO_SOFT, again.intersection(todo), RELATION, since_pack=True
             )
             late = named - again
             again |= late
@@ -127,10 +127,10 @@ def run(
             if not todo and not retried:
                 retried = True
                 unsaved = seen - _soft_held(root, seen)
-                unsaved |= again - raw.held(root, raw.GEO_SOFT, again, parts_only=True)
+                unsaved |= again - raw.held(root, raw.GEO_SOFT, again, since_pack=True)
                 todo = sorted(_failed(root, unsaved))
         held = sorted(_soft_held(root, seen))
-        renewed = raw.held(root, raw.GEO_SOFT, again, parts_only=True)
+        renewed = raw.held(root, raw.GEO_SOFT, again, since_pack=True)
         for _ in range(2):
             if raw.pieces(root, raw.GEO_FILELIST, held, renewed):
                 _fetch_filelists(root, pool, held, date, renewed)
@@ -202,7 +202,7 @@ def _fetch_soft(
     """Fetch the SOFT of every unsaved Series; a re-fetch one is skipped only for a new gap."""
     again = again.intersection(accessions)
     gap_rows = raw.saved(root, raw.GEO_GAPS, set(accessions) - again)
-    gap_rows |= raw.saved(root, raw.GEO_GAPS, again, parts_only=True)
+    gap_rows |= raw.saved(root, raw.GEO_GAPS, again, since_pack=True)
     missing = {gse for gse, text in gap_rows.items() if text.split("\n", 1)[0] == gaps.SOFT_MISSING}
     pieces = raw.pieces(
         root, raw.GEO_SOFT, [a for a in accessions if a not in missing], again - missing
@@ -238,44 +238,42 @@ def _fetch_parts(
     keep: Callable[[str, str | _Gap], tuple[raw.RawRow | None, raw.RawRow | None]],
     phase: str,
 ) -> None:
-    """Fetch every piece's items in one stream; save each bucket's rows and gap rows as parts.
+    """Fetch every piece's items in one stream; save each piece's rows and gap rows as parts.
 
-    A bucket's rows are written once :data:`ROWS_PER_PART` rows or ``raw.SORT_CHUNK_BYTES``
-    of text are held, or the bucket is done, so the connections never wait on a part's
-    slowest file.
+    A piece's rows are saved once :data:`ROWS_PER_PART` rows or ``raw.SORT_CHUNK_BYTES`` of
+    text are held, or the piece is done, so the connections never wait on a part's slowest
+    file.
     """
     if not pieces:
         return
     source = pieces[0].source
-    left = {p.bucket: len(p.todo) for p in pieces}
-    held: dict[str, tuple[list[raw.RawRow], list[raw.RawRow]]] = {}
-    size: Counter[str] = Counter()
+    piece_of = {a: i for i, p in enumerate(pieces) for a in p.todo}
+    left = [len(p.todo) for p in pieces]
+    held: dict[int, tuple[list[raw.RawRow], list[raw.RawRow]]] = {}
+    size: Counter[int] = Counter()
 
-    def flush(bucket: str) -> None:
-        rows, gap_rows = held.pop(bucket)
-        size.pop(bucket, None)
-        for folder, chunk in ((source, rows), (raw.GEO_GAPS, gap_rows)):
-            if chunk:
-                todo = tuple(sorted(r.accession for r in chunk))
-                piece = raw.Piece(folder, raw.bucket_of(folder, todo[0]), todo)
-                raw.write_part(root, piece, chunk, record_asked=False)
+    def flush(at: int) -> None:
+        rows, gap_rows = held.pop(at)
+        size.pop(at, None)
+        raw.save(root, source, rows)
+        raw.save(root, raw.GEO_GAPS, gap_rows)
 
     items = (a for p in pieces for a in p.todo)
-    with pool.phase(phase, sum(left.values())):
+    with pool.phase(phase, sum(left)):
         for accession, got in pool.map(items, url, consume):
-            bucket = raw.bucket_of(source, accession)
-            rows, gap_rows = held.setdefault(bucket, ([], []))
+            at = piece_of[accession]
+            rows, gap_rows = held.setdefault(at, ([], []))
             row, gap = keep(accession, got)
             rows.extend([row] if row else [])
             gap_rows.extend([gap] if gap else [])
-            left[bucket] -= 1
-            size[bucket] += len(row.raw_text) if row else 0
+            left[at] -= 1
+            size[at] += len(row.raw_text) if row else 0
             if (
-                left[bucket] == 0
+                left[at] == 0
                 or len(rows) + len(gap_rows) >= ROWS_PER_PART
-                or size[bucket] >= raw.SORT_CHUNK_BYTES
+                or size[at] >= raw.SORT_CHUNK_BYTES
             ):
-                flush(bucket)
+                flush(at)
 
 
 def _soft_held(root: Path, accessions: set[str]) -> set[str]:
