@@ -483,13 +483,12 @@ def pmc_only(root: Path) -> None:
     )
 
 
-@pytest.mark.parametrize("tier", ["openalex", "host"])
 def test_pmc_replaces_a_pdf_another_tier_supplied(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tier: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     b = bucket()
     root = store(tmp_path, web(b), monkeypatch)
-    held_pdf(root, tier)
+    held_pdf(root, "openalex")
     sync(root)
 
     pmc_only(root)

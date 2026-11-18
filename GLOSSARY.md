@@ -213,6 +213,12 @@ copy, a free host link, then the manual queue in Paperpile. A paper moves to the
 when the one before cannot serve it. If PMC later serves a paper, its copy replaces the PDF a
 later tier gave.
 
+### Tier ladder
+
+The one rule that turns a paper's row, attempts and files into its paper status, its reason and
+the tier to try next. Tiers only record attempts and files; the daily pass and the PMC sync both
+settle papers on the ladder, so they always agree.
+
 ### Paper job
 
 The one long-running job that keeps the paper store current. It runs the daily pass every day and
