@@ -64,7 +64,7 @@ def candidates(root: Path, extra: Iterable[str] = ()) -> list[str]:
     listed = _gds_series(root)
     found |= {gse for gse in _held_series(root) if gse not in listed}
     for gse, text in raw.saved(root, raw.GEO_GAPS, since_pack=True):
-        if text.split("\n", 1)[0] == gaps.SOFT_MISSING:
+        if gaps.reason_of(text) == gaps.SOFT_MISSING:
             found.add(gse)
     return sorted(found)
 
@@ -165,7 +165,7 @@ def _held_series(root: Path, accessions: set[str] | None = None) -> set[str]:
     found |= {
         a
         for a, text in raw.saved(root, raw.GEO_GAPS, accessions)
-        if text.split("\n", 1)[0] != gaps.WITHDRAWN
+        if gaps.reason_of(text) != gaps.WITHDRAWN
     }
     return {a for a in found if a.startswith("GSE")}
 

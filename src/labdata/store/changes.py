@@ -163,7 +163,7 @@ def soft_failed(root: Path, series: Iterable[str]) -> set[str]:
     from labdata.store import gaps, raw
 
     gap_rows = dict(raw.saved(root, raw.GEO_GAPS, series))
-    missing = {gse for gse, text in gap_rows.items() if text.split("\n", 1)[0] == gaps.SOFT_MISSING}
+    missing = {gse for gse, text in gap_rows.items() if gaps.reason_of(text) == gaps.SOFT_MISSING}
     gap_dates = dict(raw.saved(root, raw.GEO_GAPS, missing, column="fetch_date"))
     soft = dict(raw.saved(root, raw.GEO_SOFT, missing, column="fetch_date"))
     return {gse for gse in missing if gse in soft and gap_dates[gse] > soft[gse]}

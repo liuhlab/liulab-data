@@ -37,8 +37,10 @@ FETCH_FAILED = "fetch-failed"
 WITHDRAWN = "withdrawn"
 #: Not held and no known reason.
 UNEXPLAINED = "unexplained"
-#: Every gap reason, the recordable ones first. A new reason is added here, on purpose.
-REASONS = (SOFT_MISSING, FETCH_FAILED, WITHDRAWN, UNEXPLAINED)
+#: The reasons a gap row records, each an explained gap. A new reason is added here, on purpose.
+RECORDED = (SOFT_MISSING, FETCH_FAILED, WITHDRAWN)
+#: Every gap reason, the recorded ones first.
+REASONS = (*RECORDED, UNEXPLAINED)
 
 #: Note kind: a target Series whose SOFT ``!Series_type`` names no sequencing.
 TYPE_DISAGREES = "series type disagrees"
@@ -129,10 +131,15 @@ def gap_row(series: str, reason: str, fetch_date: str, detail: str = "") -> raw.
     >>> gap_row("GSE1", SOFT_MISSING, "2026-10-14").raw_text
     'soft-missing'
     """
-    if reason not in REASONS[:-1]:
+    if reason not in RECORDED:
         raise ValueError(f"not a recordable gap reason: {reason!r}")
     line = " ".join(detail.split())
     return raw.RawRow(series, f"{reason}\n{line}" if line else reason, fetch_date)
+
+
+def reason_of(text: str) -> str:
+    """Return the reason a ``raw/geo-gaps/`` row's text records, as :func:`gap_row` wrote it."""
+    return text.split("\n", 1)[0]
 
 
 def write_gaps(
@@ -159,7 +166,7 @@ def write_gaps(
     metadata = {DATE_KEY: date}
     if fraction is not None:
         metadata[FRACTION_KEY] = repr(fraction)
-    reasons = ", ".join(sql_string(r) for r in REASONS[:-1])
+    reasons = ", ".join(sql_string(r) for r in RECORDED)
     with extract.connect(root) as con:
         layout.write(
             con,
