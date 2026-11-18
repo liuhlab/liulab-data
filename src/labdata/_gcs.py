@@ -117,7 +117,10 @@ class Adapter(ABC):
         )
 
     def seed(self, fetched: Mapping[str, bytes]) -> Files | None:
-        """Return a copy record for a store with none, from the :attr:`seed_from` GCS holds."""
+        """Return a copy record for a store with none, from the :attr:`seed_from` GCS holds.
+
+        The copy uses it only when GCS holds each file it lets the copy leave out.
+        """
         return None
 
 
@@ -159,8 +162,9 @@ def copy(
     -------
     str or None
         Why the copy was skipped: rclone's login has expired, or a routine copy found no copy
-        record on the work disk or in GCS and the adapter seeded none. None when it is done,
-        the status record included.
+        record on the work disk or in GCS and the adapter seeded none, or seeded one naming a
+        file GCS lacks or holds with another size. None when it is done, the status record
+        included.
 
     Raises
     ------
@@ -189,11 +193,15 @@ def copy(
                 copied = adapter.load(disk.read_bytes()) if disk.is_file() else None
             else:
                 copied = adapter.seed(fetched)
-                if copied is None:
+                lacking = [] if copied is None else _lacking(adapter, dest, held, copied, run)
+                if lacking is None:
+                    return expired
+                if copied is None or lacking:
+                    why = f"; GCS lacks {lacking[0]} or holds another size" if lacking else ""
                     return (
                         f"no copy record, on the work disk or in GCS, so GCS is behind the "
-                        f"{adapter.what}. Run `{adapter.command} --full` once: it uploads the "
-                        f"{adapter.what} and deletes nothing. Later copies send changes."
+                        f"{adapter.what}{why}. Run `{adapter.command} --full` once: it uploads "
+                        f"the {adapter.what} and deletes nothing. Later copies send changes."
                     )
                 # Up first, so a copy cut off after it never has to seed one again.
                 if not _put(adapter, dest, adapter.record, adapter.dump(copied), run):
@@ -357,6 +365,23 @@ def _listing(
     ):
         return None
     return {e["Path"]: (e["Size"], e.get("Hashes", {}).get("md5", "")) for e in json.loads(out[0])}
+
+
+def _lacking(
+    adapter: Adapter, dest: str, held: Files, seeded: Files, run: _Run
+) -> list[str] | None:
+    """Return the files a seeded record would leave out of the copy that GCS lacks.
+
+    A file counts as lacking when GCS holds it with a size other than the disk's. One listing,
+    no download; None on an expired login.
+    """
+    skipped = [p for p, sig in held.items() if sig is not None and seeded.get(p) == sig]
+    listed = _listing(adapter, dest, skipped, run)
+    if listed is None:
+        return None
+    return [
+        p for p in skipped if p not in listed or listed[p][0] != (adapter.root / p).stat().st_size
+    ]
 
 
 def _matches(path: Path, size: int, md5: str) -> bool:

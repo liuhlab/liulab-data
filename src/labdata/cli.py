@@ -655,9 +655,10 @@ def store_copy(
     is not the one in GCS (run `labdata store restore`), or when it would delete more than a
     small share of the copied raw files and more than --accept-deletes. With no copy
     record, on the disk or in the bucket, it seeds one from the build the bucket's marker
-    names when the status record shows the bucket holds that build; otherwise, or when
-    rclone's Google login has expired, it skips with a message and exits 1. The status record
-    marks the copy pending until one succeeds, which sends it last, marked finalized.
+    names when the status record shows the bucket holds that build and a listing finds its
+    files there with the disk's sizes; otherwise, or when rclone's Google login has expired,
+    it skips with a message and exits 1. The status record marks the copy pending until one
+    succeeds, which sends it last, marked finalized.
     """
     from labdata.store import lifecycle
 

@@ -8,8 +8,8 @@ with its sha256, or null for a file sent every time. :func:`labdata.store.lifecy
 runs each copy and gives it the status record to send last, marked finalized.
 
 A routine copy with no copy record on the work disk or in GCS seeds one from the build the
-marker in GCS names, when GCS is known to hold exactly that build; otherwise it is skipped and
-asks for ``labdata store copy --full``, which uploads the current state and deletes nothing. A
+marker in GCS names, when GCS is known to hold exactly that build and a listing finds its
+files there; otherwise it is skipped and asks for ``labdata store copy --full``, which uploads the current state and deletes nothing. A
 copy refuses, sending nothing, when it would delete more of the copy record's raw files than
 :func:`labdata._gcs.delete_limit` allows, unless the deletes are accepted by hand, or when the
 work disk is not in step with GCS (:func:`check`). :func:`restore` fills a work disk from GCS.
@@ -97,7 +97,7 @@ def send(
     bucket_matches_marker : bool
         Whether GCS holds exactly the build its marker names and what that build read. A
         routine copy with no copy record, on the disk or in GCS, then seeds one from that
-        build, if it is on the disk.
+        build, if it is on the disk and GCS holds its files with the disk's sizes.
 
     Returns
     -------

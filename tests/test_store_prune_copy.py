@@ -549,6 +549,28 @@ def test_with_no_record_a_copy_seeds_one_from_the_build_the_gcs_marker_names(
     _holds_its_record(gcs, root)
 
 
+@pytest.mark.parametrize("damage", ["missing", "short"])
+def test_with_no_record_a_copy_refuses_to_seed_one_naming_files_gcs_lacks(
+    root: Path, gcs: FakeGcs, damage: str
+) -> None:
+    _copy_to(root)
+    _lose_record(root, gcs)
+    _status(root, copy_pending=False)
+    path = "builds/b1/holdings.parquet"
+    if damage == "missing":
+        gcs.remove(path)
+    else:
+        gcs.write(path, gcs.read(path)[:-1])
+
+    result = _copy(root)
+
+    assert result.exit_code == 1, result.output
+    assert "labdata store copy --full" in result.output
+    assert gcs.sent() == []
+    assert COPIED not in gcs.files()
+    assert lifecycle.read_status(root)["copy_pending"] is True
+
+
 def test_with_no_record_after_a_switch_a_copy_sends_the_new_build_and_deletes_the_old(
     root: Path, gcs: FakeGcs
 ) -> None:

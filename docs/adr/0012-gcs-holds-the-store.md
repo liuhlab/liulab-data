@@ -44,4 +44,5 @@ Both copies bound their deletes the same way:
 - A change of bucket width replaces a source's raw files at once: the copy refuses, and
   `--accept-deletes` with the count it gives applies the change.
 - With no copy record anywhere, a routine copy seeds one from the build the bucket's marker
-  names, if that build is on the disk and the last copy worked. Otherwise it asks for `--full`.
+  names, if that build is on disk, the last copy worked and GCS lists its files.
+  Otherwise it asks for `--full`.

@@ -41,7 +41,7 @@ from labdata.store import (
     refresh,
 )
 from labdata.store.fetch import soft_url
-from labdata.store.gcs import COPIED
+from labdata.store.gcs import COPIED, send
 from tests._fake_gcs import FakeGcs
 from tests._scripts import compare
 from tests._slices import copy_store
@@ -564,7 +564,10 @@ def _mirrored(root: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Fa
     marker = root / "labdata-store.toml"
     marker.write_text(marker.read_text() + f'copy_to = "{_DEST}"\n', encoding="utf-8")
     gcs = FakeGcs.install(monkeypatch, tmp_path / "gcs", _DEST)
-    gcs.write("labdata-store.toml", marker.read_bytes())
+    send(root, _DEST, None, full=True)
+    gcs.remove(COPIED)
+    (root / COPIED).unlink()
+    gcs.forget()
     return gcs
 
 

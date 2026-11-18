@@ -59,7 +59,8 @@ disk is only where updates run, so a copy never deletes a file because the disk 
 To know what changed, the copy keeps a hidden list of the files GCS holds, its copy record
 `.copied-files.json`, on the work disk and in GCS. When neither has the list, the copy makes
 it from the build that the marker file in GCS names. It does so only if that build is still on
-the disk and the last copy had worked. Otherwise, as for a store's first copy,
+the disk, the last copy had worked, and a listing finds that build's files in GCS with the
+disk's sizes; it downloads nothing for that check. Otherwise, as for a store's first copy,
 `labdata store copy` stops and asks you to run this once:
 
 ```bash
