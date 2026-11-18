@@ -1,7 +1,7 @@
-"""The only code that writes, moves and deletes paper files.
+"""The paper files: written, moved and deleted for :mod:`labdata.papers.tables` alone.
 
-A file is written under :data:`TEMP` and renamed into place, zstd-compressed when its name
-calls for it, so it is whole or absent. :meth:`PaperFolder.commit` writes the queued moves
+A file is written under :data:`TEMP` and renamed into place, zstd-compressed when asked,
+so it is whole or absent. :meth:`PaperFolder.commit` writes the queued moves
 and deletes to :data:`PENDING`, puts each moved file at its target as well, saves the tables,
 then deletes. A pass started after a kill finishes or drops them by what the saved ``files``
 table names, and sweeps :data:`TEMP`. Losing :data:`PENDING` leaves at most orphan files,
@@ -31,65 +31,13 @@ TEMP = paths.TEMP.name
 #: The moves and deletes a save has yet to apply.
 PENDING = paths.PENDING.rel
 
-#: The ending a compressed file gets.
-SUFFIX = ".zst"
-
 #: The zstd level files are compressed at.
 LEVEL = 10
-
-#: File endings stored compressed: XML, plain text, and images in uncompressed formats.
-#: Everything else (PDF, xlsx, docx, zip, jpg, png, gif, ...) is stored as it is.
-COMPRESSED = frozenset(
-    {
-        ".xml",
-        ".csv",
-        ".tsv",
-        ".txt",
-        ".tab",
-        ".json",
-        ".htm",
-        ".html",
-        ".md",
-        ".rtf",
-        ".xls",
-        ".doc",
-        ".ppt",
-        ".eps",
-        ".ps",
-        ".svg",
-        ".tif",
-        ".tiff",
-        ".bmp",
-        ".fa",
-        ".fasta",
-        ".bed",
-        ".gtf",
-        ".gff",
-        ".vcf",
-        ".sdf",
-        ".pdb",
-        ".r",
-        ".py",
-        ".sh",
-    }
-)
 
 # Folders this deep or deeper (``papers/<group>/<paper>/...``) are removed once empty.
 _PAPER_DEPTH = 3
 
 _Op = list[str]
-
-
-def compressed(name: str) -> bool:
-    """Return whether a file of this name is stored compressed."""
-    return Path(name).suffix.lower() in COMPRESSED
-
-
-def open_plain(path: Path) -> io.BufferedIOBase:
-    """Open a stored paper file for reading, decompressed when it ends in ``.zst``."""
-    if path.name.endswith(SUFFIX):
-        return zstd.ZstdFile(path, "rb")
-    return path.open("rb")
 
 
 class PaperFolder:

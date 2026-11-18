@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import hashlib
 import json
 import re
@@ -14,7 +15,7 @@ import pytest
 from typer.testing import CliRunner, Result
 
 from labdata.cli import app
-from labdata.papers import init_paper_store, open_paper_store, tables
+from labdata.papers import init_paper_store, open_paper_store, paper_dir, tables
 from labdata.papers.copy import COPIED, PaperCopyError
 from labdata.papers.lifecycle import copy
 from tests._fake_gcs import FakeGcs, KilledError
@@ -361,6 +362,41 @@ def test_an_empty_files_table_copies_nothing(root: Path, gcs: FakeGcs, full_copy
         copy(open_paper_store(root), full=full_copy)
     assert gcs.calls == []
     assert status(root)["copy_pending"] is True
+
+
+def test_a_save_stopped_after_its_first_table_leaves_every_old_table_on_disk_and_in_gcs(
+    root: Path, gcs: FakeGcs, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    doi, today = "10.1000/rekey", dt.date(2026, 11, 7)
+    pdf = (paper_dir(doi) / "10.1000%2Frekey.pdf").as_posix()
+    (root / pdf).parent.mkdir(parents=True)
+    (root / pdf).write_bytes(b"%PDF")
+    tables.write(root, tables.PAPERS, [{"paper": doi, "doi": doi}])
+    row = {"paper": doi, "kind": "pdf", "name": "10.1000%2Frekey.pdf", "path": pdf}
+    tables.write(root, tables.FILES, [row])
+    full(root, gcs)
+    state = tables.PaperTables.load(root, today)
+    state.rekey(doi, "41000005", doi)
+    write, written = tables.write, []
+
+    def stopped(at: Path, table: tables.PaperTable, rows: list[dict]) -> Path:
+        written.append(table)
+        if len(written) == 2:
+            raise KilledError
+        return write(at, table, rows)
+
+    with monkeypatch.context() as m:
+        m.setattr(tables, "write", stopped)
+        with pytest.raises(KilledError):
+            state.save(today)
+    copy(open_paper_store(root))
+
+    def keys(data: bytes) -> set[str]:
+        return set(pq.read_table(pa.BufferReader(data)).column("paper").to_pylist())
+
+    for held in (lambda t: t.path(root).read_bytes(), lambda t: gcs.read(t.path(root).name)):
+        assert keys(held(tables.PAPERS)) == keys(held(tables.FILES)) == {doi}
+    assert papers(record(gcs)) == [pdf]
 
 
 def test_any_failure_past_the_destination_sets_copy_pending(root: Path, gcs: FakeGcs) -> None:

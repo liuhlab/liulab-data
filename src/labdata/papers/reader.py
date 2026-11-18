@@ -19,7 +19,6 @@ import pyarrow.parquet as pq
 
 from labdata.exceptions import NotMirrored
 from labdata.papers import tables
-from labdata.papers.folder import open_plain
 from labdata.papers.root import is_placeholder, paper_key
 from labdata.store.model import kind_of
 from labdata.store.reader import BuildReader
@@ -84,7 +83,7 @@ class PaperFile:
         """
         if self.path is None:
             raise FileNotFoundError(f"{self.name} is listed, not held; its URL is {self.url}")
-        return open_plain(self.path)
+        return tables.open_plain(self.path)
 
 
 @dataclass(frozen=True, slots=True)

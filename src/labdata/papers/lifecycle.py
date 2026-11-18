@@ -4,8 +4,8 @@ A step is a daily pass, a PMC sync or a copy, and holds the paper store's lock o
 pass and its copy together. A pass first checks the work disk against GCS, refusing when it is
 not in step and only warning when rclone's login has expired. A pass marks the store not
 finalized as it starts, records its outcome, then finalizes, whatever the outcome. Finalizing
-takes in a stopped daily pass's journal, marks a copy pending, then copies to GCS; the copy
-sends the status record last, marked finalized and no longer pending, and a pass it records as
+finishes what a stopped step left (:func:`labdata.papers.tables.heal`), marks a copy pending,
+then copies to GCS; the copy sends the status record last, marked finalized and no longer pending, and a pass it records as
 running, which was stopped, as failed. A copy that is skipped, fails or is cut off leaves it
 pending, for the paper job to retry.
 
@@ -27,6 +27,7 @@ from labdata.ncbi.entrez import EntrezClient
 from labdata.papers import copy as copy_mod
 from labdata.papers import daily as daily_mod
 from labdata.papers import sync as sync_mod
+from labdata.papers import tables
 from labdata.papers.copy import PaperCopyError, destination
 from labdata.papers.openalex import OpenAlex
 from labdata.papers.root import MARKER, PaperStore, paper_lock
@@ -204,7 +205,6 @@ def copy(
     if full and accept_deletes:
         raise PaperCopyError("--full deletes nothing, so it takes no --accept-deletes")
     with paper_lock(store.root):
-        daily_mod.take_in(store.root, _today())
         return _send(store, dest, full=full, accept_deletes=accept_deletes)
 
 
@@ -277,12 +277,11 @@ def _finalize(store: PaperStore, log: _Log) -> CopyResult | None:
     root = store.root
     dest = destination(store)
     if not dest:
-        daily_mod.take_in(root, _today())
+        tables.heal(root, _today())
         if not read_status(root).finalized:
             log(f"no {COPY_TO_KEY} in {MARKER}: the GCS copy is skipped")
         return None
     try:
-        daily_mod.take_in(root, _today())
         status = read_status(root)
         if status.finalized and not status.copy_pending:
             return None

@@ -23,8 +23,7 @@ from labdata.ncbi import entrez as entrez_mod
 from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
 from labdata.papers import daily as daily_mod
-from labdata.papers import init_paper_store, paper_dir, tables
-from labdata.papers.folder import TEMP
+from labdata.papers import init_paper_store, paper_dir, paths, tables
 from labdata.papers.openalex import Account, OpenAlex, load_accounts
 from tests._paper_fakes import FakeWeb, Reply, fixture_build
 
@@ -493,17 +492,17 @@ def test_a_killed_pass_rerun_downloads_nothing_twice_and_spends_no_quota_twice(
     assert status_file(root)["last_pass"]["outcome"] == "failed"
     assert len(fake.downloads) == 5
     # Taking in the killed pass's downloads settles their papers on the ladder.
-    daily_mod.take_in(root, dt.date.fromisoformat(TODAY))
+    tables.heal(root, dt.date.fromisoformat(TODAY))
     taken = by_key(root, tables.PAPERS)
     got = {k for k, r in taken.items() if (r["status"], r["pdf_tier"]) == ("fetched", "openalex")}
     assert got == {w.removeprefix("W") for w in fake.downloads}
 
     # A hard kill leaves its temporary file behind; the rerun clears it.
-    (root / TEMP).mkdir(exist_ok=True)
-    (root / TEMP / "41000001.pdf.part").write_bytes(b"%PDF")
+    (root / paths.TEMP.name).mkdir(exist_ok=True)
+    (root / paths.TEMP.name / "41000001.pdf.part").write_bytes(b"%PDF")
     fake.kill_after = None
     daily(root)
-    assert not list((root / TEMP).iterdir())
+    assert not list((root / paths.TEMP.name).iterdir())
     assert len(fake.downloads) == len(set(fake.downloads)) == 20
     assert status_file(root)["quota"]["by_key"] == {"a@x.org": 20}
     assert len(tables.read(root, tables.FILES)) == 20

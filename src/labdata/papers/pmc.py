@@ -47,9 +47,8 @@ from labdata._http import (
 )
 from labdata.exceptions import LabdataError
 from labdata.papers import ladder
-from labdata.papers.folder import SUFFIX, PaperFolder, compressed, open_plain
 from labdata.papers.root import paper_dir
-from labdata.papers.tables import PaperTables
+from labdata.papers.tables import SUFFIX, PaperTables, compressed, open_plain
 
 BUCKET = "https://pmc-oa-opendata.s3.amazonaws.com"
 
@@ -142,7 +141,6 @@ def fetch(
     state: PaperTables,
     papers: Collection[str],
     *,
-    root: Path,
     transport: Transport,
     today: dt.date,
     log: Callable[[str], None],
@@ -150,12 +148,11 @@ def fetch(
 ) -> Replies:
     """Fetch what the PMC bucket holds for ``papers`` into the store, changing ``state``.
 
-    It adds or renews ``files`` rows, writes the files under each paper's folder and adds one
-    ``attempts`` row per paper tried. A file the bucket no longer serves keeps its copy and
-    gets a ``gone`` date. The PDFs :func:`labdata.papers.ladder.replaced` names are removed
-    after the PMC files are saved; until then PMC's PDF is listed as ``<PMCID>.pdf``. The
-    tables are saved every few minutes, each save settling the papers on the tier ladder.
-    Papers with no PMCID are passed over.
+    It puts or renews ``files`` rows with their files and records one attempt per paper
+    tried. A file the bucket no longer serves keeps its copy and gets a ``gone`` date. The
+    PDFs :func:`labdata.papers.ladder.replaced` names are dropped after the PMC files are
+    saved; until then PMC's PDF is listed as ``<PMCID>.pdf``. The tables are saved every few
+    minutes. Papers with no PMCID are passed over.
 
     Parameters
     ----------
@@ -163,8 +160,6 @@ def fetch(
         The paper store's tables, loaded.
     papers : collection of str
         The papers to try: every linked paper the PMC sync holds.
-    root : pathlib.Path
-        The paper store root.
     transport : Transport
         Sends the bucket's HTTPS requests.
     today : datetime.date
@@ -194,7 +189,7 @@ def fetch(
     bucket = _Bucket(transport, RateLimiter(RATE, WORKERS))
     try:
         clock = time.monotonic()
-        newest = bucket.inventory(set(pmcids.values()), today, state.folder.temp_dir())
+        newest = bucket.inventory(set(pmcids.values()), today, state.temp_dir())
         log(
             f"PMC inventory read in {time.monotonic() - clock:.0f} s: "
             f"{len(newest)} of {len(pmcids)} papers with a PMCID are in the bucket"
@@ -210,7 +205,7 @@ def fetch(
             entry = newest.get(pmcid)
             if entry is None:
                 if outcome.get(key) != "absent":
-                    state.attempts.append(
+                    state.attempt(
                         {"paper": key, "tier": ladder.PMC, "date": today, "outcome": "absent"}
                     )
                 for row in by_paper.get(key, []):
@@ -223,10 +218,6 @@ def fetch(
             f"PMC bucket: {len(todo)} papers to sync, {len(pmcids) - len(todo)} unchanged or absent"
         )
 
-        def save() -> None:
-            state.files[:] = [row for rows in by_paper.values() for row in rows]
-            state.save(root, today)
-
         pool = ThreadPoolExecutor(WORKERS)
         saved = logged = time.monotonic()
         try:
@@ -234,7 +225,7 @@ def fetch(
                 pool.submit(
                     _article,
                     bucket,
-                    state.folder,
+                    state,
                     key,
                     folder,
                     [r for r in by_paper.get(key, []) if r["tier"] == ladder.PMC],
@@ -249,11 +240,13 @@ def fetch(
             etags = {key: _fetch_detail(folder, etag) for key, folder, etag in todo}
             for done, future in enumerate(as_completed(futures), 1):
                 out = future.result()
+                for row in out.rows:
+                    state.put_file(row)
                 other = [r for r in by_paper.get(out.paper, []) if r["tier"] != ladder.PMC]
                 by_paper[out.paper] = other + out.rows
                 if out.retracted:
                     state.papers[out.paper]["retracted"] = True
-                state.attempts.append(
+                state.attempt(
                     {
                         "paper": out.paper,
                         "tier": ladder.PMC,
@@ -269,17 +262,17 @@ def fetch(
                 tally.add(out)
                 now = time.monotonic()
                 if now - saved >= _SAVE_EVERY:
-                    save()
+                    state.save(today)
                     saved = now
                 if now - logged >= _LOG_EVERY:
                     log(f"PMC bucket: {done}/{len(todo)} papers, {tally}")
                     logged = now
         finally:
             pool.shutdown(wait=True, cancel_futures=True)
-        save()
+        state.save(today)
         replaced = _replace_other_pdfs(state, by_paper, pmcids)
         if replaced:
-            save()
+            state.save(today)
         replies = bucket.replies()
         log(
             f"PMC bucket: {len(todo)} papers synced in {time.monotonic() - clock:.0f} s, {tally}; "
@@ -381,12 +374,10 @@ def _replace_other_pdfs(
     by_paper: dict[str, list[dict[str, Any]]],
     papers: Collection[str],
 ) -> int:
-    """Remove the PDFs the ladder says PMC's copy replaces; return how many.
+    """Drop the PDFs the ladder says PMC's copy replaces; return how many.
 
-    The caller saves the PMC files first; a PDF is deleted only once the tables without it
-    are saved. A file another remaining row points at is kept.
+    The caller saves the PMC files first; a PDF's file goes once a save stops naming it.
     """
-    pointing = Counter(r["path"] for rows in by_paper.values() for r in rows if r["path"])
     replaced = 0
     for key in papers:
         rows = by_paper.get(key, [])
@@ -394,18 +385,15 @@ def _replace_other_pdfs(
         if not other:
             continue
         for r in other:
-            if r["path"]:
-                pointing[r["path"]] -= 1
-        for r in other:
-            if r["path"] and pointing[r["path"]] <= 0:
-                state.folder.delete(r["path"])
+            state.drop_file(r)
         kept = [r for r in rows if r not in other]
         # PMC's PDF takes the paper's name, as for any PMC paper.
         name = f"{urllib.parse.quote(key, safe='')}.pdf"
         if not any(r["kind"] == "pdf" and r["name"] == name for r in kept):
             pmc_pdfs = [r for r in kept if r["kind"] == "pdf" and r["gone"] is None]
             if pmc_pdfs:
-                pmc_pdfs[0]["name"] = name
+                state.drop_file(pmc_pdfs[0])
+                state.put_file({**pmc_pdfs[0], "name": name})
         by_paper[key] = kept
         replaced += len(other)
     return replaced
@@ -413,7 +401,7 @@ def _replace_other_pdfs(
 
 def _article(
     bucket: _Bucket,
-    paper_files: PaperFolder,
+    state: PaperTables,
     key: str,
     folder: str,
     old: list[dict[str, Any]],
@@ -439,7 +427,7 @@ def _article(
         def take(kind: str, name: str, source: str, path: Path | None) -> dict[str, Any]:
             row = _file(
                 bucket,
-                paper_files,
+                state,
                 out,
                 previous.get((kind, name)),
                 kind,
@@ -470,9 +458,7 @@ def _article(
         figures: dict[str, tuple[str | None, str | None]] = {}
         inline: set[str] = set()
         if ("xml", f"{base}.xml") in done:
-            labels, figures, inline = _xml_files(
-                paper_files.root / done[("xml", f"{base}.xml")]["path"]
-            )
+            labels, figures, inline = _xml_files(state.root / done[("xml", f"{base}.xml")]["path"])
         chosen = _figure_files(listing, figures, set(labels))
         for name, href in chosen.items():
             path = _capped(folder_dir / "fig", name, listing[name][0])
@@ -522,7 +508,7 @@ def _stored_name(name: str) -> str:
 
 def _file(
     bucket: _Bucket,
-    paper_files: PaperFolder,
+    state: PaperTables,
     out: _Outcome,
     old: dict[str, Any] | None,
     kind: str,
@@ -539,9 +525,9 @@ def _file(
     ``path`` is where the file goes, named as the publisher names it unless that name is
     too long for the file system; a file stored compressed
     gets ``.zst`` added. A file only listed (``path`` is ``None``, or a video) loses any
-    copy an earlier layout kept, once the tables are saved.
+    copy an earlier layout kept once its row is put and saved, as does a file stored anew.
     """
-    root = paper_files.root
+    root = state.root
     size, etag = listing[source]
     # A single-part ETag is the MD5 of the object as stored; the record's MD5 can be stale
     # for a file rewritten after it, so either one vouches for the bytes.
@@ -577,7 +563,6 @@ def _file(
         path = None
     if path is None:
         if old and old["path"]:
-            paper_files.delete(old["path"])
             out.dropped += 1
         if _is_video(source):
             out.videos += 1
@@ -590,8 +575,7 @@ def _file(
         if old["path"] == stored.as_posix():
             return {**row, "md5": old["md5"], "path": old["path"], "fetched": old["fetched"]}
         # Held in an earlier layout: store it anew from the copy held, not the bucket.
-        md5 = _restore(paper_files, old["path"], stored, compress)
-        paper_files.delete(old["path"])
+        md5 = _restore(state, old["path"], stored, compress)
         out.stored += target.stat().st_size
         return {**row, "md5": md5, "path": stored.as_posix(), "fetched": old["fetched"]}
     held = _md5_of(target) if target.is_file() and accepted else None
@@ -601,7 +585,7 @@ def _file(
         try:
             got, md5 = bucket.download(
                 f"{folder}/{source}",
-                lambda: paper_files.writing(stored, compress=compress),
+                lambda: state.writing(stored, compress=compress),
                 accepted,
             )
         except _VideoError:
@@ -611,15 +595,13 @@ def _file(
         out.bytes += got
         out.files += 1
         out.stored += target.stat().st_size
-    if old and old["path"] and old["path"] != stored.as_posix():
-        paper_files.delete(old["path"])
     return {**row, "md5": md5, "path": stored.as_posix(), "fetched": today}
 
 
-def _restore(folder: PaperFolder, source: str, target: Path, compress: bool) -> str:
+def _restore(state: PaperTables, source: str, target: Path, compress: bool) -> str:
     """Store a held file anew at ``target``; return its plain MD5."""
     digest = hashlib.md5()
-    with open_plain(folder.root / source) as src, folder.writing(target, compress=compress) as dst:
+    with open_plain(state.root / source) as src, state.writing(target, compress=compress) as dst:
         while chunk := src.read(_CHUNK):
             digest.update(chunk)
             dst.write(chunk)

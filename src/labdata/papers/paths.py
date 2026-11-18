@@ -34,6 +34,8 @@ SUCCESSOR = Declared(".successor", SCRATCH)
 TEMP = Declared(".tmp/", SCRATCH)
 #: Paper file moves and deletes not yet applied.
 PENDING = Declared(".pending-files.json", SCRATCH)
+#: The tables a save has staged and not yet renamed into place.
+SAVING = Declared(".saving-tables.json", SCRATCH)
 
 #: Every declared path.
 LAYOUT = (
@@ -50,6 +52,7 @@ LAYOUT = (
     SUCCESSOR,
     TEMP,
     PENDING,
+    SAVING,
 )
 
 

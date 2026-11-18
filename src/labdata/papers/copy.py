@@ -22,6 +22,7 @@ temp file. The status record goes up last, after the copy record, as
 
 from __future__ import annotations
 
+import datetime as dt
 from collections.abc import Callable
 from pathlib import Path
 
@@ -33,7 +34,7 @@ from labdata.exceptions import LabdataError
 from labdata.papers import paths
 from labdata.papers.root import MARKER, PaperStore, open_paper_store, paper_lock
 from labdata.papers.status import STATUS
-from labdata.papers.tables import FILES
+from labdata.papers.tables import FILES, heal
 
 #: The copy record: the files GCS holds, as the last successful copy left them, each paper
 #: file with its MD5, size and fetch date. Kept here on the disk and in GCS.
@@ -70,7 +71,8 @@ def send(
 ) -> _gcs.CopyResult:
     """Send the paper store's changes since the last successful copy to ``dest``.
 
-    Takes no lock: :func:`labdata.papers.lifecycle.copy` runs it.
+    It first finishes what a stopped step left (:func:`labdata.papers.tables.heal`), so it
+    sends only whole saves. Takes no lock: :func:`labdata.papers.lifecycle.copy` runs it.
 
     Parameters
     ----------
@@ -99,6 +101,7 @@ def send(
         If the ``files`` table is missing or empty, or more of the copied paths left it than
         this copy deletes; or if rclone fails for another reason.
     """
+    heal(store.root, dt.datetime.now(dt.UTC).date())
     held = _held(store.root)
     adapter = _Adapter(store.root)
     skipped = _gcs.copy(adapter, dest, held, status, full=full, accept_deletes=accept_deletes)
