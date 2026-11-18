@@ -58,6 +58,13 @@ def _own_id_converter_pace(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(pubmed, "IDCONV_LIMITER", RateLimiter(1000.0, 1))
 
 
+@pytest.fixture(autouse=True)
+def _own_geo_store_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Restore ``LABDATA_STORE`` after each test, so one that sets it directly never leaks."""
+    monkeypatch.setenv("LABDATA_STORE", "")
+    monkeypatch.delenv("LABDATA_STORE")
+
+
 #: The ``workerinput`` key that names the folder every pytest-xdist worker builds the slices in.
 _SLICES_FOLDER = "labdata_slices"
 

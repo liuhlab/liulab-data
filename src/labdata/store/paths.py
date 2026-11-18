@@ -22,6 +22,8 @@ MARKER = Declared("labdata-store.toml", STATE)
 README = Declared("README.md", STATE)
 #: The copy record: what GCS holds, as the last successful copy left it.
 COPY_RECORD = Declared(".copied-files.json", STATE)
+#: The next copy record, saved here until GCS holds it.
+PENDING_RECORD = Declared(".copied-files.json.pending", SCRATCH)
 #: The status record of the last update, whatever it was.
 STATUS = Declared("refresh-status.json", STATE)
 BUILDS = Declared("builds/", STATE)
@@ -60,6 +62,7 @@ LAYOUT = (
     MARKER,
     README,
     COPY_RECORD,
+    PENDING_RECORD,
     STATUS,
     BUILDS,
     RAW,

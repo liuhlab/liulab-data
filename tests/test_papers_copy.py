@@ -14,11 +14,11 @@ import pytest
 from typer.testing import CliRunner, Result
 
 from labdata.cli import app
-from labdata.papers import init_paper_store, open_paper_store, tables
-from labdata.papers.copy import COPIED, PaperCopyError
+from labdata.papers import open_paper_store, tables
+from labdata.papers.copy import COPIED, PaperCopyError, check
 from labdata.papers.lifecycle import copy
 from tests._fake_gcs import FakeGcs, KilledError
-from tests._paper_fakes import fixture_build
+from tests._paper_fakes import fixture_build, init_papers
 
 DEST = "gcs:bucket/datalake/paper-store"
 STATUS = "paper-status.json"
@@ -35,7 +35,7 @@ def root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.delenv("LABDATA_PAPERS", raising=False)
     store = fixture_build(tmp_path / "store", [("GSE1", "PMID:41000001", "SOFT")])
     path = tmp_path / "papers"
-    init_paper_store(path, store, copy_to=DEST)
+    init_papers(path, store, copy_to=DEST)
     return path
 
 
@@ -121,6 +121,26 @@ def test_a_copy_sends_the_status_record_last_marked_finalized_and_again_if_cut_o
     assert "notes.txt" not in gcs.files()
     assert gcs.read(STATUS) == (root / STATUS).read_bytes()
     assert (status(root)["finalized"], status(root)["copy_pending"]) == (True, False)
+
+
+def test_a_first_copy_cut_after_its_copy_record_lands_passes_the_next_check(
+    root: Path, gcs: FakeGcs
+) -> None:
+    hold(root, "1", "pdf", "host")
+    gcs.cut = COPIED
+
+    with pytest.raises(KilledError):
+        copy(open_paper_store(root), full=True)
+    assert not (root / COPIED).exists()
+    assert STATUS not in gcs.files()
+
+    gcs.cut = ""
+    assert check(open_paper_store(root), DEST)
+    assert (root / COPIED).read_bytes() == gcs.read(COPIED)
+    copy(open_paper_store(root))
+    assert gcs.read(STATUS) == (root / STATUS).read_bytes()
+    assert (status(root)["finalized"], status(root)["copy_pending"]) == (True, False)
+    assert not [p for p in gcs.files() if "pending" in p]
 
 
 def test_after_each_copy_gcs_holds_exactly_the_files_its_copy_record_names(

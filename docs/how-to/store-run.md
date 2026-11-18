@@ -72,6 +72,7 @@ Held: 1983
 Gaps: 2
   soft-missing: 2
   fetch-failed: 0
+  withdrawn: 0
   unexplained: 0
 SRA experiments fetch-failed: 0 (not Series gaps)
 Coverage passes.

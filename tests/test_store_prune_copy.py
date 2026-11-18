@@ -16,7 +16,7 @@ from typer.testing import CliRunner, Result
 
 from labdata.cli import app
 from labdata.store import extract, lifecycle, raw
-from labdata.store.gcs import COPIED
+from labdata.store.gcs import COPIED, check
 from labdata.store.lifecycle import build
 from labdata.store.pack import pack
 from labdata.store.prune import GRACE, prune
@@ -386,6 +386,29 @@ def test_a_copy_sends_the_status_record_last_marked_finalized_and_again_if_cut_o
     assert status["ended"]
 
 
+def test_a_copy_cut_after_its_copy_record_lands_passes_the_next_check_and_ends_finalized(
+    root: Path, gcs: FakeGcs
+) -> None:
+    _copy_to(root)
+    _full(root)
+    build(root, "b2")
+    switched = {"last_success": "2026-11-01", "copy_pending_at_switch": False, "ended": None}
+    _status(root, **switched, copy_pending=True)
+    gcs.cut = COPIED
+
+    assert isinstance(_copy(root).exception, KilledError)
+    assert gcs.read(COPIED) != (root / COPIED).read_bytes()
+
+    gcs.cut = ""
+    # The check an update starts with: it adopts the record GCS holds.
+    assert check(root)
+    assert (root / COPIED).read_bytes() == gcs.read(COPIED)
+    assert _copy(root).exit_code == 0
+    assert _finalized(gcs, root)["last_success"] == "2026-11-01"
+    assert not [p for p in gcs.files() if "pending" in p]
+    _holds_its_record(gcs, root)
+
+
 @pytest.mark.parametrize("outcome", ["running", "failed"])
 def test_a_copy_leaves_the_status_record_of_a_refresh_that_has_not_switched(
     root: Path, gcs: FakeGcs, outcome: str
@@ -472,8 +495,9 @@ def test_a_copy_from_a_disk_behind_gcs_sends_nothing_until_a_restore_brings_it_i
     build(other, "b2")
     assert _copy(other).exit_code == 0
     gcs.forget()
-    # This disk still names b1: its copy record is not the one in GCS.
+    # This disk still names b1: its copy record is not the one in GCS, nor is a pending one.
     _status(root, copy_pending=False)
+    shutil.copy(root / COPIED, root / f"{COPIED}.pending")
 
     refused = _copy(root)
 

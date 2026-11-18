@@ -15,10 +15,11 @@ on the cluster. Each pass goes through the same steps as a GEO/SRA store update:
 
 ## Set up once
 
-Make the paper store and point it at the GEO/SRA store it reads:
+The paper store reads the GEO/SRA store that `LABDATA_STORE` names, or else the one
+`labdata store configure` saved. Make sure one of them is set, then make the paper store:
 
 ```bash
-labdata papers init /path/to/paper-store --store /path/to/store \
+labdata papers init /path/to/paper-store \
   --copy-to gcs:<gcs-bucket>/datalake/paper-store
 ```
 
@@ -250,8 +251,9 @@ The restore prints how much it downloads. In a terminal it asks before more than
 batch job has no terminal, so it needs `--accept-download` for that. Without the flag, a batch
 job prints the size and stops before a download of more than 1 GB.
 
-If it stops, submit it again: it skips the files it already has. If the GEO/SRA store moved
-too, set `store` in `labdata-papers.toml` to its new folder. Then start the paper job.
+If it stops, submit it again: it skips the files it already has. Then start the paper job.
+It finds the GEO/SRA store through `LABDATA_STORE` or the pointer, so a new cluster needs
+only that set.
 
 The restore saves the copy record last, so the job's copies send only what changes from then
 on. It saves `paper-status.json` as the last copy left it, so the job knows when the last

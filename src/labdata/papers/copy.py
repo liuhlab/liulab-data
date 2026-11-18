@@ -158,6 +158,7 @@ def restore(
 
 class _Adapter(_gcs.Adapter):
     record = COPIED
+    pending = paths.PENDING_RECORD.rel
     status = STATUS
     what = "paper store"
     command = "labdata papers copy"

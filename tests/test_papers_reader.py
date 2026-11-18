@@ -12,9 +12,9 @@ import pyarrow.parquet as pq
 import pytest
 
 from labdata.exceptions import NotMirrored
-from labdata.papers import init_paper_store, open_paper_store, tables
+from labdata.papers import open_paper_store, tables
 from labdata.papers.reader import Author, PaperReader
-from tests._paper_fakes import fixture_build
+from tests._paper_fakes import fixture_build, init_papers
 from tests._slices import BuiltStore
 
 
@@ -26,7 +26,7 @@ def _isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 def paper_store(built_store: BuiltStore, tmp_path: Path, slice_name: str) -> PaperReader:
     store = built_store(tmp_path / "store", slice_name)
     root = tmp_path / "papers"
-    init_paper_store(root, store)
+    init_papers(root, store)
     tables.write(
         root,
         tables.PAPERS,
@@ -205,7 +205,7 @@ def test_a_doi_link_counts_only_when_the_store_holds_its_paper(tmp_path: Path) -
         ],
     )
     root = tmp_path / "papers"
-    init_paper_store(root, store)
+    init_papers(root, store)
     tables.write(
         root,
         tables.PAPERS,

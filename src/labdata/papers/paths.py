@@ -15,6 +15,8 @@ README = Declared("README.md", STATE)
 STATUS = Declared("paper-status.json", STATE)
 #: The copy record: the ``files`` rows GCS holds, as the last successful copy left them.
 COPY_RECORD = Declared(".copied-files.parquet", STATE)
+#: The next copy record, saved here until GCS holds it.
+PENDING_RECORD = Declared(".copied-files.parquet.pending", SCRATCH)
 #: The four tables, ``<name>.parquet``; :mod:`labdata.papers.tables` declares their columns.
 TABLES = tuple(
     Declared(f"{name}.parquet", STATE) for name in ("papers", "paper_info", "files", "attempts")
@@ -41,6 +43,7 @@ LAYOUT = (
     README,
     STATUS,
     COPY_RECORD,
+    PENDING_RECORD,
     *TABLES,
     MANUAL_NBIB,
     MANUAL_DOIS,

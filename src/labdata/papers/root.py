@@ -74,8 +74,11 @@ class PaperStore:
 
     @cached_property
     def store(self) -> Store:
-        """The GEO/SRA store whose current build links the papers, opened on first use."""
-        return open_store(self.settings["store"])
+        """The GEO/SRA store whose current build links the papers, opened on first use.
+
+        Found by ``LABDATA_STORE``, then the per-user pointer; the settings file names none.
+        """
+        return open_store()
 
     @cached_property
     def reader(self) -> PaperReader:
@@ -110,7 +113,6 @@ def open_paper_store(root: str | os.PathLike[str] | None = None) -> PaperStore:
 
 def init_paper_store(
     root: str | os.PathLike[str],
-    store: str | os.PathLike[str] | None = None,
     *,
     copy_to: str = "",
     drive_remote: str = "",
@@ -122,8 +124,6 @@ def init_paper_store(
     ----------
     root : str or os.PathLike
         The paper store root; created if missing.
-    store : str or os.PathLike or None
-        The GEO/SRA store it reads; ``None`` takes the one ``open_store()`` finds.
     copy_to : str
         The rclone path the paper store is copied to, ``<remote>:<bucket>/<path>``.
     drive_remote : str
@@ -139,15 +139,14 @@ def init_paper_store(
     Raises
     ------
     LabdataError
-        If the root already has a marker, or ``store`` is not a GEO/SRA store.
+        If the root already has a marker, or ``open_store()`` finds no GEO/SRA store.
     """
-    geo = open_store(store).root.expanduser().absolute()
+    open_store()
     path = Path(root).expanduser().absolute()
     path.mkdir(parents=True, exist_ok=True)
     marker = path / MARKER
     lines = [
         toml_line("format_version", FORMAT_VERSION),
-        toml_line("store", str(geo)),
         toml_line("copy_to", copy_to),
         toml_line("drive_remote", drive_remote),
         toml_line("drive_folder", drive_folder),
