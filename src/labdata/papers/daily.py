@@ -17,7 +17,7 @@ import os
 import time
 import urllib.parse
 from collections import Counter
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Collection, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TextIO
@@ -25,18 +25,15 @@ from typing import Any, TextIO
 from labdata._files import write_atomic
 from labdata._http import USER_AGENT, HttpTransport, RateLimiter, Transport
 from labdata.ncbi.entrez import EntrezClient
-from labdata.papers import paths
+from labdata.papers import ladder, paths
 from labdata.papers.folder import PaperFolder
 from labdata.papers.openalex import Account, OpenAlex
 from labdata.papers.root import PaperStore, paper_dir
-from labdata.papers.sync import status_of, store_links
+from labdata.papers.sync import store_links
 from labdata.papers.tables import PaperTables
 
 #: Downloads each OpenAlex account may spend a day; the budget resets at 00:00 UTC.
 QUOTA = 100
-
-#: Days an OpenAlex server or network error is tried before the paper moves on.
-OPENALEX_TRIES = 3
 
 #: OpenAlex's own copies of works.
 CONTENT = "https://content.openalex.org/works"
@@ -92,9 +89,9 @@ def daily_pass(
 
     Spends each OpenAlex account's quota on papers OpenAlex holds a copy of, new papers
     first and then the backlog newest first; tries each free host link once where OpenAlex
-    has no copy or failed; recomputes every paper's status; and rewrites the manual queue.
-    Only papers the current GEO/SRA build links get downloads; the others keep their rows
-    and files. Takes no lock: :func:`labdata.papers.lifecycle.daily` runs it.
+    has no copy or failed; settles every paper on the tier ladder; and rewrites the manual
+    queue. Only papers the current GEO/SRA build links get downloads; the others keep their
+    rows and files. Takes no lock: :func:`labdata.papers.lifecycle.daily` runs it.
 
     Parameters
     ----------
@@ -126,7 +123,6 @@ def daily_pass(
     state = PaperTables.load(root)
     journal = _Journal(root / JOURNAL)
     # The Paperpile step goes here: it files the maintainer's saves before quota is spent.
-    _recompute(state, today)
     linked = set(store_links(store, state))
     fetch = _Fetcher(root, state, journal, transport, host_limiter, linked, today, log)
     try:
@@ -139,7 +135,7 @@ def daily_pass(
         fetch.hosts()
     finally:
         journal.close()
-    _recompute(state, today)
+    ladder.settle(state, today)
     state.save(root)
     journal.clear()
     queued = _manual_queue(root, state, client, log)
@@ -177,50 +173,6 @@ def take_in(root: Path) -> bool:
     state.save(root)
     journal.clear()
     return True
-
-
-def _tries(state: PaperTables) -> dict[str, list[dict[str, Any]]]:
-    out: dict[str, list[dict[str, Any]]] = {}
-    for a in state.attempts:
-        out.setdefault(a["paper"], []).append(a)
-    return out
-
-
-def _openalex_done(row: dict[str, Any], tries: Iterable[dict[str, Any]]) -> bool:
-    """Whether OpenAlex has nothing more to give: no copy, a final failure, or 3 errors."""
-    if not row.get("openalex_pdf"):
-        return True
-    outcomes = [a["outcome"] for a in tries if a["tier"] == "openalex"]
-    return "failed" in outcomes or outcomes.count("error") >= OPENALEX_TRIES
-
-
-def _host_tried(tries: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [a for a in tries if a["tier"] == "host"]
-
-
-def _pmc_passed(row: dict[str, Any], tries: Iterable[dict[str, Any]]) -> bool:
-    """Whether PMC is out of the way: the paper has no PMCID, or the PMC bucket was tried."""
-    return not row.get("pmcid") or any(a["tier"] == "pmc" for a in tries)
-
-
-def _recompute(state: PaperTables, today: dt.date) -> None:
-    """Set every paper's status; one every tier has failed is ``manual``, the last failure why."""
-    held = state.held()
-    tries = _tries(state)
-    for key, row in state.papers.items():
-        if row.get("status") == "skipped":
-            continue
-        status, reason = status_of(row, held=key in held, today=today)
-        if status == "waiting" and reason != "pmc-embargo":
-            mine = tries.get(key, [])
-            host = _host_tried(mine)
-            if _openalex_done(row, mine) and (host or not row.get("host_pdf_urls")):
-                if host:
-                    status = "manual"
-                    reason = "host-blocked" if host[-1]["outcome"] == "blocked" else "host-failed"
-                elif any(a["tier"] == "openalex" for a in mine):
-                    status, reason = "manual", "openalex-failed"
-        row["status"], row["reason"] = status, reason
 
 
 def _order(state: PaperTables, keys: Iterable[str]) -> list[str]:
@@ -267,34 +219,17 @@ class _Fetcher:
 
     def openalex(self, accounts: list[Account]) -> None:
         """Spend each account's quota on the papers waiting for OpenAlex's copy."""
-        today = self.today
-        tries = _tries(self.state)
         spent: Counter[str] = Counter()
         stopped: set[str] = set()
+        tried: set[str] = set()
         for a in self.state.attempts:
-            if a["tier"] == "openalex" and a.get("date") == today:
+            if a["tier"] == "openalex" and a.get("date") == self.today:
                 if a["outcome"] in SPENT:
                     spent[a["account"]] += 1
+                    tried.add(a["paper"])
                 elif a["outcome"] == "rate-limited":
                     stopped.add(a["account"])
-        held = self.state.held()
-        queue = _order(
-            self.state,
-            (
-                k
-                for k, r in self.state.papers.items()
-                if (r.get("status"), r.get("reason")) == ("waiting", "openalex-backlog")
-                and k in self.linked
-                and not r.get("retracted")
-                and k not in held
-                and _pmc_passed(r, tries.get(k, []))
-                and not _openalex_done(r, tries.get(k, []))
-                and not any(
-                    a["tier"] == "openalex" and a.get("date") == today and a["outcome"] in SPENT
-                    for a in tries.get(k, [])
-                )
-            ),
-        )
+        queue = self._due("openalex", tried)
         active = [a for a in accounts if a.email not in stopped and spent[a.email] < QUOTA]
         self.log(f"OpenAlex: {len(queue)} papers waiting, {len(active)} accounts with quota left")
         turn = done = 0
@@ -334,23 +269,7 @@ class _Fetcher:
 
     def hosts(self) -> None:
         """Try each free host link once, for papers OpenAlex cannot serve."""
-        held = self.state.held()
-        tries = _tries(self.state)
-        queue = _order(
-            self.state,
-            (
-                k
-                for k, r in self.state.papers.items()
-                if r.get("status") != "skipped"
-                and k in self.linked
-                and not r.get("retracted")
-                and r.get("host_pdf_urls")
-                and k not in held
-                and not _host_tried(tries.get(k, []))
-                and _pmc_passed(r, tries.get(k, []))
-                and _openalex_done(r, tries.get(k, []))
-            ),
-        )
+        queue = self._due("host")
         self.log(f"host links: {len(queue)} papers to try")
         for n, key in enumerate(queue, 1):
             got, url = _Got(), ""
@@ -367,6 +286,12 @@ class _Fetcher:
                 outcome = "blocked" if blocked else "failed"
                 self._attempt(key, "host", None, outcome, f"{got.detail}: {url}")
             self._progress(f"host links: {n}/{len(queue)} papers tried")
+
+    def _due(self, tier: str, tried: Collection[str] = ()) -> list[str]:
+        """Return the linked papers the ladder sends to ``tier``, but ``tried``, in turn."""
+        due = ladder.standings(self.state, self.today)
+        keys = (k for k, s in due.items() if s.tier == tier and k in self.linked and k not in tried)
+        return _order(self.state, keys)
 
     def _get(self, key: str, url: str, headers: dict[str, str]) -> _Got:
         name = paper_dir(key).name + ".pdf"
@@ -407,12 +332,10 @@ class _Fetcher:
 
 
 def _put_file(state: PaperTables, row: dict[str, Any]) -> None:
-    """Add a PDF's ``files`` row, replacing one of the same name, and set the paper's tier."""
+    """Add a PDF's ``files`` row, replacing one of the same name."""
     same = (row["paper"], row["kind"], row["name"])
     state.files[:] = [f for f in state.files if (f["paper"], f["kind"], f["name"]) != same]
     state.files.append(row)
-    if row["paper"] in state.papers:
-        state.papers[row["paper"]]["pdf_tier"] = row["tier"]
 
 
 def _download(
