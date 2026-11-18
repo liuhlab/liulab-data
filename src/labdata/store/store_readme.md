@@ -212,6 +212,7 @@ You may delete the paths below only while no refresh or full run is running, and
 Keep the run logs in `support/` first, as its section says. Fetch steps still skip every item
 saved in `raw/`.
 
+- `.copied-files.json.pending`
 - `support/`, once you no longer need its run logs
 - `work/build.lock`
 - `work/run.lock`
