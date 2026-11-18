@@ -52,8 +52,8 @@ RUNNING, FAILED, ABANDONED, BUILT, FINALIZED = (
 )
 #: The updates the status record names, by the command that runs each.
 REFRESH, RUN, BUILD, REMOVE_SRA = "refresh", "run", "build", "remove-sra"
-#: The other holders of the run lock.
-PRUNE, RESTORE = "prune", "restore"
+#: The other holders of the run lock; a copy holds it as :data:`COPY`.
+PRUNE, RESTORE, PACK, FETCH, EXTRACT = "prune", "restore", "pack", "fetch", "extract"
 #: The status key keeping ``copy_pending`` as it stood when the update switched builds.
 AT_SWITCH = "copy_pending_at_switch"
 #: The file in a refresh's folder each pack appends its per-bucket counts to.
@@ -395,9 +395,14 @@ def switch(root: Path) -> tuple[dict[str, Any], Coverage]:
 
 
 def finalize(
-    root: Path, destination: str | None = None, *, full: bool = False, accept_deletes: int = 0
+    root: Path,
+    destination: str | None = None,
+    *,
+    full: bool = False,
+    accept_deletes: int = 0,
+    owner_gone: bool = False,
 ) -> _gcs.CopyResult:
-    """Copy the store to GCS: the update is finalized once the copy works.
+    """Copy the store to GCS under the run lock: the update is finalized once the copy works.
 
     The copy sends the status record last, marked finalized, unless the update has not
     switched builds yet. Past the destination checks, a copy skipped or failed marks the copy
@@ -411,6 +416,8 @@ def finalize(
         An rclone path, ``<remote>:<bucket>/<path>``; defaults to the marker's ``copy_to``.
     full, accept_deletes
         As for :func:`labdata.store.gcs.send`; ``full`` takes no ``accept_deletes``.
+    owner_gone : bool
+        As for :func:`run_lock`.
 
     Returns
     -------
@@ -422,24 +429,27 @@ def finalize(
     StoreCopyError
         If the store does not open, no destination is set or ``full`` comes with
         ``accept_deletes``; or as :func:`labdata.store.gcs.send` raises it.
+    StoreBusyError
+        If another update holds the run lock.
     """
     dest = gcs.destination(root, destination)
     if full and accept_deletes:
         raise gcs.StoreCopyError("--full deletes nothing, so it takes no --accept-deletes")
-    try:
-        result = gcs.send(
-            root,
-            dest,
-            finalized(root),
-            full=full,
-            accept_deletes=accept_deletes,
-            bucket_matches_marker=_gcs_holds_marker_build(read_status(root)),
-        )
-    except BaseException:
-        note_copy(root, pending=True)
-        raise
-    note_copy(root, pending=result.skipped)
-    return result
+    with run_lock(root, COPY, owner_gone=owner_gone):
+        try:
+            result = gcs.send(
+                root,
+                dest,
+                finalized(root),
+                full=full,
+                accept_deletes=accept_deletes,
+                bucket_matches_marker=_gcs_holds_marker_build(read_status(root)),
+            )
+        except BaseException:
+            note_copy(root, pending=True)
+            raise
+        note_copy(root, pending=result.skipped)
+        return result
 
 
 def remove_sra(root: Path, *, client: EntrezClient, owner_gone: bool = False) -> SraRemovalReport:
