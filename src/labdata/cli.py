@@ -9,7 +9,8 @@ from __future__ import annotations
 import atexit
 import datetime as dt
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 
@@ -450,18 +451,22 @@ def store_fetch(
     root: Path | None = typer.Option(
         None, help="Store root; default: LABDATA_STORE, then pointer."
     ),
+    owner_gone: bool = _OWNER_GONE,
 ) -> None:
     r"""Fetch family SOFT, Entrez links, SRA package XML and PubMed (\[si]) results into raw/.
 
     A GEO Series brings its SubSeries and the SRA packages of every experiment its samples
     link to. A BioProject or SRA study is expanded to its experiments through the newest
     SRA_Accessions.tab snapshot. Items already saved are skipped, so a rerun resumes.
+    Holds the store's run lock, so it refuses while an update runs.
     """
     from labdata.store.fetch import fetch as fetch_raw
+    from labdata.store.lifecycle import FETCH
     from labdata.store.raw import GEO_SOFT, SRA_XML
 
     store = open_store(root)
-    report = fetch_raw(store.root, accessions, client=_store_client())
+    with _run_lock(store.root, FETCH, owner_gone):
+        report = fetch_raw(store.root, accessions, client=_store_client())
     if report.series:
         typer.echo(f"Saved {len(report.series)} GEO Series to {paths.RAW.at(store.root, GEO_SOFT)}")
     typer.echo(
@@ -479,19 +484,23 @@ def store_pack(
     root: Path | None = typer.Option(
         None, help="Store root; default: LABDATA_STORE, then pointer."
     ),
+    owner_gone: bool = _OWNER_GONE,
 ) -> None:
     """Merge the fetched parts under work/parts/ into raw/, one bucket file at a time.
 
     Rerun it after a cut-off run: parts stay until their bucket is rewritten. Removal parts
-    delete rows; the records removed are logged per source.
+    delete rows; the records removed are logged per source. Holds the store's run lock, so
+    it refuses while an update runs.
     """
     import logging
 
+    from labdata.store.lifecycle import PACK
     from labdata.store.raw import pack
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     store = open_store(root)
-    written = pack(store.root, counts=counts)
+    with _run_lock(store.root, PACK, owner_gone):
+        written = pack(store.root, counts=counts)
     typer.echo(f"Packed {len(written)} bucket files into {paths.RAW.at(store.root)}")
 
 
@@ -644,6 +653,7 @@ def store_copy(
         min=0,
         help="Delete up to this many raw files the current build no longer reads, on purpose.",
     ),
+    owner_gone: bool = _OWNER_GONE,
 ) -> None:
     """Send the store's changes since the last copy to a bucket with rclone.
 
@@ -656,13 +666,16 @@ def store_copy(
     names when the status record shows the bucket holds that build and a listing finds its
     files there with the disk's sizes; otherwise, or when rclone's Google login has expired,
     it skips with a message and exits 1. The status record marks the copy pending until one
-    succeeds, which sends it last, marked finalized.
+    succeeds, which sends it last, marked finalized. Holds the store's run lock, so it
+    refuses while an update runs.
     """
     from labdata.store import lifecycle
 
     where = root if root is not None else open_store().root
     try:
-        result = lifecycle.finalize(where, to, full=full, accept_deletes=accept_deletes)
+        result = lifecycle.finalize(
+            where, to, full=full, accept_deletes=accept_deletes, owner_gone=owner_gone
+        )
     except LabdataError as err:
         typer.echo(str(err), err=True)
         raise typer.Exit(1) from err
@@ -779,6 +792,18 @@ def _busy(err: LabdataError) -> NoReturn:
     """Exit 1 with the message: another update holds the store's run lock."""
     typer.echo(str(err), err=True)
     raise typer.Exit(1) from err
+
+
+@contextmanager
+def _run_lock(root: Path, holder: str, owner_gone: bool) -> Iterator[None]:
+    """Hold the store's run lock; exit 1 while another update holds it."""
+    from labdata.store import lifecycle
+
+    try:
+        with lifecycle.run_lock(root, holder, owner_gone=owner_gone):
+            yield
+    except lifecycle.StoreBusyError as err:
+        _busy(err)
 
 
 def _fraction(fraction: float | None) -> float | None:
@@ -1016,17 +1041,21 @@ def store_extract(
     root: Path | None = typer.Option(
         None, help="Store root; default: LABDATA_STORE, then pointer."
     ),
+    owner_gone: bool = _OWNER_GONE,
 ) -> None:
     """Extract one snapshot into Parquet parts for `labdata store build`; resumes a killed run.
 
     Run once per source after a new snapshot lands. Set RAY_ADDRESS to use a running Ray
-    cluster instead of starting one on this node.
+    cluster instead of starting one on this node. Holds the store's run lock, so it refuses
+    while an update runs.
     """
     from labdata.store.extract import extract
+    from labdata.store.lifecycle import EXTRACT
 
     store = open_store(root)
     try:
-        out = extract(store.root, source, workers=workers)
+        with _run_lock(store.root, EXTRACT, owner_gone):
+            out = extract(store.root, source, workers=workers)
     except ValueError as err:
         raise typer.BadParameter(str(err), param_hint="--source") from err
     typer.echo(f"Extracted {source}: {out}")

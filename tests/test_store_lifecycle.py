@@ -4,14 +4,18 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
+import socket
 from pathlib import Path
 from typing import Any
 
 import pytest
+from typer.testing import CliRunner, Result
 
+from labdata.cli import app
 from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
-from labdata.store import lifecycle, open_store
+from labdata.store import lifecycle, open_store, raw
 from labdata.store.gcs import COPIED, StoreCopyError
 from labdata.store.lifecycle import COPY, NEW, NOTHING, RESUME
 from tests._fake_gcs import FakeGcs
@@ -210,3 +214,76 @@ def test_a_build_by_hand_is_built_not_finalized_until_a_copy_works(
 
     assert lifecycle.read_status(root)["outcome"] == "finalized"
     assert _gcs_names(gcs, "b2")
+
+
+#: Commands an update's steps call, with arguments that ask NCBI nothing on the slice's store.
+_STEPS = {
+    "copy": [],
+    "pack": [],
+    "fetch": ["SRX017370"],
+    "extract": ["--source", "biosample"],
+}
+#: A process ID no process has.
+_GONE = 2**31 - 1
+
+
+def _step(root: Path, command: str) -> Result:
+    return CliRunner().invoke(app, ["store", command, *_STEPS[command], "--root", str(root)])
+
+
+def _hold_run_lock(root: Path, pid: int | None = None) -> str:
+    """Hold the run lock as a refresh driven by process ``pid`` on this host, by default this
+    process; return the token its steps inherit."""
+    host, pid = socket.gethostname(), pid or os.getpid()
+    owner = {"update": "refresh", "job": None, "host": host, "pid": pid}
+    (root / "work" / "run.lock").write_text(json.dumps(owner | {"started": _STARTED}))
+    return f"{host}:{pid}"
+
+
+def _files(root: Path) -> dict[str, tuple[int, int]]:
+    return {
+        str(p.relative_to(root)): (p.stat().st_size, p.stat().st_mtime_ns)
+        for p in root.rglob("*")
+        if p.is_file()
+    }
+
+
+@pytest.mark.parametrize("command", _STEPS)
+def test_a_step_run_by_hand_refuses_while_an_update_holds_the_run_lock(
+    root: Path, gcs: FakeGcs, monkeypatch: pytest.MonkeyPatch, command: str
+) -> None:
+    monkeypatch.setattr("labdata.cli._store_client", lambda: None)
+    # A lane's part in flight, which a pack would take in and delete.
+    raw.save(root, raw.SRA_XML, [raw.RawRow("SRX017370", "<new/>", "2026-11-18")])
+    _hold_run_lock(root)
+    before = _files(root)
+
+    result = _step(root, command)
+
+    assert result.exit_code == 1
+    assert "holds this store's run lock" in result.output
+    assert _files(root) == before
+    assert gcs.calls == []
+
+
+@pytest.mark.parametrize("command", _STEPS)
+def test_a_step_runs_inside_an_update_and_by_hand_once_no_update_holds_the_run_lock(
+    root: Path, gcs: FakeGcs, monkeypatch: pytest.MonkeyPatch, command: str
+) -> None:
+    monkeypatch.setattr("labdata.cli._store_client", lambda: None)
+    lock = root / "work" / "run.lock"
+    monkeypatch.setenv(lifecycle.RUN_OWNER, _hold_run_lock(root))
+    held = lock.read_bytes()
+
+    inside = _step(root, command)
+
+    assert inside.exit_code == 0, inside.output
+    assert lock.read_bytes() == held
+    # The update has ended; its lock is left, as a kill leaves it.
+    monkeypatch.delenv(lifecycle.RUN_OWNER)
+    _hold_run_lock(root, pid=_GONE)
+
+    by_hand = _step(root, command)
+
+    assert by_hand.exit_code == 0, by_hand.output
+    assert not lock.exists()
