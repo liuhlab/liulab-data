@@ -134,6 +134,22 @@ def test_prune_grace_zero_deletes_at_once_all_but_the_current_build_and_its_read
         assert (root / "snapshots" / source / "2026-10-14").is_dir()
 
 
+def test_prune_removes_a_killed_builds_leftovers_at_once_but_not_an_unswitched_builds(
+    root: Path,
+) -> None:
+    (root / "builds" / "b2").mkdir()
+    lifecycle.write_status(root, {"update": "run", "outcome": "failed", "build": "b2"})
+    killed = [root / "builds" / ".b3.4242.tmp", root / "work" / "build" / "b3"]
+    kept = [root / "builds" / "b2", root / "work" / "build" / "b2", root / "builds" / "b1"]
+    spill = root / "work" / "tmp" / "4242"
+    for folder in [*killed, *kept, spill]:
+        folder.mkdir(parents=True, exist_ok=True)
+    (spill / "duckdb_temp_block-1.block").write_bytes(b"x")
+
+    assert sorted(prune(root).deleted) == sorted([*killed, spill])
+    assert all(folder.is_dir() for folder in kept)
+
+
 def test_prune_never_deletes_the_current_build(root: Path) -> None:
     result = CliRunner().invoke(app, ["store", "prune", "--root", str(root)])
     assert result.exit_code == 0, result.output

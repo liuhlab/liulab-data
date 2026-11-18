@@ -49,6 +49,9 @@ run the same steps straight away:
 labdata store run --fraction 0.01
 ```
 
+In a held Slurm job reached over ssh, labdata sees the whole node: first set the job's cores
+and memory in MB, such as `export SLURM_CPUS_ON_NODE=24 SLURM_MEM_PER_NODE=98304`.
+
 ## Watch it
 
 The job log, `labdata-run.<job id>.log`, shows each step as it starts and ends. The fetch

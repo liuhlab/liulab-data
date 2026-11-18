@@ -5,7 +5,8 @@ ago, ``GRACE`` by default. A snapshot goes once it is older than the one the cur
 reads and every build that read it went out of use more than the grace period ago; its extract
 goes with it. A snapshot newer than the current build's is waiting for the next build and
 stays. Neither the current build nor what it reads is ever deleted, nor the new build of an
-update that has not switched to it. Abandoned refresh folders go at once.
+update that has not switched to it. Abandoned refresh folders, and what a killed build or step
+left, go at once.
 """
 
 from __future__ import annotations
@@ -30,7 +31,7 @@ _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 @dataclass(frozen=True, slots=True)
 class PruneReport:
-    """What one prune deleted: abandoned refresh folders, build folders, then snapshot folders."""
+    """What one prune deleted: abandoned refresh folders, leftovers, builds, then snapshots."""
 
     deleted: list[Path] = field(default_factory=list)
 
@@ -82,14 +83,15 @@ def prune(
 def _delete(root: Path, now: dt.datetime, grace: dt.timedelta) -> PruneReport:
     records = paths.REFRESHES.at(root).glob(f"*/{lifecycle.ABANDONED_RECORD}")
     abandoned = [record.parent for record in sorted(records)]
-    for folder in abandoned:
-        shutil.rmtree(folder)
     marker = paths.MARKER.at(root)
     settings = paths.read_marker(root)
     current = settings.get(paths.BUILD_KEY)
-    if not current:
-        return PruneReport(abandoned)
     unswitched = lifecycle.unswitched_build(root)
+    left = _leftovers(root, {current, unswitched})
+    for folder in [*abandoned, *left]:
+        shutil.rmtree(folder)
+    if not current:
+        return PruneReport([*abandoned, *left])
     switched = _time(settings.get(paths.SWITCHED_KEY)) or dt.datetime.fromtimestamp(
         marker.stat().st_mtime, dt.UTC
     )
@@ -120,7 +122,23 @@ def _delete(root: Path, now: dt.datetime, grace: dt.timedelta) -> PruneReport:
     if any(p.name in away for p in old):
         settings[paths.SWITCHED_AWAY_KEY] = {k: v for k, v in away.items() if not _gone(root, k)}
         paths.write_marker(root, settings)
-    return PruneReport([*abandoned, *old, *snaps])
+    return PruneReport([*abandoned, *left, *old, *snaps])
+
+
+def _leftovers(root: Path, keep: set[object]) -> list[Path]:
+    """Return what a killed build or step left: temp builds, parse parts and DuckDB spill.
+
+    Safe under the run lock, as no build or step runs; ``keep`` names builds left alone.
+    """
+    temps = [p for p in paths.BUILDS.at(root).glob(".*.tmp") if _temp_of(p.name) not in keep]
+    parts = [p for p in paths.BUILD_WORK.at(root).glob("*") if p.name not in keep]
+    spill = list(paths.TMP.at(root).glob("*"))
+    return sorted(p for p in [*temps, *parts, *spill] if p.is_dir())
+
+
+def _temp_of(name: str) -> str:
+    """Return the build a temp build folder, ``.<build>.<pid>.tmp``, was written for."""
+    return name[1:].rsplit(".", 2)[0]
 
 
 def _reads(build: Path) -> set[tuple[str, str]]:
