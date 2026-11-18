@@ -736,7 +736,7 @@ def test_any_failure_past_the_destination_marks_the_copy_pending(
     assert lifecycle.read_status(root)["copy_pending"] is True
 
 
-def test_a_restore_onto_a_disk_without_a_copy_record_downloads_only_what_it_lacks(
+def test_a_restore_onto_a_disk_without_a_copy_record_leaves_exactly_the_state_gcs_names(
     root: Path, gcs: FakeGcs, tmp_path: Path
 ) -> None:
     _copy_to(root)
@@ -746,6 +746,11 @@ def test_a_restore_onto_a_disk_without_a_copy_record_downloads_only_what_it_lack
     shutil.copytree(root, disk)
     (disk / COPIED).unlink()
     lost = next(p for p in _record(gcs) if p.startswith("raw/") and p.endswith(".parquet"))
+    # State GCS does not hold, which the next build would read.
+    stray = [str(Path(lost).with_name("stray.parquet")), "builds/b0/manifest.json"]
+    (disk / "builds" / "b0").mkdir()
+    for path in stray:
+        shutil.copy(disk / lost, disk / path)
     (disk / lost).unlink()
     (disk / "work" / "eutils").mkdir(parents=True, exist_ok=True)
     (disk / "work" / "eutils" / "half-done.tsv").write_text("mine")
@@ -759,4 +764,6 @@ def test_a_restore_onto_a_disk_without_a_copy_record_downloads_only_what_it_lack
     assert (disk / lost).read_bytes() == gcs.read(lost)
     assert (disk / COPIED).read_bytes() == gcs.read(COPIED)
     assert (disk / _STATUS).read_bytes() == gcs.read(_STATUS)
+    assert sorted([*_files(disk, "builds", "raw", "snapshots"), *_TOP]) == _record(gcs)
+    assert check(disk)
     assert {p: (disk / p).read_bytes() for p in _files(disk, "work", "extracts")} == kept
