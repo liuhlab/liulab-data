@@ -159,7 +159,7 @@ not check this today.
 
 ## Does `!Sample_relation` carry the SRA and BioSample links
 
-**Method.** The script `scripts/research/field_sources/soft_relations.py` downloaded the family
+**Method.** The script `docs/research/field-sources/soft_relations.py` downloaded the family
 SOFT of all 90 Series touched by the GSM sample and read every sample in them: 60,724 GSMs
 submitted from 2008 to 2025.
 
@@ -198,13 +198,13 @@ Epigenomics samples, `Named Annotation:`.
 ## How lossy the GSM to SRX join is
 
 **Method.** The script
-[`scripts/research/gsm_srx_join.py`](https://github.com/liuhlab/liulab-data/blob/research/field-sources/scripts/research/gsm_srx_join.py)
+[`docs/research/field-sources/gsm_srx_join.py`](https://github.com/liuhlab/liulab-data/blob/main/docs/research/field-sources/gsm_srx_join.py)
 produced the live numbers, run with `--per-year 4 --seed 23`. For each publication year from
 2008 to 2025 it draws 4 random GSMs from
 `gsm[ETYP] AND "high throughput sequencing"[PTYP] AND <year>[PDAT]`. That gives 72 GSMs in 90
 Series. For each GSM it reads the GSM SOFT record, follows `elink gds→sra`, fetches every
 linked SRX with `efetch db=sra`, and fetches the GSM's BioSample. The bulk numbers come from
-`scripts/research/field_sources/accessions_check.sh` and `accessions_compare.py`, which look
+`docs/research/field-sources/accessions_check.sh` and `accessions_compare.py`, which look
 for the GSM in the `Alias` column of `SRA_Accessions.tab`.
 
 **Results.**
@@ -274,7 +274,7 @@ missed by the experiment alias. With n = 72 the 95% interval on 12.5% is about 7
 | Parquet | 91 runs: 12 ID and library fields, counts, dates, attributes | 90 found; every compared field equal. Counts are rounded down. 424 of 471 BioSample attribute pairs appear; 16 of the rest are empty values such as `not applicable` |
 | `SRA_Accessions.tab` | 91 runs: status, spots, bases, BioSample, BioProject, release day | 91 found, all live and public; spots and bases 91 of 91 equal |
 
-**Parquet coverage.** The script `scripts/research/field_sources/parquet_coverage.py` joined
+**Parquet coverage.** The script `docs/research/field-sources/parquet_coverage.py` joined
 the Parquet's 43,762,704 runs with the 43,022,633 live public runs in `SRA_Accessions.tab`.
 971,528 live public runs are missing from the Parquet, spread over every year since 2007 and
 mostly from 2021 on. One of the 91 sampled runs, SRR925577 (GSM1180151, 2013), is among them.
@@ -284,7 +284,7 @@ Every Parquet run appears in `SRA_Accessions.tab`.
 
 The bulk GEO download is `esummary db=gds` for every Series (`gse[ETYP]`), version 2.0 JSON,
 one record per line. Its manifest lists 298,404 query IDs and 298,404 records. The script
-`scripts/research/field_sources/geo_esummary_check.py` streamed it and compared the 90 Series
+`docs/research/field-sources/geo_esummary_check.py` streamed it and compared the 90 Series
 of the GSM sample with live family SOFT and live `esummary`.
 
 **Coverage.** The dump holds 298,404 distinct Series. Live Entrez counted 298,404 the same day,
@@ -327,18 +327,18 @@ SOFT.
 
 ## Scripts behind the numbers
 
-All under `scripts/research/` on this branch:
+All under `docs/research/field-sources/`:
 
 | Script | Numbers |
 | --- | --- |
 | `gsm_srx_join.py --per-year 4 --seed 23` | the 72-GSM live sample and its join table |
-| `field_sources/live_reference.py` | the live SRA, BioSample and BioProject values the bulk checks compare against |
-| `field_sources/parquet_check.py` | Parquet against live, and the Parquet GSM counts |
-| `field_sources/parquet_coverage.py` | the runs the Parquet lacks |
-| `field_sources/accessions_check.sh`, `accessions_compare.py` | the bulk alias join, run counts and status tallies |
-| `field_sources/xml_check.py` | bulk BioProject and BioSample against live |
-| `field_sources/soft_relations.py` | the `!Sample_relation` survey and the GSE20301 and GSE19456 spot checks |
-| `field_sources/geo_esummary_check.py` | the bulk GEO esummary dump against live SOFT and esummary |
+| `live_reference.py` | the live SRA, BioSample and BioProject values the bulk checks compare against |
+| `parquet_check.py` | Parquet against live, and the Parquet GSM counts |
+| `parquet_coverage.py` | the runs the Parquet lacks |
+| `accessions_check.sh`, `accessions_compare.py` | the bulk alias join, run counts and status tallies |
+| `xml_check.py` | bulk BioProject and BioSample against live |
+| `soft_relations.py` | the `!Sample_relation` survey and the GSE20301 and GSE19456 spot checks |
+| `geo_esummary_check.py` | the bulk GEO esummary dump against live SOFT and esummary |
 
 ## Sources
 

@@ -14,6 +14,7 @@ cache = {}
 
 
 def text(sub):
+    """Return every file in `root/sub` joined, read once."""
     if sub not in cache:
         cache[sub] = "".join(f.read_text(errors="replace") for f in (root / sub).iterdir())
     return cache[sub]

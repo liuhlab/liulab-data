@@ -1,6 +1,6 @@
 """Fetch the live E-utilities values that the bulk check compares against.
 
-Takes the GSM rows written by ``scripts/research/gsm_srx_join.py`` plus extra SRA studies,
+Takes the GSM rows written by ``docs/research/field-sources/gsm_srx_join.py`` plus extra SRA studies,
 fetches every SRX with ``efetch db=sra``, every BioSample and every BioProject, and writes
 three files: ``live_runs.tsv`` (one row per run), ``live_biosamples.json`` and
 ``live_bioprojects.json``.
@@ -10,7 +10,7 @@ config file); without them it runs keyless.
 
 Run::
 
-    pixi run python scripts/research/field_sources/live_reference.py \
+    pixi run python docs/research/field-sources/live_reference.py \
         --gsm-jsonl gsm.jsonl --study PRJNA1027859 --study SRP045534 --out live/
 """
 

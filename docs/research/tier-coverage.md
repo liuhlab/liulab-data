@@ -9,9 +9,9 @@ Question ([#141](https://github.com/liuhlab/liulab-data/issues/141), map
 [#136](https://github.com/liuhlab/liulab-data/issues/136)): on a random sample of the store's
 PMIDs, how many papers can each download tier serve? Tiers: the PMC bucket, a host `pdf_url`
 from OpenAlex, OpenAlex's own paid copy. Builds on
-[PMC routes](https://github.com/liuhlab/liulab-data/blob/research/pmc-routes/docs/research/pmc-routes.md)
+[PMC routes](pmc-routes.md)
 and
-[OpenAlex downloads](https://github.com/liuhlab/liulab-data/blob/research/openalex-downloads/docs/research/openalex-downloads.md).
+[OpenAlex downloads](openalex-downloads.md).
 
 All probes ran on 2026-11-07 with no account, no key and no email. Each number is
 **measured** (counted on a live reply) or **inferred** (scaled or combined from measured

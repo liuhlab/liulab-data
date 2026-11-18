@@ -1,6 +1,6 @@
 """Tabulate the ``!Sample_relation`` lines of GEO family SOFT files, by submission year.
 
-For every Series touched by ``gsm.jsonl`` (from ``scripts/research/gsm_srx_join.py``) it
+For every Series touched by ``gsm.jsonl`` (from ``docs/research/field-sources/gsm_srx_join.py``) it
 downloads the family SOFT from the GEO FTP site over HTTPS, then for every sample counts the
 relation kinds (``SRA``, ``BioSample``, ...), how many SRX and SAMN accessions each carries,
 and the URL shapes. It also checks the family file against the per-GSM record the join used.
@@ -8,11 +8,11 @@ Prints a JSON summary; the downloaded files are not kept.
 
 Run::
 
-    pixi run python scripts/research/field_sources/soft_relations.py --gsm-jsonl gsm.jsonl
+    pixi run python docs/research/field-sources/soft_relations.py --gsm-jsonl gsm.jsonl
 
 or, for named Series only::
 
-    pixi run python scripts/research/field_sources/soft_relations.py --series GSE20301
+    pixi run python docs/research/field-sources/soft_relations.py --series GSE20301
 """
 
 from __future__ import annotations

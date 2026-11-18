@@ -10,7 +10,7 @@ labdata config file). Without them the script runs keyless at the keyless rate l
 
 Run::
 
-    pixi run python scripts/research/gsm_srx_join.py --per-year 4 --seed 23 --out gsm.jsonl
+    pixi run python docs/research/field-sources/gsm_srx_join.py --per-year 4 --seed 23 --out gsm.jsonl
 """
 
 from __future__ import annotations

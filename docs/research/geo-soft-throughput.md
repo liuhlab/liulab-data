@@ -14,7 +14,7 @@ Evidence classes, as in the earlier notes. **Measured** means a fetch or a scrip
 2026-10-15 and the number is its output. **Read** means an official page says it.
 **Inferred** means reasoned from measured or read facts and not checked directly.
 
-The benchmark is `scripts/research/soft_throughput.py`. It draws a seeded random sample of 600
+The benchmark is `docs/research/geo-soft-throughput/soft_throughput.py`. It draws a seeded random sample of 600
 sequencing Series from E-utilities and fetches each file once per configuration, with fresh
 files for each configuration.
 
@@ -158,7 +158,7 @@ and streaming writes.
 
 ## What was run
 
-- `scripts/research/soft_throughput.py sample` drew 600 Series (seed 49, 12 random chunks of
+- `docs/research/geo-soft-throughput/soft_throughput.py sample` drew 600 Series (seed 49, 12 random chunks of
   50 from the E-utilities list).
 - `run` and `one` timed the HTTPS and FTP configurations above. A first run that reused
   files is discarded, except for its new-connection timeout and the warm-fetch latency.

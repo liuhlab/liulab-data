@@ -7,7 +7,7 @@ Writes ``parquet_coverage.json`` to ``--out``.
 Run (DuckDB is not a labdata dependency)::
 
     pixi exec --spec python=3.12 --spec python-duckdb python \
-        scripts/research/field_sources/parquet_coverage.py \
+        docs/research/field-sources/parquet_coverage.py \
         --bulk-root "$BULK" --date 2026-10-14 --out out/
 """
 

@@ -28,6 +28,7 @@ def paths(el, prefix=""):
 
 
 def pathset(el):
+    """Group the values under `el` by their path."""
     d = collections.defaultdict(list)
     for p, v in paths(el):
         d[p].append(v)
@@ -35,11 +36,21 @@ def pathset(el):
 
 
 def efetch(ids):
-    q = urllib.parse.urlencode({"db": "sra", "id": ",".join(ids), "rettype": "full",
-                                "retmode": "xml", "tool": "labdata-research"})
+    """Fetch full SRA XML for `ids` from E-utilities."""
+    q = urllib.parse.urlencode(
+        {
+            "db": "sra",
+            "id": ",".join(ids),
+            "rettype": "full",
+            "retmode": "xml",
+            "tool": "labdata-research",
+        }
+    )
     import subprocess
-    return subprocess.run(["curl", "-s", "--max-time", "120", f"{EUTILS}?{q}"],
-                          check=True, capture_output=True).stdout
+
+    return subprocess.run(
+        ["curl", "-s", "--max-time", "120", f"{EUTILS}?{q}"], check=True, capture_output=True
+    ).stdout
 
 
 src, out = Path(sys.argv[1]), Path(sys.argv[2])
@@ -51,8 +62,12 @@ n_records = collections.Counter()
 for sub in sys.argv[3:]:
     d = src / sub
     tar = {}
-    for kind, tag in [("experiment", "EXPERIMENT"), ("run", "RUN"), ("sample", "SAMPLE"),
-                      ("study", "STUDY")]:
+    for kind, tag in [
+        ("experiment", "EXPERIMENT"),
+        ("run", "RUN"),
+        ("sample", "SAMPLE"),
+        ("study", "STUDY"),
+    ]:
         f = d / f"{sub}.{kind}.xml"
         if f.exists():
             for el in ET.parse(f).getroot().iter(tag):
@@ -72,8 +87,13 @@ for sub in sys.argv[3:]:
         for el in p.iter("RUN"):
             if el.get("accession"):
                 pkg.setdefault(("RUN", el.get("accession")), el)
-    print(sub, "tar records", collections.Counter(t for t, _ in tar),
-          "pkg records", collections.Counter(t for t, _ in pkg))
+    print(
+        sub,
+        "tar records",
+        collections.Counter(t for t, _ in tar),
+        "pkg records",
+        collections.Counter(t for t, _ in pkg),
+    )
     missing_in_pkg = [k for k in tar if k not in pkg]
     missing_in_tar = [k for k in pkg if k not in tar]
     if missing_in_pkg or missing_in_tar:
@@ -94,6 +114,7 @@ for sub in sys.argv[3:]:
 
 
 def show(title, c):
+    """Print each tag and path count in `c` under `title`."""
     print(f"\n## {title}")
     for (tag, p), n in sorted(c.items()):
         print(f"{tag}\t{n}/{n_records[tag]}\t{p}")

@@ -14,10 +14,10 @@ large files are not downloaded either way. Judging what a file holds is seqforge
 All probes ran on 2026-11-07, gently: listings and small metadata files, no supplementary file
 downloaded. Each fact is tagged **measured** (live probe or count), **read** (stated by the
 source) or **inferred**. Licences and terms are out of scope. Builds on
-[PMC routes](https://github.com/liuhlab/liulab-data/blob/research/pmc-routes/docs/research/pmc-routes.md),
-[OpenAlex downloads](https://github.com/liuhlab/liulab-data/blob/research/openalex-downloads/docs/research/openalex-downloads.md)
+[PMC routes](pmc-routes.md),
+[OpenAlex downloads](openalex-downloads.md)
 and
-[Paperpile's Drive sync](https://github.com/liuhlab/liulab-data/blob/research/paperpile-drive/docs/research/paperpile-drive.md).
+[Paperpile's Drive sync](paperpile-drive.md).
 
 ## Answer
 

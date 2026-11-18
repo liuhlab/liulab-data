@@ -6,7 +6,7 @@ them to ``--out`` and prints which fields agree.
 
 Run::
 
-    python3 scripts/research/field_sources/xml_check.py \
+    python3 docs/research/field-sources/xml_check.py \
         --bulk-root "$BULK" --date 2026-10-14 --live live/ --out out/
 """
 

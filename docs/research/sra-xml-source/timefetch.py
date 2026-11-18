@@ -13,6 +13,7 @@ out.mkdir(parents=True, exist_ok=True)
 
 
 def get(url, data=None):
+    """Fetch `url` with curl, posting `data` if given."""
     cmd = ["curl", "-s", "--max-time", "300", url]
     if data:
         cmd += ["--data", data]
@@ -37,5 +38,5 @@ for size in (100, 100, 200, 500):
     n = raw.count(b"<EXPERIMENT_PACKAGE>")
     runs = len(re.findall(rb"<RUN [^>]*accession=", raw))
     (out / f"batch{size}_{pos}.xml").write_bytes(raw)
-    print(f"batch {size}: {dt:.1f} s, {len(raw)/1e6:.2f} MB, packages {n}, runs {runs}")
+    print(f"batch {size}: {dt:.1f} s, {len(raw) / 1e6:.2f} MB, packages {n}, runs {runs}")
     time.sleep(0.5)

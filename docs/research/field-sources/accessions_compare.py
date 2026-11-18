@@ -7,7 +7,7 @@ run it compares spots, bases and the release date. Prints a JSON summary.
 
 Run::
 
-    python3 scripts/research/field_sources/accessions_compare.py \
+    python3 docs/research/field-sources/accessions_compare.py \
         --rows out/accessions_rows.tsv --gsm-jsonl live/gsm.jsonl --live live/live_runs.tsv
 """
 

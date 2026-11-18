@@ -8,7 +8,7 @@ fields agree. It also counts GEO aliases across the whole table. Writes
 Run (DuckDB is not a labdata dependency)::
 
     pixi exec --spec python=3.12 --spec python-duckdb python \
-        scripts/research/field_sources/parquet_check.py \
+        docs/research/field-sources/parquet_check.py \
         --bulk-root "$BULK" --date 2026-10-14 --live live/ --out out/
 """
 

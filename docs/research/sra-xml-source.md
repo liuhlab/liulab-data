@@ -1,3 +1,8 @@
+---
+search:
+  exclude: true
+---
+
 # Where full-scale SRA experiment and run XML comes from
 
 Question: should the full-scale store take its SRA experiment and run XML from per-record
@@ -6,7 +11,7 @@ tarballs?
 
 Evidence marks: **(M)** measured in this session, **(R)** read in a primary source,
 **(I)** inferred. All measurements were taken on 2026-10-15. The scripts are in
-`scripts/research/sra_xml_source/`.
+`docs/research/sra-xml-source/`.
 
 ## Answer
 

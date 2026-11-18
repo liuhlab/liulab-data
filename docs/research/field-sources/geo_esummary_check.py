@@ -10,9 +10,9 @@ reports, per field, whether the dump is the same as SOFT, truncated, missing or 
 
 Run::
 
-    python3 scripts/research/field_sources/geo_esummary_check.py extract \
+    python3 docs/research/field-sources/geo_esummary_check.py extract \
         --dump "$BULK/geo-series/2026-10-14/gds_gse_esummary.jsonl.gz" --series series.txt --out out/
-    pixi run python scripts/research/field_sources/geo_esummary_check.py compare \
+    pixi run python docs/research/field-sources/geo_esummary_check.py compare \
         --series series.txt --out out/
 """
 
