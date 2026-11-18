@@ -1,11 +1,12 @@
 """Write files whole or not at all, through a temporary name unique to this writer.
 
-Also the UTC stamp the stores' records use, :func:`utc_stamp`.
+Also the UTC stamp the stores' records use, :func:`utc_stamp`, and the sha256 of a text.
 """
 
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import os
 import tomllib
 from pathlib import Path
@@ -94,3 +95,8 @@ def create_marker(marker: Path, text: str, what: str) -> None:
 def utc_stamp() -> str:
     """Return the time now in UTC, to the second, as ``YYYY-MM-DDTHH:MM:SSZ``."""
     return dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def sha256(text: str) -> str:
+    """Return the hex sha256 of a text's UTF-8 bytes: every raw ``hash`` and ``content_hash``."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()

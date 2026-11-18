@@ -31,11 +31,11 @@ from labdata.exceptions import (
     NotMirrored,
 )
 from labdata.geo import Experiment
-from labdata.store import Store, open_store, pack, raw
+from labdata.store import Store, open_store, raw
 from labdata.store.fetch import fetch
 from labdata.store.lifecycle import build
 from tests._fakes import ExplodingEntrezClient, FakeEntrezClient
-from tests._slices import BuiltStore, copy_snapshots
+from tests._slices import BuiltStore, copy_snapshots, raw_rows, write_rows
 
 _DATA = Path(__file__).parent / "data"
 _SNAPSHOTS = _DATA / "prjna1027859" / "snapshots"
@@ -208,11 +208,11 @@ def test_bioproject_and_biosample_text_come_from_the_snapshots(store: Store) -> 
 
 def test_copies_of_a_study_that_differ_are_noted(root: Path) -> None:
     fetch(root, [_PROJECT], client=_client(), today="2026-10-14")
-    from labdata.store import pack, raw
+    from labdata.store import raw
 
-    rows = list(raw.rows(root, raw.SRA_XML))
+    rows = list(raw_rows(root, raw.SRA_XML))
     changed = rows[-1].raw_text.replace("<STUDY_TITLE>A Single", "<STUDY_TITLE>One")
-    pack.write_rows(root, raw.SRA_XML, [raw.RawRow(rows[-1].accession, changed, "2026-10-14")])
+    write_rows(root, raw.SRA_XML, [raw.RawRow(rows[-1].accession, changed, "2026-10-14")])
     out = build(root, "b1")
     notes = pq.read_table(out / "notes.parquet").to_pylist()
     [note] = [n for n in notes if n["kind"] == "copies differ"]
@@ -407,7 +407,7 @@ def test_a_bioproject_walk_goes_to_sra_only(root: Path) -> None:
     fetch(root, [_PROJECT], client=_client(), today="2026-10-14")
     # A Series the store does not hold names the same BioProject.
     line = f"GSE999999\tbioproject\t1\t{_PROJECT}"
-    pack.write_rows(root, raw.ENTREZ_LINKS, [raw.RawRow("GSE999999", line, "2026-10-14")])
+    write_rows(root, raw.ENTREZ_LINKS, [raw.RawRow("GSE999999", line, "2026-10-14")])
     build(root, "b1")
     store = open_store(root)
     assert store.follow(_PROJECT, "BioProject of")[_PROJECT] == ["GSE999999", _STUDY]

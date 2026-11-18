@@ -125,7 +125,7 @@ def _step(root: Path, *args: str) -> str:
 
 
 def _held(root: Path, source: str) -> dict[str, str]:
-    return {row.accession: row.raw_text for row in raw.rows(root, source)}
+    return dict(raw.saved(root, source))
 
 
 def _runs(package: str) -> list[str]:

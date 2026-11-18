@@ -487,7 +487,7 @@ def store_pack(
     """
     import logging
 
-    from labdata.store.pack import pack
+    from labdata.store.raw import pack
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     store = open_store(root)

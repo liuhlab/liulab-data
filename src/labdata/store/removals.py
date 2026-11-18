@@ -63,7 +63,7 @@ def candidates(root: Path, extra: Iterable[str] = ()) -> list[str]:
     found = set(extra)
     listed = _gds_series(root)
     found |= {gse for gse in _held_series(root) if gse not in listed}
-    for gse, text in raw.saved(root, raw.GEO_GAPS, since_pack=True).items():
+    for gse, text in raw.saved(root, raw.GEO_GAPS, since_pack=True):
         if text.split("\n", 1)[0] == gaps.SOFT_MISSING:
             found.add(gse)
     return sorted(found)
@@ -77,8 +77,7 @@ def confirm(root: Path, accessions: Iterable[str], *, client: EntrezClient) -> C
     root : pathlib.Path
         The store root.
     accessions : iterable of str
-        GEO Series from :func:`candidates`. A Series a pending removal already drops is not
-        asked again; any other accession is skipped with a warning.
+        GEO Series from :func:`candidates`; any other accession is skipped with a warning.
     client : EntrezClient
         The NCBI seam.
 
@@ -87,7 +86,6 @@ def confirm(root: Path, accessions: Iterable[str], *, client: EntrezClient) -> C
     ConfirmReport
         Counts for this run.
     """
-    pending = raw.removing(root, raw.GEO_SOFT)
     listed = _gds_series(root)
     series = set()
     for accession in accessions:
@@ -95,7 +93,7 @@ def confirm(root: Path, accessions: Iterable[str], *, client: EntrezClient) -> C
             series.add(accession)
         else:
             logger.warning("not confirmed, as only GEO Series are: %s", accession)
-    todo = sorted(series - pending)
+    todo = sorted(series)
     report = ConfirmReport(asked=len(todo))
     logger.info("confirming %d removal candidates", len(todo))
     with ThreadPoolExecutor(INFLIGHT, thread_name_prefix="confirm") as pool:
@@ -159,9 +157,7 @@ def _held_series(root: Path) -> set[str]:
     keyed = [source for source in SERIES_KEYED if source != raw.GEO_GAPS]
     found = {a for source in keyed for a in raw.held(root, source)}
     found |= {
-        a
-        for a, text in raw.saved(root, raw.GEO_GAPS).items()
-        if text.split("\n", 1)[0] != gaps.WITHDRAWN
+        a for a, text in raw.saved(root, raw.GEO_GAPS) if text.split("\n", 1)[0] != gaps.WITHDRAWN
     }
     return {a for a in found if a.startswith("GSE")}
 

@@ -21,6 +21,7 @@ import datetime as dt
 import json
 import logging
 import os
+from collections import defaultdict
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -32,7 +33,7 @@ from labdata._files import create, utc_stamp, write_atomic
 from labdata.exceptions import StoreBuildError
 from labdata.ncbi.entrez import EntrezClient
 from labdata.store import build as _build
-from labdata.store import gaps, gcs, pack, paths, readme, sra_removal
+from labdata.store import gaps, gcs, paths, raw, readme, sra_removal
 from labdata.store.gaps import Coverage
 from labdata.store.reader import BuildReader, build_path
 from labdata.store.sra_removal import SraRemovalReport
@@ -263,7 +264,7 @@ def start(
     else:
         _abandon(root, status)
         if folder is not None:
-            pack.pack(root)
+            raw.pack(root)
         status = {
             "update": update,
             "started": utc_stamp(),
@@ -548,10 +549,32 @@ def _switched(root: Path, status: dict[str, Any]) -> dict[str, Any]:
     if update_of(status) == REFRESH:
         status |= {
             "last_success": status["started"][:10],
-            "counts": pack.read_counts(root / status["folder"] / PACK_COUNTS),
+            "counts": read_counts(root / status["folder"] / PACK_COUNTS),
         }
     write_status(root, status)
     return status
+
+
+def read_counts(path: Path) -> dict[str, dict[str, int]]:
+    """Return the records added, replaced and removed per source, from a pack's counts file.
+
+    A bucket packed again from the same parts, after a kill, counts once: its first record.
+    """
+    out: dict[str, dict[str, int]] = defaultdict(lambda: dict.fromkeys(raw.COUNTS, 0))
+    seen: set[tuple[str, str, str]] = set()
+    lines = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:  # a line cut off by a kill
+            continue
+        key = (row["source"], row["bucket"], row.get("parts", ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        for name in raw.COUNTS:
+            out[row["source"]][name] += row[name]
+    return dict(sorted(out.items()))
 
 
 def _switch_marker(root: Path, build_id: str) -> None:

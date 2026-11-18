@@ -18,7 +18,6 @@ from labdata.cli import app
 from labdata.store import extract, lifecycle, raw
 from labdata.store.gcs import COPIED, check
 from labdata.store.lifecycle import build
-from labdata.store.pack import pack
 from labdata.store.prune import GRACE, prune
 from tests._fake_gcs import FakeGcs, KilledError
 from tests._slices import BuiltStore
@@ -441,8 +440,8 @@ def _drop_bucket(root: Path, *names: str) -> list[str]:
     gone = [f"raw/pubmed-si/{name}" for name in names or ["SRPnnnnnn.parquet"]]
     for path in gone:
         rows = pq.read_table(root / path, columns=["accession"]).column(0).to_pylist()
-        raw.write_removals(root, "pubmed-si", rows)
-    pack(root, ["pubmed-si"])
+        raw.remove(root, "pubmed-si", rows)
+    raw.pack(root, ["pubmed-si"])
     build(root, "b2")
     assert not any((root / path).exists() for path in gone)
     return gone

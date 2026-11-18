@@ -16,6 +16,7 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from labdata._files import sha256
 from labdata.exceptions import StoreBuildError
 from labdata.store import raw, snapshots, sources, suppl, targets
 from labdata.store.layout import record_stem
@@ -108,7 +109,7 @@ class _Parts:
                 **{k: parsed.typed.get(k) for k in ("status", "submitted", "updated", "published")},
                 "fields": [{"name": k, "value": v} for k, v in parsed.fields],
                 "raw_text": parsed.raw_text,
-                "content_hash": raw.sha256(parsed.raw_text),
+                "content_hash": sha256(parsed.raw_text),
                 "snapshot_date": date,
                 "origin": origin,
                 "number": num,
@@ -259,6 +260,6 @@ def _parse(parts: _Parts, kind: str, accession: str, text: str, date: str) -> No
     parts.link(links)
     for record in records:
         if kind in SNAPSHOT_KINDS:
-            parts.record(record, date, raw.sha256(text), 0)
+            parts.record(record, date, sha256(text), 0)
         else:
             parts.record(record, date, accession, num)

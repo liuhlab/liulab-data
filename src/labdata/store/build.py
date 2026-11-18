@@ -261,6 +261,7 @@ def _build_into(
     sample_of: targets.BuildSource | None,
 ) -> None:
     source = sample_of or targets.BuildSource(root, None)
+    raw_files = {kind: raw.files(source.root, kind) for kind in raw.WIDTHS}
     for kind in extract.SOURCES:
         extract.extract(source.root, kind, made_in=source.made_in, workers=workers)
     _, geo_date = _extract_of(source, snapshots.GEO_SERIES)
@@ -268,8 +269,7 @@ def _build_into(
     _summary_links(target_list, work / "links" / "summary.parquet")
     tasks: list[_parse.Task] = []
     for kind in _parse.RAW_KINDS:
-        files = sorted(paths.RAW.at(source.root, kind).glob("*.parquet"))
-        for run in _runs(files, _TASK_CHUNKS * chunk_bytes, workers):
+        for run in _runs(raw_files[kind], _TASK_CHUNKS * chunk_bytes, workers):
             tasks.append(
                 _parse.Task(kind, run, work, len(tasks), chunk_bytes, sample=source.sample)
             )
@@ -468,15 +468,15 @@ def _wanted_snapshots(
     ``[si]``-searched accessions count, and each snapshot's sampled accessions are added.
     """
     links = _read(work / "links")
-    searched = paths.RAW.at(source.root, raw.PUBMED_SI)
+    searched = raw.files(source.root, raw.PUBMED_SI)
     sampled = ""
     tally = None
     if source.sample is not None:
         tally = targets.add_in_sample(con, source.sample)
         sampled = " WHERE in_sample(accession)"
     projects = f"SELECT \"to\" FROM {links} WHERE relation = 'BioProject'"
-    if any(searched.glob("*.parquet")):
-        projects += f" UNION SELECT accession FROM {_read(searched)}{sampled}"
+    if searched:
+        projects += f" UNION SELECT accession FROM {read_parquet_sql(searched)}{sampled}"
     wanted = {
         snapshots.BIOPROJECT: (projects, "PRJ"),
         snapshots.BIOSAMPLE: (f"SELECT \"to\" FROM {links} WHERE relation = 'BioSample'", ""),
