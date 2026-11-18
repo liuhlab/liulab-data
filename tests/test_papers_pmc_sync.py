@@ -14,12 +14,12 @@ from labdata.cli import app
 from labdata.ncbi import entrez as entrez_mod
 from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
-from labdata.papers import init_paper_store, open_paper_store, paper_dir, tables
 from labdata.papers import job as job_mod
+from labdata.papers import open_paper_store, paper_dir, tables
 from labdata.papers import openalex as openalex_mod
 from labdata.papers.folder import PENDING
 from labdata.papers.openalex import Account, OpenAlex, OpenAlexError, load_accounts
-from tests._paper_fakes import Article, FakeWeb, Reply, fixture_build, work
+from tests._paper_fakes import Article, FakeWeb, Reply, fixture_build, init_papers, work
 from tests._slices import BuiltStore
 
 TODAY = "2026-11-07"
@@ -140,7 +140,7 @@ def by_key(root: Path, table: tables.PaperTable) -> dict[str, dict]:
 def paper_store(tmp_path: Path, links: list[tuple[str, str, str]]) -> Path:
     store = fixture_build(tmp_path / "store", links)
     root = tmp_path / "papers"
-    init_paper_store(root, store)
+    init_papers(root, store)
     return root
 
 
@@ -571,7 +571,7 @@ def test_only_target_series_and_held_bioprojects_bring_papers_in(
     ]
     store = fixture_build(tmp_path / "store", links, not_targets=["GSE9"])
     root = tmp_path / "papers"
-    init_paper_store(root, store)
+    init_papers(root, store)
     work_dir = store / "work"
     before = sorted(p.relative_to(store) for p in work_dir.rglob("*"))
     use(monkeypatch, web())
@@ -599,7 +599,7 @@ def test_the_thin_slice_takes_in_its_papers(
 ) -> None:
     store = built_store(tmp_path / "store", "geo_slice")
     root = tmp_path / "papers"
-    init_paper_store(root, store)
+    init_papers(root, store)
     use(monkeypatch, FakeWeb())
     out = sync(root)
     # The slice's snapshot gives no Series a gdstype, so no Series is a target: GSE15556's

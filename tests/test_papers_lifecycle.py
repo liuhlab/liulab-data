@@ -18,11 +18,11 @@ from labdata._http import RateLimiter
 from labdata.cli import app
 from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
-from labdata.papers import init_paper_store, lifecycle, open_paper_store, paper_dir, tables
+from labdata.papers import lifecycle, open_paper_store, paper_dir, tables
 from labdata.papers.openalex import Account, OpenAlex
 from labdata.papers.status import STATUS, read_status
 from tests._fake_gcs import FakeGcs
-from tests._paper_fakes import Article, FakeWeb, Reply, fixture_build, work
+from tests._paper_fakes import Article, FakeWeb, Reply, fixture_build, init_papers, work
 
 DEST = "gcs:bucket/datalake/paper-store"
 TODAY = dt.date(2026, 11, 7)
@@ -92,7 +92,7 @@ def copied_store(tmp_path: Path, rows: list[dict[str, Any]]) -> Path:
     """A paper store holding ``rows`` and one paper file, copied to GCS in full."""
     links = [(f"GSE{n}", f"PMID:{r['paper']}", "SOFT") for n, r in enumerate(rows, 1)]
     root = tmp_path / "papers"
-    init_paper_store(root, fixture_build(tmp_path / "store", links), copy_to=DEST)
+    init_papers(root, fixture_build(tmp_path / "store", links), copy_to=DEST)
     tables.write(root, tables.PAPERS, rows)
     hold(root, "1")
     lifecycle.copy(open_paper_store(root), full=True)
