@@ -239,7 +239,7 @@ def _refresh(root: Path, *extra: str) -> str:
 
 
 def _held(root: Path, source: str) -> dict[str, str]:
-    return {row.accession: row.raw_text for row in raw.read_rows(root, source)}
+    return {row.accession: row.raw_text for row in raw.rows(root, source)}
 
 
 def _current(root: Path) -> Path:

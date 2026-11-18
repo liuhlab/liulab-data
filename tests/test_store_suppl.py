@@ -71,7 +71,7 @@ def store(built: Path) -> Store:
 
 
 def test_fetch_saves_each_series_filelist_and_an_absent_one_as_empty(built: Path) -> None:
-    saved = {r.accession: r.raw_text for r in raw.read_rows(built, raw.GEO_FILELIST)}
+    saved = {r.accession: r.raw_text for r in raw.rows(built, raw.GEO_FILELIST)}
     assert saved == {
         "GSE15556": (_DATA / "filelist" / "GSE15556.txt").read_text(encoding="utf-8"),
         "GSE233931": "",

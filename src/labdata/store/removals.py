@@ -14,17 +14,15 @@ import gzip
 import json
 import logging
 import re
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import pyarrow.parquet as pq
-
 from labdata.exceptions import AccessionError
 from labdata.ncbi.entrez import EntrezClient
 from labdata.store import gaps, raw, snapshots
-from labdata.store._removal import INFLIGHT, State, ask_alone, pending_removals, write_removals
+from labdata.store._removal import INFLIGHT, State, ask_alone, write_removals
 from labdata.store.fetch import gds_uid
 from labdata.store.model import kind_of
 
@@ -62,10 +60,9 @@ def candidates(root: Path, extra: Iterable[str] = ()) -> list[str]:
     found = set(extra)
     listed = _gds_series(root)
     found |= {gse for gse in _held_series(root) if gse not in listed}
-    for path in raw.part_files(root, raw.GEO_GAPS):
-        for gse, text in _part_rows(path, "raw_text"):
-            if text.split("\n", 1)[0] == gaps.SOFT_MISSING:
-                found.add(gse)
+    for gse, text in raw.saved(root, raw.GEO_GAPS, since_pack=True).items():
+        if text.split("\n", 1)[0] == gaps.SOFT_MISSING:
+            found.add(gse)
     return sorted(found)
 
 
@@ -77,8 +74,8 @@ def confirm(root: Path, accessions: Iterable[str], *, client: EntrezClient) -> C
     root : pathlib.Path
         The store root.
     accessions : iterable of str
-        GEO Series from :func:`candidates`. A Series a pending removal part already lists is
-        not asked again; any other accession is skipped with a warning.
+        GEO Series from :func:`candidates`. A Series a pending removal already drops is not
+        asked again; any other accession is skipped with a warning.
     client : EntrezClient
         The NCBI seam.
 
@@ -87,7 +84,7 @@ def confirm(root: Path, accessions: Iterable[str], *, client: EntrezClient) -> C
     ConfirmReport
         Counts for this run.
     """
-    pending = pending_removals(root, raw.GEO_SOFT)
+    pending = raw.removing(root, raw.GEO_SOFT)
     series = set()
     for accession in accessions:
         if _is_series(accession):
@@ -144,13 +141,6 @@ def _apply(root: Path, states: dict[str, State], report: ConfirmReport) -> None:
         return
     for source in SERIES_KEYED:
         write_removals(root, source, raw.held(root, source, gone), report.removals)
-
-
-def _part_rows(path: Path, column: str) -> Iterator[tuple[str, str]]:
-    """Yield a part's accessions with one more column, a batch at a time."""
-    for batch in pq.ParquetFile(path).iter_batches(columns=["accession", column]):
-        values = batch.to_pydict()
-        yield from zip(values["accession"], values[column], strict=True)
 
 
 def _held_series(root: Path) -> set[str]:
