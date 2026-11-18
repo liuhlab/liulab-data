@@ -157,7 +157,7 @@ def drive(
         work = chosen.folder
         if chosen.plan.action == lifecycle.NOTHING:
             logger.warning(
-                "the run in %s is done: every step finished, so nothing runs; to run it "
+                "the run in %s is done or finalized, so nothing runs; to run it "
                 "again, delete that folder",
                 work,
             )
@@ -169,7 +169,7 @@ def drive(
                 logger.warning("%s", result.message)
             return int(result.skipped)
         folder = work.relative_to(root).as_posix()
-        lifecycle.start(root, update, folder, again=bool(chosen.rerun), **chosen.fields)
+        lifecycle.start(root, update, folder, running=chosen.plan.running, **chosen.fields)
         work.mkdir(parents=True, exist_ok=True)
         memory = int(_limits.allocation_mb() * STEPS_SHARE)
         config = {
@@ -220,7 +220,7 @@ def run(
     round resumes at the first unfinished step; the fetch steps skip every item already
     saved, by this round or a smaller one. A fetch lane that left items failed runs again,
     and so does every step after it. A rerun of a round left only its copy copies, and one of
-    a finished round runs nothing.
+    a finished or finalized round runs nothing.
 
     Parameters
     ----------

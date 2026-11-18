@@ -97,11 +97,15 @@ class Plan:
         else the one asked for, None for a new refresh.
     abandoned : str or None
         Why the run of this update stopped before its switch is not resumed.
+    running : bool
+        The update is running while the driver runs Snakemake: its steps up to the switch
+        may run.
     """
 
     action: str
     folder: str | None = None
     abandoned: str | None = None
+    running: bool = False
 
 
 def plan(
@@ -119,7 +123,8 @@ def plan(
     A run of ``update`` stopped before its switch resumes; a refresh only within
     :data:`RESUME_WITHIN` of its start and by the same ``dag``, else a new one starts. A run
     switched with its copy pending is finished by the copy alone, whatever its age or DAG.
-    A full run's round whose last step is done runs nothing, unless ``rerun``.
+    A full run's round whose last step is done, or that is finalized, runs nothing, unless
+    ``rerun``; a finalized round run again is running until it switches again.
 
     Parameters
     ----------
@@ -150,10 +155,13 @@ def plan(
         return Plan(COPY, named)
     if mine and outcome in _UNSWITCHED:
         abandoned = _stale(status, dag, now) if update == REFRESH else None
-        return Plan(NEW, folder, abandoned) if abandoned else Plan(RESUME, named)
-    if done and not rerun:
+        if abandoned:
+            return Plan(NEW, folder, abandoned, running=True)
+        return Plan(RESUME, named, running=True)
+    carried = mine and folder is not None
+    if not rerun and (done or (carried and outcome == FINALIZED)):
         return Plan(NOTHING, folder)
-    return Plan(RESUME, named) if mine and folder is not None else Plan(NEW, folder)
+    return Plan(RESUME, named, running=rerun) if carried else Plan(NEW, folder, running=True)
 
 
 def _stale(status: Mapping[str, Any], dag: int | None, now: dt.datetime | None) -> str | None:
@@ -219,7 +227,7 @@ def write_status(root: Path, status: Mapping[str, Any]) -> None:
 
 
 def start(
-    root: Path, update: str, folder: str | None = None, *, again: bool = False, **fields: Any
+    root: Path, update: str, folder: str | None = None, *, running: bool = False, **fields: Any
 ) -> dict[str, Any]:
     """Begin an update, or carry on the run in ``folder`` the status record names.
 
@@ -229,7 +237,7 @@ def start(
     :data:`ABANDONED_RECORD` in its folder: abandoned before its switch; after it, its pending
     copy carries over. A new run first packs every part an earlier run left, so a part saved
     since the last pack is its own. A run carried on is running again, unless it has switched
-    builds and ``again`` is false.
+    builds and ``running`` is false.
 
     Parameters
     ----------
@@ -239,8 +247,8 @@ def start(
         :data:`REFRESH`, :data:`RUN`, :data:`BUILD` or :data:`REMOVE_SRA`.
     folder : str or None
         A run's folder, from the root; None for an update by hand.
-    again : bool
-        The run carried on runs its steps up to its switch again.
+    running : bool
+        The run carried on runs its steps up to its switch again, as :attr:`Plan.running`.
     **fields
         More of the new update's record, such as ``started`` or ``since``.
 
@@ -257,7 +265,7 @@ def start(
     _check(root)
     status = read_status(root)
     if folder is not None and status.get("folder") == folder:
-        if again or status.get("outcome") in _UNSWITCHED:
+        if running or status.get("outcome") in _UNSWITCHED:
             status["outcome"] = RUNNING
         if status.get("outcome") != FINALIZED:
             status["ended"] = None

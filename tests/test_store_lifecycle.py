@@ -64,27 +64,31 @@ def _run(outcome: str, **more: Any) -> dict[str, Any]:
 
 
 @pytest.mark.parametrize(
-    ("status", "done", "rerun", "action"),
+    ("status", "done", "rerun", "action", "running"),
     [
         # A full run has no age or DAG rule: its round folder is what makes it the same run.
-        (_run("failed"), False, False, RESUME),
-        (_run("running"), False, True, RESUME),
-        (_run("built", copy_pending=True), False, True, COPY),
-        (_run("built", copy_pending=False), False, False, RESUME),
-        (_run("finalized"), True, True, RESUME),
-        (_run("finalized"), True, False, NOTHING),
-        ({"update": "build", "outcome": "finalized", "build": "b1"}, True, False, NOTHING),
-        ({"update": "build", "outcome": "finalized", "build": "b1"}, True, True, NEW),
-        (_run("failed") | {"folder": "work/run/2026-09-01-all"}, False, False, NEW),
-        (_refresh(1, "built", copy_pending=True), False, False, NEW),
+        (_run("failed"), False, False, RESUME, True),
+        (_run("running"), False, True, RESUME, True),
+        (_run("built", copy_pending=True), False, True, COPY, False),
+        (_run("built", copy_pending=False), False, False, RESUME, False),
+        # Steps run again in a finalized round: it is running until it switches again.
+        (_run("finalized"), True, True, RESUME, True),
+        (_run("finalized"), True, False, NOTHING, False),
+        # GCS holds the round's build, so a missing last marker reruns nothing.
+        (_run("finalized"), False, False, NOTHING, False),
+        ({"update": "build", "outcome": "finalized", "build": "b1"}, True, False, NOTHING, False),
+        ({"update": "build", "outcome": "finalized", "build": "b1"}, True, True, NEW, True),
+        (_run("failed") | {"folder": "work/run/2026-09-01-all"}, False, False, NEW, True),
+        (_refresh(1, "built", copy_pending=True), False, False, NEW, True),
     ],
 )
 def test_a_full_run_carries_on_in_its_round_folder_unless_only_the_copy_or_nothing_is_left(
-    status: dict[str, Any], done: bool, rerun: bool, action: str
+    status: dict[str, Any], done: bool, rerun: bool, action: str, running: bool
 ) -> None:
     plan = lifecycle.plan(status, lifecycle.RUN, _ROUND, done=done, rerun=rerun, now=_NOW)
 
     assert (plan.action, plan.folder, plan.abandoned) == (action, _ROUND, None)
+    assert plan.running is running
 
 
 @pytest.fixture(autouse=True)
