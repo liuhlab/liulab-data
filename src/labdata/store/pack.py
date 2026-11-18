@@ -1,7 +1,7 @@
 """Pack: merge parts into ``raw/<source>/<bucket>.parquet``, the only writer of ``raw/``.
 
-A bucket is rewritten whole by :func:`labdata.store.raw.merge`, the merge every read of
-``raw/`` uses, its inputs read a few rows at a time and written a chunk at a time, so memory
+A bucket is rewritten whole by :func:`labdata.store.raw.newest_rows`, the merge every read
+of ``raw/`` uses, its inputs read a few rows at a time and written a chunk at a time, so memory
 holds a chunk, never a bucket or a source. A bucket left with no rows is deleted. A bucket
 file named for another width is first split into parts, so a width change repacks the same
 rows.
@@ -95,11 +95,12 @@ def _pack_source(
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / f"{bucket}.parquet"
         spills: list[Path] = []
-        runs, held = raw.layers(root, source, bucket, parts)
+        runs, bucket_runs = raw.layers(root, source, bucket, parts)
+        old, new = runs[:bucket_runs], runs[bucket_runs:]
         # The old bucket is never spilled, so the merge can tell its rows from the parts'.
-        newer = _fewer(runs[held:], raw.parts_dir(root, source), spills, chunk_bytes, FAN_IN - held)
+        newer = _fewer(new, raw.parts_dir(root, source), spills, chunk_bytes, FAN_IN - bucket_runs)
         tally: dict[str, int] = dict.fromkeys(COUNTS, 0)
-        rows = _merged([*runs[:held], *newer], tally, held=bool(held))
+        rows = _merged([*old, *newer], tally, bucket_runs)
         if counts is not None:
             record = {"source": source, "bucket": bucket, "parts": _parts_tag(parts)}
             rows = _counted(rows, counts, record, tally)
@@ -173,7 +174,7 @@ def _fewer(
                 fewer += group
                 continue
             spill = folder / f".spill-{len(spills)}.parquet"
-            rows = _merged(group, None, held=False)
+            rows = _merged(group, None, 0)
             raw.write_sorted_runs(spill, rows, raw.SCHEMA, chunk_bytes=chunk_bytes)
             spills.append(spill)
             fewer.append(raw.file_run(spill))
@@ -199,9 +200,9 @@ def _split_if_misnamed(root: Path, source: str, path: Path, chunk_bytes: int) ->
         wanted = set(members)
         part = folder / raw.part_name(bucket, f"repack-{path.stem}")
         rows = (
-            RawRow(accession, *value)
-            for accession, value in raw.file_run(path)
-            if accession in wanted and isinstance(value, tuple)
+            row
+            for accession, row, _ in raw.newest_rows([raw.file_run(path)])
+            if accession in wanted and row is not None
         )
         raw.write_sorted_runs(part, rows, raw.SCHEMA, chunk_bytes=chunk_bytes)
         _age(part)
@@ -212,28 +213,26 @@ def _age(path: Path) -> None:
     os.utime(path, ns=(0, 0))
 
 
-def _merged(runs: list[raw.Run], tally: dict[str, int] | None, *, held: bool) -> Iterator[RawRow]:
+def _merged(
+    runs: list[raw.Run], tally: dict[str, int] | None, bucket_runs: int
+) -> Iterator[RawRow]:
     """Merge sorted runs into one sorted stream of each accession's newest row.
 
-    With ``tally``, the stream is final: a removed accession is dropped. When ``held``, the
-    first run is the old bucket, and ``tally`` counts the accessions added, replaced with
-    another text and removed against it. Without ``tally``, a removal is kept, so a spill
-    file passes it on.
+    With ``tally``, the stream is final: a removed accession is dropped, and ``tally`` counts
+    the accessions added, replaced with another text and removed against the first
+    ``bucket_runs`` runs, the old bucket's. Without, a removal is kept, so a spill file passes
+    it on.
     """
-    for accession, entries in raw.merge(runs):
-        rank, value = raw.newest(entries)
-        last = RawRow(accession, *value) if isinstance(value, tuple) else None
-        if last is not None:
-            yield last
+    for accession, row, old in raw.newest_rows(runs, bucket_runs):
+        if row is not None:
+            yield row
         elif tally is None:
             yield RawRow(accession, "", raw.REMOVED)
-        if tally is None or (held and rank == 0):
+        if tally is None:
             continue
-        first_rank, first = entries[0]
-        old = first if held and first_rank == 0 and isinstance(first, tuple) else None
-        if last is None:
+        if row is None:
             tally["removed"] += old is not None
         elif old is None:
             tally["added"] += 1
-        elif old[0] != last.raw_text:
+        elif old != row.raw_text:
             tally["replaced"] += 1

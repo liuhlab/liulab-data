@@ -5,7 +5,7 @@ longer lists, or that this refresh's fetch got no record for. It is removed only
 of it alone confirms it is gone: a record-level "cannot get document summary" in a 200 reply,
 or NCBI's "ID list is empty". Any other answer keeps it; the next refresh finds it again. A
 gone Series takes its rows in every Series-keyed source with it. SRA records are never
-candidates. Removal parts are applied by pack (see :mod:`labdata.store.raw`).
+candidates. Every read of ``raw/`` and pack apply removal parts (see :mod:`labdata.store.raw`).
 """
 
 from __future__ import annotations

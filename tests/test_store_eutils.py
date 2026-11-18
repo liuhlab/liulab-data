@@ -83,8 +83,7 @@ def test_the_experiment_list_is_the_union_of_soft_relations_and_geo_tab_rows(
     ]
     root = _store(tmp_path, tab, {"GSE1": _soft("SRX1", "SRX3"), "GSE2": _soft("SRX9", "SRX1")})
     # a SOFT part the GEO lane wrote and nothing has packed yet counts too
-    piece = raw.Piece(raw.GEO_SOFT, raw.bucket_of(raw.GEO_SOFT, "GSE3"), ("GSE3",))
-    raw.write_part(root, piece, [raw.RawRow("GSE3", _soft("SRX20"), TODAY)])
+    raw.save(root, raw.GEO_SOFT, [raw.RawRow("GSE3", _soft("SRX20"), TODAY)])
 
     assert _list(root) == [
         ("SRX1", "live"),
@@ -188,6 +187,11 @@ def _packed(root: Path, source: str) -> dict[str, str]:
     return {row.accession: row.raw_text for row in raw.rows(root, source)}
 
 
+def _parts(root: Path) -> int:
+    """Count the ``sra-xml`` parts waiting for pack."""
+    return sum(len(parts) for parts in raw.parts_by_bucket(root, raw.SRA_XML).values())
+
+
 @pytest.fixture
 def no_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(entrez_mod.time, "sleep", lambda _s: None)
@@ -259,7 +263,7 @@ def test_a_resumed_lane_refetches_no_saved_part_and_packs_the_same_raw(
     known = {a for a, _ in accessions}
     whole = _store(tmp_path / "whole", _geo(*accessions))
     _run(whole, _Ncbi(known=known), batch=2, part_size=4, inflight=1)
-    assert len(raw.part_files(whole, raw.SRA_XML)) == 5  # one bucket, split into parts
+    assert _parts(whole) == 5  # one bucket, split into parts
 
     cut = _store(tmp_path / "cut", _geo(*accessions))
     with pytest.raises(_Killed):
@@ -336,15 +340,15 @@ def test_a_slow_call_holds_back_only_its_own_part(tmp_path: Path) -> None:
 
     def wait_for_the_others() -> None:
         deadline = time.monotonic() + 5
-        while len(raw.part_files(root, raw.SRA_XML)) < 3 and time.monotonic() < deadline:
+        while _parts(root) < 3 and time.monotonic() < deadline:
             time.sleep(0.01)
-        seen.append(len(raw.part_files(root, raw.SRA_XML)))
+        seen.append(_parts(root))
 
     ncbi = _Ncbi(known={a for a, _ in accessions}, slow={"SRX1"}, on_slow=wait_for_the_others)
     _run(root, ncbi, batch=2, part_size=2, inflight=2)
 
     assert seen == [3]  # the three other parts were saved while the first call hung
-    assert len(raw.part_files(root, raw.SRA_XML)) == 4
+    assert _parts(root) == 4
 
 
 # ---------------------------------------------------------------- bad saved packages

@@ -91,7 +91,7 @@ def test_a_piece_written_again_keeps_one_part(tmp_path: Path) -> None:
         raw.fetch_pieces(
             tmp_path, raw.SRA_XML, ["SRX1"], lambda _: [], TODAY, remember_misses=False
         )
-    assert len(raw.part_files(tmp_path, raw.SRA_XML)) == 1
+    assert [len(p) for p in raw.parts_by_bucket(tmp_path, raw.SRA_XML).values()] == [1]
 
 
 def test_parts_go_oldest_first_and_an_unstamped_part_by_its_mtime(tmp_path: Path) -> None:
@@ -109,12 +109,12 @@ def test_parts_go_oldest_first_and_an_unstamped_part_by_its_mtime(tmp_path: Path
     repack = unstamped("repack-GSE1nnn", 0)
     old_row = unstamped("0123456789ab", time.time_ns() - 2 * second)
     old_removal = unstamped("removed-0123456789ab", time.time_ns() - second)
-    row = raw.write_part(tmp_path, raw.Piece(raw.GEO_SOFT, "GSE1nnnn", ("GSE10001",)), [])
+    [row] = raw.save(tmp_path, raw.GEO_SOFT, [], asked=["GSE10001"])
     [removal] = raw.write_removals(tmp_path, raw.GEO_SOFT, ["GSE10001"])
     late = unstamped("fedcba987654", time.time_ns() + second)
 
     expected = [repack, old_row, old_removal, row, removal, late]
-    assert raw.part_files(tmp_path, raw.GEO_SOFT) == expected
+    assert raw.parts_by_bucket(tmp_path, raw.GEO_SOFT) == {"GSE1nnnn": expected}
 
 
 def _texts(n: int, size: int) -> list[raw.RawRow]:
@@ -128,8 +128,8 @@ def test_pack_memory_is_bounded_by_a_chunk_not_the_source(tmp_path: Path) -> Non
     assert total > 12 * chunk
     for start in (0, 1):
         mine = rows[start::2]
-        piece = raw.Piece(raw.SRA_XML, "SRXnnnnnn", tuple(r.accession for r in mine))
-        raw.write_part(tmp_path, piece, iter(mine), chunk_bytes=chunk)
+        asked = [r.accession for r in mine]
+        raw.save(tmp_path, raw.SRA_XML, iter(mine), asked=asked, chunk_bytes=chunk)
     del rows, mine
 
     pool = pa.proxy_memory_pool(pa.default_memory_pool())
@@ -180,14 +180,18 @@ def test_pack_repacks_buckets_of_another_width_to_the_same_rows(tmp_path: Path) 
 
 
 def _layered(root: Path) -> Path:
-    """A packed bucket, then an older part, a removal part and a newer part over it."""
+    """A packed bucket, then an older part, a removal part and a newer part over it.
+
+    Each part's fetch also asked for an accession it got no row for: the older one's is
+    removed after it, the newer one's, GSE10006, is not.
+    """
     old = [raw.RawRow(f"GSE1000{n}", f"{c}0", "d0") for n, c in ((1, "a"), (2, "b"), (3, "c"))]
     pack.write_rows(root, raw.GEO_SOFT, old)
     older = [raw.RawRow("GSE10001", "a1", "d1"), raw.RawRow("GSE10004", "d1", "d1")]
-    raw.save(root, raw.GEO_SOFT, older)
+    raw.save(root, raw.GEO_SOFT, older, asked=["GSE10001", "GSE10002", "GSE10004"])
     raw.write_removals(root, raw.GEO_SOFT, ["GSE10002", "GSE10004", "GSE10005"])
     newer = [raw.RawRow("GSE10001", "a2", "d2"), raw.RawRow("GSE10005", "e2", "d2")]
-    raw.save(root, raw.GEO_SOFT, newer)
+    raw.save(root, raw.GEO_SOFT, newer, asked=["GSE10001", "GSE10005", "GSE10006"])
     return root
 
 
@@ -226,10 +230,12 @@ def _triples(path: Path) -> list[tuple[str, str, str]]:
 def test_fetch_planning_skips_exactly_the_held_accessions(tmp_path: Path) -> None:
     root, source = _layered(tmp_path), raw.GEO_SOFT
 
+    # GSE10006 is not held, but a fetch since its last removal asked for it and got no row.
+    asked = {"GSE10006"}
     todo = {a for piece in raw.pieces(root, source, _WANTED) for a in piece.todo}
-    assert todo == set(_WANTED) - raw.held(root, source, _WANTED)
+    assert todo == set(_WANTED) - raw.held(root, source, _WANTED) - asked
     again = {a for piece in raw.pieces(root, source, (), _WANTED) for a in piece.todo}
-    assert again == set(_WANTED) - raw.held(root, source, _WANTED, since_pack=True)
+    assert again == set(_WANTED) - raw.held(root, source, _WANTED, since_pack=True) - asked
 
 
 def _counted_store(root: Path) -> Path:
@@ -237,9 +243,7 @@ def _counted_store(root: Path) -> Path:
     old = [raw.RawRow(f"GSE{n}", "old", "d0") for n in (10001, 10002, 10003, 20001)]
     pack.write_rows(root, raw.GEO_SOFT, old)
     new = [raw.RawRow("GSE10001", "old", "d1"), raw.RawRow("GSE10002", "new", "d1")]
-    raw.write_part(root, raw.Piece(raw.GEO_SOFT, "GSE1nnnn", ("GSE10001", "GSE10002")), new)
-    added = [raw.RawRow("GSE20002", "added", "d1")]
-    raw.write_part(root, raw.Piece(raw.GEO_SOFT, "GSE2nnnn", ("GSE20002",)), added)
+    raw.save(root, raw.GEO_SOFT, [*new, raw.RawRow("GSE20002", "added", "d1")])
     raw.write_removals(root, raw.GEO_SOFT, ["GSE10003"])
     return root
 

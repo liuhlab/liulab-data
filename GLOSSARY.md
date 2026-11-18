@@ -109,8 +109,8 @@ confirms it is gone.
 
 ### Removal part
 
-A part that lists accessions to delete instead of holding rows. Pack applies it in part order:
-it deletes the rows saved before it, and a row saved after it wins.
+A part that lists accessions to delete instead of holding rows. Every read of `raw/` and pack
+apply it in part order: it drops the rows saved before it, and a row saved after it wins.
 
 ### Status record
 

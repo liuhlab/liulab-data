@@ -335,12 +335,12 @@ def test_writing_the_same_removal_again_keeps_its_place_before_later_rows(tmp_pa
 
 def _one_tick(root: Path, source: str) -> None:
     """Give every part one mtime, as files written within one clock tick can have."""
-    for path in raw.part_files(root, source):
-        os.utime(path, ns=(0, 0))
+    for parts in raw.parts_by_bucket(root, source).values():
+        for path in parts:
+            os.utime(path, ns=(0, 0))
 
 
 def _part(root: Path, source: str, *rows: raw.RawRow) -> Path:
     """Write rows as one part, as a fetch in this refresh does."""
-    todo = tuple(sorted(row.accession for row in rows))
-    piece = raw.Piece(source, raw.bucket_of(source, todo[0]), todo)
-    return raw.write_part(root, piece, rows)
+    [part] = raw.save(root, source, rows, asked=sorted(row.accession for row in rows))
+    return part
