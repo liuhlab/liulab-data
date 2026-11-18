@@ -16,8 +16,7 @@ from labdata.cli import app
 from labdata.ncbi import entrez as entrez_mod
 from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
-from labdata.papers import open_paper_store, paper_dir, pmc, tables
-from labdata.papers.folder import TEMP
+from labdata.papers import open_paper_store, paper_dir, paths, pmc, tables
 from labdata.papers.openalex import OpenAlex
 from tests._paper_fakes import Article, FakeBucket, FakeWeb, Reply, fixture_build, init_papers, md5
 
@@ -418,13 +417,13 @@ def test_a_kill_mid_sync_and_a_rerun_download_no_file_twice(
     assert isinstance(result.exception, KilledError)
     assert (root / paper_dir(OA) / "suppl" / "mmc1.xlsx").is_file()
     assert not list((root / paper_dir(OA)).rglob(".*"))
-    assert not list((root / TEMP).iterdir())
+    assert not list((root / paths.TEMP.name).iterdir())
 
     # A hard kill leaves its temporary file behind; the rerun clears it.
-    (root / TEMP / "table.csv.part").write_bytes(b"a,")
+    (root / paths.TEMP.name / "table.csv.part").write_bytes(b"a,")
     b.fail = None
     sync(root)
-    assert not list((root / TEMP).iterdir())
+    assert not list((root / paths.TEMP.name).iterdir())
     # A video known only by its Content-Type is asked for again, but no byte of it is read.
     objects = [
         g for g in b.gets if g.startswith("PMC") and not g.endswith(".json") and g not in b.types
