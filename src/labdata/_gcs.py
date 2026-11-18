@@ -288,8 +288,9 @@ def restore(adapter: Adapter, source: str, *, approve: Callable[[int, int], bool
 
     It downloads the files whose entries differ between the copy record in GCS and the disk's,
     or every file when the disk has none, leaving out a file present with GCS's size and MD5.
-    Then it deletes the state files the disk's copy record names and GCS's does not, and saves
-    GCS's copy record and status record on the disk last. Scratch and rebuildable files stay.
+    Then it deletes the state files the disk's copy record names and GCS's does not, or, on a
+    disk with no copy record, every state file on it GCS's does not name. It saves GCS's copy
+    record and status record on the disk last. Scratch and rebuildable files stay.
 
     Parameters
     ----------
@@ -349,7 +350,8 @@ def restore(adapter: Adapter, source: str, *, approve: Callable[[int, int], bool
             pull, names, folder=root, run=run, error=adapter.error
         ):
             return expired
-    for path in sorted(p for p in had or {} if p not in held and adapter.state(p)):
+    named = _state_files(adapter) if had is None else had
+    for path in sorted(p for p in named if p not in held and adapter.state(p)):
         _remove(root, path)
     for name in (adapter.record, adapter.status):
         if name in fetched:
@@ -400,6 +402,17 @@ def _matches(path: Path, size: int, md5: str) -> bool:
         while chunk := fh.read(1 << 20):
             digest.update(chunk)
     return digest.hexdigest() == md5
+
+
+def _state_files(adapter: Adapter) -> list[str]:
+    """Return the state files on the work disk, the two records aside, as paths from the root."""
+    root = adapter.root
+    found = []
+    for rel in _paths.declared(_paths.STATE, adapter.layout):
+        path = root / rel
+        files = path.rglob("*") if rel.endswith("/") else [path]
+        found += [p.relative_to(root).as_posix() for p in files if p.is_file()]
+    return [p for p in found if p not in (adapter.record, adapter.status)]
 
 
 def _remove(root: Path, path: str) -> None:

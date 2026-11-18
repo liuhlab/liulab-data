@@ -257,8 +257,8 @@ only that set.
 
 The restore saves the copy record last, so the job's copies send only what changes from then
 on. It saves `paper-status.json` as the last copy left it, so the job knows when the last
-daily pass and the last PMC sync ran. It leaves the hidden files of the disk alone, the daily
-pass's journal among them.
+daily pass and the last PMC sync ran. It deletes the store's files that GCS does not hold,
+but leaves the hidden files of the disk alone, the daily pass's journal among them.
 
 Restore before any copy by hand. A copy refuses, and sends nothing, on a disk with no copy
 record while GCS holds one. A full copy, `labdata papers copy --full`, also reads the list of
