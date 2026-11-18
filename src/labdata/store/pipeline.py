@@ -251,11 +251,8 @@ def run(
 
     def plan(status: dict[str, Any]) -> Round:
         # --forcerun reruns a rule and every rule after it, even where their markers exist.
-        rerun = []
-        for lane, rule in LANES.items():
-            if (work / f"{lane}.failed").is_file():
-                logger.info("the %s lane left items failed last time; it runs again", lane)
-                rerun.append(rule)
+        failed = [lane for lane in LANES if (work / f"{lane}.failed").is_file()]
+        rerun = [LANES[lane] for lane in failed]
         config = {
             "fraction": "" if fraction is None else repr(fraction),
             "snapshots": dates,
@@ -265,6 +262,15 @@ def run(
         done = (work / DONE).is_file()
         decided = lifecycle.plan(status, lifecycle.RUN, folder, done=done, rerun=bool(rerun))
         chosen = Round(work, decided, config=config, rerun=rerun)
+        # Only the copy is left: a failed lane waits for the run after it.
+        copy = decided.action == lifecycle.COPY
+        for lane in failed:
+            logger.log(
+                logging.WARNING if copy else logging.INFO,
+                "the %s lane left items failed; it runs again%s",
+                lane,
+                " on the next run" if copy else "",
+            )
         if decided.action in (lifecycle.RESUME, lifecycle.NEW):
             work.mkdir(parents=True, exist_ok=True)
             record = {"fraction": fraction, "snapshots": dates, "started": utc_stamp()}

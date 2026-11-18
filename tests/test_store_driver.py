@@ -285,6 +285,21 @@ def test_a_finalized_round_rerun_for_a_failed_lane_is_running_and_a_stop_fails_i
     assert during == [(str(folder), "running", finalized["started"])] * 2
 
 
+def test_a_round_left_only_its_copy_copies_and_says_its_failed_lane_runs_on_the_next_run(
+    root: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    (root / _ROUND).mkdir(parents=True)
+    (root / _ROUND / "geo.failed").touch()
+    switched = {"update": "run", "folder": _ROUND, "build": "b1", "outcome": "built"}
+    lifecycle.write_status(root, switched | {"copy_pending": True})
+    seen = _folders(monkeypatch)
+
+    CliRunner().invoke(app, ["store", "run", "--root", str(root)])
+
+    assert seen == []
+    assert "the geo lane left items failed; it runs again on the next run" in caplog.text
+
+
 @pytest.mark.parametrize("job", [None, _UNASKED], ids=["off Slurm", "no Slurm answer"])
 def test_a_refresh_whose_owner_cannot_be_checked_refuses_unless_told_it_is_gone(
     root: Path, monkeypatch: pytest.MonkeyPatch, slurm: None, job: str | None
