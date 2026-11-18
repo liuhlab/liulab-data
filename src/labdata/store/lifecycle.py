@@ -217,14 +217,18 @@ def write_status(root: Path, status: Mapping[str, Any]) -> None:
     write_atomic(paths.STATUS.at(root), _dump(status))
 
 
-def start(root: Path, update: str, folder: str | None = None, **fields: Any) -> dict[str, Any]:
+def start(
+    root: Path, update: str, folder: str | None = None, *, again: bool = False, **fields: Any
+) -> dict[str, Any]:
     """Begin an update, or carry on the run in ``folder`` the status record names.
 
     Every update first checks the work disk against GCS (:func:`labdata.store.gcs.check`),
     and only warns when rclone's login has expired. A new update keeps the last-success date
     and ``copy_pending``; ``fields`` add to it. An unfinished run it replaces gets the record
     :data:`ABANDONED_RECORD` in its folder: abandoned before its switch; after it, its pending
-    copy carries over. A run carried on is running again unless it has switched builds.
+    copy carries over. A new run first packs every part an earlier run left, so a part saved
+    since the last pack is its own. A run carried on is running again, unless it has switched
+    builds and ``again`` is false.
 
     Parameters
     ----------
@@ -234,6 +238,8 @@ def start(root: Path, update: str, folder: str | None = None, **fields: Any) -> 
         :data:`REFRESH`, :data:`RUN`, :data:`BUILD` or :data:`REMOVE_SRA`.
     folder : str or None
         A run's folder, from the root; None for an update by hand.
+    again : bool
+        The run carried on runs its steps up to its switch again.
     **fields
         More of the new update's record, such as ``started`` or ``since``.
 
@@ -250,12 +256,14 @@ def start(root: Path, update: str, folder: str | None = None, **fields: Any) -> 
     _check(root)
     status = read_status(root)
     if folder is not None and status.get("folder") == folder:
-        if status.get("outcome") in _UNSWITCHED:
+        if again or status.get("outcome") in _UNSWITCHED:
             status["outcome"] = RUNNING
         if status.get("outcome") != FINALIZED:
             status["ended"] = None
     else:
         _abandon(root, status)
+        if folder is not None:
+            pack.pack(root)
         status = {
             "update": update,
             "started": utc_stamp(),

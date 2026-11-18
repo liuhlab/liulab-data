@@ -571,7 +571,7 @@ def _mirrored(root: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Fa
     return gcs
 
 
-def test_a_refresh_whose_copy_meets_an_expired_login_ends_built_and_reruns_only_the_copy(
+def test_a_refresh_whose_copy_meets_an_expired_login_ends_built_and_is_finished_by_the_copy_alone(
     built: tuple[Path, _Geo], monkeypatch: pytest.MonkeyPatch, snakemake: Runner, tmp_path: Path
 ) -> None:
     root, ncbi = built
@@ -590,12 +590,20 @@ def test_a_refresh_whose_copy_meets_an_expired_login_ends_built_and_reruns_only_
     assert gcs.log == []
 
     gcs.expired = False
+    # Neither its age nor a newer DAG makes the rerun start a refresh or enter Snakemake.
+    week_ago = f"{dt.datetime.now(dt.UTC) - dt.timedelta(days=8):%Y-%m-%dT%H:%M:%SZ}"
+    lifecycle.write_status(root, status | {"started": week_ago, "dag": refresh.DAG - 1})
     _, ran = _executor(monkeypatch, snakemake)
     # No --full: the copy seeds its record from the old build, then deletes it in GCS.
     _refresh(root)
 
-    assert ran == ["copy", "all"]
-    assert lifecycle.read_status(root)["outcome"] == "finalized"
+    assert ran == []
+    after = lifecycle.read_status(root)
+    assert (after["outcome"], after["folder"], after["started"]) == (
+        "finalized",
+        status["folder"],
+        week_ago,
+    )
     assert gcs.read(lifecycle.STATUS) == (root / lifecycle.STATUS).read_bytes()
     assert f"builds/{old}/manifest.json" in gcs.deleted()
     assert not any(p.startswith(f"builds/{_current(root).name}/") for p in gcs.deleted())
