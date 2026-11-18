@@ -42,6 +42,7 @@ from labdata._http import (
     RETRY_STATUSES,
     USER_AGENT,
     GaveUp,
+    RanOut,
     RateLimiter,
     Transport,
     TryAgain,
@@ -130,13 +131,16 @@ class _Refused(GaveUp):
     """The bucket answered with a status no retry fixes, such as 404."""
 
 
-_MD5_MISMATCH = "MD5 mismatch"
+class _BadMd5(TryAgain):
+    """A downloaded file's MD5 is not the one the bucket lists."""
 
 
 def _gave_up(what: str, err: GaveUp) -> PmcError:
-    """Return the :class:`PmcError` for a request that gave up; it is passing if retries ran out."""
-    # A refusal, a bad MD5 and a file name the disk refuses (retry gives it a cause) are not.
-    passing = not isinstance(err, _Refused) and str(err) != _MD5_MISMATCH and err.__cause__ is None
+    """Return the :class:`PmcError` for a request that gave up; it is passing if retries ran out.
+
+    A bad MD5 on every try is not passing, nor is a refusal or a file name the disk refuses.
+    """
+    passing = isinstance(err, RanOut) and not isinstance(err.last, _BadMd5)
     return PmcError(f"{what}: {err}", passing=passing)
 
 
@@ -871,7 +875,7 @@ class _Bucket:
                             out.write(chunk)
                             size += len(chunk)
                         if md5s and digest.hexdigest() not in md5s:
-                            raise TryAgain(_MD5_MISMATCH)
+                            raise _BadMd5("MD5 mismatch")
             self._check(status)
             return size, digest.hexdigest()
 

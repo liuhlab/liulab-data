@@ -34,6 +34,14 @@ class GaveUp(Exception):  # noqa: N818 - it names what happened
     """Every try failed, or one failed in a way no retry fixes; the text says how."""
 
 
+class RanOut(GaveUp):
+    """Every try failed in a way another try may fix; ``last`` is the last try's failure."""
+
+    def __init__(self, message: str, last: BaseException | None) -> None:
+        super().__init__(message)
+        self.last = last
+
+
 def retry[T](
     call: Callable[[], T],
     *,
@@ -52,24 +60,26 @@ def retry[T](
 
     Raises
     ------
-    GaveUp
+    RanOut
         When the last try fails, with that try's failure.
+    GaveUp
+        When a try fails in a way no retry fixes.
     """
-    last = ""
+    last, failure = "", None
     for attempt in range(tries):
         try:
             return call()
         except TryAgain as err:
-            last = str(err)
+            last, failure = str(err), err
         except errors as err:
             if isinstance(err, OSError) and err.errno == errno.ENAMETOOLONG:
                 raise GaveUp(f"{type(err).__name__}: {err.strerror}") from err
-            last = type(err).__name__
+            last, failure = type(err).__name__, err
         if attempt + 1 < tries:
             if retried is not None:
                 retried(last)
             sleep(min(cap, 2.0**attempt) * random.uniform(0.5, 1.0))
-    raise GaveUp(last)
+    raise RanOut(last, failure)
 
 
 class Response(Protocol):
