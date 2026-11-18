@@ -133,8 +133,8 @@ def test_a_refresh_switched_on_an_expired_login_ends_built_and_the_next_copy_fin
     assert _build(root) == "b2"
     assert (status["outcome"], status["copy_pending"]) == ("built", True)
     assert status["last_success"] == "2026-11-01"
-    # A rerun of the refresh resumes it, to copy.
-    assert lifecycle.unfinished(status, "refresh")
+    # A rerun of the refresh only copies.
+    assert lifecycle.plan(status, "refresh").action == COPY
     assert not _gcs_names(gcs, "b2")
 
     gcs.expired = False
@@ -142,7 +142,7 @@ def test_a_refresh_switched_on_an_expired_login_ends_built_and_the_next_copy_fin
 
     status = lifecycle.read_status(root)
     assert (status["outcome"], status["copy_pending"]) == ("finalized", False)
-    assert not lifecycle.unfinished(status, "refresh")
+    assert lifecycle.plan(status, "refresh").action == NEW
     assert _gcs_names(gcs, "b2")
     assert gcs.read(lifecycle.STATUS) == (root / lifecycle.STATUS).read_bytes()
 

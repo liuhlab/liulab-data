@@ -168,8 +168,8 @@ def drive(
             if result.skipped:
                 logger.warning("%s", result.message)
             return int(result.skipped)
-        again = bool(chosen.rerun)
-        lifecycle.start(root, update, work.relative_to(root).as_posix(), again=again, **chosen.fields)
+        folder = work.relative_to(root).as_posix()
+        lifecycle.start(root, update, folder, again=bool(chosen.rerun), **chosen.fields)
         work.mkdir(parents=True, exist_ok=True)
         memory = int(_limits.allocation_mb() * STEPS_SHARE)
         config = {

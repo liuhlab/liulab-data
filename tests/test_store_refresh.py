@@ -629,6 +629,35 @@ def test_an_accession_only_a_pending_removal_lists_is_fetched_again(
     assert set(_held(root, raw.GEO_SOFT)) == {KEPT}
 
 
+def test_a_refresh_after_an_abandoned_one_fetches_again_what_that_ones_parts_hold(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ncbi = _ncbi()
+    root = tmp_path / "store"
+    init_store(root)
+    _use(monkeypatch, ncbi)
+    # The abandoned refresh's GEO lane left KEPT in a part, never packed.
+    _cli("_geo", KEPT, "--root", str(root))
+    started = f"{dt.datetime.now(dt.UTC) - dt.timedelta(days=8):%Y-%m-%dT%H:%M:%SZ}"
+    folder = f"work/refresh/{started.replace(':', '')}"
+    (root / folder).mkdir(parents=True)
+    abandoned = {"update": "refresh", "outcome": "failed", "folder": folder, "dag": refresh.DAG}
+    lifecycle.write_status(root, abandoned | {"started": started, "since": _OLD})
+    ncbi.fetched.clear()
+
+    def geo_lane(argv: list[str], *, verbose: bool) -> int:
+        refetch = Path(argv[argv.index("--directory") + 1]) / "refetch.txt"
+        refetch.write_text(f"{KEPT}\n", encoding="utf-8")
+        _cli("_geo", KEPT, "--refetch", str(refetch), "--root", str(root))
+        return 0
+
+    monkeypatch.setattr(pipeline, "_run_snakemake", geo_lane)
+    _refresh(root)
+
+    assert soft_url(KEPT) in ncbi.fetched
+    assert lifecycle.read_status(root)["folder"] != folder
+
+
 def test_a_refresh_removes_no_sra_record_ncbi_no_longer_serves(
     built: tuple[Path, _Geo], monkeypatch: pytest.MonkeyPatch, snakemake: Runner
 ) -> None:

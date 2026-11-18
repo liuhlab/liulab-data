@@ -853,10 +853,11 @@ def store_refresh(
     """Bring the store to the sources' current state in one resumable run.
 
     Renews the snapshots, fetches what GEO and SRA changed, removes what is confirmed gone,
-    builds, switches, prunes and copies. Rerun the same command to resume an unfinished
-    refresh that started within the last 7 days; an older one is not resumed. It refuses
-    while another update holds the store's run lock. The outcome is in refresh-status.json
-    in the store root.
+    builds, switches, prunes and copies. Rerun the same command to resume a refresh stopped
+    before its switch that started within the last 7 days; an older one is not resumed. One
+    that switched and only failed to copy is finished by the copy alone. It refuses while
+    another update holds the store's run lock. The outcome is in refresh-status.json in the
+    store root.
     """
     import logging
 

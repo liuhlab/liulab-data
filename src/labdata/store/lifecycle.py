@@ -2,10 +2,10 @@
 
 An update goes through the phases fetched, packed, built, checked, switched and finalized. It
 is a refresh or a full run, each a Snakemake DAG, a build by hand, or the yearly SRA removal.
-This module owns the status record, the run lock, the switch and the copy outcome: a build is
-written without a switch (:func:`build`), :func:`switch` checks it and only then switches the
-work disk to it, and :func:`finalize` copies the store to GCS. :func:`run_lock` lets one
-update run at a time.
+This module owns the status record, the run lock, the resume plan, the switch and the copy
+outcome: a build is written without a switch (:func:`build`), :func:`switch` checks it and
+only then switches the work disk to it, and :func:`finalize` copies the store to GCS.
+:func:`run_lock` lets one update run at a time, and :func:`plan` decides how a DAG goes on.
 
 The status record, ``refresh-status.json``, is the store's: the last update (``update``), its
 start, end and outcome, and the build it made. The outcome is running; failed, stopped before
