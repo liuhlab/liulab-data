@@ -203,7 +203,8 @@ def _fetch_soft(
     again = again.intersection(accessions)
     gap_rows = raw.saved(root, raw.GEO_GAPS, set(accessions) - again)
     gap_rows |= raw.saved(root, raw.GEO_GAPS, again, since_pack=True)
-    missing = {gse for gse, text in gap_rows.items() if text.split("\n", 1)[0] == gaps.SOFT_MISSING}
+    gone = (gaps.SOFT_MISSING, gaps.WITHDRAWN)
+    missing = {gse for gse, text in gap_rows.items() if text.split("\n", 1)[0] in gone}
     pieces = raw.pieces(
         root, raw.GEO_SOFT, [a for a in accessions if a not in missing], again - missing
     )

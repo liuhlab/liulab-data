@@ -231,7 +231,7 @@ def test_a_series_this_fetch_got_no_record_for_is_confirmed(
     _step(root, "pack")
 
     assert set(_held(root, raw.GEO_SOFT)) == {"GSE1"}
-    assert set(_held(root, raw.GEO_GAPS)) == {"GSE1"}
+    assert _held(root, raw.GEO_GAPS) == {"GSE1": SOFT_MISSING, "GSE2": "withdrawn"}
     assert ncbi.calls == [_gds("GSE2")]
 
 

@@ -158,7 +158,8 @@ _Avoid_: status record (each store's own file of its last update)
 ### Gap
 
 A Series on the target Series list that the store does not hold, recorded with a reason. Coverage
-passes when every target Series is either held or a gap with a known reason.
+passes when every target Series is either held or a gap with a known reason. A target Series
+confirmed withdrawn is a gap too, and its gap row makes it no removal candidate.
 
 ### Sample build
 
