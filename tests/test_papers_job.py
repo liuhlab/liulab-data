@@ -487,6 +487,33 @@ def test_an_expired_login_leaves_the_copy_pending_and_an_idle_tick_tries_it_agai
     assert (status(root)["finalized"], status(root)["copy_pending"]) == (True, False)
 
 
+@pytest.mark.parametrize("has_destination", [True, False])
+def test_an_idle_job_copies_a_store_a_killed_pass_left_unfinalized_only_with_a_destination(
+    tmp_path: Path, sbatch: Sbatch, gcs: FakeGcs, has_destination: bool
+) -> None:
+    root = holding(paper_store(tmp_path))
+    full_copy(root)
+    # A pass killed outright: its start is recorded, nothing else, and no copy is pending.
+    killed = {"outcome": "running", "kind": "daily", "start": "2026-11-05T00:30:00+00:00"}
+    record = {**status(root), "last_pass": killed, "finalized": False, "copy_pending": False}
+    record |= {"last_daily_success": "2026-11-05", "last_pmc_sync_success": "2026-11-03"}
+    (root / "paper-status.json").write_text(json.dumps(record))
+    if not has_destination:
+        marker = root / "labdata-papers.toml"
+        kept = [x for x in marker.read_text().splitlines() if not x.startswith("copy_to")]
+        marker.write_text("\n".join(kept) + "\n")
+    lines = serve(root, Clock(utc("2026-11-05 07:00")), until=utc("2026-11-05 09:30"))
+
+    copied = [line for line in lines if line.startswith("copied the paper store")]
+    if has_destination:
+        assert len(copied) == 1
+        assert (status(root)["finalized"], status(root)["copy_pending"]) == (True, False)
+    else:
+        assert not copied
+        assert not [line for line in lines if "GCS copy is skipped" in line]
+        assert status(root)["finalized"] is False
+
+
 def test_serve_submits_its_successor_from_the_slurm_job_id(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sbatch: Sbatch
 ) -> None:

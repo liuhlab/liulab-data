@@ -211,7 +211,7 @@ def copy(
 def finalize(store: PaperStore, log: _Log = print) -> CopyResult | None:
     """Copy to GCS when a copy is pending or the store is not finalized.
 
-    The paper job calls it at an idle tick while a copy is pending.
+    The paper job calls it at an idle tick while the store is not finalized.
 
     Parameters
     ----------
