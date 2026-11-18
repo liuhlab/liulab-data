@@ -10,8 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from click.testing import Result
-from typer.testing import CliRunner
+from typer.testing import CliRunner, Result
 
 from labdata.cli import app
 from labdata.ncbi.config import NcbiCredentials
@@ -224,17 +223,21 @@ _STEPS = {
     "fetch": ["SRX017370"],
     "extract": ["--source", "biosample"],
 }
+#: A process ID no process has.
+_GONE = 2**31 - 1
 
 
 def _step(root: Path, command: str) -> Result:
     return CliRunner().invoke(app, ["store", command, *_STEPS[command], "--root", str(root)])
 
 
-def _hold_run_lock(root: Path) -> str:
-    """Hold the run lock as a refresh this process drives; return the token its steps inherit."""
-    owner = {"update": "refresh", "job": None, "host": socket.gethostname(), "pid": os.getpid()}
+def _hold_run_lock(root: Path, pid: int | None = None) -> str:
+    """Hold the run lock as a refresh driven by process ``pid`` on this host, by default this
+    process; return the token its steps inherit."""
+    host, pid = socket.gethostname(), pid or os.getpid()
+    owner = {"update": "refresh", "job": None, "host": host, "pid": pid}
     (root / "work" / "run.lock").write_text(json.dumps(owner | {"started": _STARTED}))
-    return f"{owner['host']}:{owner['pid']}"
+    return f"{host}:{pid}"
 
 
 def _files(root: Path) -> dict[str, tuple[int, int]]:
@@ -261,3 +264,26 @@ def test_a_step_run_by_hand_refuses_while_an_update_holds_the_run_lock(
     assert "holds this store's run lock" in result.output
     assert _files(root) == before
     assert gcs.calls == []
+
+
+@pytest.mark.parametrize("command", _STEPS)
+def test_a_step_runs_inside_an_update_and_by_hand_once_no_update_holds_the_run_lock(
+    root: Path, gcs: FakeGcs, monkeypatch: pytest.MonkeyPatch, command: str
+) -> None:
+    monkeypatch.setattr("labdata.cli._store_client", lambda: None)
+    lock = root / "work" / "run.lock"
+    monkeypatch.setenv(lifecycle.RUN_OWNER, _hold_run_lock(root))
+    held = lock.read_bytes()
+
+    inside = _step(root, command)
+
+    assert inside.exit_code == 0, inside.output
+    assert lock.read_bytes() == held
+    # The update has ended; its lock is left, as a kill leaves it.
+    monkeypatch.delenv(lifecycle.RUN_OWNER)
+    _hold_run_lock(root, pid=_GONE)
+
+    by_hand = _step(root, command)
+
+    assert by_hand.exit_code == 0, by_hand.output
+    assert not lock.exists()

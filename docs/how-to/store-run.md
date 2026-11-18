@@ -152,7 +152,7 @@ date, and `labdata store prune` deletes the old folder. A refresh that switched 
 failed to copy is finished by the next run's copy, however old it is.
 
 A refresh, a full run, a build, the SRA removal and a prune each refuse to start while another
-of them runs on the store. If the message says it cannot check whether the other one still
+of them runs on the store. So do a fetch, pack, extract or copy that you run by hand. If the message says it cannot check whether the other one still
 runs, check with `squeue` on its cluster. Once you know it has ended, run the same command
 again with `--owner-gone`.
 
