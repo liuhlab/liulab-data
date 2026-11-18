@@ -15,7 +15,6 @@ tests replace.
 
 from __future__ import annotations
 
-import datetime as dt
 import importlib.resources
 import json
 import logging
@@ -26,9 +25,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from labdata import _pipeline
+from labdata import _gcs, _pipeline
+from labdata._files import utc_stamp
 from labdata._pipeline import RESILIENCE_FLAGS
-from labdata.store import _limits, extract, gcs, lifecycle, paths, snapshots, targets
+from labdata.store import _limits, extract, lifecycle, paths, snapshots, targets
 from labdata.store.root import open_store
 
 logger = logging.getLogger(__name__)
@@ -152,7 +152,7 @@ def drive(
             "labdata": f"{shlex.quote(sys.executable)} -m labdata",
             "root": str(root),
             "extracts": list(extract.SOURCES),
-            "copy": bool(paths.read_marker(root).get(gcs.COPY_TO_KEY)),
+            "copy": bool(paths.read_marker(root).get(_gcs.COPY_TO_KEY)),
             "mem_mb": memory_plan(memory),
             **chosen.config,
         }
@@ -232,7 +232,7 @@ def run(
                 logger.info("the %s lane left items failed last time; it runs again", lane)
                 rerun.append(rule)
         work.mkdir(parents=True, exist_ok=True)
-        started = dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        started = utc_stamp()
         record = {"fraction": fraction, "snapshots": dates, "started": started}
         (work / "run.json").write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
         logger.info("round %s: snapshots %s", work.name, dates)

@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+from labdata.ncbi.config import NcbiCredentials
+from labdata.ncbi.entrez import EntrezClient
 from labdata.store import lifecycle, open_store
 from labdata.store.gcs import COPIED, StoreCopyError
 from tests._fake_gcs import FakeGcs
@@ -88,9 +90,15 @@ def test_an_update_on_a_disk_behind_gcs_refuses_at_its_start_unless_the_login_ha
 
     with pytest.raises(StoreCopyError, match="labdata store restore"):
         lifecycle.start(root, "refresh", folder="work/refresh/x", started=_STARTED)
+    # An update by hand checks too, before it builds or asks NCBI anything.
+    with pytest.raises(StoreCopyError, match="labdata store restore"):
+        lifecycle.build(root, "b2")
+    with pytest.raises(StoreCopyError, match="labdata store restore"):
+        lifecycle.remove_sra(root, client=EntrezClient(NcbiCredentials("t@t.org", "abc")))
 
     status = lifecycle.read_status(root)
     assert (status["outcome"], status["copy_pending"]) == ("finalized", True)
+    assert not (root / "builds" / "b2").exists()
     assert gcs.log == []
 
     gcs.expired = True

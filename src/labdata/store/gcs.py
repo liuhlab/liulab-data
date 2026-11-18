@@ -1,25 +1,24 @@
-"""Copy the store's current state to GCS, which holds it for good: the changes since the last copy.
+"""Copy the store's current state to GCS, which holds it for good: what changed since the last.
 
 This is the GEO/SRA store's adapter of :mod:`labdata._gcs`. The held set is the current state:
 the current build and the raw files and snapshot folders it read, as its manifest names them,
 with the README and manifest beside each, the marker and the root ``README.md``. ``work/``,
 ``support/`` and older builds stay behind. The copy record, :data:`COPIED`, is JSON: each file
-with its sha256, or null for a file sent every time. The status record goes up last, marked
-finalized, as :func:`labdata.store.lifecycle.finalized` gives it.
+with its sha256, or null for a file sent every time. :func:`labdata.store.lifecycle.finalize`
+runs each copy and gives it the status record to send last, marked finalized.
 
 A routine copy with no copy record on the work disk or in GCS seeds one from the build the
 marker in GCS names, when GCS is known to hold exactly that build; otherwise it is skipped and
 asks for ``labdata store copy --full``, which uploads the current state and deletes nothing. A
 copy refuses, sending nothing, when it would delete more of the copy record's raw files than
-:func:`labdata._gcs.delete_limit` allows, unless the deletes are accepted by hand, or when the work disk is not in step with GCS
-(:func:`check`). :func:`restore` fills a work disk from GCS.
+:func:`labdata._gcs.delete_limit` allows, unless the deletes are accepted by hand, or when the
+work disk is not in step with GCS (:func:`check`). :func:`restore` fills a work disk from GCS.
 """
 
 from __future__ import annotations
 
 import json
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
 from pathlib import Path
 
 from labdata import _gcs
@@ -30,9 +29,6 @@ from labdata.store.layout import MANIFEST, manifest_path
 from labdata.store.provenance import README
 from labdata.store.reader import build_path
 from labdata.store.root import open_store
-
-#: The marker key naming the rclone destination, ``<remote>:<bucket>/<path>``.
-COPY_TO_KEY = "copy_to"
 
 #: The copy record: each file GCS holds, as the last successful copy left it, with its
 #: sha256, or null for a file that goes up every time. Kept here on the disk and in GCS.
@@ -50,31 +46,48 @@ class StoreCopyError(LabdataError):
     """The store cannot be copied: it does not open, has no destination, or rclone failed."""
 
 
-@dataclass(frozen=True, slots=True)
-class CopyResult:
-    """The outcome of one copy: done, or skipped, with a message saying why."""
+def destination(root: Path, to: str | None = None) -> str:
+    """Return ``to``, or else the marker's ``copy_to``: where the store's copy goes.
 
-    destination: str
-    skipped: bool = False
-    message: str = ""
+    Raises
+    ------
+    StoreCopyError
+        If ``root`` is not a store, or neither names a destination.
+    """
+    try:
+        store = open_store(root)
+    except NotAStoreError as err:
+        raise StoreCopyError(f"copy refused: {err}") from None
+    dest = str(to or store.settings.get(_gcs.COPY_TO_KEY) or "")
+    if not dest:
+        raise StoreCopyError(
+            f"no destination: pass --to <remote>:<bucket>/<path> or set "
+            f"{_gcs.COPY_TO_KEY} in {paths.MARKER.at(root)}"
+        )
+    return dest
 
 
-def copy(
+def send(
     root: Path,
-    destination: str | None = None,
+    dest: str,
+    status: bytes | None,
     *,
     full: bool = False,
     accept_deletes: int = 0,
     bucket_matches_marker: bool = False,
-) -> CopyResult:
-    """Send the store's changes since the last successful copy to ``destination``.
+) -> _gcs.CopyResult:
+    """Send the store's changes since the last successful copy to ``dest``, then ``status``.
+
+    Holds the build lock; :func:`labdata.store.lifecycle.finalize` runs it.
 
     Parameters
     ----------
     root : pathlib.Path
         The store root.
-    destination : str or None
-        An rclone path, ``<remote>:<bucket>/<path>``; defaults to the marker's ``copy_to``.
+    dest : str
+        An rclone path, ``<remote>:<bucket>/<path>``.
+    status : bytes or None
+        The status record marked finalized, sent last; None sends none.
     full : bool
         Upload every file of the current state instead, and delete nothing. It lists every
         file on both sides; for a first copy or a repair.
@@ -90,47 +103,22 @@ def copy(
     -------
     CopyResult
         ``skipped`` is true, with a message, when rclone's Google login has expired, or when a
-        routine copy finds no copy record and cannot seed one. Past the destination checks,
-        the status record then marks the copy pending, as it does on any failure; a success
-        clears it.
+        routine copy finds no copy record and cannot seed one.
 
     Raises
     ------
     StoreCopyError
-        If the store does not open, its current build is incomplete, no destination is set,
-        ``full`` comes with ``accept_deletes``, more of the copied raw files would be deleted
-        than this copy deletes, or rclone fails for another reason. rclone is not called when
-        the store is refused.
+        If the current build is incomplete, the work disk is not in step with GCS, more of
+        the copied raw files would be deleted than this copy deletes, or rclone fails for
+        another reason. rclone is not called when the build is incomplete.
     StoreBuildError
         If a build, prune or copy of this store is running.
     """
-    try:
-        store = open_store(root)
-    except NotAStoreError as err:
-        raise StoreCopyError(f"copy refused: {err}") from None
-    dest = str(destination or store.settings.get(COPY_TO_KEY) or "")
-    if not dest:
-        raise StoreCopyError(
-            f"no destination: pass --to <remote>:<bucket>/<path> or set "
-            f"{COPY_TO_KEY} in {paths.MARKER.at(root)}"
-        )
-    if full and accept_deletes:
-        raise StoreCopyError("--full deletes nothing, so it takes no --accept-deletes")
-    # Imported here: the life-cycle module imports this one.
-    from labdata.store.lifecycle import note_copy
-
-    try:
-        with build_lock(root):
-            held = _current(root, store.settings.get(paths.BUILD_KEY))
-            adapter = _Adapter(root, seeds=bucket_matches_marker)
-            skipped = _gcs.copy(adapter, dest, held, full=full, accept_deletes=accept_deletes)
-    except BaseException:
-        note_copy(root, pending=True)
-        raise
-    note_copy(root, pending=skipped is not None)
-    if skipped:
-        return CopyResult(dest, skipped=True, message=skipped)
-    return CopyResult(dest)
+    with build_lock(root):
+        held = _current(root, paths.read_marker(root).get(paths.BUILD_KEY))
+        adapter = _Adapter(root, seeds=bucket_matches_marker)
+        skipped = _gcs.copy(adapter, dest, held, status, full=full, accept_deletes=accept_deletes)
+    return _gcs.CopyResult(dest, skipped=skipped is not None, message=skipped or "")
 
 
 def check(root: Path) -> bool:
@@ -148,7 +136,7 @@ def check(root: Path) -> bool:
     StoreCopyError
         If the work disk's copy record is not the one in GCS, or GCS holds none and it does.
     """
-    dest = str(paths.read_marker(root).get(COPY_TO_KEY) or "")
+    dest = str(paths.read_marker(root).get(_gcs.COPY_TO_KEY) or "")
     return not dest or _gcs.check(_Adapter(root, seeds=False), dest)
 
 
@@ -181,7 +169,7 @@ def restore(
         If a build, prune or copy of this store is running.
     """
     if not source and paths.MARKER.at(root).is_file():
-        source = str(paths.read_marker(root).get(COPY_TO_KEY) or "")
+        source = str(paths.read_marker(root).get(_gcs.COPY_TO_KEY) or "")
     if not source:
         raise StoreCopyError("no source: pass --from <remote>:<bucket>/<path>")
     with build_lock(root):
@@ -195,6 +183,7 @@ class _Adapter(_gcs.Adapter):
     command = "labdata store copy"
     restorer = "labdata store restore"
     error = StoreCopyError
+    layout = paths.LAYOUT
     seed_from = (paths.MARKER.rel,)
 
     def __init__(self, root: Path, *, seeds: bool) -> None:
@@ -206,18 +195,6 @@ class _Adapter(_gcs.Adapter):
 
     def dump(self, files: _gcs.Files) -> bytes:
         return (json.dumps(files, indent=1, sort_keys=True) + "\n").encode()
-
-    def finalized(self) -> bytes | None:
-        # Imported here: the life-cycle module imports this one.
-        from labdata.store.lifecycle import finalized
-
-        return finalized(self.root)
-
-    def state(self, path: str) -> bool:
-        try:
-            return paths.kind(path) is paths.STATE
-        except ValueError:
-            return False
 
     def holder(self, path: str) -> str:
         """Return the build, raw source or snapshot that holds ``path``; ``""`` at the top."""

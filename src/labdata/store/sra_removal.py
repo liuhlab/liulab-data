@@ -21,11 +21,11 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from labdata._files import temp_beside
 from labdata.exceptions import EntrezError
 from labdata.geo.sra_records import split_packages
 from labdata.ncbi.entrez import EntrezClient
 from labdata.store import eutils, extract, paths, raw, snapshots
-from labdata.store._files import temp_beside
 from labdata.store._removal import INFLIGHT, State, ask_alone, pending_removals, write_removals
 from labdata.store.layout import read_parquet_sql, sql_string
 

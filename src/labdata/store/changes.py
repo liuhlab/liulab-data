@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from labdata.store._files import write_atomic
+from labdata._files import write_atomic
 
 if TYPE_CHECKING:
     from labdata.ncbi.entrez import EntrezClient

@@ -8,8 +8,8 @@ store root on the work disk and in GCS.
 After one listing call checks rclone's login, :func:`copy` checks the work disk against GCS
 (:func:`check`), then sends, in order: the new and changed files by name; the files at the
 top of the root, the marker among them; the deletes, by name, of the recorded files that left
-the held set; the copy record; and last the status record, marked finalized. Each record goes to GCS first, then the work disk. No copy deletes
-by comparing GCS with the work disk.
+the held set; the copy record; and last the status record, marked finalized. Each record goes
+to GCS first, then the work disk. No copy deletes by comparing GCS with the work disk.
 
 :func:`restore` runs the copy the other way: it fills a work disk with the state files the
 copy record in GCS names, and saves that record and the status record on the disk last.
@@ -24,10 +24,14 @@ import subprocess
 import tempfile
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 
-from labdata import _rclone
-from labdata.store._files import temp_beside
+from labdata import _paths, _rclone
+from labdata._files import temp_beside
+
+#: The marker key naming the rclone destination, ``<remote>:<bucket>/<path>``.
+COPY_TO_KEY = "copy_to"
 
 #: The largest share of a copy record's paths one copy deletes in GCS, unless one path is
 #: more or more are accepted by hand; past it the copy refuses.
@@ -42,6 +46,15 @@ Files = Mapping[str, object]
 _Run = Callable[[list[str]], subprocess.CompletedProcess[str]]
 
 
+@dataclass(frozen=True, slots=True)
+class CopyResult:
+    """The outcome of one copy: done, or skipped, with a message saying why."""
+
+    destination: str
+    skipped: bool = False
+    message: str = ""
+
+
 class Adapter(ABC):
     """One store's side of the protocol: its root, its copy record and its rules."""
 
@@ -54,6 +67,8 @@ class Adapter(ABC):
     restorer: str
     #: Raised when rclone fails for a reason other than an expired login.
     error: type[Exception]
+    #: The store's declared paths; the state files among them are what a restore brings.
+    layout: tuple[_paths.Declared, ...]
     #: rclone filters that pick, out of the whole root, what a full copy sends below the top
     #: level; None sends the held files by name.
     full_filters: tuple[str, ...] | None = None
@@ -77,13 +92,12 @@ class Adapter(ABC):
     def check_deletes(self, held: Files, copied: Files, accepted: int, *, full: bool) -> None:
         """Raise :attr:`error` when the copy would delete more than :func:`delete_limit` allows."""
 
-    @abstractmethod
-    def finalized(self) -> bytes | None:
-        """Return the status record marked finalized; None to leave it as it stands."""
-
-    @abstractmethod
     def state(self, path: str) -> bool:
         """Return whether ``path``, from the store root, is a state file: one a restore brings."""
+        try:
+            return _paths.kind(path, self.layout) is _paths.STATE
+        except ValueError:
+            return False
 
     def holder(self, path: str) -> str:
         """Return the folder that holds ``path`` in the store."""
@@ -116,7 +130,13 @@ def delete_limit(recorded: int, accepted: int = 0) -> int:
 
 
 def copy(
-    adapter: Adapter, dest: str, held: Files, *, full: bool = False, accept_deletes: int = 0
+    adapter: Adapter,
+    dest: str,
+    held: Files,
+    status: bytes | None,
+    *,
+    full: bool = False,
+    accept_deletes: int = 0,
 ) -> str | None:
     """Send ``held`` to ``dest``: the changes since the last successful copy.
 
@@ -128,6 +148,8 @@ def copy(
         An rclone path, ``<remote>:<bucket>/<path>``.
     held : Mapping
         The held set.
+    status : bytes or None
+        The status record marked finalized, sent last; None leaves the one in GCS as it stands.
     full : bool
         Send every file instead, delete nothing and save ``held`` as the copy record.
     accept_deletes : int
@@ -156,8 +178,9 @@ def copy(
         if not full and disk.is_file():
             copied = adapter.load(disk.read_bytes())
         else:
-            names = [adapter.record, *([] if full else adapter.seed_from)]
-            fetched = _fetch(adapter, dest, names, run)
+            # A routine copy gets here only when GCS holds no copy record either.
+            names = [adapter.record] if full else list(adapter.seed_from)
+            fetched = _fetch(adapter, dest, names, run) if names else {}
             if fetched is None:
                 return expired
             if adapter.record in fetched:
@@ -187,7 +210,6 @@ def copy(
     kept = {p: sig for p, sig in (copied or {}).items() if p not in held and p not in left}
     if not _put(adapter, dest, adapter.record, adapter.dump({**kept, **held}), run):
         return expired
-    status = adapter.finalized()
     if status is not None and not _put(adapter, dest, adapter.status, status, run):
         return expired
     return None
@@ -196,8 +218,8 @@ def copy(
 def check(adapter: Adapter, dest: str) -> bool:
     """Check that the work disk's copy record is the one in GCS, by MD5, downloading nothing.
 
-    GCS's MD5 comes from the object's metadata. A disk with no copy record passes: the copy's
-    seeding rules handle it.
+    GCS's MD5 comes from the object's metadata. A disk with no copy record passes only when GCS
+    holds none either: the copy's seeding rules handle it.
 
     Returns
     -------
@@ -208,7 +230,7 @@ def check(adapter: Adapter, dest: str) -> bool:
     ------
     Exception
         The adapter's :attr:`~Adapter.error`, naming the restore command, when the records
-        differ; or, naming a full copy, when GCS holds no copy record and the disk does.
+        differ or only GCS holds one; or, naming a full copy, when only the disk holds one.
     """
     run = _runner(adapter)
     return _rclone.logged_in(dest, run=run) and _check(adapter, dest, run, full=False)
@@ -216,12 +238,19 @@ def check(adapter: Adapter, dest: str) -> bool:
 
 def _check(adapter: Adapter, dest: str, run: _Run, *, full: bool) -> bool:
     """Run :func:`check` after the login probe; a full copy may send to GCS with no record."""
-    disk = adapter.root / adapter.record
-    if not disk.is_file():
-        return True
     listed = _listing(adapter, dest, [adapter.record], run)
     if listed is None:
         return False
+    disk = adapter.root / adapter.record
+    if not disk.is_file():
+        if adapter.record not in listed:
+            return True
+        raise adapter.error(
+            f"the work disk has no copy record, {adapter.record}, but GCS at {dest} holds one, "
+            f"so nothing was sent: this disk was not restored from GCS. Run "
+            f"`{adapter.restorer} --from {dest}`; it downloads only the files this disk lacks "
+            "or holds with another size or MD5."
+        )
     if adapter.record not in listed:
         if full:
             return True
@@ -424,7 +453,10 @@ def _expired(adapter: Adapter, dest: str, then: str = "") -> str:
     """Return what to do when rclone's login has expired: reconnect, then copy again."""
     remote = dest.split(":", 1)[0]
     if then:
-        return f"rclone's Google login has expired. Run `rclone config reconnect {remote}:`, then run {then}."
+        return (
+            f"rclone's Google login has expired. Run `rclone config reconnect {remote}:`, "
+            f"then run {then}."
+        )
     return (
         f"rclone's Google login has expired, so GCS is behind the {adapter.what}. "
         f"Run `rclone config reconnect {remote}:`, then `{adapter.command}`."

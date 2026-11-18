@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from labdata.store import extract, gcs, paths
+from labdata.store import extract, lifecycle, paths
 from tests._fake_gcs import FakeGcs
 from tests._slices import BuiltStore
 
@@ -28,7 +28,7 @@ def test_the_copy_sends_the_state_files_and_the_readme_frees_the_scratch_ones_no
     state = {p for p in files if paths.kind(p) is paths.Kind.STATE} - {paths.STATUS.rel}
     fake = FakeGcs.install(monkeypatch, tmp_path / "gcs", "gcs:bucket/store")
 
-    gcs.copy(root, "gcs:bucket/store", full=True)
+    lifecycle.finalize(root, "gcs:bucket/store", full=True)
 
     # GCS holds the state files, and the copy record names each but the two records.
     assert set(fake.files()) == state | {paths.COPY_RECORD.rel, paths.STATUS.rel}

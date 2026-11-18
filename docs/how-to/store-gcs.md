@@ -92,16 +92,17 @@ meets an expired login ends `built`, not `finalized`: the work disk uses the new
 ## When the copy refuses because the disk is behind
 
 After the login check, a copy checks that the work disk's copy record is the one in GCS. It
-compares the MD5 hash GCS keeps for that file with the disk's, and downloads nothing. A refresh
-and a full run make the same check when they start. If the two differ, the disk is behind GCS, or another
-disk has sent to GCS since. The copy then sends nothing, marks the copy pending, and names the
-command that fixes it:
+compares the MD5 hash GCS keeps for that file with the disk's, and downloads nothing. Every
+update makes the same check when it starts: a refresh, a full run, a build by hand and the SRA
+removal. If the two differ, the disk is behind GCS, or another disk has sent to GCS since. A
+disk with no copy record while GCS holds one was never restored, and refuses the same way.
+The copy then sends nothing, marks the copy pending, and names the command that fixes it:
 
 ```text
 the work disk's copy record, .copied-files.json, is not the one in GCS at gcs:<gcs-bucket>/<store>, so nothing was sent: this disk is behind GCS, or another disk sent to it since. Run `labdata store restore --from gcs:<gcs-bucket>/<store>` to bring the work disk in step with GCS.
 ```
 
-Run the restore, then the copy or the refresh again. When GCS holds no copy record at all, but
+Run the restore, then the copy or the update again. When GCS holds no copy record at all, but
 the disk does, GCS is new or was emptied: the copy asks for `labdata store copy --full`.
 
 ## Check the copy
@@ -140,7 +141,7 @@ only in GCS is one a copy should have deleted. If it finds files missing from GC
 
 ## Restore the store from GCS
 
-Restore the work disk when it is new or lost, or when a copy or a refresh refuses because
+Restore the work disk when it is new or lost, or when a copy or an update refuses because
 the disk is behind GCS. Restore before the next update:
 
 ```bash
@@ -159,6 +160,8 @@ On a disk that already has the store's marker, `--from` defaults to its `copy_to
   from its snapshot.
 - It saves the copy record and `refresh-status.json` last, as GCS holds them. The status
   record then says `finalized`, so the next refresh knows when the last one ran.
+- It holds the store's run lock, so it refuses while an update runs. If it says it cannot
+  check that update and you know it has ended, add `--owner-gone`.
 
 It prints how much it downloads, and asks before more than 1 GB. Downloads out of GCS cost
 money, so a large restore needs the maintainer's yes. A batch job has no terminal to ask

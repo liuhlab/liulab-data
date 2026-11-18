@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, NoReturn
 
 import typer
 
-from labdata import BioProject, Run, Series, TenxConverter, experiments_for
+from labdata import BioProject, Run, Series, TenxConverter, _gcs, experiments_for
 from labdata import __version__ as _package_version
 from labdata._http import Transport
 from labdata.exceptions import LabdataError
@@ -37,6 +37,9 @@ if TYPE_CHECKING:
     from labdata.store.gaps import Coverage
 
 #: The run lock's holder has ended, though this host cannot check it.
+#: The download size past which a restore asks first, for messages.
+_ASK_ABOVE = f"{_gcs.ASK_ABOVE / 1e9:g} GB"
+
 _OWNER_GONE = typer.Option(
     False,
     "--owner-gone",
@@ -341,14 +344,14 @@ def papers_restore(
         None, "--from", help="rclone path <remote>:<bucket>/<path>; default: copy_to in the marker."
     ),
     accept_download: bool = typer.Option(
-        False, "--accept-download", help="Download more than 1 GB without asking."
+        False, "--accept-download", help=f"Download more than {_ASK_ABOVE} without asking."
     ),
 ) -> None:
     """Fill a work disk from GCS: the paper store as the copy record in GCS names it.
 
     Downloads only what the disk lacks or holds differently, deletes the state files GCS no
     longer holds and leaves hidden scratch files alone. It prints the download size and asks
-    before more than 1 GB; without a terminal it then needs --accept-download. Holds the paper
+    before a large one; without a terminal it then needs --accept-download. Holds the paper
     store's lock: stop the paper job first.
     """
     from labdata.papers.copy import restore
@@ -374,8 +377,8 @@ def papers_serve(
     """Run the paper job: daily pass after 00:30 UTC, PMC sync on the 3rd and on a new build.
 
     Each pass reads the OpenAlex accounts afresh, so saved accounts count from the next pass.
-    Runs only what paper-status.json shows is due, one pass at a time. A pass that changes
-    paper files ends with the GCS copy, and an idle minute retries a pending copy. Inside a
+    Runs only what paper-status.json shows is due, one pass at a time. Every pass ends with
+    the GCS copy, and an idle tick retries a pending copy once an hour. Inside a
     Slurm job, with --successor, it first keeps jobs queued behind
     this one, each with --dependency=afterany on the jobs before it.
     """
@@ -679,20 +682,26 @@ def store_restore(
         None, "--from", help="rclone path <remote>:<bucket>/<path>; default: copy_to in the marker."
     ),
     accept_download: bool = typer.Option(
-        False, "--accept-download", help="Download more than 1 GB without asking."
+        False, "--accept-download", help=f"Download more than {_ASK_ABOVE} without asking."
     ),
+    owner_gone: bool = _OWNER_GONE,
 ) -> None:
     """Fill a work disk from GCS: the store's current state as the copy record in GCS names it.
 
     Downloads only what the disk lacks or holds differently, deletes the state files GCS no
     longer holds and leaves work/, support/ and extracts/ alone. It prints the download size
-    and asks before more than 1 GB; without a terminal it then needs --accept-download.
+    and asks before a large one; without a terminal it then needs --accept-download.
+    Holds the store's run lock, so it refuses while an update runs.
     """
-    from labdata.store.gcs import restore
+    from labdata.store.lifecycle import restore
     from labdata.store.root import STORE_ENV, pointer_path, resolve_root
 
     where = _restore_root(resolve_root(root, STORE_ENV, pointer_path(), "store"))
-    _restore(lambda ok: restore(where, source, approve=ok), where, accept_download)
+    _restore(
+        lambda ok: restore(where, source, approve=ok, owner_gone=owner_gone),
+        where,
+        accept_download,
+    )
 
 
 def _restore_root(root: Path | None) -> Path:
@@ -706,16 +715,15 @@ def _restore_root(root: Path | None) -> Path:
 def _restore(
     run: Callable[[Callable[[int, int], bool]], str | None], root: Path, accept: bool
 ) -> None:
-    """Run a restore that prints its download size and asks before more than 1 GB."""
-    from labdata import _gcs
+    """Run a restore that prints its download size and asks before a large one."""
 
     def approve(files: int, size: int) -> bool:
         typer.echo(f"The restore downloads {files} files, {size / 1e9:.2f} GB.")
         if size <= _gcs.ASK_ABOVE or accept:
             return True
         if sys.stdin.isatty():
-            return typer.confirm("Download more than 1 GB out of GCS?")
-        typer.echo("More than 1 GB needs a yes: pass --accept-download.", err=True)
+            return typer.confirm(f"Download more than {_ASK_ABOVE} out of GCS?")
+        typer.echo(f"More than {_ASK_ABOVE} needs a yes: pass --accept-download.", err=True)
         return False
 
     try:
@@ -886,7 +894,7 @@ def store_switch(
         raise typer.Exit(1) from err
     _echo_coverage(report)
     typer.echo(f"Switched the store to {status['build']}")
-    if status.get("update") == lifecycle.REFRESH:
+    if lifecycle.update_of(status) == lifecycle.REFRESH:
         typer.echo(f"Refreshed as of {status['last_success']}")
         for source, counts in status["counts"].items():
             typer.echo(f"{source}: " + ", ".join(f"{n} {key}" for key, n in counts.items()))

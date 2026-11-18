@@ -29,11 +29,11 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from labdata._files import temp_beside
 from labdata.exceptions import EntrezError
 from labdata.geo.sra_records import split_packages
 from labdata.ncbi.entrez import EntrezClient, FetchedRecords
 from labdata.store import extract, gaps, paths, raw, snapshots
-from labdata.store._files import temp_beside
 from labdata.store.progress import EVERY, Progress
 
 #: Experiments per ``efetch`` call.

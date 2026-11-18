@@ -17,21 +17,20 @@ of the last successful refresh, written at its switch.
 
 from __future__ import annotations
 
-import datetime as dt
 import json
 import logging
 import os
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from labdata import _slurm
+from labdata import _gcs, _slurm
+from labdata._files import create, utc_stamp, write_atomic
 from labdata.exceptions import StoreBuildError
 from labdata.ncbi.entrez import EntrezClient
 from labdata.store import build as _build
 from labdata.store import gaps, gcs, pack, paths, readme, sra_removal
-from labdata.store._files import write_atomic
 from labdata.store.gaps import Coverage
 from labdata.store.reader import BuildReader, build_path
 from labdata.store.sra_removal import SraRemovalReport
@@ -50,11 +49,14 @@ RUNNING, FAILED, ABANDONED, BUILT, FINALIZED = (
 )
 #: The updates the status record names, by the command that runs each.
 REFRESH, RUN, BUILD, REMOVE_SRA = "refresh", "run", "build", "remove-sra"
+#: The other holders of the run lock.
+PRUNE, RESTORE = "prune", "restore"
 #: The status key keeping ``copy_pending`` as it stood when the update switched builds.
 AT_SWITCH = "copy_pending_at_switch"
 #: The file in a refresh's folder each pack appends its per-bucket counts to.
 PACK_COUNTS = "pack-counts.jsonl"
-#: The record a run folder gets when its update is abandoned; prune removes such a refresh's.
+#: The record a run folder gets when its unfinished update is replaced; prune removes such a
+#: refresh's.
 ABANDONED_RECORD = "abandoned.json"
 #: The environment variable naming the run lock's holder, ``host:pid``, to the steps it starts.
 RUN_OWNER = "LABDATA_RUN_OWNER"
@@ -87,7 +89,7 @@ def run_lock(root: Path, update: str, *, owner_gone: bool = False) -> Iterator[N
     root : pathlib.Path
         The store root.
     update : str
-        What takes the lock, for the record: an update, or ``prune``.
+        What takes the lock, for the record: an update, :data:`PRUNE` or :data:`RESTORE`.
     owner_gone : bool
         The holder has ended, though this host cannot check it.
 
@@ -129,11 +131,11 @@ def write_status(root: Path, status: Mapping[str, Any]) -> None:
 def start(root: Path, update: str, folder: str | None = None, **fields: Any) -> dict[str, Any]:
     """Begin an update, or carry on the run in ``folder`` the status record names.
 
-    A run first checks the work disk against GCS (:func:`labdata.store.gcs.check`), and only
-    warns when rclone's login has expired. A new update keeps the last-success date and
-    ``copy_pending``; ``fields`` add to it. A run it replaces before that run's switch is
-    abandoned: its folder gets the record :data:`ABANDONED_RECORD`. A run carried on is
-    running again unless it has switched builds.
+    Every update first checks the work disk against GCS (:func:`labdata.store.gcs.check`),
+    and only warns when rclone's login has expired. A new update keeps the last-success date
+    and ``copy_pending``; ``fields`` add to it. An unfinished run it replaces gets the record
+    :data:`ABANDONED_RECORD` in its folder: abandoned before its switch; after it, its pending
+    copy carries over. A run carried on is running again unless it has switched builds.
 
     Parameters
     ----------
@@ -154,10 +156,9 @@ def start(root: Path, update: str, folder: str | None = None, **fields: Any) -> 
     Raises
     ------
     StoreCopyError
-        If a run's work disk is not in step with GCS; the copy is marked pending.
+        If the work disk is not in step with GCS; the copy is marked pending.
     """
-    if folder is not None:
-        _check(root)
+    _check(root)
     status = read_status(root)
     if folder is not None and status.get("folder") == folder:
         if status.get("outcome") in _UNSWITCHED:
@@ -168,7 +169,7 @@ def start(root: Path, update: str, folder: str | None = None, **fields: Any) -> 
         _abandon(root, status)
         status = {
             "update": update,
-            "started": _now(),
+            "started": utc_stamp(),
             "ended": None,
             "outcome": RUNNING,
             "last_success": status.get("last_success"),
@@ -187,7 +188,7 @@ def end(root: Path) -> dict[str, Any]:
         return status
     if status.get("outcome") == RUNNING:
         status["outcome"] = FAILED
-    status["ended"] = _now()
+    status["ended"] = utc_stamp()
     write_status(root, status)
     return status
 
@@ -197,7 +198,7 @@ def unfinished(status: Mapping[str, Any], update: str) -> bool:
 
     That is a run stopped before its switch, or one switched with its copy still pending.
     """
-    if _update(status) != update or not status.get("folder"):
+    if update_of(status) != update or not status.get("folder"):
         return False
     outcome = status.get("outcome")
     return outcome in _UNSWITCHED or (outcome == BUILT and bool(status.get("copy_pending")))
@@ -297,30 +298,50 @@ def switch(root: Path) -> tuple[dict[str, Any], Coverage]:
 
 def finalize(
     root: Path, destination: str | None = None, *, full: bool = False, accept_deletes: int = 0
-) -> gcs.CopyResult:
+) -> _gcs.CopyResult:
     """Copy the store to GCS: the update is finalized once the copy works.
 
     The copy sends the status record last, marked finalized, unless the update has not
-    switched builds yet. A copy skipped or failed marks it pending. The parameters are
-    :func:`labdata.store.gcs.copy`'s.
+    switched builds yet. Past the destination checks, a copy skipped or failed marks the copy
+    pending, and one that works clears it.
+
+    Parameters
+    ----------
+    root : pathlib.Path
+        The store root.
+    destination : str or None
+        An rclone path, ``<remote>:<bucket>/<path>``; defaults to the marker's ``copy_to``.
+    full, accept_deletes
+        As for :func:`labdata.store.gcs.send`; ``full`` takes no ``accept_deletes``.
 
     Returns
     -------
     CopyResult
-        As :func:`labdata.store.gcs.copy` returns it.
+        As :func:`labdata.store.gcs.send` returns it.
 
     Raises
     ------
     StoreCopyError
-        As :func:`labdata.store.gcs.copy` raises it.
+        If the store does not open, no destination is set or ``full`` comes with
+        ``accept_deletes``; or as :func:`labdata.store.gcs.send` raises it.
     """
-    return gcs.copy(
-        root,
-        destination,
-        full=full,
-        accept_deletes=accept_deletes,
-        bucket_matches_marker=_gcs_holds_marker_build(read_status(root)),
-    )
+    dest = gcs.destination(root, destination)
+    if full and accept_deletes:
+        raise gcs.StoreCopyError("--full deletes nothing, so it takes no --accept-deletes")
+    try:
+        result = gcs.send(
+            root,
+            dest,
+            finalized(root),
+            full=full,
+            accept_deletes=accept_deletes,
+            bucket_matches_marker=_gcs_holds_marker_build(read_status(root)),
+        )
+    except BaseException:
+        note_copy(root, pending=True)
+        raise
+    note_copy(root, pending=result.skipped)
+    return result
 
 
 def remove_sra(root: Path, *, client: EntrezClient, owner_gone: bool = False) -> SraRemovalReport:
@@ -338,6 +359,26 @@ def remove_sra(root: Path, *, client: EntrezClient, owner_gone: bool = False) ->
             raise
 
 
+def restore(
+    root: Path,
+    source: str | None = None,
+    *,
+    approve: Callable[[int, int], bool],
+    owner_gone: bool = False,
+) -> str | None:
+    """Fill the work disk from GCS under the run lock; see :func:`labdata.store.gcs.restore`.
+
+    ``owner_gone`` is as for :func:`run_lock`.
+
+    Raises
+    ------
+    StoreBusyError
+        If an update holds the run lock.
+    """
+    with run_lock(root, RESTORE, owner_gone=owner_gone):
+        return gcs.restore(root, source, approve=approve)
+
+
 def unswitched_build(root: Path) -> str | None:
     """Return the new build of an update that stopped, or runs, before switching to it."""
     status = read_status(root)
@@ -353,7 +394,7 @@ def finalized(root: Path) -> bytes | None:
     status = read_status(root)
     if status.get("outcome") in (*_UNSWITCHED, ABANDONED):
         return None
-    ended = status.get("ended") or _now()
+    ended = status.get("ended") or utc_stamp()
     return _dump(status | {"outcome": FINALIZED, "copy_pending": False, "ended": ended}).encode()
 
 
@@ -365,17 +406,27 @@ def note_copy(root: Path, *, pending: bool) -> None:
 
 
 def _abandon(root: Path, status: Mapping[str, Any]) -> None:
-    """Record, in its folder, that a run stopped before its switch is not carried on."""
+    """Record, in its folder, that an unfinished run is not carried on.
+
+    Before its switch it is abandoned; after it, only its pending copy was left, and the
+    next update's copy sends it.
+    """
     folder = root / str(status.get("folder", ""))
-    if status.get("outcome") not in _UNSWITCHED or folder == root or not folder.is_dir():
+    if not unfinished(status, update_of(status) or "") or not folder.is_dir():
         return
-    record = {**status, "outcome": ABANDONED, "ended": _now()}
+    switched = status.get("outcome") not in _UNSWITCHED
+    record = {**status, "ended": utc_stamp(), **({} if switched else {"outcome": ABANDONED})}
     write_atomic(folder / ABANDONED_RECORD, _dump(record))
-    logger.warning("the %s in %s is abandoned", _update(status), status["folder"])
+    logger.warning(
+        "the %s in %s is %s",
+        update_of(status),
+        status["folder"],
+        "replaced; the next copy sends its build" if switched else "abandoned",
+    )
 
 
 def _check(root: Path) -> None:
-    """Refuse a run on a work disk not in step with GCS, marking the copy pending."""
+    """Refuse an update on a work disk not in step with GCS, marking the copy pending."""
     try:
         checked = gcs.check(root)
     except gcs.StoreCopyError:
@@ -395,9 +446,9 @@ def _switched(root: Path, status: dict[str, Any]) -> dict[str, Any]:
         "ended": None,
         # Kept when a resumed run records its switch again.
         AT_SWITCH: bool(status.get(AT_SWITCH, status.get("copy_pending"))),
-        "copy_pending": bool(paths.read_marker(root).get(gcs.COPY_TO_KEY)),
+        "copy_pending": bool(paths.read_marker(root).get(_gcs.COPY_TO_KEY)),
     }
-    if _update(status) == REFRESH:
+    if update_of(status) == REFRESH:
         status |= {
             "last_success": status["started"][:10],
             "counts": pack.read_counts(root / status["folder"] / PACK_COUNTS),
@@ -413,8 +464,8 @@ def _switch_marker(root: Path, build_id: str) -> None:
         readme.try_write(root)
 
 
-def _update(status: Mapping[str, Any]) -> str | None:
-    """Return the update a record names; one from before records named it is a refresh's."""
+def update_of(status: Mapping[str, Any]) -> str | None:
+    """Return the update a status record names; a record naming only a folder is a refresh's."""
     return status.get("update") or (REFRESH if status.get("folder") else None)
 
 
@@ -429,16 +480,15 @@ def _gcs_holds_marker_build(status: Mapping[str, Any]) -> bool:
 
 def _take(lock: Path, update: str, owner_gone: bool) -> dict[str, Any]:
     """Create the run lock, taking it over from a holder that is gone; return its record."""
-    me = _slurm.Owner.me()
-    mine = {"update": update, "job": me.job, "host": me.host, "pid": me.pid, "started": me.started}
+    mine = {"update": update, **_slurm.Owner.me().record()}
     lock.parent.mkdir(parents=True, exist_ok=True)
     for _ in range(3):
-        if _create(lock, mine):
+        if create(lock, _dump(mine)):
             return mine
         held = _read_lock(lock)
         if held is None:
             continue
-        owner = _lock_owner(held)
+        owner = _slurm.Owner.from_record(held)
         alive = None if owner is None else _slurm.alive(owner)
         if alive or (alive is None and not owner_gone):
             raise StoreBusyError(_busy(lock, held, owner, alive))
@@ -446,19 +496,6 @@ def _take(lock: Path, update: str, owner_gone: bool) -> dict[str, Any]:
         if _read_lock(lock) == held:
             lock.unlink(missing_ok=True)
     raise StoreBusyError(f"another update took the run lock {lock} as this {update} started")
-
-
-def _create(lock: Path, record: Mapping[str, Any]) -> bool:
-    """Make the lock with its record whole, by a hard link that fails when it exists."""
-    tmp = lock.with_name(f".{lock.name}.{os.getpid()}.tmp")
-    tmp.write_text(_dump(record), encoding="utf-8")
-    try:
-        os.link(tmp, lock)
-    except FileExistsError:
-        return False
-    finally:
-        tmp.unlink(missing_ok=True)
-    return True
 
 
 def _read_lock(lock: Path) -> dict[str, Any] | None:
@@ -472,18 +509,6 @@ def _read_lock(lock: Path) -> dict[str, Any] | None:
     except ValueError:
         return {}
     return record if isinstance(record, dict) else {}
-
-
-def _lock_owner(record: Mapping[str, Any]) -> _slurm.Owner | None:
-    try:
-        return _slurm.Owner(
-            job=record["job"] and str(record["job"]),
-            host=str(record["host"]),
-            pid=int(record["pid"]),
-            started=str(record["started"]),
-        )
-    except (KeyError, TypeError, ValueError):
-        return None
 
 
 def _token(record: Mapping[str, Any]) -> str:
@@ -506,7 +531,3 @@ def _busy(
 
 def _dump(status: Mapping[str, Any]) -> str:
     return json.dumps(status, indent=2, sort_keys=True) + "\n"
-
-
-def _now() -> str:
-    return dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")

@@ -496,22 +496,22 @@ def test_a_routine_copy_to_a_gcs_emptied_since_sends_nothing_and_asks_for_full(
     _holds_its_record(gcs, root)
 
 
-def test_with_no_record_on_disk_a_copy_fetches_the_gcs_one_and_sends_only_changes(
+def test_with_no_record_on_disk_while_gcs_holds_one_a_copy_sends_nothing_and_asks_to_restore(
     root: Path, gcs: FakeGcs
 ) -> None:
     _copy_to(root)
     _full(root)
+    # A second disk: it would roll GCS back to its own state.
     (root / COPIED).unlink()
+    _status(root, copy_pending=False)
     gcs.forget()
 
-    assert _copy(root).exit_code == 0
+    refused = _copy(root)
 
-    assert gcs.log[0] == ("get", COPIED)
-    assert gcs.walks == 0
-    assert gcs.deleted() == []
-    assert not any(p.endswith(".parquet") for p in gcs.sent())
-    # The local marker is never overwritten by the one in GCS.
-    assert "copy_to" in (root / "labdata-store.toml").read_text()
+    assert refused.exit_code == 1
+    assert f"labdata store restore --from {_DEST}" in refused.output
+    assert gcs.log == []
+    assert lifecycle.read_status(root)["copy_pending"] is True
 
 
 def _gcs_marker(gcs: FakeGcs, root: Path, build_id: str) -> None:

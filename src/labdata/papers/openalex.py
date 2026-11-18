@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from labdata._cache import ensure_cache_dir, liulab_data_cache_dir
+from labdata._files import temp_beside, toml_line
 from labdata._http import (
     RETRY_STATUSES,
     USER_AGENT,
@@ -32,7 +33,6 @@ from labdata._http import (
 )
 from labdata.exceptions import CredentialsError, LabdataError
 from labdata.ncbi.entrez import Traffic
-from labdata.store._files import temp_beside, toml_line
 from labdata.store.model import norm_doi
 
 #: Environment variable of ``key:email`` pairs, comma-separated; overrides the file.

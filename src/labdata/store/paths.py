@@ -1,63 +1,20 @@
-"""Every path in a GEO/SRA store root, with its kind, and the only reader and switcher of the marker.
+"""Every path in a GEO/SRA store root, with its kind; the only reader and switcher of the marker.
 
-Each path is state, rebuildable or scratch (:class:`Kind`). The copy sends the state files of
-the current build: the build, the raw files and snapshots it read, and the top-level files.
+Each path is state, rebuildable or scratch (:class:`labdata._paths.Kind`). The copy sends the
+state files of the current build: the build, the raw files and snapshots it read, and the
+top-level files.
 Other modules ask this one for a path, ``paths.RAW.at(root, source)``, instead of spelling it.
 """
 
 from __future__ import annotations
 
-import datetime as dt
-import enum
 import tomllib
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from labdata.store._files import read_toml_marker, toml_line, write_atomic
-
-
-class Kind(enum.Enum):
-    """What a path is to GCS and to a cleanup."""
-
-    #: GCS holds it: a copy sends it, and a restore brings it back.
-    STATE = "state"
-    #: Remade on demand from state; never copied, and kept by a cleanup.
-    REBUILDABLE = "rebuildable"
-    #: On the work disk only; a cleanup may delete it when no run is going.
-    SCRATCH = "scratch"
-
-
-@dataclass(frozen=True, slots=True)
-class Declared:
-    """One declared path: a file, or a folder and everything under it.
-
-    Parameters
-    ----------
-    rel : str
-        The path from the store root; a folder's ends in ``/``.
-    kind : Kind
-        What the path is.
-    """
-
-    rel: str
-    kind: Kind
-
-    @property
-    def name(self) -> str:
-        """The last part of the path, without a folder's ``/``."""
-        return self.rel.rstrip("/").rsplit("/", 1)[-1]
-
-    def at(self, root: Path, *parts: str) -> Path:
-        """Return this path under ``root``, with ``parts`` below it for a folder."""
-        return root.joinpath(self.rel, *parts)
-
-    def holds(self, rel: str) -> bool:
-        """Return whether ``rel``, a path from the root, is this path or lies under it."""
-        return rel == self.rel or (self.rel.endswith("/") and f"{rel}/".startswith(self.rel))
-
-
-STATE, REBUILDABLE, SCRATCH = Kind.STATE, Kind.REBUILDABLE, Kind.SCRATCH
+from labdata import _paths
+from labdata._files import read_toml_marker, toml_line, utc_stamp, write_atomic
+from labdata._paths import REBUILDABLE, SCRATCH, STATE, Declared, Kind
 
 #: The marker: format version, the current build and when the store switched to it.
 MARKER = Declared("labdata-store.toml", STATE)
@@ -65,7 +22,7 @@ MARKER = Declared("labdata-store.toml", STATE)
 README = Declared("README.md", STATE)
 #: The copy record: what GCS holds, as the last successful copy left it.
 COPY_RECORD = Declared(".copied-files.json", STATE)
-#: The status record of the last refresh.
+#: The status record of the last update, whatever it was.
 STATUS = Declared("refresh-status.json", STATE)
 BUILDS = Declared("builds/", STATE)
 RAW = Declared("raw/", STATE)
@@ -95,7 +52,7 @@ EUTILS = Declared("work/eutils/", SCRATCH)
 TMP = Declared("work/tmp/", SCRATCH)
 #: The yearly SRA removal's batches, ``<tab date>/``.
 SRA_REMOVAL = Declared("work/sra-removal/", SCRATCH)
-#: Where extracts were kept before; the store's next extract or build moves them out.
+#: Extracts outside ``extracts/``; the store's next extract or build moves them there.
 OLD_EXTRACTS = Declared("work/extract/", SCRATCH)
 
 #: Every declared path.
@@ -124,39 +81,20 @@ LAYOUT = (
 )
 
 
-def kind(rel: str, layout: tuple[Declared, ...] = LAYOUT) -> Kind:
-    """Return the kind of a path from the root, by the longest declared path that holds it.
-
-    A hidden name nothing declares is a temp file a write left: scratch.
-
-    Parameters
-    ----------
-    rel : str
-        A POSIX path from the store root, such as ``raw/geo-soft/GSE1nnn.parquet``.
-    layout : tuple of Declared
-        The declaration to look in.
-
-    Returns
-    -------
-    Kind
-        The path's kind.
+def kind(rel: str) -> Kind:
+    """Return the kind of a path from the store root, as :func:`labdata._paths.kind` says.
 
     Raises
     ------
     ValueError
         If no declared path holds it.
     """
-    holders = [d for d in layout if d.holds(rel)]
-    if holders:
-        return max(holders, key=lambda d: len(d.rel)).kind
-    if any(part.startswith(".") for part in rel.split("/")):
-        return SCRATCH
-    raise ValueError(f"{rel} is not a declared path of the store root")
+    return _paths.kind(rel, LAYOUT)
 
 
-def declared(of: Kind, layout: tuple[Declared, ...] = LAYOUT) -> list[str]:
+def declared(of: Kind) -> list[str]:
     """Return the declared paths of one kind, from the root, in declaration order."""
-    return [d.rel for d in layout if d.kind is of]
+    return _paths.declared(of, LAYOUT)
 
 
 #: The marker key naming the current build.
@@ -197,7 +135,7 @@ def write_marker(root: Path, settings: dict[str, Any]) -> None:
 def switch(root: Path, build_id: str) -> None:
     """Point the marker at a build and record when the old one was switched away from."""
     settings = read_marker(root)
-    now = dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    now = utc_stamp()
     old = settings.get(BUILD_KEY)
     if old and old != build_id:
         settings.setdefault(SWITCHED_AWAY_KEY, {})[str(old)] = now

@@ -1,7 +1,11 @@
-"""Write files whole or not at all, through a temporary name unique to this writer."""
+"""Write files whole or not at all, through a temporary name unique to this writer.
+
+Also the UTC stamp the stores' records use, :func:`utc_stamp`.
+"""
 
 from __future__ import annotations
 
+import datetime as dt
 import os
 import tomllib
 from pathlib import Path
@@ -59,6 +63,22 @@ def read_toml_marker(root: Path, marker: str, what: str) -> dict[str, Any]:
         return tomllib.load(fh)
 
 
+def create(path: Path, text: str) -> bool:
+    """Write ``path`` whole, unless it exists; return whether this call made it.
+
+    Of two writers, only one makes it: the file appears by a hard link, which fails if it exists.
+    """
+    tmp = temp_beside(path, "new")
+    tmp.write_text(text, encoding="utf-8")
+    try:
+        os.link(tmp, path)
+    except FileExistsError:
+        return False
+    finally:
+        tmp.unlink(missing_ok=True)
+    return True
+
+
 def create_marker(marker: Path, text: str, what: str) -> None:
     """Write a marker file whole, or fail if it exists, so two inits cannot both win.
 
@@ -67,12 +87,10 @@ def create_marker(marker: Path, text: str, what: str) -> None:
     LabdataError
         If the marker already exists; the message names ``what`` is initialised.
     """
-    tmp = temp_beside(marker, "init")
-    tmp.write_text(text, encoding="utf-8")
-    try:
-        # A hard link fails if the marker exists.
-        os.link(tmp, marker)
-    except FileExistsError:
-        raise LabdataError(f"{marker} already exists; this {what} is initialised") from None
-    finally:
-        tmp.unlink(missing_ok=True)
+    if not create(marker, text):
+        raise LabdataError(f"{marker} already exists; this {what} is initialised")
+
+
+def utc_stamp() -> str:
+    """Return the time now in UTC, to the second, as ``YYYY-MM-DDTHH:MM:SSZ``."""
+    return dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")

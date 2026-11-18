@@ -23,9 +23,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from labdata._files import temp_beside, write_atomic
 from labdata.exceptions import SnapshotError
 from labdata.store import changes, provenance, snapshots
-from labdata.store._files import temp_beside, write_atomic
 from labdata.store.fetch import gds_uid
 from labdata.store.layout import MANIFEST
 

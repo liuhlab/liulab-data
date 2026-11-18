@@ -23,8 +23,9 @@ download and the monthly refresh alike, goes through the same steps:
 - To copy the store at the end, set `copy_to` in `labdata-store.toml` and log in to rclone
   that day. See [Copy the store to GCS](store-gcs.md). Without `copy_to`, the run skips the
   copy and says so.
-- A run first checks the work disk against GCS. If the disk is behind, the run stops and
-  names the `labdata store restore` command to run.
+- Every update first checks the work disk against GCS: a run, a refresh, a build by hand and
+  the SRA removal. If the disk is behind, or has no copy record while GCS holds one, the
+  update stops and names the `labdata store restore` command to run.
 
 ## Start a round
 
@@ -244,14 +245,15 @@ order. The first two check the current build, so run them before the refresh:
     ```bash
     scratch=/path/to/scratch
     mkdir "$scratch"
-    cp "$LABDATA_STORE/labdata-store.toml" "$scratch/"
+    grep -v '^copy_to' "$LABDATA_STORE/labdata-store.toml" > "$scratch/labdata-store.toml"
     cp -al "$LABDATA_STORE/raw" "$LABDATA_STORE/snapshots" "$scratch/"
     unshare -rn labdata store build --root "$scratch" --build-id offline
     pixi run python scripts/store/compare_builds.py \
       "$LABDATA_STORE/builds/<current build>" "$scratch/builds/offline"
     ```
 
-    The build first makes the extracts of the snapshots it reads, in the scratch store.
+    The scratch marker leaves out `copy_to`, so the build checks nothing against GCS. The
+    build first makes the extracts of the snapshots it reads, in the scratch store.
     `unshare -rn` blocks the network; leave it out where the node does not allow it. The
     compare prints each difference and ends with `the builds match` when there is none.
     Delete the scratch store after.

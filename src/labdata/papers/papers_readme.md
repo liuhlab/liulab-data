@@ -61,7 +61,7 @@ without it the next pass downloads them again and spends quota twice.
   papers by status, then by reason. `paperpile_pending` and `copy_pending` are true when a step was skipped because
   its login has expired. `finalized` is true when GCS holds the store's last change.
 - **Made by:** each pass, at its start and its end, and each copy, which sends it to GCS
-  last. A pass that changes paper files ends with that copy.
+  last. Every pass ends with that copy.
 
 ## The tables
 

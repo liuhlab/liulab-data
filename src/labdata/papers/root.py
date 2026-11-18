@@ -19,9 +19,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from labdata._cache import liulab_data_cache_dir
+from labdata._files import create_marker, read_toml_marker, toml_line, write_atomic
 from labdata.exceptions import StoreNotConfiguredError
 from labdata.papers import paths
-from labdata.store._files import create_marker, read_toml_marker, toml_line, write_atomic
 from labdata.store.model import norm_doi
 from labdata.store.root import Store, open_store, resolve_root, write_pointer
 from labdata.store.sources import BIOPROJECT_XML

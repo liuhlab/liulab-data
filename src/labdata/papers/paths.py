@@ -1,12 +1,12 @@
-"""Every top-level path of a paper store root, with its kind, as the GEO/SRA store declares its own.
+"""Every top-level path of a paper store root, with its kind, as the GEO/SRA store declares its.
 
 Other paper modules take their file names from here.
 """
 
 from __future__ import annotations
 
-from labdata.store.paths import SCRATCH, STATE, Declared, Kind
-from labdata.store.paths import kind as _kind
+from labdata import _paths
+from labdata._paths import SCRATCH, STATE, Declared, Kind
 
 #: The marker: the GEO/SRA store it reads, and where it is copied.
 MARKER = Declared("labdata-papers.toml", STATE)
@@ -63,4 +63,4 @@ def kind(rel: str) -> Kind:
     ValueError
         If no declared path holds it.
     """
-    return _kind(rel, LAYOUT)
+    return _paths.kind(rel, LAYOUT)

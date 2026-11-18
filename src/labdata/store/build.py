@@ -36,6 +36,7 @@ import duckdb
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from labdata._files import temp_beside
 from labdata.exceptions import StoreBuildError
 from labdata.store import (
     _limits,
@@ -51,7 +52,6 @@ from labdata.store import (
     suppl,
     targets,
 )
-from labdata.store._files import temp_beside
 from labdata.store.layout import (
     HOLDINGS,
     KNOWN,
@@ -97,6 +97,11 @@ _NEWEST_FIRST = layout.record_stem("GEO Sample")
 _GEO_TYPES = ("GEO Platform", "GEO Sample", "GEO Series")
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_of(source: targets.BuildSource, name: str) -> tuple[Path, str]:
+    """Return the finished extract of a snapshot the build reads, and the snapshot's date."""
+    return extract.done_dir(source.root, name, made_in=source.made_in)
 
 
 def build(
@@ -258,7 +263,7 @@ def _build_into(
     source = sample_of or targets.BuildSource(root, None)
     for kind in extract.SOURCES:
         extract.extract(source.root, kind, made_in=source.made_in, workers=workers)
-    _, geo_date = extract.done_dir(source.root, snapshots.GEO_SERIES, made_in=source.made_in)
+    _, geo_date = _extract_of(source, snapshots.GEO_SERIES)
     target_list = targets.target_list(root, geo_date, fraction, source=source)
     _summary_links(target_list, work / "links" / "summary.parquet")
     tasks: list[_parse.Task] = []
@@ -478,7 +483,7 @@ def _wanted_snapshots(
     }
     tasks: list[_parse.Task] = []
     for kind, (query, prefix) in wanted.items():
-        folder, date = extract.done_dir(source.root, kind, made_in=source.made_in)
+        folder, date = _extract_of(source, kind)
         if sampled:
             query += f" UNION SELECT accession FROM read_parquet({extract.parts(folder)}){sampled}"
         out = work / "snapshots" / kind
@@ -561,7 +566,7 @@ def _write_records(
 def _record_range(source: targets.BuildSource, folder: Path, where: str) -> str:
     """Return the query of one accession range; SRA records take typed columns from the tab."""
     if folder.name.startswith("sra-"):
-        tab, _ = extract.done_dir(source.root, snapshots.SRA_ACCESSIONS, made_in=source.made_in)
+        tab, _ = _extract_of(source, snapshots.SRA_ACCESSIONS)
         fields = ", ".join(f"{name}: {name}" for name in _TYPED)
         typed_join = (
             f"LEFT JOIN (SELECT accession, min({{{fields}}}) AS x "
@@ -629,7 +634,7 @@ def _no_package_notes(
     """
     if not experiments:
         return []
-    folder, _ = extract.done_dir(source.root, snapshots.SRA_ACCESSIONS, made_in=source.made_in)
+    folder, _ = _extract_of(source, snapshots.SRA_ACCESSIONS)
     listed = ", ".join(sql_string(a) for a in sorted(set(experiments)))
     with extract.connect(root) as con:
         rows = con.execute(

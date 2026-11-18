@@ -22,8 +22,8 @@ from pathlib import Path
 
 from backports import zstd
 
+from labdata._files import write_atomic
 from labdata.papers import paths
-from labdata.store._files import write_atomic
 
 #: The folder under the root that holds files being written; a pass empties it at its start.
 TEMP = paths.TEMP.name
