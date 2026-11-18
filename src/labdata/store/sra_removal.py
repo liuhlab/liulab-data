@@ -219,7 +219,10 @@ def remove(root: Path, *, client: EntrezClient, date: str | None = None) -> SraR
         report.unreached,
     )
     progress = listing.parent / "settled.txt"
-    skip = _settled(progress)
+    # A candidate no longer held was removed since the listing: a kill can come before its
+    # settled line, and NCBI is not asked twice.
+    listed = [c.accession for c in _read(listing)]
+    skip = _settled(progress) | (set(listed) - raw.held(root, raw.SRA_XML, listed))
     report.asked = sum(1 for c in _read(listing) if c.accession not in skip)
     done = 0
     with ThreadPoolExecutor(INFLIGHT, thread_name_prefix="sra-removal") as pool:
