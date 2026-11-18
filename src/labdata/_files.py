@@ -98,5 +98,5 @@ def utc_stamp() -> str:
 
 
 def sha256(text: str) -> str:
-    """Return the hex sha256 of a text's UTF-8 bytes: every raw ``hash`` and ``content_hash``."""
+    """Return the hex sha256 of a text's UTF-8 bytes."""
     return hashlib.sha256(text.encode("utf-8")).hexdigest()

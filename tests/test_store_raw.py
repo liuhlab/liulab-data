@@ -293,7 +293,7 @@ def test_the_raw_module_alone_reads_raw_files_through_a_few_verbs() -> None:
     folder_only = {
         "paths.py": "declares it",
         "gcs.py": "copies its files whole",
-        "provenance.py": "documents each folder",
+        "provenance.py": "documents each folder, reading only the files raw.files gives",
         "cli.py": "prints where it is",
         "build.py": "refuses a store as a scratch root, and has each folder documented",
         "fetch.py": "has each folder documented",

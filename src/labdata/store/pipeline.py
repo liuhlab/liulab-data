@@ -105,7 +105,7 @@ def _run_snakemake(argv: list[str], *, verbose: bool) -> int:
 def drive(
     root: Path,
     update: str,
-    plan: Callable[[dict[str, Any]], Round],
+    set_up: Callable[[dict[str, Any]], Round],
     *,
     snakefile: str,
     cores: int | None = None,
@@ -115,7 +115,7 @@ def drive(
 ) -> int:
     """Run a store DAG under the run lock: the one driver of the full run and the refresh.
 
-    Under the lock, ``plan`` reads the status record and sets up the run by
+    Under the lock, ``set_up`` reads the status record and sets up the run by
     :func:`lifecycle.plan`, which the driver carries out. To resume or start, it writes the
     config, with the memory plan, runs Snakemake and records how the run stopped. A run that
     has switched builds with its copy pending gets the copy alone, as ``labdata store copy``
@@ -127,7 +127,7 @@ def drive(
         The store root.
     update : str
         :data:`lifecycle.RUN` or :data:`lifecycle.REFRESH`.
-    plan : callable
+    set_up : callable
         Takes the status record and returns the :class:`Round`.
     snakefile : str
         The DAG's file in this package.
@@ -153,23 +153,23 @@ def drive(
         As :func:`lifecycle.finalize` raises it, for a run left only its copy.
     """
     with lifecycle.run_lock(root, update, owner_gone=owner_gone):
-        chosen = plan(lifecycle.read_status(root))
+        chosen = set_up(lifecycle.read_status(root))
         work = chosen.folder
-        if chosen.plan.action == lifecycle.NOTHING:
+        if chosen.plan.action == lifecycle.Action.NOTHING:
             logger.warning(
-                "the run in %s is done: every step finished, so nothing runs; to run it "
+                "the run in %s is done or finalized, so nothing runs; to run it "
                 "again, delete that folder",
                 work,
             )
             return 0
-        if chosen.plan.action == lifecycle.COPY:
+        if chosen.plan.action == lifecycle.Action.COPY:
             logger.info("the run in %s has switched builds, so only its copy is left", work)
             result = lifecycle.finalize(root)
             if result.skipped:
                 logger.warning("%s", result.message)
             return int(result.skipped)
         folder = work.relative_to(root).as_posix()
-        lifecycle.start(root, update, folder, again=bool(chosen.rerun), **chosen.fields)
+        lifecycle.start(root, update, folder, running=chosen.plan.running, **chosen.fields)
         work.mkdir(parents=True, exist_ok=True)
         memory = int(_limits.allocation_mb() * STEPS_SHARE)
         config = {
@@ -220,7 +220,7 @@ def run(
     round resumes at the first unfinished step; the fetch steps skip every item already
     saved, by this round or a smaller one. A fetch lane that left items failed runs again,
     and so does every step after it. A rerun of a round left only its copy copies, and one of
-    a finished round runs nothing.
+    a finished or finalized round runs nothing.
 
     Parameters
     ----------
@@ -249,13 +249,10 @@ def run(
     geo_date = dates[snapshots.GEO_SERIES]
     work = round_dir(root, geo_date, fraction)
 
-    def plan(status: dict[str, Any]) -> Round:
+    def set_up(status: dict[str, Any]) -> Round:
         # --forcerun reruns a rule and every rule after it, even where their markers exist.
-        rerun = []
-        for lane, rule in LANES.items():
-            if (work / f"{lane}.failed").is_file():
-                logger.info("the %s lane left items failed last time; it runs again", lane)
-                rerun.append(rule)
+        failed = [lane for lane in LANES if (work / f"{lane}.failed").is_file()]
+        rerun = [LANES[lane] for lane in failed]
         config = {
             "fraction": "" if fraction is None else repr(fraction),
             "snapshots": dates,
@@ -265,7 +262,16 @@ def run(
         done = (work / DONE).is_file()
         decided = lifecycle.plan(status, lifecycle.RUN, folder, done=done, rerun=bool(rerun))
         chosen = Round(work, decided, config=config, rerun=rerun)
-        if decided.action in (lifecycle.RESUME, lifecycle.NEW):
+        # Only the copy is left: a failed lane waits for the run after it.
+        copy = decided.action == lifecycle.Action.COPY
+        for lane in failed:
+            logger.log(
+                logging.WARNING if copy else logging.INFO,
+                "the %s lane left items failed; it runs again%s",
+                lane,
+                " on the next run" if copy else "",
+            )
+        if decided.action in (lifecycle.Action.RESUME, lifecycle.Action.NEW):
             work.mkdir(parents=True, exist_ok=True)
             record = {"fraction": fraction, "snapshots": dates, "started": utc_stamp()}
             (work / "run.json").write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
@@ -275,7 +281,7 @@ def run(
     return drive(
         root,
         lifecycle.RUN,
-        plan,
+        set_up,
         snakefile="pipeline.smk",
         cores=cores,
         ncbi=ncbi,

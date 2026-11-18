@@ -64,7 +64,7 @@ def candidates(root: Path, extra: Iterable[str] = ()) -> list[str]:
     listed = _gds_series(root)
     found |= {gse for gse in _held_series(root) if gse not in listed}
     for gse, text in raw.saved(root, raw.GEO_GAPS, since_pack=True):
-        if text.split("\n", 1)[0] == gaps.SOFT_MISSING:
+        if gaps.reason_of(text) == gaps.SOFT_MISSING:
             found.add(gse)
     return sorted(found)
 
@@ -77,7 +77,8 @@ def confirm(root: Path, accessions: Iterable[str], *, client: EntrezClient) -> C
     root : pathlib.Path
         The store root.
     accessions : iterable of str
-        GEO Series from :func:`candidates`; any other accession is skipped with a warning.
+        GEO Series from :func:`candidates`. A Series a removal already dropped is not asked
+        again; any other accession is skipped with a warning.
     client : EntrezClient
         The NCBI seam.
 
@@ -93,7 +94,7 @@ def confirm(root: Path, accessions: Iterable[str], *, client: EntrezClient) -> C
             series.add(accession)
         else:
             logger.warning("not confirmed, as only GEO Series are: %s", accession)
-    todo = sorted(series)
+    todo = sorted(_held_series(root, series))
     report = ConfirmReport(asked=len(todo))
     logger.info("confirming %d removal candidates", len(todo))
     with ThreadPoolExecutor(INFLIGHT, thread_name_prefix="confirm") as pool:
@@ -152,12 +153,19 @@ def _apply(root: Path, states: dict[str, State], report: ConfirmReport, listed: 
         write_removals(root, source, drop, report.removals)
 
 
-def _held_series(root: Path) -> set[str]:
-    """Return the Series held in a Series-keyed source, a ``withdrawn`` gap row aside."""
+def _held_series(root: Path, accessions: set[str] | None = None) -> set[str]:
+    """Return the Series held in a Series-keyed source, a ``withdrawn`` gap row aside.
+
+    With ``accessions``, only those of them.
+    """
+    if accessions is not None and not accessions:
+        return set()
     keyed = [source for source in SERIES_KEYED if source != raw.GEO_GAPS]
-    found = {a for source in keyed for a in raw.held(root, source)}
+    found = {a for source in keyed for a in raw.held(root, source, accessions)}
     found |= {
-        a for a, text in raw.saved(root, raw.GEO_GAPS) if text.split("\n", 1)[0] != gaps.WITHDRAWN
+        a
+        for a, text in raw.saved(root, raw.GEO_GAPS, accessions)
+        if gaps.reason_of(text) != gaps.WITHDRAWN
     }
     return {a for a in found if a.startswith("GSE")}
 

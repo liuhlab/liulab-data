@@ -112,9 +112,9 @@ def _round(root: Path, status: dict[str, Any], since: str | None) -> pipeline.Ro
             "the unfinished refresh in %s is not resumed: %s", status["folder"], decided.abandoned
         )
         since = since or status["since"]
-    if decided.action == lifecycle.COPY:
+    if decided.action == lifecycle.Action.COPY:
         return pipeline.Round(root / str(decided.folder), decided)
-    if decided.action == lifecycle.RESUME:
+    if decided.action == lifecycle.Action.RESUME:
         logger.info("resuming the refresh started %s", status["started"])
         if since is not None and since != status["since"]:
             logger.warning(

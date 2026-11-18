@@ -42,9 +42,11 @@ type _Serves = Callable[[Mapping[str, Any], list[str]], bool]
 
 #: Whether a tier can still serve a paper, from its row and the outcomes of that tier's tries.
 _SERVES: dict[str, _Serves] = {
-    PMC: lambda row, tried: bool(row.get("pmcid")) and set(tried) <= {"error"} and _few(tried),
+    PMC: lambda row, tried: (
+        bool(row.get("pmcid")) and set(tried) <= {"error"} and _error_tries_left(tried)
+    ),
     OPENALEX: lambda row, tried: (
-        bool(row.get("openalex_pdf")) and "failed" not in tried and _few(tried)
+        bool(row.get("openalex_pdf")) and "failed" not in tried and _error_tries_left(tried)
     ),
     HOST: lambda row, tried: bool(row.get("host_pdf_urls")) and not tried,
     PAPERPILE: lambda row, tried: True,
@@ -191,7 +193,7 @@ def settle(state: PaperTables, today: dt.date) -> None:
         row["xml_tier"], row["pdf_tier"] = got.xml_tier, got.pdf_tier
 
 
-def _few(tried: list[str]) -> bool:
+def _error_tries_left(tried: list[str]) -> bool:
     """Return whether a tier's server or network errors are fewer than :data:`ERROR_TRIES`."""
     return tried.count("error") < ERROR_TRIES
 

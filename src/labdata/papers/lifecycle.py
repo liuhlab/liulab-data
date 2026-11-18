@@ -5,9 +5,9 @@ pass and its copy together. A pass first checks the work disk against GCS, refus
 not in step and only warning when rclone's login has expired. A pass marks the store not
 finalized as it starts, records its outcome, then finalizes, whatever the outcome. Finalizing
 finishes what a stopped step left (:func:`labdata.papers.tables.heal`), marks a copy pending,
-then copies to GCS; the copy sends the status record last, marked finalized and no longer pending, and a pass it records as
-running, which was stopped, as failed. A copy that is skipped, fails or is cut off leaves it
-pending, for the paper job to retry.
+then copies to GCS; the copy sends the status record last, marked finalized and no longer
+pending, and a pass it records as running, which was stopped, as failed. A copy that is
+skipped, fails or is cut off leaves it pending, for the paper job to retry.
 
 This module is the only writer of ``paper-status.json``.
 """

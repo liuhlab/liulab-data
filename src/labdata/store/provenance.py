@@ -127,13 +127,19 @@ def document_raw(root: Path, source: str) -> Path:
     -------
     pathlib.Path
         The folder.
+
+    Raises
+    ------
+    StoreBuildError
+        If the source has parts left to pack, as :func:`labdata.store.raw.files` raises it.
     """
     folder = paths.RAW.at(root, source)
-    files = file_entries(folder)
+    files: list[dict[str, Any]] = []
     dates: set[str] = set()
-    for entry in files:
-        column = pq.read_table(folder / entry["name"], columns=["fetch_date"]).column(0)
-        entry["rows"] = len(column)
+    for path in raw.files(root, source):
+        column = pq.read_table(path, columns=["fetch_date"]).column(0)
+        size, digest = path.stat().st_size, sha256_file(path)
+        files.append({"name": path.name, "bytes": size, "sha256": digest, "rows": len(column)})
         dates |= set(column.to_pylist())
     what, url = RAW_SOURCES.get(source, (f"Live results of the {source} source.", "NCBI"))
     width = raw.WIDTHS[source]

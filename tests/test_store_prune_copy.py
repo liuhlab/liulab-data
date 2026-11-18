@@ -102,10 +102,12 @@ def test_prune_rewrites_the_readme_sizes_after_it_deletes(root: Path) -> None:
     build(root, "b2")
     readme = root / "README.md"
     before = readme.read_text(encoding="utf-8")
-    assert prune(root, grace=dt.timedelta(0)).deleted
-    after = readme.read_text(encoding="utf-8")
+    # Both steps of one update, under its run lock, which work/ holds.
+    with lifecycle.run_lock(root, lifecycle.REFRESH):
+        assert prune(root, grace=dt.timedelta(0)).deleted
+        after = readme.read_text(encoding="utf-8")
+        result = CliRunner().invoke(app, ["store", "readme", "--root", str(root)])
     assert after != before
-    result = CliRunner().invoke(app, ["store", "readme", "--root", str(root)])
     assert result.exit_code == 0, result.output
     assert readme.read_text(encoding="utf-8") == after
 

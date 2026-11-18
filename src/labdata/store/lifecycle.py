@@ -25,6 +25,7 @@ from collections import defaultdict
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -52,8 +53,16 @@ RUNNING, FAILED, ABANDONED, BUILT, FINALIZED = (
 )
 #: The updates the status record names, by the command that runs each.
 REFRESH, RUN, BUILD, REMOVE_SRA = "refresh", "run", "build", "remove-sra"
-#: The other holders of the run lock; a copy holds it as :data:`COPY`.
-PRUNE, RESTORE, PACK, FETCH, EXTRACT = "prune", "restore", "pack", "fetch", "extract"
+#: The other holders of the run lock, each a command's name.
+PRUNE, RESTORE, PACK, FETCH, EXTRACT, README, COPY = (
+    "prune",
+    "restore",
+    "pack",
+    "fetch",
+    "extract",
+    "readme",
+    "copy",
+)
 #: The status key keeping ``copy_pending`` as it stood when the update switched builds.
 AT_SWITCH = "copy_pending_at_switch"
 #: The file in a refresh's folder each pack appends its per-bucket counts to.
@@ -65,8 +74,6 @@ ABANDONED_RECORD = "abandoned.json"
 RUN_OWNER = "LABDATA_RUN_OWNER"
 #: An outcome before the switch: the work disk still reads the build before the update's.
 _UNSWITCHED = (RUNNING, FAILED)
-#: What a store DAG's driver does, by :func:`plan`.
-RESUME, COPY, NEW, NOTHING = "resume", "copy", "new", "nothing"
 #: A refresh stopped before its switch resumes only within this time of its start.
 RESUME_WITHIN = dt.timedelta(days=7)
 
@@ -83,25 +90,37 @@ class StoreBusyError(StoreBuildError):
     """Another update holds the store's run lock."""
 
 
+class Action(StrEnum):
+    """What a store DAG's driver does, by :func:`plan`."""
+
+    RESUME = "resume"
+    COPY = "copy"
+    NEW = "new"
+    NOTHING = "nothing"
+
+
 @dataclass(frozen=True, slots=True)
 class Plan:
     """What a store DAG's driver does next, as :func:`plan` decides it.
 
     Parameters
     ----------
-    action : str
-        :data:`RESUME` the run in ``folder``, :data:`COPY` only, start a :data:`NEW` update,
-        or :data:`NOTHING`.
+    action : Action
+        Resume the run in ``folder``, copy only, start a new update, or do nothing.
     folder : str or None
         The run's folder, from the root: the one the status record names, to resume or copy;
         else the one asked for, None for a new refresh.
     abandoned : str or None
         Why the run of this update stopped before its switch is not resumed.
+    running : bool
+        The update is running while the driver runs Snakemake: its steps up to the switch
+        may run.
     """
 
-    action: str
+    action: Action
     folder: str | None = None
     abandoned: str | None = None
+    running: bool = False
 
 
 def plan(
@@ -119,7 +138,8 @@ def plan(
     A run of ``update`` stopped before its switch resumes; a refresh only within
     :data:`RESUME_WITHIN` of its start and by the same ``dag``, else a new one starts. A run
     switched with its copy pending is finished by the copy alone, whatever its age or DAG.
-    A full run's round whose last step is done runs nothing, unless ``rerun``.
+    A full run's round whose last step is done, or that is finalized, runs nothing, unless
+    ``rerun``; a finalized round run again is running until it switches again.
 
     Parameters
     ----------
@@ -147,13 +167,18 @@ def plan(
     mine = update_of(status) == update and bool(named) and folder in (None, named)
     outcome = status.get("outcome")
     if mine and outcome == BUILT and status.get("copy_pending"):
-        return Plan(COPY, named)
+        return Plan(Action.COPY, named)
     if mine and outcome in _UNSWITCHED:
         abandoned = _stale(status, dag, now) if update == REFRESH else None
-        return Plan(NEW, folder, abandoned) if abandoned else Plan(RESUME, named)
-    if done and not rerun:
-        return Plan(NOTHING, folder)
-    return Plan(RESUME, named) if mine and folder is not None else Plan(NEW, folder)
+        if abandoned:
+            return Plan(Action.NEW, folder, abandoned, running=True)
+        return Plan(Action.RESUME, named, running=True)
+    carried = mine and folder is not None
+    if not rerun and (done or (carried and outcome == FINALIZED)):
+        return Plan(Action.NOTHING, folder)
+    if carried:
+        return Plan(Action.RESUME, named, running=rerun)
+    return Plan(Action.NEW, folder, running=True)
 
 
 def _stale(status: Mapping[str, Any], dag: int | None, now: dt.datetime | None) -> str | None:
@@ -179,7 +204,7 @@ def run_lock(root: Path, update: str, *, owner_gone: bool = False) -> Iterator[N
     root : pathlib.Path
         The store root.
     update : str
-        What takes the lock, for the record: an update, :data:`PRUNE` or :data:`RESTORE`.
+        What takes the lock, for the record: an update or a command's name, such as :data:`PACK`.
     owner_gone : bool
         The holder has ended, though this host cannot check it.
 
@@ -219,7 +244,7 @@ def write_status(root: Path, status: Mapping[str, Any]) -> None:
 
 
 def start(
-    root: Path, update: str, folder: str | None = None, *, again: bool = False, **fields: Any
+    root: Path, update: str, folder: str | None = None, *, running: bool = False, **fields: Any
 ) -> dict[str, Any]:
     """Begin an update, or carry on the run in ``folder`` the status record names.
 
@@ -229,7 +254,7 @@ def start(
     :data:`ABANDONED_RECORD` in its folder: abandoned before its switch; after it, its pending
     copy carries over. A new run first packs every part an earlier run left, so a part saved
     since the last pack is its own. A run carried on is running again, unless it has switched
-    builds and ``again`` is false.
+    builds and ``running`` is false.
 
     Parameters
     ----------
@@ -239,8 +264,8 @@ def start(
         :data:`REFRESH`, :data:`RUN`, :data:`BUILD` or :data:`REMOVE_SRA`.
     folder : str or None
         A run's folder, from the root; None for an update by hand.
-    again : bool
-        The run carried on runs its steps up to its switch again.
+    running : bool
+        The run carried on runs its steps up to its switch again, as :attr:`Plan.running`.
     **fields
         More of the new update's record, such as ``started`` or ``since``.
 
@@ -257,7 +282,7 @@ def start(
     _check(root)
     status = read_status(root)
     if folder is not None and status.get("folder") == folder:
-        if again or status.get("outcome") in _UNSWITCHED:
+        if running or status.get("outcome") in _UNSWITCHED:
             status["outcome"] = RUNNING
         if status.get("outcome") != FINALIZED:
             status["ended"] = None
@@ -569,6 +594,16 @@ def read_counts(path: Path) -> dict[str, dict[str, int]]:
     """Return the records added, replaced and removed per source, from a pack's counts file.
 
     A bucket packed again from the same parts, after a kill, counts once: its first record.
+
+    Parameters
+    ----------
+    path : pathlib.Path
+        The counts file; a missing one counts nothing.
+
+    Returns
+    -------
+    dict
+        Each source's counts by name, as :data:`labdata.store.raw.COUNTS` names them.
     """
     out: dict[str, dict[str, int]] = defaultdict(lambda: dict.fromkeys(raw.COUNTS, 0))
     seen: set[tuple[str, str, str]] = set()

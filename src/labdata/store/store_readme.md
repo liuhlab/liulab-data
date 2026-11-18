@@ -212,7 +212,6 @@ You may delete the paths below only while no refresh or full run is running, and
 Keep the run logs in `support/` first, as its section says. Fetch steps still skip every item
 saved in `raw/`.
 
-- `.copied-files.json.pending`
 - `support/`, once you no longer need its run logs
 - `work/build.lock`
 - `work/run.lock`
@@ -227,7 +226,8 @@ saved in `raw/`.
 - `work/sra-removal/`
 - `work/extract/`, where an older store kept its extracts; the refresh moved the ones in use
 
-Keep everything else.
+Keep everything else, `.copied-files.json.pending` too: a copy cut after its upload
+finishes from it.
 
 ## How to refresh
 

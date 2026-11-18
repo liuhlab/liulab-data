@@ -132,7 +132,7 @@ def run(
         for _ in range(2):
             if raw.pieces(root, raw.GEO_FILELIST, held, renewed):
                 _fetch_filelists(root, pool, held, date, renewed)
-    reasons = Counter(text.split("\n", 1)[0] for text in _gap_texts(root, seen - set(held)))
+    reasons = Counter(gaps.reason_of(text) for text in _gap_texts(root, seen - set(held)))
     return LaneReport(
         held=len(held),
         soft_missing=reasons[gaps.SOFT_MISSING],
@@ -202,7 +202,7 @@ def _fetch_soft(
     gap_rows = dict(raw.saved(root, raw.GEO_GAPS, set(accessions) - again))
     gap_rows |= raw.saved(root, raw.GEO_GAPS, again, since_pack=True)
     gone = (gaps.SOFT_MISSING, gaps.WITHDRAWN)
-    missing = {gse for gse, text in gap_rows.items() if text.split("\n", 1)[0] in gone}
+    missing = {gse for gse, text in gap_rows.items() if gaps.reason_of(text) in gone}
     pieces = raw.pieces(
         root, raw.GEO_SOFT, [a for a in accessions if a not in missing], again - missing
     )
@@ -287,7 +287,7 @@ def _named_subseries(root: Path, accessions: set[str]) -> set[str]:
 def _failed(root: Path, accessions: set[str]) -> set[str]:
     """Return which of ``accessions`` the saved gap rows mark ``fetch-failed``."""
     gap_rows = dict(raw.saved(root, raw.GEO_GAPS, accessions)) if accessions else {}
-    return {a for a, text in gap_rows.items() if text.split("\n", 1)[0] == gaps.FETCH_FAILED}
+    return {a for a, text in gap_rows.items() if gaps.reason_of(text) == gaps.FETCH_FAILED}
 
 
 def _gap_texts(root: Path, accessions: set[str]) -> list[str]:

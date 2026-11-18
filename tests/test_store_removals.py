@@ -166,6 +166,10 @@ def test_a_series_confirmed_gone_leaves_raw_with_its_series_keyed_rows(
 
     assert "1 confirmed gone" in _step(root, "_confirm")
     assert removals.candidates(root) == []  # gone before pack
+    # Named again, as a rerun by hand would: NCBI is not asked twice.
+    again = tmp_path / "candidates.txt"
+    again.write_text("GSE3\n")
+    assert "0 asked" in _step(root, "_confirm", "--candidates", str(again))
     with caplog.at_level("INFO"):
         _step(root, "pack")
 

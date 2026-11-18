@@ -134,10 +134,9 @@ _Avoid_: status file, refresh log
 The GEO/SRA store's record of the process running an update, `work/run.lock`: its Slurm job,
 host, process and start time. One update holds it at a time: a refresh, a full run, a build by
 hand or the SRA removal. Every command that writes the store holds it: a fetch, pack, extract,
-copy, prune or restore run by hand too. The steps an update starts inherit the owner's token
-and pass. A start that finds it asks whether the owner still runs, by Slurm or on the owner's
-host. It refuses while the owner runs, and takes the lock once the owner
-is gone. When it cannot check, it refuses unless told the owner is gone (`--owner-gone`). A
+copy, prune, restore or README rewrite run by hand too. The steps an update starts inherit the
+owner's token and pass. A start that finds it asks whether the owner still runs, by Slurm or on
+the owner's host. It refuses while the owner runs, and takes the lock once the owner is gone. When it cannot check, it refuses unless told the owner is gone (`--owner-gone`). A
 refresh stopped before its switch resumes only within 7 days of its start; one switched with
 its copy pending is finished by the copy alone, however old.
 
