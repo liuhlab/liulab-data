@@ -71,7 +71,7 @@ def store(built: Path) -> Store:
 
 
 def test_fetch_saves_each_series_filelist_and_an_absent_one_as_empty(built: Path) -> None:
-    saved = {r.accession: r.raw_text for r in raw.rows(built, raw.GEO_FILELIST)}
+    saved = dict(raw.saved(built, raw.GEO_FILELIST))
     assert saved == {
         "GSE15556": (_DATA / "filelist" / "GSE15556.txt").read_text(encoding="utf-8"),
         "GSE233931": "",
@@ -101,7 +101,7 @@ class _Failing(FakeEntrezClient):
 def test_a_404_saves_an_empty_filelist_and_other_failures_raise(tmp_path: Path) -> None:
     root = _root(tmp_path / "store")
     fetch(root, ["GSE15556"], client=_Failing(404), today="2026-10-14")
-    assert raw.saved(root, raw.GEO_FILELIST, ["GSE15556"]) == {"GSE15556": ""}
+    assert dict(raw.saved(root, raw.GEO_FILELIST, ["GSE15556"])) == {"GSE15556": ""}
     other = _root(tmp_path / "other")
     with pytest.raises(EntrezError, match="503"):
         fetch(other, ["GSE15556"], client=_Failing(503), today="2026-10-14")

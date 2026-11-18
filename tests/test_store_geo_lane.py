@@ -20,7 +20,7 @@ import labdata.ncbi.entrez as entrez_mod
 from labdata._http import RateLimiter
 from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
-from labdata.store import geo_lane, pack, provenance, raw
+from labdata.store import geo_lane, provenance, raw
 from labdata.store.fetch import filelist_url, soft_url
 
 DATE = "2026-10-15"
@@ -143,8 +143,8 @@ def test_a_series_that_fails_every_try_is_asked_again_before_the_lane_ends(
 
 
 def saved(root: Path, source: str) -> dict[str, str]:
-    pack.pack(root)
-    return {row.accession: row.raw_text for row in raw.rows(root, source)}
+    raw.pack(root)
+    return dict(raw.saved(root, source))
 
 
 def test_soft_is_stored_without_data_tables_and_with_the_originals_size_and_sha256(

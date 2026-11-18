@@ -1,7 +1,9 @@
-"""Fetch in pieces, pack once: resume at the Entrez seam, and pack's output and memory."""
+"""The raw module's verbs: fetch in pieces and resume, every read before and after pack, pack."""
 
 from __future__ import annotations
 
+import hashlib
+import inspect
 import os
 import re
 import shutil
@@ -16,10 +18,10 @@ import pytest
 from typer.testing import CliRunner
 
 from labdata.cli import app
-from labdata.store import pack, raw
+from labdata.store import lifecycle, raw
 from labdata.store.fetch import fetch, soft_url
 from tests._fakes import FakeEntrezClient
-from tests._slices import GEO_SERIES, TODAY, geo_client, new_root
+from tests._slices import GEO_SERIES, TODAY, geo_client, new_root, raw_rows, write_rows
 
 
 class KilledError(Exception):
@@ -62,7 +64,7 @@ def test_a_killed_fetch_reruns_without_asking_for_a_saved_piece(tmp_path: Path) 
     root = new_root(tmp_path / "cut", "geo_slice")
     with pytest.raises(KilledError):
         fetch(root, GEO_SERIES, client=_KilledAfter(geo_client(), 4), today=TODAY)
-    kept = raw.saved(root, raw.GEO_SOFT, GEO_SERIES)
+    kept = dict(raw.saved(root, raw.GEO_SOFT, GEO_SERIES))
     assert kept, "no piece finished before the kill"
     assert not (root / "raw").exists()
 
@@ -75,46 +77,42 @@ def test_a_killed_fetch_reruns_without_asking_for_a_saved_piece(tmp_path: Path) 
 
 
 def test_a_piece_with_no_row_for_an_accession_is_not_asked_again(tmp_path: Path) -> None:
-    calls: list[list[str]] = []
-
-    def get(todo: list[str]) -> list[tuple[str, str]]:
-        calls.append(todo)
-        return [(a, "text") for a in todo if a != "SRX2"]
-
+    asked: list[list[str]] = []
     for _ in range(2):
-        raw.fetch_pieces(tmp_path, raw.SRA_XML, ["SRX1", "SRX2", "SRX3000001"], get, TODAY)
-    assert sorted(calls) == [["SRX1", "SRX2"], ["SRX3000001"]]
+        for piece in raw.pieces(tmp_path, raw.SRA_XML, ["SRX1", "SRX2", "SRX3000001"]):
+            asked.append(list(piece.todo))
+            rows = [raw.RawRow(a, "text", TODAY) for a in piece.todo if a != "SRX2"]
+            raw.save(tmp_path, raw.SRA_XML, rows, asked=piece.todo)
+    assert sorted(asked) == [["SRX1", "SRX2"], ["SRX3000001"]]
 
 
-def test_a_piece_written_again_keeps_one_part(tmp_path: Path) -> None:
+def test_a_piece_saved_again_keeps_one_part(tmp_path: Path) -> None:
     for _ in range(3):
-        raw.fetch_pieces(
-            tmp_path, raw.SRA_XML, ["SRX1"], lambda _: [], TODAY, remember_misses=False
-        )
-    assert [len(p) for p in raw.parts_by_bucket(tmp_path, raw.SRA_XML).values()] == [1]
+        raw.save(tmp_path, raw.SRA_XML, [], asked=["SRX1"])
+    assert len(list((tmp_path / "work" / "parts" / raw.SRA_XML).glob("*.parquet"))) == 1
 
 
 def test_parts_go_oldest_first_and_an_unstamped_part_by_its_mtime(tmp_path: Path) -> None:
-    folder = raw.parts_dir(tmp_path, raw.GEO_SOFT)
+    folder = tmp_path / "work" / "parts" / raw.GEO_SOFT
     folder.mkdir(parents=True)
 
-    def unstamped(tag: str, mtime: int) -> Path:
+    def unstamped(tag: str, mtime: int, **texts: str) -> None:
         """A part with no stamp in its name, as pack's repack part, aged to ``mtime``."""
-        path = folder / raw.part_name("GSE1nnnn", tag)
-        path.touch()
+        path = folder / f"GSE1nnnn.{tag}.parquet"
+        hashes = [hashlib.sha256(t.encode()).hexdigest() for t in texts.values()]
+        columns = [list(texts), list(texts.values()), hashes, [TODAY] * len(texts)]
+        pq.write_table(pa.table(columns, schema=raw.SCHEMA), path)
         os.utime(path, ns=(mtime, mtime))
-        return path
 
     second = 1_000_000_000
-    repack = unstamped("repack-GSE1nnn", 0)
-    old_row = unstamped("0123456789ab", time.time_ns() - 2 * second)
-    old_removal = unstamped("removed-0123456789ab", time.time_ns() - second)
-    [row] = raw.save(tmp_path, raw.GEO_SOFT, [], asked=["GSE10001"])
-    [removal] = raw.write_removals(tmp_path, raw.GEO_SOFT, ["GSE10001"])
-    late = unstamped("fedcba987654", time.time_ns() + second)
+    unstamped("repack-GSE1nnn", 0, GSE10001="repack", GSE10002="repack", GSE10003="repack")
+    unstamped("0123456789ab", time.time_ns() - second, GSE10002="old", GSE10003="old")
+    raw.save(tmp_path, raw.GEO_SOFT, [raw.RawRow("GSE10003", "saved", TODAY)])
+    unstamped("fedcba987654", time.time_ns() + second, GSE10004="late")
+    raw.remove(tmp_path, raw.GEO_SOFT, ["GSE10004"])
 
-    expected = [repack, old_row, old_removal, row, removal, late]
-    assert raw.parts_by_bucket(tmp_path, raw.GEO_SOFT) == {"GSE1nnnn": expected}
+    expected = {"GSE10001": "repack", "GSE10002": "old", "GSE10003": "saved", "GSE10004": "late"}
+    assert dict(raw.saved(tmp_path, raw.GEO_SOFT)) == expected
 
 
 def _texts(n: int, size: int) -> list[raw.RawRow]:
@@ -137,7 +135,7 @@ def test_pack_memory_is_bounded_by_a_chunk_not_the_source(tmp_path: Path) -> Non
     pa.set_memory_pool(pool)
     tracemalloc.start()
     try:
-        [path] = pack.pack(tmp_path, [raw.SRA_XML], chunk_bytes=chunk)
+        [path] = raw.pack(tmp_path, [raw.SRA_XML], chunk_bytes=chunk)
         _, python_peak = tracemalloc.get_traced_memory()
     finally:
         tracemalloc.stop()
@@ -153,7 +151,7 @@ def test_pack_memory_is_bounded_by_a_chunk_not_the_source(tmp_path: Path) -> Non
 def test_pack_repacks_buckets_of_another_width_to_the_same_rows(tmp_path: Path) -> None:
     root = new_root(tmp_path / "store", "geo_slice")
     fetch(root, GEO_SERIES, client=geo_client(), today=TODAY)
-    before = {source: list(raw.rows(root, source)) for source in (raw.GEO_SOFT, raw.SRA_XML)}
+    before = {source: list(raw_rows(root, source)) for source in (raw.GEO_SOFT, raw.SRA_XML)}
     soft = root / "raw" / raw.GEO_SOFT
     for path in list(soft.glob("*.parquet")):
         table = pq.read_table(path)
@@ -175,7 +173,7 @@ def test_pack_repacks_buckets_of_another_width_to_the_same_rows(tmp_path: Path) 
         "GSE24nnnn.parquet",
         "GSE2nnnn.parquet",
     ]
-    assert {s: list(raw.rows(root, s)) for s in before} == before
+    assert {s: list(raw_rows(root, s)) for s in before} == before
     assert "10,000" in (soft / "README.md").read_text()
 
 
@@ -186,10 +184,10 @@ def _layered(root: Path) -> Path:
     removed after it, the newer one's, GSE10006, is not.
     """
     old = [raw.RawRow(f"GSE1000{n}", f"{c}0", "d0") for n, c in ((1, "a"), (2, "b"), (3, "c"))]
-    pack.write_rows(root, raw.GEO_SOFT, old)
+    write_rows(root, raw.GEO_SOFT, old)
     older = [raw.RawRow("GSE10001", "a1", "d1"), raw.RawRow("GSE10004", "d1", "d1")]
     raw.save(root, raw.GEO_SOFT, older, asked=["GSE10001", "GSE10002", "GSE10004"])
-    raw.write_removals(root, raw.GEO_SOFT, ["GSE10002", "GSE10004", "GSE10005"])
+    raw.remove(root, raw.GEO_SOFT, ["GSE10002", "GSE10004", "GSE10005"])
     newer = [raw.RawRow("GSE10001", "a2", "d2"), raw.RawRow("GSE10005", "e2", "d2")]
     raw.save(root, raw.GEO_SOFT, newer, asked=["GSE10001", "GSE10005", "GSE10006"])
     return root
@@ -202,23 +200,20 @@ _WANTED = [f"GSE1000{n}" for n in range(1, 7)]
 
 def test_every_read_before_pack_sees_what_pack_then_writes(tmp_path: Path) -> None:
     root, source = _layered(tmp_path), raw.GEO_SOFT
-    letter = re.compile(r"^([a-z])")
-
     assert raw.held(root, source) == raw.held(root, source, _WANTED) == set(_NEWEST)
     assert raw.held(root, source, _WANTED, since_pack=True) == {"GSE10001", "GSE10005"}
-    assert raw.saved(root, source, _WANTED) == {a: text for a, (text, _) in _NEWEST.items()}
-    dates = raw.saved(root, source, _WANTED, column="fetch_date")
+    assert dict(raw.saved(root, source, _WANTED)) == {a: text for a, (text, _) in _NEWEST.items()}
+    dates = dict(raw.saved(root, source, _WANTED, column="fetch_date"))
     assert dates == {a: d for a, (_, d) in _NEWEST.items()}
-    assert raw.scan(root, source, _WANTED, letter) == {"a", "c", "e"}
-    assert raw.scan(root, source, _WANTED, letter, since_pack=True) == {"a", "e"}
-    assert raw.removing(root, source) == {"GSE10002", "GSE10004"}
-    before = [(row.accession, row.raw_text, row.fetch_date) for row in raw.rows(root, source)]
+    assert dict(raw.saved(root, source, since_pack=True)) == {"GSE10001": "a2", "GSE10005": "e2"}
+    before = [(row.accession, row.raw_text, row.fetch_date) for row in raw_rows(root, source)]
     assert before == [(a, *row) for a, row in _NEWEST.items()]
-    [merged] = raw.merged_files(root, source, tmp_path / "merged")
+    [merged] = raw.files(root, source, tmp_path / "merged")
     assert _triples(merged) == before
 
-    pack.pack(root, [source])
-    assert _triples(root / "raw" / source / "GSE1nnnn.parquet") == before
+    raw.pack(root, [source])
+    [packed] = raw.files(root, source)
+    assert _triples(packed) == before
 
 
 def _triples(path: Path) -> list[tuple[str, str, str]]:
@@ -241,10 +236,10 @@ def test_fetch_planning_skips_exactly_the_held_accessions(tmp_path: Path) -> Non
 def _counted_store(root: Path) -> Path:
     """A packed bucket, then parts that replace, keep, add and remove rows in two buckets."""
     old = [raw.RawRow(f"GSE{n}", "old", "d0") for n in (10001, 10002, 10003, 20001)]
-    pack.write_rows(root, raw.GEO_SOFT, old)
+    write_rows(root, raw.GEO_SOFT, old)
     new = [raw.RawRow("GSE10001", "old", "d1"), raw.RawRow("GSE10002", "new", "d1")]
     raw.save(root, raw.GEO_SOFT, [*new, raw.RawRow("GSE20002", "added", "d1")])
-    raw.write_removals(root, raw.GEO_SOFT, ["GSE10003"])
+    raw.remove(root, raw.GEO_SOFT, ["GSE10003"])
     return root
 
 
@@ -257,17 +252,61 @@ def test_pack_counts_after_a_kill_and_rerun_match_an_uninterrupted_pack(
     if kill == "before":
         # A pack killed before its renames: its counts are written, the store is unchanged.
         shutil.copytree(cut, tmp_path / "killed", copy_function=shutil.copy2)
-        pack.pack(tmp_path / "killed", counts=counts)
+        raw.pack(tmp_path / "killed", counts=counts)
     else:
         # A pack killed after its renames: the buckets are new, the parts are still there.
         parts = cut / "work" / "parts"
         shutil.copytree(parts, tmp_path / "parts", copy_function=shutil.copy2)
-        pack.pack(cut, counts=counts)
+        raw.pack(cut, counts=counts)
         shutil.copytree(tmp_path / "parts", parts, dirs_exist_ok=True, copy_function=shutil.copy2)
-    pack.pack(cut, counts=counts)
-    pack.pack(whole, counts=whole / "counts.jsonl")
+    raw.pack(cut, counts=counts)
+    raw.pack(whole, counts=whole / "counts.jsonl")
 
     expected = {raw.GEO_SOFT: {"added": 1, "replaced": 1, "removed": 1}}
-    assert pack.read_counts(whole / "counts.jsonl") == expected
-    assert pack.read_counts(counts) == expected
+    assert lifecycle.read_counts(whole / "counts.jsonl") == expected
+    assert lifecycle.read_counts(counts) == expected
     assert _raw(cut) == _raw(whole)
+
+
+def test_a_build_by_hand_refuses_while_unpacked_parts_remain(tmp_path: Path) -> None:
+    root = tmp_path / "store"
+    root.mkdir()
+    (root / "labdata-store.toml").write_text("format_version = 1\n", encoding="utf-8")
+    raw.save(root, raw.GEO_SOFT, [raw.RawRow("GSE1", "soft", TODAY)])
+
+    result = CliRunner().invoke(app, ["store", "build", "--root", str(root)])
+
+    assert result.exit_code != 0
+    assert "labdata store pack" in str(result.exception)
+    assert not (root / "builds").exists()
+
+
+def test_the_raw_module_alone_reads_raw_files_through_a_few_verbs() -> None:
+    public = [
+        name
+        for name, member in vars(raw).items()
+        if inspect.isfunction(member) and member.__module__ == raw.__name__
+        if not name.startswith("_")
+    ]
+    assert len(public) <= 8, public
+    # Every other module naming raw/ handles it as a folder, never reading its rows.
+    folder_only = {
+        "paths.py": "declares it",
+        "gcs.py": "copies its files whole",
+        "provenance.py": "documents each folder",
+        "cli.py": "prints where it is",
+        "build.py": "refuses a store as a scratch root, and has each folder documented",
+        "fetch.py": "has each folder documented",
+    }
+    src = Path(raw.__file__).parents[1]
+    naming = {
+        path.name
+        for path in src.rglob("*.py")
+        if path.name != "raw.py" and re.search(r"paths\.(RAW|PARTS)\b", path.read_text())
+    }
+    assert naming == set(folder_only)
+    assert not any(
+        re.search(r"\bPARTS\b", p.read_text())
+        for p in src.rglob("*.py")
+        if p.name not in ("raw.py", "paths.py")
+    )

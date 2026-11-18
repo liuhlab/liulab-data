@@ -29,7 +29,7 @@ from labdata.exceptions import EntrezError, PageNotFound
 from labdata.ncbi.entrez import EntrezClient, retry_after
 from labdata.store import gaps, raw
 from labdata.store import progress as progress_lines
-from labdata.store.changes import RELATION
+from labdata.store.changes import RELATION, scan_soft
 from labdata.store.fetch import filelist_url, soft_url
 
 #: Connections kept open to GEO's download site.
@@ -118,9 +118,7 @@ def run(
             seen |= set(todo)
             what = "retry of failed" if retried else f"round {rounds}"
             _fetch_soft(root, pool, todo, date, f"Series SOFT, {what}", again)
-            named = raw.scan(
-                root, raw.GEO_SOFT, again.intersection(todo), RELATION, since_pack=True
-            )
+            named = scan_soft(root, again.intersection(todo), RELATION, since_pack=True)
             late = named - again
             again |= late
             todo = sorted(_named_subseries(root, set(todo)) - seen | late)
@@ -201,7 +199,7 @@ def _fetch_soft(
 ) -> None:
     """Fetch the SOFT of every unsaved Series; a re-fetch one is skipped only for a new gap."""
     again = again.intersection(accessions)
-    gap_rows = raw.saved(root, raw.GEO_GAPS, set(accessions) - again)
+    gap_rows = dict(raw.saved(root, raw.GEO_GAPS, set(accessions) - again))
     gap_rows |= raw.saved(root, raw.GEO_GAPS, again, since_pack=True)
     gone = (gaps.SOFT_MISSING, gaps.WITHDRAWN)
     missing = {gse for gse, text in gap_rows.items() if text.split("\n", 1)[0] in gone}
@@ -283,17 +281,17 @@ def _soft_held(root: Path, accessions: set[str]) -> set[str]:
 
 def _named_subseries(root: Path, accessions: set[str]) -> set[str]:
     """Return the SubSeries the saved SOFT of ``accessions`` name."""
-    return raw.scan(root, raw.GEO_SOFT, accessions, _SUBSERIES)
+    return scan_soft(root, accessions, _SUBSERIES)
 
 
 def _failed(root: Path, accessions: set[str]) -> set[str]:
     """Return which of ``accessions`` the saved gap rows mark ``fetch-failed``."""
-    gap_rows = raw.saved(root, raw.GEO_GAPS, accessions) if accessions else {}
+    gap_rows = dict(raw.saved(root, raw.GEO_GAPS, accessions)) if accessions else {}
     return {a for a, text in gap_rows.items() if text.split("\n", 1)[0] == gaps.FETCH_FAILED}
 
 
 def _gap_texts(root: Path, accessions: set[str]) -> list[str]:
-    return list(raw.saved(root, raw.GEO_GAPS, accessions).values()) if accessions else []
+    return [text for _, text in raw.saved(root, raw.GEO_GAPS, accessions)] if accessions else []
 
 
 @dataclass(frozen=True, slots=True)

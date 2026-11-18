@@ -79,5 +79,5 @@ def write_removals(
     """Write a removal part for ``accessions`` in ``source`` and add them to ``counts``."""
     if not accessions:
         return
-    raw.write_removals(root, source, accessions)
+    raw.remove(root, source, accessions)
     counts[source] = counts.get(source, 0) + len(accessions)

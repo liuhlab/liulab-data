@@ -18,7 +18,7 @@ from pathlib import Path
 from labdata.exceptions import PageNotFound
 from labdata.geo.sra_records import fetch_package_texts
 from labdata.ncbi.entrez import EntrezClient, docsum_uid
-from labdata.store import pack, paths, provenance, raw, snapshots, sources
+from labdata.store import paths, provenance, raw, snapshots, sources
 from labdata.store.model import kind_of
 
 #: Upper bound on PMIDs kept per ``[si]`` search.
@@ -133,7 +133,7 @@ def fetch(
         },
         date,
     )
-    pack.pack(root)
+    raw.pack(root)
     for folder in sorted(p for p in paths.RAW.at(root).glob("*") if p.is_dir()):
         provenance.document_raw(root, folder.name)
     return FetchReport(
@@ -156,8 +156,27 @@ def _resume(
         for start in range(0, len(todo), CHUNK):
             yield from get(todo[start : start + CHUNK]).items()
 
-    raw.fetch_pieces(root, source, accessions, chunked, date)
-    return raw.saved(root, source, accessions)
+    _fetch_pieces(root, source, accessions, chunked, date)
+    return dict(raw.saved(root, source, accessions))
+
+
+def _fetch_pieces(
+    root: Path,
+    source: str,
+    accessions: Iterable[str],
+    get: Callable[[list[str]], Iterable[tuple[str, str]]],
+    date: str,
+    *,
+    remember_misses: bool = True,
+) -> None:
+    """Fetch every piece left of a source and save each as a part; a saved piece is not asked.
+
+    With ``remember_misses``, an accession ``get`` gave no row for counts as saved until the
+    next pack.
+    """
+    for piece in raw.pieces(root, source, accessions):
+        rows = (raw.RawRow(a, text, date) for a, text in get(list(piece.todo)))
+        raw.save(root, source, rows, asked=piece.todo if remember_misses else None)
 
 
 def _geo_folder(series: str) -> str:
@@ -194,8 +213,8 @@ def fetch_series(root: Path, client: EntrezClient, series: list[str], date: str)
                 if _sequencing(text):
                     yield gse, text
 
-        raw.fetch_pieces(root, raw.GEO_SOFT, todo, get, date, remember_misses=False)
-        texts = raw.saved(root, raw.GEO_SOFT, todo)
+        _fetch_pieces(root, raw.GEO_SOFT, todo, get, date, remember_misses=False)
+        texts = dict(raw.saved(root, raw.GEO_SOFT, todo))
         out |= texts
         pending |= {gse: text for gse, text in got.items() if gse not in texts}
         texts |= got
@@ -205,7 +224,7 @@ def fetch_series(root: Path, client: EntrezClient, series: list[str], date: str)
         for gse, text in pending.items()
         if any(sub in out for sub in sources.subseries(text))
     }:
-        raw.fetch_pieces(root, raw.GEO_SOFT, kept, lambda todo: ((g, kept[g]) for g in todo), date)
+        _fetch_pieces(root, raw.GEO_SOFT, kept, lambda todo: ((g, kept[g]) for g in todo), date)
         out |= kept
         pending = {gse: text for gse, text in pending.items() if gse not in kept}
     for gse, text in sorted(pending.items()):

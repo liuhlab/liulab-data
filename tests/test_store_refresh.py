@@ -239,7 +239,7 @@ def _refresh(root: Path, *extra: str) -> str:
 
 
 def _held(root: Path, source: str) -> dict[str, str]:
-    return {row.accession: row.raw_text for row in raw.rows(root, source)}
+    return dict(raw.saved(root, source))
 
 
 def _current(root: Path) -> Path:
@@ -619,7 +619,7 @@ def test_an_accession_only_a_pending_removal_lists_is_fetched_again(
     _use(monkeypatch, ncbi)
     _cli("_geo", KEPT, "--root", str(root))
     _cli("pack", "--root", str(root))
-    raw.write_removals(root, raw.GEO_SOFT, [KEPT])
+    raw.remove(root, raw.GEO_SOFT, [KEPT])
     ncbi.fetched.clear()
 
     _cli("_geo", KEPT, "--root", str(root))

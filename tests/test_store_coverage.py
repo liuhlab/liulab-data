@@ -15,10 +15,11 @@ import labdata.ncbi.entrez as entrez_mod
 from labdata.cli import app
 from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
-from labdata.store import eutils, extract, geo_lane, open_store, pack, paths, raw, removals
+from labdata.store import eutils, extract, geo_lane, open_store, paths, raw, removals
 from labdata.store.gaps import FETCH_FAILED, SOFT_MISSING, gap_row
 from labdata.store.lifecycle import build
 from labdata.store.model import Link
+from tests._slices import write_rows
 from tests.test_store_eutils import _client, _Ncbi
 from tests.test_store_geo_lane import Reply, Site
 from tests.test_store_geo_lane import client as site_client
@@ -62,7 +63,7 @@ def root(tmp_path: Path) -> Path:
         extract.extract(root, source, workers=1)
     (root / "labdata-store.toml").write_text("format_version = 1\n", encoding="utf-8")
     disagrees = _soft("GSE153830").replace(f"!Series_type = {_SEQ}", f"!Series_type = {_ARRAY}")
-    pack.write_rows(
+    write_rows(
         root,
         raw.GEO_SOFT,
         [
@@ -71,7 +72,7 @@ def root(tmp_path: Path) -> Path:
             raw.RawRow("GSE153830", disagrees, _DATE),
         ],
     )
-    pack.write_rows(root, raw.GEO_GAPS, [gap_row("GSE28771", SOFT_MISSING, _DATE)])
+    write_rows(root, raw.GEO_GAPS, [gap_row("GSE28771", SOFT_MISSING, _DATE)])
     return root
 
 
@@ -121,13 +122,13 @@ def test_coverage_fails_and_names_an_unexplained_gap(root: Path) -> None:
 def test_a_target_series_confirmed_withdrawn_is_an_explained_gap_and_no_later_candidate(
     root: Path,
 ) -> None:
-    pack.write_rows(root, raw.GEO_GAPS, [gap_row("GSE28772", FETCH_FAILED, _DATE)])
+    write_rows(root, raw.GEO_GAPS, [gap_row("GSE28772", FETCH_FAILED, _DATE)])
     raw.save(root, raw.GEO_GAPS, [gap_row("GSE28771", SOFT_MISSING, "2026-11-01")])
     gone = Ncbi({_gds("GSE28771"): [Reply(_GONE_GDS % 200028771)]})
     found = removals.candidates(root)
     ncbi = EntrezClient(NcbiCredentials("t@t.org", "abc"), transport=gone)
     assert removals.confirm(root, found, client=ncbi).gone == 1
-    pack.pack(root)
+    raw.pack(root)
 
     gaps = _rows(build(root, "b1") / "gaps.parquet")
     assert {"accession": "GSE28771", "reason": "withdrawn", "detail": None} in gaps
@@ -147,7 +148,7 @@ def test_a_target_series_confirmed_withdrawn_is_an_explained_gap_and_no_later_ca
 
 
 def test_coverage_passes_when_every_target_series_is_held_or_explained(root: Path) -> None:
-    pack.write_rows(root, raw.GEO_GAPS, [gap_row("GSE28772", FETCH_FAILED, _DATE, "timed out")])
+    write_rows(root, raw.GEO_GAPS, [gap_row("GSE28772", FETCH_FAILED, _DATE, "timed out")])
     build(root, "b1")
     code, output = _coverage(root)
     assert code == 0, output
@@ -184,7 +185,7 @@ def _fail_all(root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     listed = eutils.experiment_list(root)
     down = _Ncbi(known=set(), broken_calls=1 << 30)
     assert eutils.fetch_packages(root, listed, client=_client(down), date=_DATE).failed == 9
-    pack.pack(root)
+    raw.pack(root)
 
 
 def _failed(build_dir: Path) -> list[str]:
@@ -207,7 +208,7 @@ def _state_copy(root: Path, to: Path) -> Path:
 def test_failed_package_fetches_are_noted_from_state_alone(
     root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    pack.write_rows(root, raw.GEO_GAPS, [gap_row("GSE28772", FETCH_FAILED, _DATE)])
+    write_rows(root, raw.GEO_GAPS, [gap_row("GSE28772", FETCH_FAILED, _DATE)])
     _fail_all(root, monkeypatch)
     restored = _state_copy(root, tmp_path / "restored")
     out = build(root, "b1")
@@ -231,7 +232,7 @@ def test_a_partial_refetch_keeps_earlier_failed_fetches_noted(
     listed = eutils.experiment_list(root, series=["GSE153830"], from_tab=False)
     up = _Ncbi(known={"SRX8670456"})
     assert eutils.fetch_packages(root, listed, client=_client(up), date=_DATE).fetched == 1
-    pack.pack(root)
+    raw.pack(root)
     failed = _failed(build(root, "b1"))
     assert len(failed) == 8
     assert "SRX8670456" not in failed

@@ -14,13 +14,13 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from labdata.store import extract
+from labdata.store import extract, raw
 from labdata.store.fetch import fetch
 from labdata.store.lifecycle import build
 from tests._fakes import FakeEntrezClient
@@ -40,6 +40,19 @@ GEO_SERIES = [
     "GSE15556",
 ]
 SRA_PROJECTS = ["PRJNA436361", "PRJNA530347"]
+
+
+def write_rows(root: Path, source: str, rows: Iterable[raw.RawRow]) -> None:
+    """Save rows and pack them, as a fetch then pack would: a row replaces its accession's."""
+    raw.save(root, source, rows)
+    raw.pack(root, [source])
+
+
+def raw_rows(root: Path, source: str) -> list[raw.RawRow]:
+    """Return every row a source holds, its text and fetch date, in accession order."""
+    dates = dict(raw.saved(root, source, column="fetch_date"))
+    return [raw.RawRow(a, text, dates[a]) for a, text in raw.saved(root, source)]
+
 
 #: The ``built_store`` fixture: ``built_store(path, slice_name)`` copies a prebuilt store there.
 BuiltStore = Callable[[Path, str], Path]

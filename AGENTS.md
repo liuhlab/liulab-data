@@ -38,7 +38,9 @@ src/labdata/
                        sratools.py (per-stage tool wrappers), pipeline.py
                        (Snakemake driver), pipeline.smk (the download DAG)
   store/             the source record store: fetch lanes (geo_lane.py, eutils.py),
-                       raw/ pieces and pack, snapshot extract, build, gaps, prune,
+                       raw.py (the only reader and writer of raw/ and its
+                       parts: save, remove, pack, and the files a build
+                       reads), snapshot extract, build, gaps, prune,
                        GCS copy (gcs.py); paths.py (every path in the root
                        with its kind; the only reader and switcher of the marker);
                        reader.py (the build reader, the only

@@ -29,7 +29,7 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from labdata._files import temp_beside
+from labdata._files import sha256, temp_beside
 from labdata.exceptions import EntrezError
 from labdata.geo.sra_records import split_packages
 from labdata.ncbi.entrez import EntrezClient, FetchedRecords
@@ -58,7 +58,7 @@ _TAB_SCHEMA = pa.schema(
 _SOFT_SCHEMA = pa.schema([("accession", pa.string())])
 _SPILL_SCHEMA = pa.schema([("accession", pa.string()), ("raw_text", pa.string())])
 _ROWS = 500_000
-_EMPTY = raw.sha256("")
+_EMPTY = sha256("")
 logger = logging.getLogger(__name__)
 
 
@@ -236,8 +236,8 @@ def _soft_experiments(root: Path, out: Path, series: set[str] | None) -> Path:
         with pq.ParquetWriter(tmp, _SOFT_SCHEMA) as writer:
             writer.write_table(_SOFT_SCHEMA.empty_table())
             found: set[str] = set()
-            for row in raw.rows(root, raw.GEO_SOFT, series):
-                found.update(m.decode() for m in _SOFT_SRX.findall(row.raw_text.encode()))
+            for _, text in raw.saved(root, raw.GEO_SOFT, series):
+                found.update(m.decode() for m in _SOFT_SRX.findall(text.encode()))
                 if len(found) >= _ROWS:
                     writer.write_table(pa.table({"accession": sorted(found)}, schema=_SOFT_SCHEMA))
                     found = set()
@@ -532,9 +532,9 @@ def _bad_saved(root: Path, status: dict[str, str], noted: set[str]) -> set[str]:
     and it is still not well-formed.
     """
     hashes = raw.saved(root, raw.SRA_XML, status, column="hash")
-    live = {a for a, digest in hashes.items() if digest == _EMPTY and status[a] == "live"}
+    live = {a for a, digest in hashes if digest == _EMPTY and status[a] == "live"}
     look = noted.intersection(status)
-    newest = raw.saved(root, raw.SRA_XML, look) if look else {}
+    newest = dict(raw.saved(root, raw.SRA_XML, look)) if look else {}
     return live | {a for a, text in newest.items() if text and not _well_formed(text)}
 
 
