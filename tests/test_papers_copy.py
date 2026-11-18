@@ -146,10 +146,9 @@ def test_a_full_copy_from_a_disk_without_the_whole_store_uploads_nothing(
 ) -> None:
     paths = [hold(root, str(paper), "pdf", "host") for paper in range(1, 21)]
     full(root, gcs)
-    # A disk that was not restored: it lacks files GCS holds, and the copy record.
+    # A disk whose files table lost rows: it lacks files GCS holds.
     drop(root, paths[0])
     drop(root, paths[1])
-    (root / COPIED).unlink()
 
     result = CliRunner().invoke(app, ["papers", "copy", "--root", str(root), "--full"])
 
@@ -297,22 +296,6 @@ def test_a_copy_record_that_fails_to_go_up_leaves_the_disks_so_the_files_go_agai
 
     assert papers(gcs.sent()) == [new]
     assert new in record(gcs)
-
-
-def test_with_no_record_on_disk_a_copy_fetches_the_gcs_one_and_sends_only_changes(
-    root: Path, gcs: FakeGcs
-) -> None:
-    hold(root, "1", "pdf", "host")
-    full(root, gcs)
-    (root / COPIED).unlink()
-    new = hold(root, "2", "pdf", "host")
-
-    copy(open_paper_store(root))
-
-    assert ("get", COPIED) in gcs.log
-    assert papers(gcs.sent()) == [new]
-    assert gcs.walks == 0
-    assert status(root)["copy_pending"] is False
 
 
 def test_a_work_disk_restored_from_gcs_sends_no_paper_file_and_deletes_nothing(

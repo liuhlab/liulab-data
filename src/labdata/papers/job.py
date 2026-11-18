@@ -4,8 +4,8 @@ From 00:30 UTC each day, the daily pass is due when ``paper-status.json`` record
 daily-pass success that day. The PMC sync is due when it records no PMC sync success this
 month, from the 3rd, or records a GEO/SRA build other than the store's current one. The file
 and the store's marker are read afresh before each check, so after a restart only what is
-due runs. Each pass and its copy to GCS run through :mod:`labdata.papers.lifecycle`, and
-each idle tick retries a pending copy. At start the job keeps ``QUEUED`` jobs queued
+due runs. Each pass and its copy to GCS run through :mod:`labdata.papers.lifecycle`; an idle
+tick retries a pending copy once :data:`RETRY` has passed since the last try. At start the job keeps ``QUEUED`` jobs queued
 behind it, each to start once the jobs before it end for any reason, so one that fails at
 start does not end the chain. A running job cannot see its successor fail, as the successor
 starts only once it ends.
@@ -38,11 +38,14 @@ DAILY_AT = dt.time(0, 30)
 #: The PMC sync's day of the month.
 SYNC_DAY = 3
 
-#: Seconds between checks while idle; each prints one line, and retries a pending copy.
+#: Seconds between checks while idle; each prints one line.
 TICK = 60.0
 
-#: A failed pass is tried again after this long.
+#: A failed pass, or a pending copy, is tried again after this long.
 RETRY = dt.timedelta(hours=1)
+
+#: The key of the pending copy's next try, beside the passes' own.
+_COPY = "copy"
 
 #: Records the chain: a job, then the jobs queued behind it.
 SUCCESSOR = paths.SUCCESSOR.rel
@@ -162,13 +165,16 @@ def serve(
             if retry_at.get(k, now) <= now
         ]
         if not ready:
-            if status.copy_pending:
+            if status.copy_pending and retry_at.get(_COPY, now) <= now:
+                retry_at[_COPY] = now + RETRY
                 lifecycle.finalize(store, log)
                 status = read_status(store.root)
             _idle(status, now, log)
             sleep(TICK)
             continue
         kind = ready[0]
+        # The pass ends with its own copy.
+        retry_at[_COPY] = now + RETRY
         try:
             with _ticker(kind, log):
                 alex = openalex()

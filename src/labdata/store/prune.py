@@ -71,7 +71,7 @@ def prune(
         If a build, prune or copy of this store is running, or another update holds the run
         lock.
     """
-    with lifecycle.run_lock(root, "prune", owner_gone=owner_gone), build_lock(root):
+    with lifecycle.run_lock(root, lifecycle.PRUNE, owner_gone=owner_gone), build_lock(root):
         report = _delete(root, now or dt.datetime.now(dt.UTC), grace)
     # After the locks are released, so the README's sizes leave out the run lock.
     if report.deleted and paths.read_marker(root).get(paths.BUILD_KEY):

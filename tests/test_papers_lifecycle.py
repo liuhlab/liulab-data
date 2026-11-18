@@ -130,6 +130,29 @@ def test_a_daily_pass_that_fails_after_buying_pdfs_still_sends_them_to_gcs(
     assert gcs.read(STATUS) == (root / STATUS).read_bytes()
 
 
+def test_a_pass_that_adds_no_paper_file_still_ends_with_gcs_holding_its_record(
+    tmp_path: Path, gcs: FakeGcs
+) -> None:
+    root = copied_store(tmp_path, [paper("41000001")])
+    gcs.forget()
+    web = FakeWeb(articles={"41000001": Article("41000001", "A paper", 2020)}, works=[work("W1")])
+    limiter = RateLimiter(1000.0, 8)
+
+    lifecycle.daily(
+        open_paper_store(root),
+        client=EntrezClient(NcbiCredentials("t@t.org", "abc"), transport=web, limiter=limiter),
+        openalex=OpenAlex(transport=web),
+        today=TODAY,
+        transport=web,
+        log=lambda _line: None,
+    )
+
+    assert not any("/" in path for path in gcs.sent())
+    assert json.loads(gcs.read(STATUS))["last_pass"]["outcome"] == "success"
+    assert gcs.read(STATUS) == (root / STATUS).read_bytes()
+    assert (read_status(root).finalized, read_status(root).copy_pending) == (True, False)
+
+
 @pytest.mark.parametrize("step", ["daily", "pmc-sync"])
 def test_a_pass_run_by_hand_ends_finalized_and_exits_1_while_its_copy_is_pending(
     tmp_path: Path, gcs: FakeGcs, monkeypatch: pytest.MonkeyPatch, step: str

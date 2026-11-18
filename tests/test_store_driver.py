@@ -149,6 +149,10 @@ def _folders(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         ("build", {"job": "4242", "host": "node-b", "pid": 1}),
         ("prune", {"job": None, "host": socket.gethostname(), "pid": os.getpid()}),
         ("remove-sra", {"job": "4242", "host": "node-b", "pid": 1}),
+        (
+            "restore --from gcs:lab-bucket/geo-sra-store",
+            {"job": "4242", "host": "node-b", "pid": 1},
+        ),
     ],
 )
 def test_an_update_refuses_while_another_ones_owner_is_alive(
@@ -163,12 +167,14 @@ def test_an_update_refuses_while_another_ones_owner_is_alive(
     before = lifecycle.read_status(root)
     seen = _folders(monkeypatch)
     monkeypatch.setattr("labdata.cli._store_client", lambda: None)
+    rclone: list[list[str]] = []
+    monkeypatch.setattr("labdata._rclone.run", rclone.append)
 
-    result = CliRunner().invoke(app, ["store", command, "--root", str(root)])
+    result = CliRunner().invoke(app, ["store", *command.split(), "--root", str(root)])
 
     assert result.exit_code == 1
     assert f"process {owner['pid']} on {owner['host']}" in result.output
-    assert seen == []
+    assert seen == rclone == []
     assert lifecycle.read_status(root) == before
 
 
@@ -212,6 +218,27 @@ def test_a_refresh_whose_owner_is_gone_resumes_within_seven_days_and_is_abandone
         assert (root / folder).is_dir() is resumed
     assert Path(seen[-1]).is_dir()
     assert not (root / "work" / "run.lock").exists()
+
+
+def test_a_refresh_replaced_after_its_switch_hands_on_its_copy_and_prune_removes_its_folder(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _built(root)
+    folder = _unfinished(root, days=8)
+    switched = {"build": "b1", "outcome": "built", "copy_pending": True}
+    lifecycle.write_status(root, lifecycle.read_status(root) | switched)
+    seen = _folders(monkeypatch)
+
+    result = CliRunner().invoke(
+        app, ["store", "refresh", "--root", str(root), "--since", "2026-11-01"]
+    )
+
+    assert result.exit_code == 1, result.output
+    assert seen != [str(root / folder)]
+    assert lifecycle.read_status(root)["copy_pending"] is True
+    _store("prune", "--root", str(root))
+    assert not (root / folder).exists()
+    assert Path(seen[-1]).is_dir()
 
 
 @pytest.mark.parametrize("job", [None, _UNASKED], ids=["off Slurm", "no Slurm answer"])

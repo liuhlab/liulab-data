@@ -156,8 +156,9 @@ def copy(
         if not full and disk.is_file():
             copied = adapter.load(disk.read_bytes())
         else:
-            names = [adapter.record, *([] if full else adapter.seed_from)]
-            fetched = _fetch(adapter, dest, names, run)
+            # A routine copy gets here only when GCS holds no copy record either.
+            names = [adapter.record] if full else list(adapter.seed_from)
+            fetched = _fetch(adapter, dest, names, run) if names else {}
             if fetched is None:
                 return expired
             if adapter.record in fetched:
@@ -196,8 +197,8 @@ def copy(
 def check(adapter: Adapter, dest: str) -> bool:
     """Check that the work disk's copy record is the one in GCS, by MD5, downloading nothing.
 
-    GCS's MD5 comes from the object's metadata. A disk with no copy record passes: the copy's
-    seeding rules handle it.
+    GCS's MD5 comes from the object's metadata. A disk with no copy record passes only when GCS
+    holds none either: the copy's seeding rules handle it.
 
     Returns
     -------
@@ -208,7 +209,7 @@ def check(adapter: Adapter, dest: str) -> bool:
     ------
     Exception
         The adapter's :attr:`~Adapter.error`, naming the restore command, when the records
-        differ; or, naming a full copy, when GCS holds no copy record and the disk does.
+        differ or only GCS holds one; or, naming a full copy, when only the disk holds one.
     """
     run = _runner(adapter)
     return _rclone.logged_in(dest, run=run) and _check(adapter, dest, run, full=False)
@@ -216,12 +217,19 @@ def check(adapter: Adapter, dest: str) -> bool:
 
 def _check(adapter: Adapter, dest: str, run: _Run, *, full: bool) -> bool:
     """Run :func:`check` after the login probe; a full copy may send to GCS with no record."""
-    disk = adapter.root / adapter.record
-    if not disk.is_file():
-        return True
     listed = _listing(adapter, dest, [adapter.record], run)
     if listed is None:
         return False
+    disk = adapter.root / adapter.record
+    if not disk.is_file():
+        if adapter.record not in listed:
+            return True
+        raise adapter.error(
+            f"the work disk has no copy record, {adapter.record}, but GCS at {dest} holds one, "
+            f"so nothing was sent: this disk was not restored from GCS. Run "
+            f"`{adapter.restorer} --from {dest}`; it downloads only the files this disk lacks "
+            "or holds with another size or MD5."
+        )
     if adapter.record not in listed:
         if full:
             return True

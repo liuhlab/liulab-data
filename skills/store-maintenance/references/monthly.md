@@ -54,8 +54,8 @@ Follow `docs/how-to/papers-run.md`. The paper job does the work; these checks re
 3. **GCS copy.** The routine check of "Check the copy", in `docs/how-to/papers-run.md`, passes:
    `copy_pending` is `false`, `finalized` is `true`, and the copy record check reports 0
    differences. If `copy_pending` is `true`, get the login (SKILL.md, preflight), run
-   `labdata papers copy` between passes, and read it again; the job also retries each idle
-   minute. A job log that names `labdata papers restore` means a refusal: see
+   `labdata papers copy` between passes, and read it again; the job also retries once an
+   hour. A job log that names `labdata papers restore` means a refusal: see
    [Refusals](#refusals). No step here lists every file of the paper store: that section's full
    check runs only to repair, with the user's yes.
 
@@ -80,11 +80,12 @@ Each update and each copy can refuse before it changes anything. The message nam
   ended, resubmit with `--owner-gone`. A refresh killed inside a job that still runs, such as
   the held `labdata-dev` job, looks alive from any other node: start the next refresh on that
   node, where the check asks the process itself.
-- **The work disk is behind GCS.** The copy record on the disk is not the one in GCS. Stop and
-  report: the fix is the restore the message names (`labdata store restore` or
-  `labdata papers restore`, per "Restore the store from GCS" in the how-to). A restore
-  downloads out of GCS, so it needs a job in the run plan, and the user's yes past 1 GB. For
-  the paper store, stop the paper job before the restore and start it after.
+- **The work disk is behind GCS.** The copy record on the disk is not the one in GCS, or the
+  disk has none while GCS does. Stop and report: the fix is the restore the message names
+  (`labdata store restore` or `labdata papers restore`, per "Restore the store from GCS" in
+  the how-to). A restore downloads out of GCS, so it needs a job in the run plan, and the
+  user's yes past 1 GB. A store restore takes the run lock, so it refuses while an update
+  runs. For the paper store, stop the paper job before the restore and start it after.
 - **GCS holds no copy record.** The message asks for `--full`. Stop and report; a full copy
   needs the user's yes.
 

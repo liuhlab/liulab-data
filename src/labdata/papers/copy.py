@@ -133,14 +133,6 @@ def check(store: PaperStore, dest: str) -> bool:
     return _gcs.check(_Adapter(store.root, b""), dest)
 
 
-def unsent(root: Path) -> bool:
-    """Return whether the ``files`` table and the copy record name different paper files.
-
-    Both are read on the work disk; nothing is downloaded.
-    """
-    return _papers(FILES.path(root)) != _papers(root / COPIED)
-
-
 def restore(
     root: Path, source: str | None = None, *, approve: Callable[[int, int], bool]
 ) -> str | None:
@@ -258,11 +250,3 @@ def _signatures(table: pa.Table) -> _Held:
         for r in table.to_pylist()
         if r["path"]
     }
-
-
-def _papers(path: Path) -> _Held:
-    """Return the paper files a ``files`` table or a copy record names; none for no file."""
-    if not path.is_file():
-        return {}
-    named = _signatures(pq.read_table(path, columns=_COLUMNS, schema=_SCHEMA))
-    return {p: sig for p, sig in named.items() if sig is not None}

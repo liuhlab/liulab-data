@@ -170,8 +170,8 @@ def test_one_daily_pass_a_day_after_0030_and_the_pmc_sync_on_the_3rd(
     ]
     assert status(root)["last_daily_success"] == "2026-11-04"
     assert status(root)["last_pmc_sync_success"] == "2026-11-03"
-    # These passes change no paper file, so GCS is only checked: nothing goes up or down.
-    assert gcs.log == []
+    # These passes change no paper file: their copies send only the top of the store.
+    assert not any("/" in path for _, path in gcs.log)
     assert sbatch.calls == [
         ["sbatch", "--parsable", f"--dependency=afterany:{JOB}", OUTPUT, SCRIPT],
         ["sbatch", "--parsable", f"--dependency=afterany:{JOB}:4243", OUTPUT, SCRIPT],
@@ -458,7 +458,7 @@ def test_an_expired_login_sets_copy_pending_and_a_later_copy_clears_it(
     assert status(root)["copy_pending"] is False
 
 
-def test_an_expired_login_leaves_the_copy_pending_and_each_idle_tick_tries_it_again(
+def test_an_expired_login_leaves_the_copy_pending_and_an_idle_tick_tries_it_again_hourly(
     tmp_path: Path, sbatch: Sbatch, gcs: FakeGcs
 ) -> None:
     root = holding(synced(paper_store(tmp_path)))
@@ -473,16 +473,16 @@ def test_an_expired_login_leaves_the_copy_pending_and_each_idle_tick_tries_it_ag
     clock = EditingClock(
         utc("2026-11-05 07:00"), at=back, edit=lambda: gcs.__setattr__("expired", False)
     )
-    lines = serve(root, clock, until=utc("2026-11-05 07:10"))
+    lines = serve(root, clock, until=utc("2026-11-05 08:10"))
 
     # An expired login does not fail the pass.
     assert passes(lines) == ["2026-11-05T07:00Z daily pass 2026-11-05: success"]
     assert status(root)["last_daily_success"] == "2026-11-05"
-    # The pass's copy, then one at each idle tick until the login is back, then no more.
-    assert len([line for line in lines if "rclone config reconnect gcs:" in line]) == 4
+    # The pass's copy, then one an hour later, though the login was back at 07:03.
+    assert len([line for line in lines if "rclone config reconnect gcs:" in line]) == 1
     assert len([line for line in lines if line.startswith("copied the paper store")]) == 1
     idle = [line.endswith("copy pending: yes") for line in lines if " idle;" in line]
-    assert idle == [True] * 3 + [False] * 7
+    assert idle == [True] * 60 + [False] * 10
     assert gcs.read("papers/2/2.pdf") == b"%PDF 2"
     assert (status(root)["finalized"], status(root)["copy_pending"]) == (True, False)
 

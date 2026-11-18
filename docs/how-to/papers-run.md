@@ -128,9 +128,9 @@ log into the same folder. Between passes it looks like this:
 ```
 
 Each step can also run alone: `labdata papers daily`, `labdata papers pmc-sync` and
-`labdata papers copy`. A pass that changes paper files ends with the copy, run by hand or by
-the job. While a copy is pending, the job tries it again each idle minute, and a step run by
-hand exits 1.
+`labdata papers copy`. Every pass ends with the copy, whatever it changed and whether it
+worked, run by hand or by the job. While a copy is pending, the job tries it again once an
+hour between passes, and a step run by hand exits 1.
 
 ## Read `paper-status.json`
 
@@ -189,7 +189,8 @@ It sends the changes and deletes those files in GCS, up to that number.
 
 Each pass and each copy first checks that the work disk's copy record is the one in GCS. It
 compares the MD5 hash GCS keeps for that file with the disk's, and downloads nothing. If the
-two differ, the disk is behind GCS, or another disk has sent to GCS since. The pass then does
+two differ, the disk is behind GCS, or another disk has sent to GCS since. A disk with no copy
+record while GCS holds one was never restored, and refuses the same way. The pass then does
 nothing, marks the copy pending, and the log names the command that fixes it,
 `labdata papers restore`. Stop the paper job, restore as
 [Restore the store from GCS](#restore-the-store-from-gcs) shows, then start the job again.
@@ -257,6 +258,7 @@ on. It saves `paper-status.json` as the last copy left it, so the job knows when
 daily pass and the last PMC sync ran. It leaves the hidden files of the disk alone, the daily
 pass's journal among them.
 
-Restore before any copy by hand. A full copy, `labdata papers copy --full`, first reads the
-list of files GCS holds. It refuses, and sends nothing, when the disk lacks more than a few of
-them, as a disk that was not restored does. Its tables would replace the ones in GCS.
+Restore before any copy by hand. A copy refuses, and sends nothing, on a disk with no copy
+record while GCS holds one. A full copy, `labdata papers copy --full`, also reads the list of
+files GCS holds, and refuses when the disk lacks more than a few of them. Its tables would
+replace the ones in GCS.

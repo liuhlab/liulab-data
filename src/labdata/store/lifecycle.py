@@ -21,7 +21,7 @@ import datetime as dt
 import json
 import logging
 import os
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -50,11 +50,14 @@ RUNNING, FAILED, ABANDONED, BUILT, FINALIZED = (
 )
 #: The updates the status record names, by the command that runs each.
 REFRESH, RUN, BUILD, REMOVE_SRA = "refresh", "run", "build", "remove-sra"
+#: The other holders of the run lock.
+PRUNE, RESTORE = "prune", "restore"
 #: The status key keeping ``copy_pending`` as it stood when the update switched builds.
 AT_SWITCH = "copy_pending_at_switch"
 #: The file in a refresh's folder each pack appends its per-bucket counts to.
 PACK_COUNTS = "pack-counts.jsonl"
-#: The record a run folder gets when its update is abandoned; prune removes such a refresh's.
+#: The record a run folder gets when its unfinished update is replaced; prune removes such a
+#: refresh's.
 ABANDONED_RECORD = "abandoned.json"
 #: The environment variable naming the run lock's holder, ``host:pid``, to the steps it starts.
 RUN_OWNER = "LABDATA_RUN_OWNER"
@@ -87,7 +90,7 @@ def run_lock(root: Path, update: str, *, owner_gone: bool = False) -> Iterator[N
     root : pathlib.Path
         The store root.
     update : str
-        What takes the lock, for the record: an update, or ``prune``.
+        What takes the lock, for the record: an update, :data:`PRUNE` or :data:`RESTORE`.
     owner_gone : bool
         The holder has ended, though this host cannot check it.
 
@@ -129,11 +132,11 @@ def write_status(root: Path, status: Mapping[str, Any]) -> None:
 def start(root: Path, update: str, folder: str | None = None, **fields: Any) -> dict[str, Any]:
     """Begin an update, or carry on the run in ``folder`` the status record names.
 
-    A run first checks the work disk against GCS (:func:`labdata.store.gcs.check`), and only
-    warns when rclone's login has expired. A new update keeps the last-success date and
-    ``copy_pending``; ``fields`` add to it. A run it replaces before that run's switch is
-    abandoned: its folder gets the record :data:`ABANDONED_RECORD`. A run carried on is
-    running again unless it has switched builds.
+    Every update first checks the work disk against GCS (:func:`labdata.store.gcs.check`),
+    and only warns when rclone's login has expired. A new update keeps the last-success date
+    and ``copy_pending``; ``fields`` add to it. An unfinished run it replaces gets the record
+    :data:`ABANDONED_RECORD` in its folder: abandoned before its switch; after it, its pending
+    copy carries over. A run carried on is running again unless it has switched builds.
 
     Parameters
     ----------
@@ -154,10 +157,9 @@ def start(root: Path, update: str, folder: str | None = None, **fields: Any) -> 
     Raises
     ------
     StoreCopyError
-        If a run's work disk is not in step with GCS; the copy is marked pending.
+        If the work disk is not in step with GCS; the copy is marked pending.
     """
-    if folder is not None:
-        _check(root)
+    _check(root)
     status = read_status(root)
     if folder is not None and status.get("folder") == folder:
         if status.get("outcome") in _UNSWITCHED:
@@ -338,6 +340,26 @@ def remove_sra(root: Path, *, client: EntrezClient, owner_gone: bool = False) ->
             raise
 
 
+def restore(
+    root: Path,
+    source: str | None = None,
+    *,
+    approve: Callable[[int, int], bool],
+    owner_gone: bool = False,
+) -> str | None:
+    """Fill the work disk from GCS under the run lock; see :func:`labdata.store.gcs.restore`.
+
+    ``owner_gone`` is as for :func:`run_lock`.
+
+    Raises
+    ------
+    StoreBusyError
+        If an update holds the run lock.
+    """
+    with run_lock(root, RESTORE, owner_gone=owner_gone):
+        return gcs.restore(root, source, approve=approve)
+
+
 def unswitched_build(root: Path) -> str | None:
     """Return the new build of an update that stopped, or runs, before switching to it."""
     status = read_status(root)
@@ -365,17 +387,27 @@ def note_copy(root: Path, *, pending: bool) -> None:
 
 
 def _abandon(root: Path, status: Mapping[str, Any]) -> None:
-    """Record, in its folder, that a run stopped before its switch is not carried on."""
+    """Record, in its folder, that an unfinished run is not carried on.
+
+    Before its switch it is abandoned; after it, only its pending copy was left, and the
+    next update's copy sends it.
+    """
     folder = root / str(status.get("folder", ""))
-    if status.get("outcome") not in _UNSWITCHED or folder == root or not folder.is_dir():
+    if not unfinished(status, _update(status) or "") or not folder.is_dir():
         return
-    record = {**status, "outcome": ABANDONED, "ended": _now()}
+    switched = status.get("outcome") not in _UNSWITCHED
+    record = {**status, "ended": _now(), **({} if switched else {"outcome": ABANDONED})}
     write_atomic(folder / ABANDONED_RECORD, _dump(record))
-    logger.warning("the %s in %s is abandoned", _update(status), status["folder"])
+    logger.warning(
+        "the %s in %s is %s",
+        _update(status),
+        status["folder"],
+        "replaced; the next copy sends its build" if switched else "abandoned",
+    )
 
 
 def _check(root: Path) -> None:
-    """Refuse a run on a work disk not in step with GCS, marking the copy pending."""
+    """Refuse an update on a work disk not in step with GCS, marking the copy pending."""
     try:
         checked = gcs.check(root)
     except gcs.StoreCopyError:

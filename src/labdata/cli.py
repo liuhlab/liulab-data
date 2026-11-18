@@ -374,8 +374,8 @@ def papers_serve(
     """Run the paper job: daily pass after 00:30 UTC, PMC sync on the 3rd and on a new build.
 
     Each pass reads the OpenAlex accounts afresh, so saved accounts count from the next pass.
-    Runs only what paper-status.json shows is due, one pass at a time. A pass that changes
-    paper files ends with the GCS copy, and an idle minute retries a pending copy. Inside a
+    Runs only what paper-status.json shows is due, one pass at a time. Every pass ends with
+    the GCS copy, and an idle tick retries a pending copy once an hour. Inside a
     Slurm job, with --successor, it first keeps jobs queued behind
     this one, each with --dependency=afterany on the jobs before it.
     """
@@ -681,18 +681,24 @@ def store_restore(
     accept_download: bool = typer.Option(
         False, "--accept-download", help="Download more than 1 GB without asking."
     ),
+    owner_gone: bool = _OWNER_GONE,
 ) -> None:
     """Fill a work disk from GCS: the store's current state as the copy record in GCS names it.
 
     Downloads only what the disk lacks or holds differently, deletes the state files GCS no
     longer holds and leaves work/, support/ and extracts/ alone. It prints the download size
     and asks before more than 1 GB; without a terminal it then needs --accept-download.
+    Holds the store's run lock, so it refuses while an update runs.
     """
-    from labdata.store.gcs import restore
+    from labdata.store.lifecycle import restore
     from labdata.store.root import STORE_ENV, pointer_path, resolve_root
 
     where = _restore_root(resolve_root(root, STORE_ENV, pointer_path(), "store"))
-    _restore(lambda ok: restore(where, source, approve=ok), where, accept_download)
+    _restore(
+        lambda ok: restore(where, source, approve=ok, owner_gone=owner_gone),
+        where,
+        accept_download,
+    )
 
 
 def _restore_root(root: Path | None) -> Path:

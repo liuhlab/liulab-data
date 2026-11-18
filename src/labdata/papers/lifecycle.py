@@ -2,13 +2,12 @@
 
 A step is a daily pass, a PMC sync or a copy, and holds the paper store's lock once, for the
 pass and its copy together. A pass first checks the work disk against GCS, refusing when it is
-not in step and only warning when rclone's login has expired. A pass records its outcome, then
-finalizes, whatever the outcome, when the ``files`` table and the copy record on the work disk
-name different paper files or a copy is pending. Finalizing takes in a stopped daily pass's journal, marks a copy pending and
-the store not finalized, then copies to GCS; the copy sends the status record last, marked
-finalized and no longer pending, and a pass it records as running, which was stopped, as
-failed. A copy that is skipped, fails or is cut off leaves it pending, for the paper job's next
-idle tick.
+not in step and only warning when rclone's login has expired. A pass marks the store not
+finalized as it starts, records its outcome, then finalizes, whatever the outcome. Finalizing
+takes in a stopped daily pass's journal, marks a copy pending, then copies to GCS; the copy
+sends the status record last, marked finalized and no longer pending, and a pass it records as
+running, which was stopped, as failed. A copy that is skipped, fails or is cut off leaves it
+pending, for the paper job to retry.
 
 This module is the only writer of ``paper-status.json``.
 """
@@ -209,7 +208,7 @@ def copy(
 
 
 def finalize(store: PaperStore, log: _Log = print) -> CopyResult | None:
-    """Copy to GCS when a copy is pending or the ``files`` table and the copy record differ.
+    """Copy to GCS when a copy is pending or the store is not finalized.
 
     The paper job calls it at an idle tick while a copy is pending.
 
@@ -223,8 +222,8 @@ def finalize(store: PaperStore, log: _Log = print) -> CopyResult | None:
     Returns
     -------
     CopyResult or None
-        The copy's outcome; None when nothing was sent: no copy was owed, there is no
-        destination, or the copy failed.
+        The copy's outcome; None when nothing was sent: GCS holds the store's last change,
+        there is no destination, or the copy failed.
     """
     with paper_lock(store.root):
         return _finalize(store, log)
@@ -243,7 +242,7 @@ def _pass[R](
     with paper_lock(root):
         _check(store, log)
         record = {**record, "start": _now(), "end": None, "outcome": "running"}
-        _write(root, replace(read_status(root), last_pass=record))
+        _write(root, replace(read_status(root), last_pass=record, finalized=False))
 
         def outcome(name: str) -> dict[str, Any]:
             return {**record, **ended(), "end": _now(), "outcome": name}
@@ -273,20 +272,18 @@ def _check(store: PaperStore, log: _Log) -> None:
 
 
 def _finalize(store: PaperStore, log: _Log) -> CopyResult | None:
-    """Copy when the work disk holds a change GCS lacks; a failure leaves it pending, logged."""
+    """Copy unless GCS holds the store's last change; a failure leaves it pending, logged."""
     root = store.root
     dest = destination(store)
     if not dest:
         daily_mod.take_in(root)
-        if copy_mod.unsent(root):
-            status = read_status(root)
-            if status.finalized:
-                _write(root, replace(status, finalized=False))
+        if not read_status(root).finalized:
             log(f"no {COPY_TO_KEY} in {MARKER}: the GCS copy is skipped")
         return None
     try:
         daily_mod.take_in(root)
-        if not (read_status(root).copy_pending or copy_mod.unsent(root)):
+        status = read_status(root)
+        if status.finalized and not status.copy_pending:
             return None
         result = _send(store, dest)
     except Exception as err:
