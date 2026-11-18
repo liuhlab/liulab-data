@@ -23,7 +23,7 @@ import duckdb
 from labdata._http import HttpTransport, Transport
 from labdata.exceptions import LabdataError
 from labdata.ncbi.entrez import EntrezClient
-from labdata.papers import pmc
+from labdata.papers import ladder, pmc
 from labdata.papers.openalex import OpenAlex, Work
 from labdata.papers.pubmed import Details, details, pmc_ids
 from labdata.papers.root import PaperStore, is_placeholder, paper_dir, paper_key
@@ -36,14 +36,8 @@ from labdata.store.targets import check_fraction, in_sample
 #: The PubMed publication type of a retracted paper.
 RETRACTED_TYPE = "Retracted Publication"
 
-#: A paper published this many days ago or less waits for PMC.
-EMBARGO_DAYS = 365
-
 #: Papers looked up between two saves of the tables.
 CHUNK = 1000
-
-#: The reasons a row for a non-paper may carry; the sync removes such rows.
-_NOT_PAPERS = ("placeholder", "not-article")
 
 _RECORD_TYPES = ("GEO Series", "BioProject")
 
@@ -128,27 +122,6 @@ def store_links(store: PaperStore, state: PaperTables) -> dict[str, set[str]]:
     return out
 
 
-def status_of(row: dict[str, Any], *, held: bool, today: dt.date) -> tuple[str, str | None]:
-    """Return a paper's status and reason from its ``papers`` row and whether files are held.
-
-    A ``manual`` paper whose reason is a failure a tier recorded keeps it until fetched.
-    """
-    if row.get("retracted"):
-        return "skipped", "retracted"
-    if held:
-        return "fetched", None
-    if row.get("status") == "manual" and row.get("reason") not in (None, "no-route"):
-        return "manual", row["reason"]
-    published = row.get("published")
-    if published is not None and published > today - dt.timedelta(days=EMBARGO_DAYS):
-        return "waiting", "pmc-embargo"
-    if row.get("openalex_pdf"):
-        return "waiting", "openalex-backlog"
-    if row.get("host_pdf_urls"):
-        return "waiting", "host-link"
-    return "manual", "no-route"
-
-
 def pmc_sync(
     store: PaperStore,
     *,
@@ -164,7 +137,7 @@ def pmc_sync(
 
     New linked papers are added; papers not looked up this month get their PMCID, PubMed
     details and, unless fetched, OpenAlex work; then the PMC bucket tier runs and every
-    linked paper's status is recomputed. The tables are saved after each chunk of papers, so
+    paper is settled on the tier ladder. The tables are saved after each chunk of papers, so
     a killed sync resumes where it stopped. Takes no lock:
     :func:`labdata.papers.lifecycle.pmc_sync` runs it.
 
@@ -215,7 +188,7 @@ def _sync(
         {
             k
             for k, r in state.papers.items()
-            if r.get("status") == "skipped" and r.get("reason") in _NOT_PAPERS
+            if r.get("status") == "skipped" and r.get("reason") in ladder.NOT_PAPERS
         },
     )
     linked = store_links(store, state)
@@ -262,10 +235,7 @@ def _sync(
         log=log,
         on_failure=lambda replies: setattr(report, "bucket", replies),
     )
-    held = state.held()
-    for key in linked:
-        row = state.papers[key]
-        row["status"], row["reason"] = status_of(row, held=key in held, today=today)
+    ladder.settle(state, today)
     state.save(root)
     counts: dict[str, Counter[str]] = {}
     for row in state.papers.values():
@@ -438,8 +408,6 @@ def _rekey(state: PaperTables, doi: str, key: str, own_doi: str) -> None:
         state.papers[key] = {**old_row, "paper": key, "pmid": pmid, "doi": own_doi}
     target = state.papers[key]
     target["doi"] = target.get("doi") or own_doi
-    for tier in ("xml_tier", "pdf_tier"):
-        target[tier] = target.get(tier) or old_row.get(tier)
     others = {*(target.get("other_dois") or ()), *(old_row.get("other_dois") or ()), doi}
     target["other_dois"] = sorted(others - {target["doi"]}) or None
     old_dir, new_dir = paper_dir(doi), paper_dir(key)

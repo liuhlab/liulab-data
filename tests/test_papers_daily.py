@@ -6,6 +6,7 @@ import datetime as dt
 import http.client
 import json
 import re
+import shutil
 import urllib.parse
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
@@ -329,46 +330,43 @@ def test_three_openalex_errors_move_a_paper_to_its_host_link_then_to_manual(
     assert fake.count("host") == 1
 
 
-def test_a_retracted_paper_spends_no_quota_and_tries_no_host_link(
+def test_the_daily_pass_tries_only_linked_papers_the_ladder_sends_to_openalex_or_a_host_link(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    host = "https://journal.org/r.pdf"
-    root = paper_store(
-        tmp_path,
+    host = "https://journal.org/p.pdf"
+    rows = [
+        paper("41000001"),  # PMC not tried yet
+        paper("41000002"),  # PMC failed
+        paper("41000003", hosts=(host,)),  # PMC holds it
+        {**paper("41000004", pdf=False, hosts=(host,)), "retracted": True},
+        paper("41000005"),
+        paper("41000006", pdf=False, hosts=(host,)),
+    ]
+    for row in rows[:3]:
+        row["pmcid"] = "PMC" + row["paper"]
+    root = paper_store(tmp_path, rows, unlinked=("41000005", "41000006"))
+    day = dt.date(2026, 11, 3)
+    tables.write(
+        root,
+        tables.ATTEMPTS,
         [
-            {**paper("41000010", hosts=(host,)), "retracted": True},
-            {**paper("41000011", pdf=False, hosts=(host,)), "retracted": True},
+            {"paper": "41000002", "tier": "pmc", "date": day, "outcome": "failed"},
+            {"paper": "41000003", "tier": "pmc", "date": day, "outcome": "fetched"},
         ],
     )
-    fake = DailyWeb(hosts={host: Headed(PDF, 200)})
-    use(monkeypatch, fake, KEYS)
-    daily(root)
-
-    assert fake.spent == {}
-    assert fake.count("host") == 0
-    papers = by_key(root, tables.PAPERS)
-    assert {k: (r["status"], r["reason"]) for k, r in papers.items()} == {
-        "41000010": ("skipped", "retracted"),
-        "41000011": ("skipped", "retracted"),
-    }
-
-
-def test_a_paper_no_build_links_gets_no_quota_and_no_host_try(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    host = "https://journal.org/u.pdf"
-    root = paper_store(
-        tmp_path,
-        [paper("41000020"), paper("41000021", pdf=False, hosts=(host,))],
-        unlinked=("41000020", "41000021"),
+    xml = (paper_dir("41000003") / "41000003.xml.zst").as_posix()
+    tables.write(
+        root,
+        tables.FILES,
+        [{"paper": "41000003", "kind": "xml", "name": "41000003.xml", "path": xml, "tier": "pmc"}],
     )
     fake = DailyWeb(hosts={host: Headed(PDF, 200)})
     use(monkeypatch, fake, KEYS)
     daily(root)
-
-    assert fake.spent == {}
+    assert fake.downloads == ["W41000002"]
     assert fake.count("host") == 0
-    assert set(by_key(root, tables.PAPERS)) == {"41000020", "41000021"}
+    # A paper no build links keeps its row.
+    assert len(by_key(root, tables.PAPERS)) == len(rows)
 
 
 def test_a_host_link_serves_a_paper_openalex_has_no_copy_of(
@@ -434,47 +432,54 @@ def test_a_link_http_client_rejects_is_a_failed_try_and_the_pass_goes_on(
     assert by_key(root, tables.PAPERS)["41000033"]["pdf_tier"] == "host"
 
 
-def test_a_paper_with_a_pmcid_spends_quota_only_after_the_pmc_bucket_failed(
+def test_the_daily_pass_and_the_pmc_sync_give_the_same_status(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    rows = [paper("41000001"), paper("41000002")]
-    for row in rows:
-        row["pmcid"] = "PMC" + row["paper"]
-    root = paper_store(tmp_path, rows)
+    host = "https://journal.org/a.pdf"
+    # Looked up this month, so the sync asks nothing; each row's status and tier are stale.
+    rows = [
+        {**paper("41000001"), "looked_up": dt.date(2026, 11, 1)},
+        {**paper("41000002", pdf=False, hosts=(host,)), "looked_up": dt.date(2026, 11, 1)},
+        {**paper("41000003", pdf=False), "looked_up": dt.date(2026, 11, 1), "pdf_tier": "pmc"},
+    ]
+    day = dt.date(2026, 11, 3)
+    daily_root = paper_store(tmp_path / "daily", rows)
     tables.write(
-        root,
+        daily_root,
         tables.ATTEMPTS,
-        [{"paper": "41000002", "tier": "pmc", "date": dt.date(2026, 11, 3), "outcome": "failed"}],
+        [
+            {"paper": "41000001", "tier": "openalex", "date": day, "outcome": "failed"},
+            {"paper": "41000002", "tier": "host", "date": day, "outcome": "blocked"},
+        ],
     )
-    fake = DailyWeb()
-    use(monkeypatch, fake, KEYS[:1])
-    daily(root)
-    assert fake.downloads == ["W41000002"]
-
-
-def test_a_paper_pmc_holds_gets_no_openalex_or_host_try(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    host = "https://journal.org/p.pdf"
-    row = paper("41000003", hosts=(host,))
-    row["pmcid"] = "PMC41000003"
-    root = paper_store(tmp_path, [row])
+    pdf = (paper_dir("41000003") / "41000003.pdf").as_posix()
     tables.write(
-        root,
-        tables.ATTEMPTS,
-        [{"paper": "41000003", "tier": "pmc", "date": dt.date(2026, 11, 3), "outcome": "fetched"}],
-    )
-    xml = (paper_dir("41000003") / "41000003.xml.zst").as_posix()
-    tables.write(
-        root,
+        daily_root,
         tables.FILES,
-        [{"paper": "41000003", "kind": "xml", "name": "41000003.xml", "path": xml, "tier": "pmc"}],
+        [{"paper": "41000003", "kind": "pdf", "name": "41000003.pdf", "path": pdf, "tier": "host"}],
     )
-    fake = DailyWeb(hosts={host: Headed(PDF, 200)})
-    use(monkeypatch, fake, KEYS)
-    daily(root)
-    assert fake.spent == {}
-    assert fake.count("host") == 0
+    sync_root = tmp_path / "sync"
+    shutil.copytree(daily_root, sync_root)
+    use(monkeypatch, DailyWeb(), [])
+    daily(daily_root)
+    synced = CliRunner().invoke(
+        app, ["papers", "pmc-sync", "--root", str(sync_root), "--today", TODAY]
+    )
+    assert synced.exit_code == 0, synced.output
+
+    def standing(root: Path) -> dict[str, tuple[str, str | None, str | None]]:
+        papers = by_key(root, tables.PAPERS)
+        return {k: (r["status"], r["reason"], r["pdf_tier"]) for k, r in papers.items()}
+
+    assert (
+        standing(daily_root)
+        == standing(sync_root)
+        == {
+            "41000001": ("manual", "openalex-failed", None),
+            "41000002": ("manual", "host-blocked", None),
+            "41000003": ("fetched", None, "host"),
+        }
+    )
 
 
 def test_a_killed_pass_rerun_downloads_nothing_twice_and_spends_no_quota_twice(
