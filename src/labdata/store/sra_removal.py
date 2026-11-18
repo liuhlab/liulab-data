@@ -145,7 +145,7 @@ def candidates(root: Path) -> Path:
     scratch = folder / "merged"
     tmp = temp_beside(out)
     try:
-        files = raw.merged_files(root, raw.SRA_XML, scratch / raw.SRA_XML)
+        files = raw.files(root, raw.SRA_XML, scratch / raw.SRA_XML)
         if not files:
             pq.write_table(_CANDIDATE_SCHEMA.empty_table(), out)
             return out
@@ -219,7 +219,10 @@ def remove(root: Path, *, client: EntrezClient, date: str | None = None) -> SraR
         report.unreached,
     )
     progress = listing.parent / "settled.txt"
-    skip = _settled(progress) | raw.removing(root, raw.SRA_XML)
+    # A candidate no longer held was removed since the listing: a kill can come before its
+    # settled line, and NCBI is not asked twice.
+    listed = [c.accession for c in _read(listing)]
+    skip = _settled(progress) | (set(listed) - raw.held(root, raw.SRA_XML, listed))
     report.asked = sum(1 for c in _read(listing) if c.accession not in skip)
     done = 0
     with ThreadPoolExecutor(INFLIGHT, thread_name_prefix="sra-removal") as pool:
@@ -396,7 +399,7 @@ def _reached(root: Path, folder: Path, scratch: Path) -> Path:
     live = _live_series(root)
     listed = eutils.experiment_list(root, series=live, out=folder / "reached-list.parquet")
     out = folder / "reached.parquet"
-    links = raw.merged_files(root, raw.ENTREZ_LINKS, scratch)
+    links = raw.files(root, raw.ENTREZ_LINKS, scratch)
     tmp = temp_beside(out)
     try:
         with extract.connect(root) as con:

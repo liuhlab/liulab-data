@@ -58,8 +58,9 @@ RAW_SOURCES: dict[str, tuple[str, str]] = {
         f"{_FTP}/geo/series/<GSEnnn>/<GSE>/suppl/filelist.txt",
     ),
     raw.GEO_GAPS: (
-        "Each target GEO Series whose family SOFT the fetch could not save, one row per "
-        "Series: the gap reason (soft-missing or fetch-failed), then any detail after a newline.",
+        "Each target GEO Series whose family SOFT the fetch could not save or that GEO "
+        "withdrew, one row per Series: the gap reason (soft-missing, fetch-failed or "
+        "withdrawn), then any detail after a newline.",
         f"{_FTP}/geo/series/<GSEnnn>/<GSE>/soft/<GSE>_family.soft.gz, as answered",
     ),
     raw.SRA_XML: (
@@ -126,13 +127,19 @@ def document_raw(root: Path, source: str) -> Path:
     -------
     pathlib.Path
         The folder.
+
+    Raises
+    ------
+    StoreBuildError
+        If the source has parts left to pack, as :func:`labdata.store.raw.files` raises it.
     """
     folder = paths.RAW.at(root, source)
-    files = file_entries(folder)
+    files: list[dict[str, Any]] = []
     dates: set[str] = set()
-    for entry in files:
-        column = pq.read_table(folder / entry["name"], columns=["fetch_date"]).column(0)
-        entry["rows"] = len(column)
+    for path in raw.files(root, source):
+        column = pq.read_table(path, columns=["fetch_date"]).column(0)
+        size, digest = path.stat().st_size, sha256_file(path)
+        files.append({"name": path.name, "bytes": size, "sha256": digest, "rows": len(column)})
         dates |= set(column.to_pylist())
     what, url = RAW_SOURCES.get(source, (f"Live results of the {source} source.", "NCBI"))
     width = raw.WIDTHS[source]

@@ -32,8 +32,6 @@
 
 ::: labdata.store.raw
 
-::: labdata.store.pack
-
 ::: labdata.store.gaps
 
 ::: labdata.store.prune

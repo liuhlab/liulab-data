@@ -63,14 +63,25 @@ def updated_series(client: EntrezClient, since: dt.date) -> set[str]:
     return {f"GSE{uid - offset}" for uid in uids if offset < uid < GDS_OFFSET["GSM"]}
 
 
-def related(root: Path, series: Iterable[str]) -> set[str]:
-    """Return ``series`` and every Series their saved SOFT names by a relation line, in turn."""
+def scan_soft(
+    root: Path, series: Iterable[str], pattern: re.Pattern[str], *, since_pack: bool = False
+) -> set[str]:
+    """Return what ``pattern`` finds in the newest saved SOFT of ``series``.
+
+    With ``since_pack``, only SOFT saved since the last pack counts.
+    """
     from labdata.store import raw
 
+    saved = raw.saved(root, raw.GEO_SOFT, series, since_pack=since_pack)
+    return {found for _, text in saved for found in pattern.findall(text)}
+
+
+def related(root: Path, series: Iterable[str]) -> set[str]:
+    """Return ``series`` and every Series their saved SOFT names by a relation line, in turn."""
     found = set(series)
     frontier = set(found)
     while frontier:
-        frontier = raw.scan(root, raw.GEO_SOFT, frontier, RELATION) - found
+        frontier = scan_soft(root, frontier, RELATION) - found
         found |= frontier
     return found
 
@@ -86,10 +97,8 @@ def refetch_experiments(root: Path, listed: Path) -> set[str]:
     They are the experiments the saved SOFT of its Series and their related Series name, and
     those :func:`experiments_path` recorded when the list was made.
     """
-    from labdata.store import raw
-
     found = related(root, listed.read_text().split())
-    named = raw.scan(root, raw.GEO_SOFT, found, SRA_RELATION)
+    named = scan_soft(root, found, SRA_RELATION)
     return named | set(experiments_path(listed).read_text().split())
 
 
@@ -138,7 +147,7 @@ def change_list(
     failed = soft_failed(root, wanted) - updated
     listed = related(root, updated | unheld | failed)
     out.parent.mkdir(parents=True, exist_ok=True)
-    named = raw.scan(root, raw.GEO_SOFT, listed, SRA_RELATION)
+    named = scan_soft(root, listed, SRA_RELATION)
     write_atomic(experiments_path(out), "".join(f"{srx}\n" for srx in sorted(named)))
     write_atomic(out, "".join(f"{gse}\n" for gse in sorted(listed, key=_number)))
     rest = listed - updated - unheld - failed
@@ -153,10 +162,10 @@ def soft_failed(root: Path, series: Iterable[str]) -> set[str]:
     """
     from labdata.store import gaps, raw
 
-    gap_rows = raw.saved(root, raw.GEO_GAPS, series)
-    missing = {gse for gse, text in gap_rows.items() if text.split("\n", 1)[0] == gaps.SOFT_MISSING}
-    gap_dates = raw.saved(root, raw.GEO_GAPS, missing, column="fetch_date")
-    soft = raw.saved(root, raw.GEO_SOFT, missing, column="fetch_date")
+    gap_rows = dict(raw.saved(root, raw.GEO_GAPS, series))
+    missing = {gse for gse, text in gap_rows.items() if gaps.reason_of(text) == gaps.SOFT_MISSING}
+    gap_dates = dict(raw.saved(root, raw.GEO_GAPS, missing, column="fetch_date"))
+    soft = dict(raw.saved(root, raw.GEO_SOFT, missing, column="fetch_date"))
     return {gse for gse in missing if gse in soft and gap_dates[gse] > soft[gse]}
 
 

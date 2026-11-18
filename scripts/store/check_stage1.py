@@ -154,11 +154,7 @@ def _r2() -> str:
     eq(len(kids), 3, "umbrella children")
     sub_bps = {s: store.follow(s, "BioProject")[s] for s in subs}
     # GSMs in both a SubSeries and the SuperSeries
-    soft = {
-        r.accession: r.raw_text
-        for r in raw.rows(ROOT, raw.GEO_SOFT)
-        if r.accession in [*subs, "GSE246310"]
-    }
+    soft = dict(raw.saved(ROOT, raw.GEO_SOFT, [*subs, "GSE246310"]))
     super_gsm = set(store.follow("GSE246310", "sample")["GSE246310"])
     shared = []
     for s in subs:
@@ -224,7 +220,7 @@ def _r5() -> str:
 @check("6 PRJNA530347")
 def _r6() -> str:
     eq(store.follow("PRJNA530347", "PubMed"), {"PRJNA530347": []}, "PubMed")
-    saved = raw.saved(ROOT, raw.PUBMED_SI, ["PRJNA530347"])
+    saved = dict(raw.saved(ROOT, raw.PUBMED_SI, ["PRJNA530347"]))
     eq(saved, {"PRJNA530347": ""}, "raw [si]")
     return f"no PubMed; raw [si]={saved}"
 

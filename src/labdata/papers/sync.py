@@ -26,7 +26,7 @@ from labdata.ncbi.entrez import EntrezClient
 from labdata.papers import ladder, pmc
 from labdata.papers.openalex import OpenAlex, Work
 from labdata.papers.pubmed import Details, details, pmc_ids
-from labdata.papers.root import PaperStore, is_placeholder, paper_dir, paper_key
+from labdata.papers.root import PaperStore, is_placeholder, paper_key
 from labdata.papers.tables import PaperTables
 from labdata.store.gaps import build_targets
 from labdata.store.layout import HOLDINGS, LINKS_BY_TO, sql_string
@@ -181,15 +181,13 @@ def _sync(
     log: Callable[[str], None],
     report: SyncReport,
 ) -> None:
-    root = store.root
-    state = PaperTables.load(root)
-    _drop(
-        state,
+    state = PaperTables.load(store.root, today)
+    state.drop_papers(
         {
             k
             for k, r in state.papers.items()
             if r.get("status") == "skipped" and r.get("reason") in ladder.NOT_PAPERS
-        },
+        }
     )
     linked = store_links(store, state)
     if sample is not None:
@@ -199,7 +197,7 @@ def _sync(
     # A DOI enters only once OpenAlex finds an article for it.
     for key in linked:
         if key.isdigit() and key not in state.papers:
-            state.papers[key] = _new_row(key, today)
+            state.add_paper(_new_row(key, today))
             report.added += 1
     month = (today.year, today.month)
     todo = [
@@ -219,7 +217,7 @@ def _sync(
         rekeyed = _look_up(state, chunk, client, openalex, today, report, log)
         for old, new in rekeyed.items():
             linked[new] = linked.pop(old, set()) | linked.get(new, set())
-        state.save(root, today)
+        state.save(today)
         log(
             f"looked up {min(i + CHUNK, len(todo))}/{len(todo)} papers "
             f"in {time.monotonic() - clock:.0f} s; {report.failed} failed, "
@@ -229,13 +227,12 @@ def _sync(
     report.bucket = pmc.fetch(
         state,
         list(linked),
-        root=root,
         transport=transport or HttpTransport(),
         today=today,
         log=log,
         on_failure=lambda replies: setattr(report, "bucket", replies),
     )
-    state.save(root, today)
+    state.save(today)
     counts: dict[str, Counter[str]] = {}
     for row in state.papers.values():
         counts.setdefault(row["status"] or "", Counter())[row["reason"] or ""] += 1
@@ -288,18 +285,18 @@ def _look_up(
             if doi not in state.papers:
                 if key not in state.papers:
                     report.added += 1
-                state.papers[doi] = _new_row(doi, today)
+                state.add_paper(_new_row(doi, today))
             row = state.papers[doi]
             _set_work(row, work)
             row["published"] = work.published
             if key != doi:
-                _rekey(state, doi, key, work.doi or doi)
+                state.rekey(doi, key, work.doi or doi)
                 rekeyed[doi] = key
                 report.rekeyed += 1
             if not key.isdigit():
                 _set_work(state.papers[key], work)
                 state.papers[key]["published"] = work.published
-                state.info[key] = _work_info(key, work)
+                state.put_info(_work_info(key, work))
     pmids = list(dict.fromkeys(key for k in chunk if (key := rekeyed.get(k, k)).isdigit()))
     if pmids:
         ids: dict[str, tuple[str | None, str | None]] = {}
@@ -340,10 +337,10 @@ def _look_up(
                 (info and info.published) or (work and work.published) or row.get("published")
             )
             if info is not None:
-                state.info[key] = _pubmed_info(key, row, info)
+                state.put_info(_pubmed_info(key, row, info))
                 if RETRACTED_TYPE in info.publication_type:
                     row["retracted"] = True
-    _drop(state, away)
+    state.drop_papers(away)
     for key in (rekeyed.get(k, k) for k in chunk):
         if key in failed:
             report.failed += 1
@@ -390,62 +387,3 @@ def _work_info(key: str, work: Work) -> dict[str, Any]:
         "abstract": work.abstract,
         "publication_type": [work.type] if work.type else [],
     }
-
-
-def _rekey(state: PaperTables, doi: str, key: str, own_doi: str) -> None:
-    """Move a DOI paper to ``key``, the PMID or DOI of the paper it is, whose DOI is ``own_doi``.
-
-    Rows are re-keyed and files moved once the tables are saved; nothing is fetched again.
-    ``doi`` joins the paper's ``other_dois`` unless it is the paper's DOI. When the store
-    already holds ``key``'s paper, the DOI paper's files join it unless it holds a file of the
-    same kind and name.
-    """
-    old_row = state.papers.pop(doi)
-    state.info.pop(doi, None)
-    if key not in state.papers:
-        pmid = int(key) if key.isdigit() else None
-        state.papers[key] = {**old_row, "paper": key, "pmid": pmid, "doi": own_doi}
-    target = state.papers[key]
-    target["doi"] = target.get("doi") or own_doi
-    others = {*(target.get("other_dois") or ()), *(old_row.get("other_dois") or ()), doi}
-    target["other_dois"] = sorted(others - {target["doi"]}) or None
-    old_dir, new_dir = paper_dir(doi), paper_dir(key)
-    taken = {(f["kind"], f["name"]) for f in state.files if f["paper"] == key}
-    kept = []
-    for f in state.files:
-        if f["paper"] != doi:
-            kept.append(f)
-            continue
-        name = f["name"]
-        if f["kind"] in ("xml", "pdf") and name.startswith(old_dir.name):
-            name = new_dir.name + name[len(old_dir.name) :]
-        path = f["path"]
-        if (f["kind"], name) in taken:
-            if path:
-                state.folder.delete(path)
-            continue
-        if path:
-            rel = Path(path).relative_to(old_dir)
-            new_path = new_dir / rel.parent / name if f["kind"] != "supplement" else new_dir / rel
-            state.folder.move(path, new_path.as_posix())
-            path = new_path.as_posix()
-        kept.append({**f, "paper": key, "name": name, "path": path})
-    state.files[:] = kept
-    for attempt in state.attempts:
-        if attempt["paper"] == doi:
-            attempt["paper"] = key
-
-
-def _drop(state: PaperTables, keys: set[str]) -> None:
-    """Remove ``keys`` from every table, except a paper the ``files`` table lists.
-
-    Its files stay on disk, so its rows stay too: the GCS copy deletes a file its row left.
-    """
-    keys = keys - {f["paper"] for f in state.files}
-    if not keys:
-        return
-    for key in keys:
-        state.papers.pop(key, None)
-        state.info.pop(key, None)
-    state.files[:] = [f for f in state.files if f["paper"] not in keys]
-    state.attempts[:] = [a for a in state.attempts if a["paper"] not in keys]

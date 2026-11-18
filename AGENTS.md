@@ -38,14 +38,16 @@ src/labdata/
                        sratools.py (per-stage tool wrappers), pipeline.py
                        (Snakemake driver), pipeline.smk (the download DAG)
   store/             the source record store: fetch lanes (geo_lane.py, eutils.py),
-                       raw/ pieces and pack, snapshot extract, build, gaps, prune,
+                       raw.py (the only reader and writer of raw/ and its
+                       parts: save, remove, pack, and the files a build
+                       reads), snapshot extract, build, gaps, prune,
                        GCS copy (gcs.py); paths.py (every path in the root
                        with its kind; the only reader and switcher of the marker);
                        reader.py (the build reader, the only
                        way to open a build); layout.py (every build table's
                        declaration, the only writer of build tables);
                        lifecycle.py (an update's status record, run lock,
-                       switch and copy outcome);
+                       resume plan, switch and copy outcome);
                        pipeline.py (pipeline.drive, the one driver of both
                        store DAGs) + pipeline.smk (the full-run DAG);
                        closing.smk (the closing steps both DAGs include:
@@ -58,15 +60,18 @@ src/labdata/
                        a checkout, as it calls scripts/bulk/)
   papers/            the paper store: paths.py (its top-level paths and their kinds);
                        root.py (marker, pointer, lock, paper folders);
-                       tables.py (the four tables' declaration and only writer);
+                       tables.py (the four tables and the paper files they name:
+                       the only code that adds, replaces or removes rows,
+                       each with its file; saves all four or none; a load
+                       first finishes what a stopped step left);
                        status.py (paper-status.json); lifecycle.py (each pass
                        and copy under the lock; the only writer of
                        paper-status.json); reader.py (PaperReader);
                        sync.py (the monthly PMC sync), pubmed.py, openalex.py,
                        pmc.py (the PMC bucket tier); ladder.py (the tier ladder;
                        the only setter of a paper's status and tier fields);
-                       folder.py (the only writer, mover and deleter of paper
-                       files; zstd, temp files);
+                       folder.py (internal to tables.py: writes, moves and
+                       deletes paper files; temp files);
                        daily.py (quota, host links, manual queue); copy.py
                        (GCS copy); job.py (the long-running paper job)
 tests/               pytest suite, mirrors src; mocks the EntrezClient + subprocess seams

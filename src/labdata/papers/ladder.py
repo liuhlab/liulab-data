@@ -32,8 +32,8 @@ FREE = (PMC, HOST)
 #: A paper published this many days ago or less waits for PMC.
 EMBARGO_DAYS = 365
 
-#: Days an OpenAlex server or network error is tried before the paper moves on.
-OPENALEX_TRIES = 3
+#: Days a server or network error from OpenAlex or PMC is tried before the paper moves on.
+ERROR_TRIES = 3
 
 #: The reasons on a non-paper's row; the ladder leaves such a row as it is.
 NOT_PAPERS = ("placeholder", "not-article")
@@ -42,11 +42,11 @@ type _Serves = Callable[[Mapping[str, Any], list[str]], bool]
 
 #: Whether a tier can still serve a paper, from its row and the outcomes of that tier's tries.
 _SERVES: dict[str, _Serves] = {
-    PMC: lambda row, tried: bool(row.get("pmcid")) and not tried,
+    PMC: lambda row, tried: (
+        bool(row.get("pmcid")) and set(tried) <= {"error"} and _error_tries_left(tried)
+    ),
     OPENALEX: lambda row, tried: (
-        bool(row.get("openalex_pdf"))
-        and "failed" not in tried
-        and tried.count("error") < OPENALEX_TRIES
+        bool(row.get("openalex_pdf")) and "failed" not in tried and _error_tries_left(tried)
     ),
     HOST: lambda row, tried: bool(row.get("host_pdf_urls")) and not tried,
     PAPERPILE: lambda row, tried: True,
@@ -191,6 +191,11 @@ def settle(state: PaperTables, today: dt.date) -> None:
         row = state.papers[key]
         row["status"], row["reason"] = got.status, got.reason
         row["xml_tier"], row["pdf_tier"] = got.xml_tier, got.pdf_tier
+
+
+def _error_tries_left(tried: list[str]) -> bool:
+    """Return whether a tier's server or network errors are fewer than :data:`ERROR_TRIES`."""
+    return tried.count("error") < ERROR_TRIES
 
 
 def _held_tier(files: Collection[Mapping[str, Any]], kind: str) -> str | None:

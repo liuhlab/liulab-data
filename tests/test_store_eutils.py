@@ -22,7 +22,8 @@ import labdata.ncbi.entrez as entrez_mod
 from labdata._http import RateLimiter
 from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
-from labdata.store import eutils, gaps, pack, paths, raw
+from labdata.store import eutils, gaps, paths, raw
+from tests._slices import write_rows
 
 TODAY = "2026-10-15"
 _HEADER = (
@@ -54,7 +55,7 @@ def _store(tmp_path: Path, tab: list[str], soft: dict[str, str] | None = None) -
     (folder / "SRA_Accessions.tab").write_text("\n".join([_HEADER, *tab]) + "\n")
     if soft:
         rows = [raw.RawRow(gse, text, TODAY) for gse, text in soft.items()]
-        pack.write_rows(root, raw.GEO_SOFT, rows)
+        write_rows(root, raw.GEO_SOFT, rows)
     return root
 
 
@@ -183,13 +184,13 @@ def _run(root: Path, ncbi: _Ncbi, **kw: Any) -> eutils.LaneReport:
 
 
 def _packed(root: Path, source: str) -> dict[str, str]:
-    pack.pack(root, [source])
-    return {row.accession: row.raw_text for row in raw.rows(root, source)}
+    raw.pack(root, [source])
+    return dict(raw.saved(root, source))
 
 
 def _parts(root: Path) -> int:
     """Count the ``sra-xml`` parts waiting for pack."""
-    return sum(len(parts) for parts in raw.parts_by_bucket(root, raw.SRA_XML).values())
+    return len(list((root / "work" / "parts" / raw.SRA_XML).glob("*.parquet")))
 
 
 @pytest.fixture
@@ -375,7 +376,7 @@ _SPLICED = (Path(__file__).parent / "data" / "sra_package" / "SRX10340496-splice
 def _saved_spliced(tmp_path: Path) -> Path:
     """A store holding SRX10340496 as spliced, which its current build notes as unparsable."""
     root = _store(tmp_path, _geo(("SRX10340496", "live")))
-    pack.write_rows(root, raw.SRA_XML, [raw.RawRow("SRX10340496", _SPLICED, TODAY)])
+    write_rows(root, raw.SRA_XML, [raw.RawRow("SRX10340496", _SPLICED, TODAY)])
     folder = root / "builds" / "b1"
     folder.mkdir(parents=True)
     note = gaps.Note("SRX10340496", gaps.UNPARSABLE_PACKAGE, "not well-formed XML as saved")

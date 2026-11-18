@@ -21,8 +21,9 @@ from labdata.cli import app
 from labdata.ncbi import entrez as entrez_mod
 from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
-from labdata.store import pack, raw, removals
+from labdata.store import raw, removals
 from labdata.store.gaps import SOFT_MISSING, gap_row
+from tests._slices import write_rows
 from tests.test_store_geo_lane import Reply
 
 _DATE = "2026-11-01"
@@ -135,15 +136,15 @@ def _store(root: Path, series: list[str], tab: Sequence[tuple[str, str, str, str
 
 def _hold_series(root: Path, gse: str, soft: str | None = None) -> None:
     """Pack a Series' rows into every Series-keyed source."""
-    pack.write_rows(root, raw.GEO_SOFT, [raw.RawRow(gse, soft or _soft(gse), _OLD)])
-    pack.write_rows(root, raw.GEO_FILELIST, [raw.RawRow(gse, f"{gse}_RAW.tar", _OLD)])
-    pack.write_rows(root, raw.GEO_GAPS, [gap_row(gse, SOFT_MISSING, _OLD)])
-    pack.write_rows(root, raw.ENTREZ_LINKS, [raw.RawRow(gse, f"{gse}\tbioproject\t1\tP", _OLD)])
-    pack.write_rows(root, raw.PUBMED_SI, [raw.RawRow(gse, "123", _OLD)])
+    write_rows(root, raw.GEO_SOFT, [raw.RawRow(gse, soft or _soft(gse), _OLD)])
+    write_rows(root, raw.GEO_FILELIST, [raw.RawRow(gse, f"{gse}_RAW.tar", _OLD)])
+    write_rows(root, raw.GEO_GAPS, [gap_row(gse, SOFT_MISSING, _OLD)])
+    write_rows(root, raw.ENTREZ_LINKS, [raw.RawRow(gse, f"{gse}\tbioproject\t1\tP", _OLD)])
+    write_rows(root, raw.PUBMED_SI, [raw.RawRow(gse, "123", _OLD)])
 
 
 def _held(root: Path, source: str) -> dict[str, str]:
-    return {row.accession: row.raw_text for row in raw.rows(root, source)}
+    return dict(raw.saved(root, source))
 
 
 def _gds(gse: str) -> tuple[str, str]:
@@ -165,6 +166,10 @@ def test_a_series_confirmed_gone_leaves_raw_with_its_series_keyed_rows(
 
     assert "1 confirmed gone" in _step(root, "_confirm")
     assert removals.candidates(root) == []  # gone before pack
+    # Named again, as a rerun by hand would: NCBI is not asked twice.
+    again = tmp_path / "candidates.txt"
+    again.write_text("GSE3\n")
+    assert "0 asked" in _step(root, "_confirm", "--candidates", str(again))
     with caplog.at_level("INFO"):
         _step(root, "pack")
 
@@ -204,7 +209,7 @@ def test_no_sra_record_is_a_candidate_and_each_stays_after_pack(
     root = _store(tmp_path / "store", ["GSE1"], tab)
     _hold_series(root, "GSE1", _soft("GSE1", _srx_line("SRX1"), _srx_line("SRX2")))
     packages = {s: _package(s, f"SRR{s[3:]}") for s in ("SRX1", "SRX2")}
-    pack.write_rows(root, raw.SRA_XML, [raw.RawRow(s, p, _OLD) for s, p in packages.items()])
+    write_rows(root, raw.SRA_XML, [raw.RawRow(s, p, _OLD) for s, p in packages.items()])
     # This refresh's fetch got no package for SRX3.
     _part(root, raw.SRA_XML, raw.RawRow("SRX3", "", _DATE))
     ncbi = Ncbi({("efetch", s): [_EMPTY_IDS] for s in ("SRX1", "SRX2", "SRX3")})
@@ -231,7 +236,7 @@ def test_a_series_this_fetch_got_no_record_for_is_confirmed(
     _step(root, "pack")
 
     assert set(_held(root, raw.GEO_SOFT)) == {"GSE1"}
-    assert set(_held(root, raw.GEO_GAPS)) == {"GSE1"}
+    assert _held(root, raw.GEO_GAPS) == {"GSE1": SOFT_MISSING, "GSE2": "withdrawn"}
     assert ncbi.calls == [_gds("GSE2")]
 
 
@@ -260,7 +265,7 @@ def test_pack_cut_off_and_rerun_or_a_removal_applied_twice_changes_nothing(
 ) -> None:
     whole = _store(tmp_path / "whole", ["GSE1"])
     cut = _store(tmp_path / "cut", ["GSE1"])
-    monkeypatch.setattr(pack, "FAN_IN", 2)
+    monkeypatch.setattr(raw, "FAN_IN", 2)
     for root in (whole, cut):
         for gse in ("GSE1", "GSE3"):
             _hold_series(root, gse)
@@ -323,10 +328,10 @@ def test_confirm_logs_its_progress_per_batch(
 def test_writing_the_same_removal_again_keeps_its_place_before_later_rows(tmp_path: Path) -> None:
     root = _store(tmp_path / "store", ["GSE1"])
     _hold_series(root, "GSE3")
-    raw.write_removals(root, raw.GEO_SOFT, ["GSE3"])
+    raw.remove(root, raw.GEO_SOFT, ["GSE3"])
     _part(root, raw.GEO_SOFT, raw.RawRow("GSE3", "came back", _DATE))
 
-    raw.write_removals(root, raw.GEO_SOFT, ["GSE3"])
+    raw.remove(root, raw.GEO_SOFT, ["GSE3"])
     _one_tick(root, raw.GEO_SOFT)
     _step(root, "pack")
 
@@ -335,9 +340,8 @@ def test_writing_the_same_removal_again_keeps_its_place_before_later_rows(tmp_pa
 
 def _one_tick(root: Path, source: str) -> None:
     """Give every part one mtime, as files written within one clock tick can have."""
-    for parts in raw.parts_by_bucket(root, source).values():
-        for path in parts:
-            os.utime(path, ns=(0, 0))
+    for path in (root / "work" / "parts" / source).glob("*.parquet"):
+        os.utime(path, ns=(0, 0))
 
 
 def _part(root: Path, source: str, *rows: raw.RawRow) -> Path:

@@ -125,7 +125,7 @@ def _step(root: Path, *args: str) -> str:
 
 
 def _held(root: Path, source: str) -> dict[str, str]:
-    return {row.accession: row.raw_text for row in raw.rows(root, source)}
+    return dict(raw.saved(root, source))
 
 
 def _runs(package: str) -> list[str]:
@@ -215,14 +215,18 @@ def test_a_fetch_error_keeps_a_candidate_and_a_rerun_asks_only_it_again(
     assert "confirmed 2 of 4:" in caplog.text
     assert "confirmed 4 of 4:" in caplog.text
     assert SUPPRESSED in _held(root, raw.SRA_XML)
+    # A kill after the last batch's removal part, before its settled lines.
+    settled = sra_removal.work_dir(root) / "settled.txt"
+    settled.write_text(f"{RUN_SRX}\n", encoding="utf-8")
 
     ncbi.failing = set()
     ncbi.fetched.clear()
     said = _step(root, "remove-sra")
     _step(root, "pack")
 
-    assert ncbi.fetched == [SUPPRESSED]
-    assert "1 asked" in said
+    # The removed experiment is not asked again; the one served in its batch is.
+    assert set(ncbi.fetched) == {SUPPRESSED, ITS_SRX}
+    assert "2 asked" in said
     assert SUPPRESSED not in _held(root, raw.SRA_XML)
 
 

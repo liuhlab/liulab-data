@@ -36,7 +36,9 @@ def test_the_copy_sends_the_state_files_and_the_readme_frees_the_scratch_ones_no
     readme = paths.README.at(root).read_text(encoding="utf-8")
     cleanup = readme.split("\n## Clean up\n", 1)[1].split("\n## ", 1)[0]
     listed = re.findall(r"^- `([^`]+)`", cleanup, re.MULTILINE)
-    assert sorted(listed) == sorted(paths.declared(paths.Kind.SCRATCH))
+    # The pending copy record is scratch that a cut copy finishes from: no one may delete it.
+    freed = set(paths.declared(paths.Kind.SCRATCH)) - {paths.PENDING_RECORD.rel}
+    assert sorted(listed) == sorted(freed)
     # Deleting what the README frees, and all of work/, keeps every extract.
     shutil.rmtree(root / "work")
     shutil.rmtree(root / "support", ignore_errors=True)

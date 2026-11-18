@@ -25,6 +25,8 @@ from tests.test_store_refresh import _jobs
 
 _DATA = Path(__file__).parent / "data" / "geo_slice"
 _CLOSING = ("extract", "build", "switch", "prune", "copy")
+#: The full run's round folder for the slice's snapshots.
+_ROUND = "work/run/2026-10-14-all"
 
 
 @pytest.fixture(autouse=True)
@@ -220,21 +222,19 @@ def test_a_refresh_whose_owner_is_gone_resumes_within_seven_days_and_is_abandone
     assert not (root / "work" / "run.lock").exists()
 
 
-def test_a_refresh_replaced_after_its_switch_hands_on_its_copy_and_prune_removes_its_folder(
+def test_a_full_run_replacing_a_switched_refresh_hands_on_its_copy_and_prune_removes_its_folder(
     root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _built(root)
-    folder = _unfinished(root, days=8)
+    folder = _unfinished(root, days=1)
     switched = {"build": "b1", "outcome": "built", "copy_pending": True}
     lifecycle.write_status(root, lifecycle.read_status(root) | switched)
     seen = _folders(monkeypatch)
 
-    result = CliRunner().invoke(
-        app, ["store", "refresh", "--root", str(root), "--since", "2026-11-01"]
-    )
+    result = CliRunner().invoke(app, ["store", "run", "--root", str(root)])
 
     assert result.exit_code == 1, result.output
-    assert seen != [str(root / folder)]
+    assert seen == [str(root / _ROUND)]
     assert lifecycle.read_status(root)["copy_pending"] is True
     _store("prune", "--root", str(root))
     assert not (root / folder).exists()
@@ -257,6 +257,47 @@ def test_rerunning_a_finished_round_leaves_the_status_record_and_says_the_round_
     assert seen == []
     assert (root / "refresh-status.json").read_bytes() == before
     assert f"{folder} is done" in caplog.text, output
+
+
+def test_a_finalized_round_rerun_for_a_failed_lane_is_running_and_a_stop_fails_it_to_resume(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    folder = root / _ROUND
+    folder.mkdir(parents=True)
+    for marker in ("copy.done", "geo.failed"):
+        (folder / marker).touch()
+    finalized = {"update": "run", "folder": _ROUND, "build": "b1", "started": _ago(2)}
+    lifecycle.write_status(root, finalized | {"outcome": "finalized", "ended": _ago(1)})
+    during: list[tuple[str, str, str]] = []
+
+    def stopped(argv: list[str], *, verbose: bool) -> int:
+        status = lifecycle.read_status(root)
+        during.append((argv[argv.index("--directory") + 1], status["outcome"], status["started"]))
+        return 1
+
+    monkeypatch.setattr(pipeline, "_run_snakemake", stopped)
+    again = ["store", "run", "--root", str(root)]
+
+    for _ in range(2):
+        assert CliRunner().invoke(app, again).exit_code == 1
+        assert lifecycle.read_status(root)["outcome"] == "failed"
+
+    assert during == [(str(folder), "running", finalized["started"])] * 2
+
+
+def test_a_round_left_only_its_copy_copies_and_says_its_failed_lane_runs_on_the_next_run(
+    root: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    (root / _ROUND).mkdir(parents=True)
+    (root / _ROUND / "geo.failed").touch()
+    switched = {"update": "run", "folder": _ROUND, "build": "b1", "outcome": "built"}
+    lifecycle.write_status(root, switched | {"copy_pending": True})
+    seen = _folders(monkeypatch)
+
+    CliRunner().invoke(app, ["store", "run", "--root", str(root)])
+
+    assert seen == []
+    assert "the geo lane left items failed; it runs again on the next run" in caplog.text
 
 
 @pytest.mark.parametrize("job", [None, _UNASKED], ids=["off Slurm", "no Slurm answer"])

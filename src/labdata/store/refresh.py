@@ -3,13 +3,12 @@
 The DAG lives in the packaged ``refresh.smk``; :func:`run` hands it to the one driver,
 :func:`labdata.store.pipeline.drive`. A refresh's markers, logs and Snakemake state sit in
 ``work/refresh/<started>/``. The status record (:mod:`labdata.store.lifecycle`) names that
-folder until the refresh is finalized, so a rerun within :data:`RESUME_WITHIN` of its start
-resumes there: at the copy, when only the copy is left. An older one is not resumed.
+folder until the refresh is finalized, and a rerun goes on as
+:func:`labdata.store.lifecycle.plan` decides.
 """
 
 from __future__ import annotations
 
-import datetime as dt
 import json
 import logging
 import shlex
@@ -25,12 +24,9 @@ from labdata.store.layout import manifest_path
 from labdata.store.reader import build_path
 from labdata.store.root import open_store
 
-#: The version of ``refresh.smk``'s markers; raise it when a marker changes meaning, so an
-#: unfinished refresh an older DAG opened is left, not resumed.
+#: The version of ``refresh.smk``'s markers; raise it when a marker changes meaning, so a
+#: refresh an older DAG opened is not resumed before its switch.
 DAG = 4
-
-#: An unfinished refresh is resumed only within this time of its start.
-RESUME_WITHIN = dt.timedelta(days=7)
 
 logger = logging.getLogger(__name__)
 
@@ -65,11 +61,12 @@ def run(
     verbose: bool = True,
     owner_gone: bool = False,
 ) -> int:
-    """Run a refresh, or resume the unfinished one the status record names.
+    """Run a refresh, or go on with the unfinished one the status record names.
 
-    The unfinished refresh is resumed when it started within :data:`RESUME_WITHIN` and an
-    older refresh DAG did not open it. Otherwise a new refresh starts in a new folder; one that
-    stopped before its switch is abandoned, and prune removes its folder.
+    One stopped before its switch is resumed when it started within
+    :data:`labdata.store.lifecycle.RESUME_WITHIN` by this refresh DAG; otherwise it is
+    abandoned, prune removes its folder, and a new refresh starts in a new folder. One that
+    switched with its copy pending gets the copy alone.
 
     Parameters
     ----------
@@ -98,7 +95,7 @@ def run(
     return pipeline.drive(
         root,
         lifecycle.REFRESH,
-        lambda status: _plan(root, status, since),
+        lambda status: _round(root, status, since),
         snakefile="refresh.smk",
         cores=cores,
         ncbi=ncbi,
@@ -107,27 +104,24 @@ def run(
     )
 
 
-def _plan(root: Path, status: dict[str, Any], since: str | None) -> pipeline.Round:
-    """Resume the unfinished refresh the status record names, or plan a new one."""
-    unfinished = lifecycle.unfinished(status, lifecycle.REFRESH)
-    left = None
-    if unfinished and status.get("dag", 1) != DAG:
-        left = "an older refresh DAG opened it"
-    elif unfinished and _age(status["started"]) > RESUME_WITHIN:
-        left = f"it started more than {RESUME_WITHIN.days} days ago"
-    if left:
-        logger.warning("the unfinished refresh in %s is not resumed: %s", status["folder"], left)
-        if status["outcome"] != lifecycle.BUILT:
-            since = since or status["since"]
-        unfinished = False
-    if unfinished:
+def _round(root: Path, status: dict[str, Any], since: str | None) -> pipeline.Round:
+    """Set up the refresh :func:`lifecycle.plan` decides on: its folder, record and config."""
+    decided = lifecycle.plan(status, lifecycle.REFRESH, dag=DAG)
+    if decided.abandoned:
+        logger.warning(
+            "the unfinished refresh in %s is not resumed: %s", status["folder"], decided.abandoned
+        )
+        since = since or status["since"]
+    if decided.action == lifecycle.Action.COPY:
+        return pipeline.Round(root / str(decided.folder), decided)
+    if decided.action == lifecycle.Action.RESUME:
         logger.info("resuming the refresh started %s", status["started"])
         if since is not None and since != status["since"]:
             logger.warning(
                 "--since %s is not used: the unfinished refresh keeps %s", since, status["since"]
             )
         started, since, fields = status["started"], status["since"], {}
-        work = root / status["folder"]
+        work = root / str(decided.folder)
     else:
         started = utc_stamp()
         since = (
@@ -149,8 +143,4 @@ def _plan(root: Path, status: dict[str, Any], since: str | None) -> pipeline.Rou
         "date": started[:10],
         "since": since,
     }
-    return pipeline.Round(work, fields, config)
-
-
-def _age(started: str) -> dt.timedelta:
-    return dt.datetime.now(dt.UTC) - dt.datetime.fromisoformat(started)
+    return pipeline.Round(work, decided, fields, config)

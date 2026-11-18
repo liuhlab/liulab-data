@@ -18,18 +18,29 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from labdata.exceptions import StoreBuildError
-from labdata.store import extract, layout, paths, raw, targets
-from labdata.store.layout import GAPS, HOLDINGS, NOTES, records_path, sql_string
+from labdata.store import extract, layout, raw, targets
+from labdata.store.layout import (
+    GAPS,
+    HOLDINGS,
+    NOTES,
+    read_parquet_sql,
+    records_path,
+    sql_string,
+)
 from labdata.store.reader import BuildReader, current_build, current_path
 
 #: The download site answered 404 for the Series' family SOFT.
 SOFT_MISSING = "soft-missing"
 #: Retries were exhausted; a rerun clears it.
 FETCH_FAILED = "fetch-failed"
+#: Confirmed gone: GEO no longer serves the Series (see :mod:`labdata.store.removals`).
+WITHDRAWN = "withdrawn"
 #: Not held and no known reason.
 UNEXPLAINED = "unexplained"
-#: Every gap reason. A new reason is added here, on purpose.
-REASONS = (SOFT_MISSING, FETCH_FAILED, UNEXPLAINED)
+#: The reasons a gap row records, each an explained gap. A new reason is added here, on purpose.
+RECORDED = (SOFT_MISSING, FETCH_FAILED, WITHDRAWN)
+#: Every gap reason, the recorded ones first.
+REASONS = (*RECORDED, UNEXPLAINED)
 
 #: Note kind: a target Series whose SOFT ``!Series_type`` names no sequencing.
 TYPE_DISAGREES = "series type disagrees"
@@ -97,14 +108,14 @@ class Coverage:
 
 
 def gap_row(series: str, reason: str, fetch_date: str, detail: str = "") -> raw.RawRow:
-    """Return the ``raw/geo-gaps/`` row recording why the fetch could not save a Series.
+    """Return the ``raw/geo-gaps/`` row recording why the store does not hold a Series.
 
     Parameters
     ----------
     series : str
         The target Series.
     reason : str
-        ``SOFT_MISSING`` or ``FETCH_FAILED``.
+        Any reason but ``UNEXPLAINED``.
     fetch_date : str
         The fetch date.
     detail : str
@@ -120,10 +131,15 @@ def gap_row(series: str, reason: str, fetch_date: str, detail: str = "") -> raw.
     >>> gap_row("GSE1", SOFT_MISSING, "2026-10-14").raw_text
     'soft-missing'
     """
-    if reason not in (SOFT_MISSING, FETCH_FAILED):
+    if reason not in RECORDED:
         raise ValueError(f"not a recordable gap reason: {reason!r}")
     line = " ".join(detail.split())
     return raw.RawRow(series, f"{reason}\n{line}" if line else reason, fetch_date)
+
+
+def reason_of(text: str) -> str:
+    """Return the reason a ``raw/geo-gaps/`` row's text records, as :func:`gap_row` wrote it."""
+    return text.split("\n", 1)[0]
 
 
 def write_gaps(
@@ -150,7 +166,7 @@ def write_gaps(
     metadata = {DATE_KEY: date}
     if fraction is not None:
         metadata[FRACTION_KEY] = repr(fraction)
-    reasons = ", ".join(sql_string(r) for r in REASONS[:-1])
+    reasons = ", ".join(sql_string(r) for r in RECORDED)
     with extract.connect(root) as con:
         layout.write(
             con,
@@ -230,17 +246,17 @@ def write_notes(
     )
     unfetched = "SELECT * FROM extra WHERE false"
     sample = None if source is None else source.sample
-    saved = paths.RAW.at(root if source is None else source.root, raw.SRA_XML)
-    failed = saved.with_name(raw.SRA_FETCH_FAILED)
-    if any(failed.glob("*.parquet")):
+    held_in = root if source is None else source.root
+    saved = raw.files(held_in, raw.SRA_XML)
+    if failed := raw.files(held_in, raw.SRA_FETCH_FAILED):
         held = (
-            f"SELECT accession FROM {_read(saved / '*.parquet')}"
-            if any(saved.glob("*.parquet"))
+            f"SELECT accession FROM {read_parquet_sql(saved)}"
+            if saved
             else "SELECT NULL::VARCHAR AS accession WHERE false"
         )
         unfetched = (
             f"SELECT accession, '{PACKAGE_FETCH_FAILED}' AS kind, "
-            f"'no package saved; a rerun asks again' AS detail FROM {_read(failed / '*.parquet')} "
+            f"'no package saved; a rerun asks again' AS detail FROM {read_parquet_sql(failed)} "
             f"WHERE accession NOT IN ({held})"
             + ("" if sample is None else " AND in_sample(accession)")
         )
@@ -357,8 +373,8 @@ def _held_series(build_dir: Path) -> str:
 
 def _gap_rows(root: Path) -> str:
     """Return SQL for the recorded gap rows: accession, reason and detail (or NULL)."""
-    folder = paths.RAW.at(root, raw.GEO_GAPS)
-    if not any(folder.glob("*.parquet")):
+    files = raw.files(root, raw.GEO_GAPS)
+    if not files:
         return (
             "SELECT NULL::VARCHAR AS accession, NULL::VARCHAR AS reason, "
             "NULL::VARCHAR AS detail WHERE false"
@@ -368,5 +384,5 @@ def _gap_rows(root: Path) -> str:
         f"SELECT accession, split_part(raw_text, {nl}, 1) AS reason, "
         f"CASE WHEN strpos(raw_text, {nl}) > 0 "
         f"THEN substr(raw_text, strpos(raw_text, {nl}) + 1) END AS detail "
-        f"FROM {_read(folder / '*.parquet')}"
+        f"FROM {read_parquet_sql(files)}"
     )

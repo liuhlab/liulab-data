@@ -20,12 +20,12 @@ from typer.testing import CliRunner
 
 from labdata.cli import app
 from labdata.exceptions import AccessionError, LabdataError, NotFound, NotMirrored, StoreBuildError
-from labdata.store import Store, open_store, pack, raw
+from labdata.store import Store, open_store, raw
 from labdata.store.fetch import fetch
 from labdata.store.lifecycle import build
 from labdata.store.model import Link
 from tests._fakes import ExplodingEntrezClient, FakeEntrezClient
-from tests._slices import copy_snapshots
+from tests._slices import copy_snapshots, raw_rows, write_rows
 
 _DATA = Path(__file__).parent / "data" / "geo_slice"
 _SERIES = ["GSE246310", "GSE153830", "GSE19456", "GSE233931", "GSE233685", "GSE20301", "GSE28770"]
@@ -138,10 +138,10 @@ def test_fetch_saves_the_entrez_links_per_series_as_text(built: Path) -> None:
 def test_fetch_pulls_packages_of_every_linked_experiment_and_si_for_each_series(
     built: Path,
 ) -> None:
-    packages = {r.accession for r in raw.rows(built, raw.SRA_XML)}
+    packages = {r.accession for r in raw_rows(built, raw.SRA_XML)}
     # Record 12's experiment belongs to a Series its own test fetches.
     assert packages == {p.stem for p in (_DATA / "packages").iterdir()} - {"SRX1301523"}
-    searched = {r.accession: r.raw_text for r in raw.rows(built, raw.PUBMED_SI)}
+    searched = dict(raw.saved(built, raw.PUBMED_SI))
     assert {*_SERIES, *_SUBSERIES} <= set(searched)
     assert searched["GSE20301"] == "20194744"
     assert searched["GSE19456"] == ""
@@ -150,7 +150,7 @@ def test_fetch_pulls_packages_of_every_linked_experiment_and_si_for_each_series(
 def test_si_is_searched_for_every_held_bioproject_linked_or_given(store: Store) -> None:
     path = store.root / "builds" / "b1" / "holdings.parquet"
     held = {r["accession"] for r in _rows(path) if r["type"] == "BioProject"}
-    searched = {r.accession for r in raw.rows(store.root, raw.PUBMED_SI)}
+    searched = {r.accession for r in raw_rows(store.root, raw.PUBMED_SI)}
     assert "PRJNA120321" in held
     assert held <= searched
 
@@ -167,9 +167,9 @@ def test_a_rerun_makes_no_call_for_items_already_saved(built: Path, tmp_path: Pa
 
 def test_a_rerun_fetches_only_what_a_killed_run_left_out(root: Path) -> None:
     fetch(root, ["GSE19456"], client=_client(), today="2026-10-14")
-    lost = [r for r in raw.rows(root, raw.SRA_XML) if r.accession != "SRX018710"]
+    lost = [r for r in raw_rows(root, raw.SRA_XML) if r.accession != "SRX018710"]
     (root / "raw" / "sra-xml" / f"{raw.bucket_of(raw.SRA_XML, 'SRX018710')}.parquet").unlink()
-    pack.write_rows(root, raw.SRA_XML, lost)
+    write_rows(root, raw.SRA_XML, lost)
     client = _client()
     fetch(root, ["GSE19456"], client=client, today="2026-10-15")
     assert client.calls == [("efetch", ("sra", ("SRX018710",), "full"))]
@@ -206,7 +206,7 @@ def test_fetch_skips_a_series_that_is_not_sequencing_and_logs_its_type(
         report = fetch(root, ["GSE900001", "GSE900002"], client=client, today="2026-10-14")
     assert report.series == ("GSE900002", "GSE900003")
     assert sorted(
-        raw.saved(root, raw.GEO_SOFT, ["GSE900001", "GSE900002", "GSE900003", "GSE900004"])
+        raw.held(root, raw.GEO_SOFT, ["GSE900001", "GSE900002", "GSE900003", "GSE900004"])
     ) == [
         "GSE900002",
         "GSE900003",
@@ -277,10 +277,10 @@ def test_a_rebuild_gives_the_same_tables(built: Path) -> None:
 def _with_relation(root: Path, line: str) -> None:
     """Save GSE233931's family SOFT with one more relation line after its BioProject line."""
     fetch(root, ["GSE233931"], client=_client(), today="2026-10-14")
-    [row] = raw.rows(root, raw.GEO_SOFT)
+    [row] = raw_rows(root, raw.GEO_SOFT)
     anchor = "!Series_relation = BioProject:"
     text = row.raw_text.replace(anchor, f"{line}\n{anchor}", 1)
-    pack.write_rows(root, raw.GEO_SOFT, [raw.RawRow(row.accession, text, row.fetch_date)])
+    write_rows(root, raw.GEO_SOFT, [raw.RawRow(row.accession, text, row.fetch_date)])
 
 
 def test_an_unknown_relation_label_is_kept_verbatim_and_reported(
@@ -315,11 +315,11 @@ def test_a_relation_line_naming_no_accession_fails_the_build(root: Path) -> None
 
 def _edit_sample(root: Path, series: str, sample: str, old: str, new: str) -> None:
     """Replace ``old`` with ``new`` in one sample's block of one saved family SOFT."""
-    rows = {r.accession: r for r in raw.rows(root, raw.GEO_SOFT)}
+    rows = {r.accession: r for r in raw_rows(root, raw.GEO_SOFT)}
     head, start, tail = rows[series].raw_text.partition(f"^SAMPLE = {sample}\n")
     block, nxt, rest = tail.partition("\n^")
     text = head + start + block.replace(old, new) + nxt + rest
-    pack.write_rows(root, raw.GEO_SOFT, [raw.RawRow(series, text, "2026-10-14")])
+    write_rows(root, raw.GEO_SOFT, [raw.RawRow(series, text, "2026-10-14")])
 
 
 _UPDATED = "!Sample_last_update_date = Dec 31 2024"

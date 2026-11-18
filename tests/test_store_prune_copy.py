@@ -16,9 +16,8 @@ from typer.testing import CliRunner, Result
 
 from labdata.cli import app
 from labdata.store import extract, lifecycle, raw
-from labdata.store.gcs import COPIED
+from labdata.store.gcs import COPIED, check
 from labdata.store.lifecycle import build
-from labdata.store.pack import pack
 from labdata.store.prune import GRACE, prune
 from tests._fake_gcs import FakeGcs, KilledError
 from tests._slices import BuiltStore
@@ -103,10 +102,12 @@ def test_prune_rewrites_the_readme_sizes_after_it_deletes(root: Path) -> None:
     build(root, "b2")
     readme = root / "README.md"
     before = readme.read_text(encoding="utf-8")
-    assert prune(root, grace=dt.timedelta(0)).deleted
-    after = readme.read_text(encoding="utf-8")
+    # Both steps of one update, under its run lock, which work/ holds.
+    with lifecycle.run_lock(root, lifecycle.REFRESH):
+        assert prune(root, grace=dt.timedelta(0)).deleted
+        after = readme.read_text(encoding="utf-8")
+        result = CliRunner().invoke(app, ["store", "readme", "--root", str(root)])
     assert after != before
-    result = CliRunner().invoke(app, ["store", "readme", "--root", str(root)])
     assert result.exit_code == 0, result.output
     assert readme.read_text(encoding="utf-8") == after
 
@@ -386,6 +387,29 @@ def test_a_copy_sends_the_status_record_last_marked_finalized_and_again_if_cut_o
     assert status["ended"]
 
 
+def test_a_copy_cut_after_its_copy_record_lands_passes_the_next_check_and_ends_finalized(
+    root: Path, gcs: FakeGcs
+) -> None:
+    _copy_to(root)
+    _full(root)
+    build(root, "b2")
+    switched = {"last_success": "2026-11-01", "copy_pending_at_switch": False, "ended": None}
+    _status(root, **switched, copy_pending=True)
+    gcs.cut = COPIED
+
+    assert isinstance(_copy(root).exception, KilledError)
+    assert gcs.read(COPIED) != (root / COPIED).read_bytes()
+
+    gcs.cut = ""
+    # The check an update starts with: it adopts the record GCS holds.
+    assert check(root)
+    assert (root / COPIED).read_bytes() == gcs.read(COPIED)
+    assert _copy(root).exit_code == 0
+    assert _finalized(gcs, root)["last_success"] == "2026-11-01"
+    assert not [p for p in gcs.files() if "pending" in p]
+    _holds_its_record(gcs, root)
+
+
 @pytest.mark.parametrize("outcome", ["running", "failed"])
 def test_a_copy_leaves_the_status_record_of_a_refresh_that_has_not_switched(
     root: Path, gcs: FakeGcs, outcome: str
@@ -418,8 +442,8 @@ def _drop_bucket(root: Path, *names: str) -> list[str]:
     gone = [f"raw/pubmed-si/{name}" for name in names or ["SRPnnnnnn.parquet"]]
     for path in gone:
         rows = pq.read_table(root / path, columns=["accession"]).column(0).to_pylist()
-        raw.write_removals(root, "pubmed-si", rows)
-    pack(root, ["pubmed-si"])
+        raw.remove(root, "pubmed-si", rows)
+    raw.pack(root, ["pubmed-si"])
     build(root, "b2")
     assert not any((root / path).exists() for path in gone)
     return gone
@@ -472,8 +496,9 @@ def test_a_copy_from_a_disk_behind_gcs_sends_nothing_until_a_restore_brings_it_i
     build(other, "b2")
     assert _copy(other).exit_code == 0
     gcs.forget()
-    # This disk still names b1: its copy record is not the one in GCS.
+    # This disk still names b1: its copy record is not the one in GCS, nor is a pending one.
     _status(root, copy_pending=False)
+    shutil.copy(root / COPIED, root / f"{COPIED}.pending")
 
     refused = _copy(root)
 
@@ -712,7 +737,7 @@ def test_any_failure_past_the_destination_marks_the_copy_pending(
     assert lifecycle.read_status(root)["copy_pending"] is True
 
 
-def test_a_restore_onto_a_disk_without_a_copy_record_downloads_only_what_it_lacks(
+def test_a_restore_onto_a_disk_without_a_copy_record_leaves_exactly_the_state_gcs_names(
     root: Path, gcs: FakeGcs, tmp_path: Path
 ) -> None:
     _copy_to(root)
@@ -722,6 +747,11 @@ def test_a_restore_onto_a_disk_without_a_copy_record_downloads_only_what_it_lack
     shutil.copytree(root, disk)
     (disk / COPIED).unlink()
     lost = next(p for p in _record(gcs) if p.startswith("raw/") and p.endswith(".parquet"))
+    # State GCS does not hold, which the next build would read.
+    stray = [str(Path(lost).with_name("stray.parquet")), "builds/b0/manifest.json"]
+    (disk / "builds" / "b0").mkdir()
+    for path in stray:
+        shutil.copy(disk / lost, disk / path)
     (disk / lost).unlink()
     (disk / "work" / "eutils").mkdir(parents=True, exist_ok=True)
     (disk / "work" / "eutils" / "half-done.tsv").write_text("mine")
@@ -735,4 +765,6 @@ def test_a_restore_onto_a_disk_without_a_copy_record_downloads_only_what_it_lack
     assert (disk / lost).read_bytes() == gcs.read(lost)
     assert (disk / COPIED).read_bytes() == gcs.read(COPIED)
     assert (disk / _STATUS).read_bytes() == gcs.read(_STATUS)
+    assert sorted([*_files(disk, "builds", "raw", "snapshots"), *_TOP]) == _record(gcs)
+    assert check(disk)
     assert {p: (disk / p).read_bytes() for p in _files(disk, "work", "extracts")} == kept

@@ -2,10 +2,10 @@
 
 An update goes through the phases fetched, packed, built, checked, switched and finalized. It
 is a refresh or a full run, each a Snakemake DAG, a build by hand, or the yearly SRA removal.
-This module owns the status record, the run lock, the switch and the copy outcome: a build is
-written without a switch (:func:`build`), :func:`switch` checks it and only then switches the
-work disk to it, and :func:`finalize` copies the store to GCS. :func:`run_lock` lets one
-update run at a time.
+This module owns the status record, the run lock, the resume plan, the switch and the copy
+outcome: a build is written without a switch (:func:`build`), :func:`switch` checks it and
+only then switches the work disk to it, and :func:`finalize` copies the store to GCS.
+:func:`run_lock` lets one update run at a time, and :func:`plan` decides how a DAG goes on.
 
 The status record, ``refresh-status.json``, is the store's: the last update (``update``), its
 start, end and outcome, and the build it made. The outcome is running; failed, stopped before
@@ -17,11 +17,15 @@ of the last successful refresh, written at its switch.
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import logging
 import os
+from collections import defaultdict
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
+from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -30,7 +34,7 @@ from labdata._files import create, utc_stamp, write_atomic
 from labdata.exceptions import StoreBuildError
 from labdata.ncbi.entrez import EntrezClient
 from labdata.store import build as _build
-from labdata.store import gaps, gcs, pack, paths, readme, sra_removal
+from labdata.store import gaps, gcs, paths, raw, readme, sra_removal
 from labdata.store.gaps import Coverage
 from labdata.store.reader import BuildReader, build_path
 from labdata.store.sra_removal import SraRemovalReport
@@ -49,8 +53,16 @@ RUNNING, FAILED, ABANDONED, BUILT, FINALIZED = (
 )
 #: The updates the status record names, by the command that runs each.
 REFRESH, RUN, BUILD, REMOVE_SRA = "refresh", "run", "build", "remove-sra"
-#: The other holders of the run lock.
-PRUNE, RESTORE = "prune", "restore"
+#: The other holders of the run lock, each a command's name.
+PRUNE, RESTORE, PACK, FETCH, EXTRACT, README, COPY = (
+    "prune",
+    "restore",
+    "pack",
+    "fetch",
+    "extract",
+    "readme",
+    "copy",
+)
 #: The status key keeping ``copy_pending`` as it stood when the update switched builds.
 AT_SWITCH = "copy_pending_at_switch"
 #: The file in a refresh's folder each pack appends its per-bucket counts to.
@@ -62,6 +74,8 @@ ABANDONED_RECORD = "abandoned.json"
 RUN_OWNER = "LABDATA_RUN_OWNER"
 #: An outcome before the switch: the work disk still reads the build before the update's.
 _UNSWITCHED = (RUNNING, FAILED)
+#: A refresh stopped before its switch resumes only within this time of its start.
+RESUME_WITHIN = dt.timedelta(days=7)
 
 
 class CheckError(StoreBuildError):
@@ -74,6 +88,107 @@ class CheckError(StoreBuildError):
 
 class StoreBusyError(StoreBuildError):
     """Another update holds the store's run lock."""
+
+
+class Action(StrEnum):
+    """What a store DAG's driver does, by :func:`plan`."""
+
+    RESUME = "resume"
+    COPY = "copy"
+    NEW = "new"
+    NOTHING = "nothing"
+
+
+@dataclass(frozen=True, slots=True)
+class Plan:
+    """What a store DAG's driver does next, as :func:`plan` decides it.
+
+    Parameters
+    ----------
+    action : Action
+        Resume the run in ``folder``, copy only, start a new update, or do nothing.
+    folder : str or None
+        The run's folder, from the root: the one the status record names, to resume or copy;
+        else the one asked for, None for a new refresh.
+    abandoned : str or None
+        Why the run of this update stopped before its switch is not resumed.
+    running : bool
+        The update is running while the driver runs Snakemake: its steps up to the switch
+        may run.
+    """
+
+    action: Action
+    folder: str | None = None
+    abandoned: str | None = None
+    running: bool = False
+
+
+def plan(
+    status: Mapping[str, Any],
+    update: str,
+    folder: str | None = None,
+    *,
+    done: bool = False,
+    rerun: bool = False,
+    dag: int | None = None,
+    now: dt.datetime | None = None,
+) -> Plan:
+    """Decide how a store DAG goes on from the status record: one rule for both drivers.
+
+    A run of ``update`` stopped before its switch resumes; a refresh only within
+    :data:`RESUME_WITHIN` of its start and by the same ``dag``, else a new one starts. A run
+    switched with its copy pending is finished by the copy alone, whatever its age or DAG.
+    A full run's round whose last step is done, or that is finalized, runs nothing, unless
+    ``rerun``; a finalized round run again is running until it switches again.
+
+    Parameters
+    ----------
+    status : mapping
+        The status record.
+    update : str
+        :data:`REFRESH` or :data:`RUN`.
+    folder : str or None
+        The run's folder, from the root: a full run's round. None for a refresh, whose
+        unfinished run the status record names.
+    done : bool
+        The run in ``folder`` finished its last step.
+    rerun : bool
+        Steps of the run in ``folder`` are to run again: a lane left items failed.
+    dag : int or None
+        The refresh DAG's version.
+    now : datetime or None
+        The time a refresh's age is taken at; defaults to now.
+
+    Returns
+    -------
+    Plan
+    """
+    named = status.get("folder")
+    mine = update_of(status) == update and bool(named) and folder in (None, named)
+    outcome = status.get("outcome")
+    if mine and outcome == BUILT and status.get("copy_pending"):
+        return Plan(Action.COPY, named)
+    if mine and outcome in _UNSWITCHED:
+        abandoned = _stale(status, dag, now) if update == REFRESH else None
+        if abandoned:
+            return Plan(Action.NEW, folder, abandoned, running=True)
+        return Plan(Action.RESUME, named, running=True)
+    carried = mine and folder is not None
+    if not rerun and (done or (carried and outcome == FINALIZED)):
+        return Plan(Action.NOTHING, folder)
+    if carried:
+        return Plan(Action.RESUME, named, running=rerun)
+    return Plan(Action.NEW, folder, running=True)
+
+
+def _stale(status: Mapping[str, Any], dag: int | None, now: dt.datetime | None) -> str | None:
+    """Return why a refresh stopped before its switch is not resumed, or None."""
+    if status.get("dag", 1) != dag:
+        return "an older refresh DAG opened it"
+    started = dt.datetime.fromisoformat(str(status["started"]))
+    if (now or dt.datetime.now(dt.UTC)) - started > RESUME_WITHIN:
+        return f"it started more than {RESUME_WITHIN.days} days ago"
+    return None
 
 
 @contextmanager
@@ -89,7 +204,7 @@ def run_lock(root: Path, update: str, *, owner_gone: bool = False) -> Iterator[N
     root : pathlib.Path
         The store root.
     update : str
-        What takes the lock, for the record: an update, :data:`PRUNE` or :data:`RESTORE`.
+        What takes the lock, for the record: an update or a command's name, such as :data:`PACK`.
     owner_gone : bool
         The holder has ended, though this host cannot check it.
 
@@ -128,14 +243,18 @@ def write_status(root: Path, status: Mapping[str, Any]) -> None:
     write_atomic(paths.STATUS.at(root), _dump(status))
 
 
-def start(root: Path, update: str, folder: str | None = None, **fields: Any) -> dict[str, Any]:
+def start(
+    root: Path, update: str, folder: str | None = None, *, running: bool = False, **fields: Any
+) -> dict[str, Any]:
     """Begin an update, or carry on the run in ``folder`` the status record names.
 
     Every update first checks the work disk against GCS (:func:`labdata.store.gcs.check`),
     and only warns when rclone's login has expired. A new update keeps the last-success date
     and ``copy_pending``; ``fields`` add to it. An unfinished run it replaces gets the record
     :data:`ABANDONED_RECORD` in its folder: abandoned before its switch; after it, its pending
-    copy carries over. A run carried on is running again unless it has switched builds.
+    copy carries over. A new run first packs every part an earlier run left, so a part saved
+    since the last pack is its own. A run carried on is running again, unless it has switched
+    builds and ``running`` is false.
 
     Parameters
     ----------
@@ -145,6 +264,8 @@ def start(root: Path, update: str, folder: str | None = None, **fields: Any) -> 
         :data:`REFRESH`, :data:`RUN`, :data:`BUILD` or :data:`REMOVE_SRA`.
     folder : str or None
         A run's folder, from the root; None for an update by hand.
+    running : bool
+        The run carried on runs its steps up to its switch again, as :attr:`Plan.running`.
     **fields
         More of the new update's record, such as ``started`` or ``since``.
 
@@ -161,12 +282,14 @@ def start(root: Path, update: str, folder: str | None = None, **fields: Any) -> 
     _check(root)
     status = read_status(root)
     if folder is not None and status.get("folder") == folder:
-        if status.get("outcome") in _UNSWITCHED:
+        if running or status.get("outcome") in _UNSWITCHED:
             status["outcome"] = RUNNING
         if status.get("outcome") != FINALIZED:
             status["ended"] = None
     else:
         _abandon(root, status)
+        if folder is not None:
+            raw.pack(root)
         status = {
             "update": update,
             "started": utc_stamp(),
@@ -297,9 +420,14 @@ def switch(root: Path) -> tuple[dict[str, Any], Coverage]:
 
 
 def finalize(
-    root: Path, destination: str | None = None, *, full: bool = False, accept_deletes: int = 0
+    root: Path,
+    destination: str | None = None,
+    *,
+    full: bool = False,
+    accept_deletes: int = 0,
+    owner_gone: bool = False,
 ) -> _gcs.CopyResult:
-    """Copy the store to GCS: the update is finalized once the copy works.
+    """Copy the store to GCS under the run lock: the update is finalized once the copy works.
 
     The copy sends the status record last, marked finalized, unless the update has not
     switched builds yet. Past the destination checks, a copy skipped or failed marks the copy
@@ -313,6 +441,8 @@ def finalize(
         An rclone path, ``<remote>:<bucket>/<path>``; defaults to the marker's ``copy_to``.
     full, accept_deletes
         As for :func:`labdata.store.gcs.send`; ``full`` takes no ``accept_deletes``.
+    owner_gone : bool
+        As for :func:`run_lock`.
 
     Returns
     -------
@@ -324,24 +454,27 @@ def finalize(
     StoreCopyError
         If the store does not open, no destination is set or ``full`` comes with
         ``accept_deletes``; or as :func:`labdata.store.gcs.send` raises it.
+    StoreBusyError
+        If another update holds the run lock.
     """
     dest = gcs.destination(root, destination)
     if full and accept_deletes:
         raise gcs.StoreCopyError("--full deletes nothing, so it takes no --accept-deletes")
-    try:
-        result = gcs.send(
-            root,
-            dest,
-            finalized(root),
-            full=full,
-            accept_deletes=accept_deletes,
-            bucket_matches_marker=_gcs_holds_marker_build(read_status(root)),
-        )
-    except BaseException:
-        note_copy(root, pending=True)
-        raise
-    note_copy(root, pending=result.skipped)
-    return result
+    with run_lock(root, COPY, owner_gone=owner_gone):
+        try:
+            result = gcs.send(
+                root,
+                dest,
+                finalized(root),
+                full=full,
+                accept_deletes=accept_deletes,
+                bucket_matches_marker=_gcs_holds_marker_build(read_status(root)),
+            )
+        except BaseException:
+            note_copy(root, pending=True)
+            raise
+        note_copy(root, pending=result.skipped)
+        return result
 
 
 def remove_sra(root: Path, *, client: EntrezClient, owner_gone: bool = False) -> SraRemovalReport:
@@ -451,10 +584,42 @@ def _switched(root: Path, status: dict[str, Any]) -> dict[str, Any]:
     if update_of(status) == REFRESH:
         status |= {
             "last_success": status["started"][:10],
-            "counts": pack.read_counts(root / status["folder"] / PACK_COUNTS),
+            "counts": read_counts(root / status["folder"] / PACK_COUNTS),
         }
     write_status(root, status)
     return status
+
+
+def read_counts(path: Path) -> dict[str, dict[str, int]]:
+    """Return the records added, replaced and removed per source, from a pack's counts file.
+
+    A bucket packed again from the same parts, after a kill, counts once: its first record.
+
+    Parameters
+    ----------
+    path : pathlib.Path
+        The counts file; a missing one counts nothing.
+
+    Returns
+    -------
+    dict
+        Each source's counts by name, as :data:`labdata.store.raw.COUNTS` names them.
+    """
+    out: dict[str, dict[str, int]] = defaultdict(lambda: dict.fromkeys(raw.COUNTS, 0))
+    seen: set[tuple[str, str, str]] = set()
+    lines = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:  # a line cut off by a kill
+            continue
+        key = (row["source"], row["bucket"], row.get("parts", ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        for name in raw.COUNTS:
+            out[row["source"]][name] += row[name]
+    return dict(sorted(out.items()))
 
 
 def _switch_marker(root: Path, build_id: str) -> None:

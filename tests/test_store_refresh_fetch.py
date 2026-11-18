@@ -19,8 +19,9 @@ from labdata._http import RateLimiter
 from labdata.cli import app
 from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
-from labdata.store import changes, gaps, geo_lane, init_store, pack, raw
+from labdata.store import changes, gaps, geo_lane, init_store, raw
 from labdata.store.fetch import filelist_url, soft_url
+from tests._slices import write_rows
 
 OLD = "2026-09-01"
 SEQ = "Expression profiling by high throughput sequencing"
@@ -137,7 +138,7 @@ def _store(tmp_path: Path, targets: list[str], others: list[str] = ()) -> Path: 
 
 
 def _hold(root: Path, source: str, rows: dict[str, str]) -> None:
-    pack.write_rows(root, source, [raw.RawRow(a, text, OLD) for a, text in rows.items()])
+    write_rows(root, source, [raw.RawRow(a, text, OLD) for a, text in rows.items()])
 
 
 def _cli(ncbi: Ncbi, monkeypatch: pytest.MonkeyPatch, *args: str) -> str:
@@ -244,8 +245,8 @@ def _fetch_again(
 
 
 def _raw(root: Path, source: str) -> dict[str, str]:
-    pack.pack(root)
-    return {row.accession: row.raw_text for row in raw.rows(root, source)}
+    raw.pack(root)
+    return dict(raw.saved(root, source))
 
 
 def test_a_changed_series_replaces_its_soft_filelist_related_series_and_packages(
@@ -255,7 +256,7 @@ def test_a_changed_series_replaces_its_soft_filelist_related_series_and_packages
     ncbi = _changed_ncbi()
 
     said = _fetch_again(ncbi, monkeypatch, tmp_path, root, lanes=("_geo",))
-    pack.pack(root)  # as if pack ran first: raw/ no longer holds GSE1's old SOFT
+    raw.pack(root)  # as if pack ran first: raw/ no longer holds GSE1's old SOFT
     said += _fetch_again(ncbi, monkeypatch, tmp_path, root, lanes=("_eutils",))
 
     soft = _raw(root, raw.GEO_SOFT)
@@ -301,7 +302,7 @@ def test_a_series_whose_soft_fetch_failed_is_fetched_again_by_the_next_refresh(
     root = _held_store(tmp_path, monkeypatch)
     ncbi = Ncbi()  # GSE1's SOFT is not served this time
     _fetch_again(ncbi, monkeypatch, tmp_path, root, lanes=("_geo",))
-    pack.pack(root)
+    raw.pack(root)
     out = tmp_path / "next.txt"
     changes_args = ["_changes", "--since", "2026-11-01", "--out", str(out), "--root", str(root)]
 

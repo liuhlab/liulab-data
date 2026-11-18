@@ -18,11 +18,11 @@ from labdata.cli import app
 from labdata.ncbi import entrez as entrez_mod
 from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
-from labdata.papers import init_paper_store, open_paper_store, tables
 from labdata.papers import job as job_mod
+from labdata.papers import open_paper_store, tables
 from labdata.papers.openalex import Account, OpenAlex, accounts_path, load_accounts, save_accounts
 from tests._fake_gcs import FakeGcs
-from tests._paper_fakes import Article, FakeWeb, fixture_build, work
+from tests._paper_fakes import Article, FakeWeb, fixture_build, init_papers, work
 
 PMID = "41000001"
 DEST = "gcs:bucket/datalake/paper-store"
@@ -87,7 +87,7 @@ def gcs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> FakeGcs:
 def paper_store(tmp_path: Path) -> Path:
     store = fixture_build(tmp_path / "store", [("GSE1", f"PMID:{PMID}", "SOFT")])
     root = tmp_path / "papers"
-    init_paper_store(root, store, copy_to=DEST)
+    init_papers(root, store, copy_to=DEST)
     return root
 
 
@@ -263,7 +263,7 @@ def test_the_pmc_sync_logs_and_records_the_papers_it_moved_and_turned_away(
     unknown = ("GSE2", "DOI:10.1000/unknown", "SOFT Series_citation")
     store = fixture_build(tmp_path / "store", [("GSE1", f"PMID:{PMID}", "SOFT"), unknown])
     root = tmp_path / "papers"
-    init_paper_store(root, store, copy_to=DEST)
+    init_papers(root, store, copy_to=DEST)
     lines = serve(root, Clock(utc("2026-11-03 07:00")), until=utc("2026-11-03 07:10"))
 
     progress = [line for line in lines if line.startswith("looked up ")]
@@ -485,6 +485,33 @@ def test_an_expired_login_leaves_the_copy_pending_and_an_idle_tick_tries_it_agai
     assert idle == [True] * 60 + [False] * 10
     assert gcs.read("papers/2/2.pdf") == b"%PDF 2"
     assert (status(root)["finalized"], status(root)["copy_pending"]) == (True, False)
+
+
+@pytest.mark.parametrize("has_destination", [True, False])
+def test_an_idle_job_copies_a_store_a_killed_pass_left_unfinalized_only_with_a_destination(
+    tmp_path: Path, sbatch: Sbatch, gcs: FakeGcs, has_destination: bool
+) -> None:
+    root = holding(paper_store(tmp_path))
+    full_copy(root)
+    # A pass killed outright: its start is recorded, nothing else, and no copy is pending.
+    killed = {"outcome": "running", "kind": "daily", "start": "2026-11-05T00:30:00+00:00"}
+    record = {**status(root), "last_pass": killed, "finalized": False, "copy_pending": False}
+    record |= {"last_daily_success": "2026-11-05", "last_pmc_sync_success": "2026-11-03"}
+    (root / "paper-status.json").write_text(json.dumps(record))
+    if not has_destination:
+        marker = root / "labdata-papers.toml"
+        kept = [x for x in marker.read_text().splitlines() if not x.startswith("copy_to")]
+        marker.write_text("\n".join(kept) + "\n")
+    lines = serve(root, Clock(utc("2026-11-05 07:00")), until=utc("2026-11-05 09:30"))
+
+    copied = [line for line in lines if line.startswith("copied the paper store")]
+    if has_destination:
+        assert len(copied) == 1
+        assert (status(root)["finalized"], status(root)["copy_pending"]) == (True, False)
+    else:
+        assert not copied
+        assert not [line for line in lines if "GCS copy is skipped" in line]
+        assert status(root)["finalized"] is False
 
 
 def test_serve_submits_its_successor_from_the_slurm_job_id(

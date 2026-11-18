@@ -72,6 +72,7 @@ Held: 1983
 Gaps: 2
   soft-missing: 2
   fetch-failed: 0
+  withdrawn: 0
   unexplained: 0
 SRA experiments fetch-failed: 0 (not Series gaps)
 Coverage passes.
@@ -145,12 +146,13 @@ That folder holds the refresh's markers and logs.
 A refresh removes a GEO Series only when GEO no longer lists it, or the refresh got no record
 for it, and a fetch of it alone then says it is gone. It keeps every SRA record.
 
-A refresh that started more than 7 days ago, or that an older version of liulab-data started,
-is not resumed: the next run starts a new one from the same date, and `labdata store prune`
-deletes the old folder.
+A refresh that stopped before its switch is not resumed if it started more than 7 days ago,
+or an older version of liulab-data started it. The next run starts a new one from the same
+date, and `labdata store prune` deletes the old folder. A refresh that switched and only
+failed to copy is finished by the next run's copy, however old it is.
 
 A refresh, a full run, a build, the SRA removal and a prune each refuse to start while another
-of them runs on the store. If the message says it cannot check whether the other one still
+of them runs on the store. So do a fetch, pack, extract or copy that you run by hand. If the message says it cannot check whether the other one still
 runs, check with `squeue` on its cluster. Once you know it has ended, run the same command
 again with `--owner-gone`.
 

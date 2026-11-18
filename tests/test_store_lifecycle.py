@@ -2,20 +2,99 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import json
+import os
+import socket
 from pathlib import Path
+from typing import Any
 
 import pytest
+from typer.testing import CliRunner, Result
 
+from labdata.cli import app
 from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
-from labdata.store import lifecycle, open_store
+from labdata.store import lifecycle, open_store, raw
 from labdata.store.gcs import COPIED, StoreCopyError
+from labdata.store.lifecycle import Action
 from tests._fake_gcs import FakeGcs
 from tests._slices import BuiltStore
 
 _DEST = "gcs:lab-bucket/geo-sra-store"
 _STARTED = "2026-11-01T02:00:00Z"
+_NOW = dt.datetime(2026, 11, 18, tzinfo=dt.UTC)
+_ROUND = "work/run/2026-10-14-all"
+
+
+def _refresh(days: int, outcome: str, **more: Any) -> dict[str, Any]:
+    """A refresh's status record: started ``days`` before :data:`_NOW` by DAG version 4."""
+    started = f"{_NOW - dt.timedelta(days=days):%Y-%m-%dT%H:%M:%SZ}"
+    record = {"update": "refresh", "started": started, "outcome": outcome, "dag": 4}
+    return record | {"folder": "work/refresh/x", "since": "2026-10-14", **more}
+
+
+@pytest.mark.parametrize(
+    ("status", "action", "abandoned"),
+    [
+        (_refresh(1, "running"), Action.RESUME, None),
+        (_refresh(6, "failed"), Action.RESUME, None),
+        (_refresh(8, "failed"), Action.NEW, "it started more than 7 days ago"),
+        (_refresh(1, "failed", dag=3), Action.NEW, "an older refresh DAG"),
+        (_refresh(8, "built", copy_pending=True, dag=3), Action.COPY, None),
+        (_refresh(1, "built", copy_pending=False), Action.NEW, None),
+        (_refresh(1, "finalized"), Action.NEW, None),
+        ({"update": "run", "folder": _ROUND, "outcome": "failed"}, Action.NEW, None),
+        ({}, Action.NEW, None),
+    ],
+)
+def test_a_refresh_resumes_before_its_switch_within_a_week_of_one_dag_and_after_it_only_copies(
+    status: dict[str, Any], action: str, abandoned: str | None
+) -> None:
+    plan = lifecycle.plan(status, lifecycle.REFRESH, dag=4, now=_NOW)
+
+    assert plan.action == action
+    assert plan.folder == (status["folder"] if action in (Action.RESUME, Action.COPY) else None)
+    assert (plan.abandoned or "").startswith(abandoned or "")
+    assert (plan.abandoned is None) is (abandoned is None)
+
+
+def _run(outcome: str, **more: Any) -> dict[str, Any]:
+    return {"update": "run", "folder": _ROUND, "outcome": outcome, "started": _STARTED, **more}
+
+
+@pytest.mark.parametrize(
+    ("status", "done", "rerun", "action", "running"),
+    [
+        # A full run has no age or DAG rule: its round folder is what makes it the same run.
+        (_run("failed"), False, False, Action.RESUME, True),
+        (_run("running"), False, True, Action.RESUME, True),
+        (_run("built", copy_pending=True), False, True, Action.COPY, False),
+        (_run("built", copy_pending=False), False, False, Action.RESUME, False),
+        # Steps run again in a finalized round: it is running until it switches again.
+        (_run("finalized"), True, True, Action.RESUME, True),
+        (_run("finalized"), True, False, Action.NOTHING, False),
+        # GCS holds the round's build, so a missing last marker reruns nothing.
+        (_run("finalized"), False, False, Action.NOTHING, False),
+        (
+            {"update": "build", "outcome": "finalized", "build": "b1"},
+            True,
+            False,
+            Action.NOTHING,
+            False,
+        ),
+        ({"update": "build", "outcome": "finalized", "build": "b1"}, True, True, Action.NEW, True),
+        (_run("failed") | {"folder": "work/run/2026-09-01-all"}, False, False, Action.NEW, True),
+        (_refresh(1, "built", copy_pending=True), False, False, Action.NEW, True),
+    ],
+)
+def test_a_full_run_carries_on_in_its_round_folder_unless_only_the_copy_or_nothing_is_left(
+    status: dict[str, Any], done: bool, rerun: bool, action: str, running: bool
+) -> None:
+    plan = lifecycle.plan(status, lifecycle.RUN, _ROUND, done=done, rerun=rerun, now=_NOW)
+
+    assert (plan.action, plan.folder, plan.abandoned) == (action, _ROUND, None)
+    assert plan.running is running
 
 
 @pytest.fixture(autouse=True)
@@ -68,8 +147,8 @@ def test_a_refresh_switched_on_an_expired_login_ends_built_and_the_next_copy_fin
     assert _build(root) == "b2"
     assert (status["outcome"], status["copy_pending"]) == ("built", True)
     assert status["last_success"] == "2026-11-01"
-    # A rerun of the refresh resumes it, to copy.
-    assert lifecycle.unfinished(status, "refresh")
+    # A rerun of the refresh only copies.
+    assert lifecycle.plan(status, "refresh").action == Action.COPY
     assert not _gcs_names(gcs, "b2")
 
     gcs.expired = False
@@ -77,7 +156,7 @@ def test_a_refresh_switched_on_an_expired_login_ends_built_and_the_next_copy_fin
 
     status = lifecycle.read_status(root)
     assert (status["outcome"], status["copy_pending"]) == ("finalized", False)
-    assert not lifecycle.unfinished(status, "refresh")
+    assert lifecycle.plan(status, "refresh").action == Action.NEW
     assert _gcs_names(gcs, "b2")
     assert gcs.read(lifecycle.STATUS) == (root / lifecycle.STATUS).read_bytes()
 
@@ -145,3 +224,77 @@ def test_a_build_by_hand_is_built_not_finalized_until_a_copy_works(
 
     assert lifecycle.read_status(root)["outcome"] == "finalized"
     assert _gcs_names(gcs, "b2")
+
+
+#: Commands that write the store, with arguments that ask NCBI nothing on the slice's store.
+_STEPS = {
+    "copy": [],
+    "pack": [],
+    "fetch": ["SRX017370"],
+    "extract": ["--source", "biosample"],
+    "readme": [],
+}
+#: A process ID no process has.
+_GONE = 2**31 - 1
+
+
+def _step(root: Path, command: str) -> Result:
+    return CliRunner().invoke(app, ["store", command, *_STEPS[command], "--root", str(root)])
+
+
+def _hold_run_lock(root: Path, pid: int | None = None) -> str:
+    """Hold the run lock as a refresh driven by process ``pid`` on this host, by default this
+    process; return the token its steps inherit."""
+    host, pid = socket.gethostname(), pid or os.getpid()
+    owner = {"update": "refresh", "job": None, "host": host, "pid": pid}
+    (root / "work" / "run.lock").write_text(json.dumps(owner | {"started": _STARTED}))
+    return f"{host}:{pid}"
+
+
+def _files(root: Path) -> dict[str, tuple[int, int]]:
+    return {
+        str(p.relative_to(root)): (p.stat().st_size, p.stat().st_mtime_ns)
+        for p in root.rglob("*")
+        if p.is_file()
+    }
+
+
+def test_a_step_run_by_hand_refuses_while_an_update_holds_the_run_lock(
+    root: Path, gcs: FakeGcs, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("labdata.cli._store_client", lambda: None)
+    # A lane's part in flight, which a pack would take in and delete.
+    raw.save(root, raw.SRA_XML, [raw.RawRow("SRX017370", "<new/>", "2026-11-18")])
+    _hold_run_lock(root)
+    before = _files(root)
+
+    for command in _STEPS:
+        result = _step(root, command)
+
+        assert result.exit_code == 1, command
+        assert "holds this store's run lock" in result.output, command
+        assert _files(root) == before, command
+    assert gcs.calls == []
+
+
+@pytest.mark.parametrize("command", _STEPS)
+def test_a_step_runs_inside_an_update_and_by_hand_once_no_update_holds_the_run_lock(
+    root: Path, gcs: FakeGcs, monkeypatch: pytest.MonkeyPatch, command: str
+) -> None:
+    monkeypatch.setattr("labdata.cli._store_client", lambda: None)
+    lock = root / "work" / "run.lock"
+    monkeypatch.setenv(lifecycle.RUN_OWNER, _hold_run_lock(root))
+    held = lock.read_bytes()
+
+    inside = _step(root, command)
+
+    assert inside.exit_code == 0, inside.output
+    assert lock.read_bytes() == held
+    # The update has ended; its lock is left, as a kill leaves it.
+    monkeypatch.delenv(lifecycle.RUN_OWNER)
+    _hold_run_lock(root, pid=_GONE)
+
+    by_hand = _step(root, command)
+
+    assert by_hand.exit_code == 0, by_hand.output
+    assert not lock.exists()

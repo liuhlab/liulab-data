@@ -26,6 +26,7 @@ import duckdb
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from labdata.papers import init_paper_store
 from labdata.store import gaps, layout, targets
 
 
@@ -388,6 +389,15 @@ def fixture_build(
         _MADE[key] = _make_build(_CACHE / str(len(_MADE)), links, set(not_targets))
     shutil.copytree(_MADE[key], root, dirs_exist_ok=True)
     return root
+
+
+def init_papers(root: Path, store: Path, **settings: str) -> Path:
+    """Make a paper store at ``root`` that reads ``store``, which ``LABDATA_STORE`` now names.
+
+    The suite's autouse ``_own_geo_store_env`` fixture undoes the variable after each test.
+    """
+    os.environ["LABDATA_STORE"] = str(store)
+    return init_paper_store(root, **settings)
 
 
 _CACHE = Path(tempfile.gettempdir()) / f"labdata-paper-builds-{os.getpid()}"

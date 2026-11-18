@@ -16,10 +16,9 @@ from labdata.cli import app
 from labdata.ncbi import entrez as entrez_mod
 from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
-from labdata.papers import init_paper_store, open_paper_store, paper_dir, pmc, tables
-from labdata.papers.folder import TEMP
+from labdata.papers import open_paper_store, paper_dir, paths, pmc, tables
 from labdata.papers.openalex import OpenAlex
-from tests._paper_fakes import Article, FakeBucket, FakeWeb, Reply, fixture_build, md5
+from tests._paper_fakes import Article, FakeBucket, FakeWeb, Reply, fixture_build, init_papers, md5
 
 TODAY = "2026-11-07"
 #: An open-access article in two versions: XML, PDF, a figure and supplements.
@@ -102,7 +101,7 @@ def _isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 def store(tmp_path: Path, fake: FakeWeb, monkeypatch: pytest.MonkeyPatch) -> Path:
     links = [(f"GSE{n}", f"PMID:{p}", "SOFT") for n, p in enumerate((OA, AM, CLOSED))]
     root = tmp_path / "papers"
-    init_paper_store(root, fixture_build(tmp_path / "store", links))
+    init_papers(root, fixture_build(tmp_path / "store", links))
 
     def client() -> EntrezClient:
         creds = NcbiCredentials("t@t.org", "abc")
@@ -418,13 +417,13 @@ def test_a_kill_mid_sync_and_a_rerun_download_no_file_twice(
     assert isinstance(result.exception, KilledError)
     assert (root / paper_dir(OA) / "suppl" / "mmc1.xlsx").is_file()
     assert not list((root / paper_dir(OA)).rglob(".*"))
-    assert not list((root / TEMP).iterdir())
+    assert not list((root / paths.TEMP.name).iterdir())
 
     # A hard kill leaves its temporary file behind; the rerun clears it.
-    (root / TEMP / "table.csv.part").write_bytes(b"a,")
+    (root / paths.TEMP.name / "table.csv.part").write_bytes(b"a,")
     b.fail = None
     sync(root)
-    assert not list((root / TEMP).iterdir())
+    assert not list((root / paths.TEMP.name).iterdir())
     # A video known only by its Content-Type is asked for again, but no byte of it is read.
     objects = [
         g for g in b.gets if g.startswith("PMC") and not g.endswith(".json") and g not in b.types
@@ -739,3 +738,23 @@ def test_a_name_the_file_system_refuses_fails_once_without_a_retry(
     assert len(tries) == 1
     attempts = tables.read(root, tables.ATTEMPTS)
     assert "File name too long" in next(a["detail"] for a in attempts if a["paper"] == OA)
+
+
+def test_a_server_error_keeps_a_paper_on_pmcs_turn_for_three_tries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    b = bucket()
+    b.fail = lambda key: Reply("", status=503) if key == "PMC200.1/PMC200.1.xml" else None
+    root = store(tmp_path, web(b), monkeypatch)
+
+    def reason() -> str | None:
+        return next(p["reason"] for p in tables.read(root, tables.PAPERS) if p["paper"] == AM)
+
+    sync(root)
+    assert reason() == "pmc-sync"
+    sync(root, "2026-11-08")
+    assert reason() == "pmc-sync"
+    sync(root, "2026-11-09")
+    assert reason() == "no-route"
+    outcomes = [a["outcome"] for a in tables.read(root, tables.ATTEMPTS) if a["paper"] == AM]
+    assert outcomes == ["error"] * 3

@@ -33,7 +33,7 @@ _FLAGS = {
 
 
 class KilledError(Exception):
-    """A copy cut off at the rclone seam, before the call that would send ``FakeGcs.kill``."""
+    """A copy cut off at the rclone seam, by ``FakeGcs.kill`` or ``FakeGcs.cut``."""
 
 
 @dataclass
@@ -53,7 +53,8 @@ class FakeGcs:
 
     ``expired`` makes every call meet an expired login, or, set to a verb, only that verb's;
     ``error`` makes every call fail with that rclone error; ``kill`` names an object, and the
-    call that would send it raises :class:`KilledError` before it sends anything. ``log``
+    call that would send it raises :class:`KilledError` before it sends anything; ``cut``
+    names an object, and the call that sends it raises once the object has landed. ``log``
     lists each object sent (``put``), fetched (``get``) and deleted (``delete``), in order;
     ``walks`` counts the calls that listed GCS past its top level.
     """
@@ -68,6 +69,7 @@ class FakeGcs:
         self.expired: bool | str = False
         self.error = ""
         self.kill = ""
+        self.cut = ""
 
     @classmethod
     def install(cls, monkeypatch: pytest.MonkeyPatch, folder: Path, dest: str) -> FakeGcs:
@@ -177,6 +179,8 @@ class FakeGcs:
                 assert key is not None, f"FakeGcs copies to or from GCS, not {src} to {dst}"
                 self.write(key, Path(src).read_bytes())
                 self.log.append(("put", key))
+        if self.cut and self.cut in [self._key(dst) for _, dst in pairs]:
+            raise KilledError(self.cut)
 
     def _delete(self, call: _Call) -> None:
         prefix = self._key(call.where[0])

@@ -2,9 +2,9 @@
 
 Each OpenAlex account spends up to :data:`QUOTA` downloads a day, counted from that day's
 rows in ``attempts``, so a rerun the same day spends only what is left. Every download is
-written to a journal beside the tables the moment it lands; a killed pass's journal is
-replayed when the next pass starts, so no file is fetched twice. A key is sent only in a
-request header, never in a URL, a log line or the store.
+journaled the moment it lands, and the next load of the tables saves a killed pass's journal,
+so no file is fetched twice. A key is sent only in a request header, never in a URL, a log
+line or the store.
 """
 
 from __future__ import annotations
@@ -12,21 +12,18 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import http.client
-import json
-import os
 import time
 import urllib.parse
 from collections import Counter
 from collections.abc import Callable, Collection, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any
 
 from labdata._files import write_atomic
 from labdata._http import USER_AGENT, HttpTransport, RateLimiter, Transport
 from labdata.ncbi.entrez import EntrezClient
 from labdata.papers import ladder, paths
-from labdata.papers.folder import PaperFolder
 from labdata.papers.openalex import Account, OpenAlex
 from labdata.papers.root import PaperStore, paper_dir
 from labdata.papers.sync import store_links
@@ -41,9 +38,6 @@ CONTENT = "https://content.openalex.org/works"
 #: The manual queue: PubMed MEDLINE records for Paperpile, and one DOI a line.
 NBIB = paths.MANUAL_NBIB.rel
 DOIS = paths.MANUAL_DOIS.rel
-
-#: Downloads the running pass has not yet written to the tables.
-JOURNAL = paths.JOURNAL.rel
 
 #: The pace of free host links: requests a second, and how many at once.
 HOST_PACE = (1.0, 1)
@@ -115,29 +109,19 @@ def daily_pass(
     DailyReport
         Today's downloads and the papers by status and reason.
     """
-    root = store.root
     transport = transport or HttpTransport()
     host_limiter = host_limiter or RateLimiter(*HOST_PACE)
-    if take_in(root, today):
-        log("took in the downloads a stopped pass left in its journal")
-    state = PaperTables.load(root)
-    journal = _Journal(root / JOURNAL)
+    state = PaperTables.load(store.root, today, journal=True)
     # The Paperpile step goes here: it files the maintainer's saves before quota is spent.
     linked = set(store_links(store, state))
-    fetch = _Fetcher(root, state, journal, transport, host_limiter, linked, today, log)
-    try:
-        if openalex.accounts:
-            fetch.openalex(openalex.accounts)
-        else:
-            log(
-                "no OpenAlex accounts: the OpenAlex tier is skipped; see `labdata papers configure`"
-            )
-        fetch.hosts()
-    finally:
-        journal.close()
-    state.save(root, today)
-    journal.clear()
-    queued = _manual_queue(root, state, client, log)
+    fetch = _Fetcher(state, transport, host_limiter, linked, today, log)
+    if openalex.accounts:
+        fetch.openalex(openalex.accounts)
+    else:
+        log("no OpenAlex accounts: the OpenAlex tier is skipped; see `labdata papers configure`")
+    fetch.hosts()
+    state.save(today)
+    queued = _manual_queue(store.root, state, client, log)
     report = DailyReport(queued=queued)
     todays = [a for a in state.attempts if a.get("date") == today]
     report.fetched = dict(Counter(a["tier"] for a in todays if a["outcome"] == "fetched"))
@@ -151,31 +135,6 @@ def daily_pass(
         counts.setdefault(row.get("status") or "", Counter())[row.get("reason") or ""] += 1
     report.counts = {s: dict(c) for s, c in counts.items()}
     return report
-
-
-def take_in(root: Path, today: dt.date) -> bool:
-    """Save the downloads a stopped pass left in its journal to the tables, then drop it.
-
-    Parameters
-    ----------
-    root : pathlib.Path
-        The paper store root; the caller holds its lock.
-    today : datetime.date
-        The UTC date the papers are settled for.
-
-    Returns
-    -------
-    bool
-        Whether there was a journal.
-    """
-    journal = _Journal(root / JOURNAL)
-    if not journal.path.is_file():
-        return False
-    state = PaperTables.load(root)
-    journal.replay(state)
-    state.save(root, today)
-    journal.clear()
-    return True
 
 
 def _order(state: PaperTables, keys: Iterable[str]) -> list[str]:
@@ -202,20 +161,18 @@ class _Got:
 
 
 class _Fetcher:
-    """Runs the two tiers of one pass, recording each download in the journal as it lands."""
+    """Runs the two tiers of one pass, putting each download in the tables as it lands."""
 
     def __init__(
         self,
-        root: Path,
         state: PaperTables,
-        journal: _Journal,
         transport: Transport,
         host_limiter: RateLimiter,
         linked: set[str],
         today: dt.date,
         log: Callable[[str], None],
     ) -> None:
-        self.root, self.state, self.journal = root, state, journal
+        self.state = state
         self.transport, self.host_limiter, self.linked = transport, host_limiter, linked
         self.today, self.log = today, log
         self._clock = time.monotonic()
@@ -298,35 +255,35 @@ class _Fetcher:
 
     def _get(self, key: str, url: str, headers: dict[str, str]) -> _Got:
         name = paper_dir(key).name + ".pdf"
-        return _download(self.transport, url, self.state.folder, paper_dir(key) / name, headers)
+        return _download(self.transport, url, self.state, paper_dir(key) / name, headers)
 
     def _attempt(self, key: str, tier: str, account: str | None, outcome: str, detail: str) -> None:
-        row = {
-            "paper": key,
-            "tier": tier,
-            "date": self.today,
-            "account": account,
-            "outcome": outcome,
-            "detail": detail or None,
-        }
-        self.journal.add("attempt", row)
-        self.state.attempts.append(row)
+        self.state.attempt(
+            {
+                "paper": key,
+                "tier": tier,
+                "date": self.today,
+                "account": account,
+                "outcome": outcome,
+                "detail": detail or None,
+            }
+        )
 
     def _file(self, key: str, tier: str, url: str, got: _Got) -> None:
         name = paper_dir(key).name + ".pdf"
-        row = {
-            "paper": key,
-            "kind": "pdf",
-            "name": name,
-            "path": (paper_dir(key) / name).as_posix(),
-            "size": got.size,
-            "md5": got.md5,
-            "url": url,
-            "tier": tier,
-            "fetched": self.today,
-        }
-        self.journal.add("file", row)
-        _put_file(self.state, row)
+        self.state.put_file(
+            {
+                "paper": key,
+                "kind": "pdf",
+                "name": name,
+                "path": (paper_dir(key) / name).as_posix(),
+                "size": got.size,
+                "md5": got.md5,
+                "url": url,
+                "tier": tier,
+                "fetched": self.today,
+            }
+        )
 
     def _progress(self, line: str) -> None:
         if time.monotonic() - self._clock >= 60:
@@ -334,17 +291,10 @@ class _Fetcher:
             self.log(line)
 
 
-def _put_file(state: PaperTables, row: dict[str, Any]) -> None:
-    """Add a PDF's ``files`` row, replacing one of the same name."""
-    same = (row["paper"], row["kind"], row["name"])
-    state.files[:] = [f for f in state.files if (f["paper"], f["kind"], f["name"]) != same]
-    state.files.append(row)
-
-
 def _download(
-    transport: Transport, url: str, folder: PaperFolder, dest: Path, headers: dict[str, str]
+    transport: Transport, url: str, state: PaperTables, dest: Path, headers: dict[str, str]
 ) -> _Got:
-    """GET a PDF to ``dest`` in ``folder``, following redirects; anything but a PDF fails.
+    """GET a PDF to ``dest`` in the paper store, following redirects; anything but a PDF fails.
 
     An ``Authorization`` header is not passed on to another host.
     """
@@ -370,7 +320,7 @@ def _download(
                         detail=f"HTTP {r.status}",
                         retry_after=_seconds(r.getheader("Retry-After")),
                     )
-                return _save_pdf(r, folder, dest)
+                return _save_pdf(r, state, dest)
         except (OSError, ValueError, http.client.HTTPException) as err:
             return _Got(detail=type(err).__name__)
     return _Got(status=310, detail="too many redirects")
@@ -384,13 +334,13 @@ def _quoted(url: str) -> str:
     return urllib.parse.urlunsplit((parts.scheme, parts.netloc, path, query, ""))
 
 
-def _save_pdf(response: Any, folder: PaperFolder, dest: Path) -> _Got:
+def _save_pdf(response: Any, state: PaperTables, dest: Path) -> _Got:
     first = response.read(_CHUNK)
     if b"%PDF" not in first[:1024]:
         return _Got(status=200, detail="not a PDF")
     md5 = hashlib.md5(usedforsecurity=False)
     size = 0
-    with folder.writing(dest) as fh:
+    with state.writing(dest) as fh:
         chunk = first
         while chunk:
             fh.write(chunk)
@@ -405,53 +355,6 @@ def _seconds(text: str | None) -> float | None:
         return float(text) if text else None
     except ValueError:
         return None
-
-
-class _Journal:
-    """One JSON line per download, flushed to disk before the pass moves on.
-
-    The file is opened at the first line and stays open until :meth:`close` or :meth:`clear`.
-    """
-
-    def __init__(self, path: Path) -> None:
-        self.path = path
-        self._fh: TextIO | None = None
-
-    def add(self, kind: str, row: dict[str, Any]) -> None:
-        line = json.dumps({"kind": kind, "row": row}, default=str)
-        if self._fh is None:
-            self._fh = self.path.open("a", encoding="utf-8")
-        self._fh.write(line + "\n")
-        self._fh.flush()
-        os.fsync(self._fh.fileno())
-
-    def close(self) -> None:
-        if self._fh is not None:
-            self._fh.close()
-            self._fh = None
-
-    def replay(self, state: PaperTables) -> bool:
-        """Apply a stopped pass's rows to ``state``, skipping those already there."""
-        if not self.path.is_file():
-            return False
-        for line in self.path.read_text(encoding="utf-8").splitlines():
-            try:
-                entry = json.loads(line)
-            except ValueError:
-                continue  # a line cut short when the pass stopped
-            row = entry["row"]
-            for column in ("date", "fetched"):
-                if row.get(column):
-                    row[column] = dt.date.fromisoformat(row[column])
-            if entry["kind"] == "file":
-                _put_file(state, row)
-            elif row not in state.attempts:
-                state.attempts.append(row)
-        return True
-
-    def clear(self) -> None:
-        self.close()
-        self.path.unlink(missing_ok=True)
 
 
 def _manual_queue(
