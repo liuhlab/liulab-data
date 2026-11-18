@@ -53,7 +53,14 @@ RUNNING, FAILED, ABANDONED, BUILT, FINALIZED = (
 #: The updates the status record names, by the command that runs each.
 REFRESH, RUN, BUILD, REMOVE_SRA = "refresh", "run", "build", "remove-sra"
 #: The other holders of the run lock; a copy holds it as :data:`COPY`.
-PRUNE, RESTORE, PACK, FETCH, EXTRACT = "prune", "restore", "pack", "fetch", "extract"
+PRUNE, RESTORE, PACK, FETCH, EXTRACT, README = (
+    "prune",
+    "restore",
+    "pack",
+    "fetch",
+    "extract",
+    "readme",
+)
 #: The status key keeping ``copy_pending`` as it stood when the update switched builds.
 AT_SWITCH = "copy_pending_at_switch"
 #: The file in a refresh's folder each pack appends its per-bucket counts to.

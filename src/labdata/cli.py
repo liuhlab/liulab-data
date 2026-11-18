@@ -580,15 +580,20 @@ def store_readme(
     root: Path | None = typer.Option(
         None, help="Store root; default: LABDATA_STORE, then pointer."
     ),
+    owner_gone: bool = _OWNER_GONE,
 ) -> None:
     """Write the store's root README.md again for the current build, with fresh folder sizes.
 
-    `labdata store build` writes it at each switch; this rewrites it without a build.
+    `labdata store build` writes it at each switch; this rewrites it without a build. Holds
+    the store's run lock, so it refuses while an update runs.
     """
     from labdata.store import readme
+    from labdata.store.lifecycle import README
 
     try:
-        out = readme.write(open_store(root).root)
+        store = open_store(root)
+        with _run_lock(store.root, README, owner_gone):
+            out = readme.write(store.root)
     except LabdataError as err:
         typer.echo(str(err), err=True)
         raise typer.Exit(1) from err

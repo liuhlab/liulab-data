@@ -220,12 +220,13 @@ def test_a_build_by_hand_is_built_not_finalized_until_a_copy_works(
     assert _gcs_names(gcs, "b2")
 
 
-#: Commands an update's steps call, with arguments that ask NCBI nothing on the slice's store.
+#: Commands that write the store, with arguments that ask NCBI nothing on the slice's store.
 _STEPS = {
     "copy": [],
     "pack": [],
     "fetch": ["SRX017370"],
     "extract": ["--source", "biosample"],
+    "readme": [],
 }
 #: A process ID no process has.
 _GONE = 2**31 - 1
