@@ -259,9 +259,8 @@ def _files(root: Path) -> dict[str, tuple[int, int]]:
     }
 
 
-@pytest.mark.parametrize("command", _STEPS)
 def test_a_step_run_by_hand_refuses_while_an_update_holds_the_run_lock(
-    root: Path, gcs: FakeGcs, monkeypatch: pytest.MonkeyPatch, command: str
+    root: Path, gcs: FakeGcs, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr("labdata.cli._store_client", lambda: None)
     # A lane's part in flight, which a pack would take in and delete.
@@ -269,11 +268,12 @@ def test_a_step_run_by_hand_refuses_while_an_update_holds_the_run_lock(
     _hold_run_lock(root)
     before = _files(root)
 
-    result = _step(root, command)
+    for command in _STEPS:
+        result = _step(root, command)
 
-    assert result.exit_code == 1
-    assert "holds this store's run lock" in result.output
-    assert _files(root) == before
+        assert result.exit_code == 1, command
+        assert "holds this store's run lock" in result.output, command
+        assert _files(root) == before, command
     assert gcs.calls == []
 
 

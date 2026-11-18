@@ -122,6 +122,19 @@ def test_a_rekey_killed_at_any_point_heals_on_the_next_load(
     def on_disk(root: Path) -> set[str]:
         return {p.relative_to(root).as_posix() for p in (root / "papers").rglob("*") if p.is_file()}
 
+    def held(root: Path) -> tuple[Any, ...]:
+        return (*(tables.read(root, table) for table in tables.TABLES), on_disk(root))
+
+    before = held(seed)
+    done = tmp_path / "done"
+    shutil.copytree(seed, done)
+    rekey(done)
+    after = held(done)
+    assert [r["paper"] for r in tables.read(done, tables.PAPERS)] == [pmid]
+    assert [(f["paper"], f["path"]) for f in tables.read(done, tables.FILES)] == [(pmid, new)]
+    assert [a["paper"] for a in tables.read(done, tables.ATTEMPTS)] == [pmid]
+    assert on_disk(done) == {new}
+
     healed_to = set()
     for at in range(1, 100):
         root = tmp_path / str(at)
@@ -136,14 +149,10 @@ def test_a_rekey_killed_at_any_point_heals_on_the_next_load(
                 break
         # A kill never leaves the files table naming a file the disk lacks.
         assert {f["path"] for f in tables.read(root, tables.FILES)} <= on_disk(root)
-        state = tables.PaperTables.load(root, today)
-        assert {f["paper"] for f in state.files} <= set(state.papers)
-        assert on_disk(root) == state.named()
-        healed_to.add(next(iter(state.papers)))
-        rekey(root)
-        assert [r["paper"] for r in tables.read(root, tables.PAPERS)] == [pmid]
-        assert [(f["paper"], f["path"]) for f in tables.read(root, tables.FILES)] == [(pmid, new)]
-        assert [a["paper"] for a in tables.read(root, tables.ATTEMPTS)] == [pmid]
-        assert on_disk(root) == {new}
+        tables.PaperTables.load(root, today)
+        # Healed, the store is the one before the re-key or the one after it, whole.
+        healed = held(root)
+        assert healed in (before, after), at
+        healed_to.add(healed == after)
     # Kills fell both before the save took and after it.
-    assert healed_to == {doi, pmid}
+    assert healed_to == {False, True}
