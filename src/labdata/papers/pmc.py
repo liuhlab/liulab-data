@@ -10,7 +10,9 @@ when its MD5 matches.
 The PDF of an article with XML, videos, and files over the size cap are listed, not
 downloaded. Once PMC holds a paper's XML, it replaces a PDF the OpenAlex or host tier
 supplied. XML and plain-text files are stored zstd-compressed as ``<name>.zst``; MD5s are
-of the plain bytes. A retracted article gets no downloads.
+of the plain bytes. A retracted article gets no downloads. A network or server error is
+recorded as ``error``, and the ladder keeps PMC's turn for a few such tries; any other
+failure is ``failed``.
 """
 
 from __future__ import annotations
@@ -114,7 +116,28 @@ _sleep = time.sleep
 
 
 class PmcError(LabdataError):
-    """A PMC bucket request failed after its retries, or a file kept failing its MD5."""
+    """A PMC bucket request failed after its retries, or a file kept failing its MD5.
+
+    ``passing`` is true for a network or server error: a later try may succeed.
+    """
+
+    def __init__(self, message: str, *, passing: bool = False) -> None:
+        super().__init__(message)
+        self.passing = passing
+
+
+class _Refused(GaveUp):
+    """The bucket answered with a status no retry fixes, such as 404."""
+
+
+_MD5_MISMATCH = "MD5 mismatch"
+
+
+def _gave_up(what: str, err: GaveUp) -> PmcError:
+    """Return the :class:`PmcError` for a request that gave up; it is passing if retries ran out."""
+    # A refusal, a bad MD5 and a file name the disk refuses (retry gives it a cause) are not.
+    passing = not isinstance(err, _Refused) and str(err) != _MD5_MISMATCH and err.__cause__ is None
+    return PmcError(f"{what}: {err}", passing=passing)
 
 
 @dataclass(frozen=True)
@@ -251,7 +274,7 @@ def fetch(
                         "paper": out.paper,
                         "tier": ladder.PMC,
                         "date": today,
-                        "outcome": "failed"
+                        "outcome": ("error" if out.passing else "failed")
                         if out.error
                         else "retracted"
                         if out.retracted
@@ -303,6 +326,7 @@ class _Outcome:
     gone: int = 0
     retracted: bool = False
     error: str | None = None
+    passing: bool = False
 
 
 @dataclass
@@ -475,6 +499,7 @@ def _article(
             row["label"], row["caption"] = _match(name, labels) or (None, None)
     except (PmcError, ValueError) as err:
         out.error = str(err)
+        out.passing = isinstance(err, PmcError) and err.passing
     for k, row in previous.items():
         if k not in done:
             if out.error is None and row["gone"] is None:
@@ -846,14 +871,14 @@ class _Bucket:
                             out.write(chunk)
                             size += len(chunk)
                         if md5s and digest.hexdigest() not in md5s:
-                            raise TryAgain("MD5 mismatch")
+                            raise TryAgain(_MD5_MISMATCH)
             self._check(status)
             return size, digest.hexdigest()
 
         try:
             return retry(once, tries=TRIES, cap=30.0, sleep=_sleep, retried=self._retried)
         except GaveUp as err:
-            raise PmcError(f"{key}: {err}") from None
+            raise _gave_up(key, err) from None
 
     def inventory(self, pmcids: set[str], today: dt.date, temp: Path) -> dict[str, tuple[str, str]]:
         """Return the newest version folder and record ETag of each of ``pmcids`` in the bucket.
@@ -907,7 +932,7 @@ class _Bucket:
         try:
             return retry(once, tries=TRIES, cap=30.0, sleep=_sleep, retried=self._retried)
         except GaveUp as err:
-            raise PmcError(f"{what}: {err}") from None
+            raise _gave_up(what, err) from None
 
     def _retried(self, how: str) -> None:
         with self._counting:
@@ -926,7 +951,7 @@ def _check(status: int) -> None:
         return
     if status in RETRY_STATUSES:
         raise TryAgain(f"HTTP {status}")
-    raise GaveUp(f"HTTP {status}")
+    raise _Refused(f"HTTP {status}")
 
 
 _HEADERS = {"User-Agent": USER_AGENT}

@@ -738,3 +738,23 @@ def test_a_name_the_file_system_refuses_fails_once_without_a_retry(
     assert len(tries) == 1
     attempts = tables.read(root, tables.ATTEMPTS)
     assert "File name too long" in next(a["detail"] for a in attempts if a["paper"] == OA)
+
+
+def test_a_server_error_keeps_a_paper_on_pmcs_turn_for_three_tries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    b = bucket()
+    b.fail = lambda key: Reply("", status=503) if key == "PMC200.1/PMC200.1.xml" else None
+    root = store(tmp_path, web(b), monkeypatch)
+
+    def reason() -> str | None:
+        return next(p["reason"] for p in tables.read(root, tables.PAPERS) if p["paper"] == AM)
+
+    sync(root)
+    assert reason() == "pmc-sync"
+    sync(root, "2026-11-08")
+    assert reason() == "pmc-sync"
+    sync(root, "2026-11-09")
+    assert reason() == "no-route"
+    outcomes = [a["outcome"] for a in tables.read(root, tables.ATTEMPTS) if a["paper"] == AM]
+    assert outcomes == ["error"] * 3
