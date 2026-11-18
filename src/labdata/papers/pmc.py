@@ -347,7 +347,7 @@ def _fetch_detail(folder: str, etag: str) -> str:
     return f"{folder} {etag} v{LAYOUT}"
 
 
-def _last_fetch(attempts: list[dict[str, Any]]) -> dict[str, str]:
+def _last_fetch(attempts: Collection[dict[str, Any]]) -> dict[str, str]:
     """Return each paper's last PMC fetch, as :func:`_fetch_detail` wrote it."""
     last: dict[str, tuple[dt.date, str]] = {}
     for a in attempts:
@@ -358,7 +358,7 @@ def _last_fetch(attempts: list[dict[str, Any]]) -> dict[str, str]:
     return {k: v for k, (_, v) in last.items()}
 
 
-def _last_outcome(attempts: list[dict[str, Any]]) -> dict[str, str]:
+def _last_outcome(attempts: Collection[dict[str, Any]]) -> dict[str, str]:
     """Return the outcome of each paper's latest PMC attempt."""
     last: dict[str, tuple[dt.date, str]] = {}
     for a in attempts:

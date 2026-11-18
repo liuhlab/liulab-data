@@ -316,8 +316,6 @@ def write(root: Path, table: PaperTable, rows: Iterable[Mapping[str, Any]]) -> P
     return path
 
 
-
-
 class PaperTables:
     """The four tables of one paper store, loaded whole, and the paper files they name.
 
@@ -484,7 +482,9 @@ class PaperTables:
                 continue
             if path:
                 rel = Path(path).relative_to(old_dir)
-                new_path = new_dir / rel.parent / name if f["kind"] != "supplement" else new_dir / rel
+                new_path = (
+                    new_dir / rel.parent / name if f["kind"] != "supplement" else new_dir / rel
+                )
                 self._folder.move(path, new_path.as_posix())
                 path = new_path.as_posix()
             moved = {**f, "paper": key, "name": name, "path": path}

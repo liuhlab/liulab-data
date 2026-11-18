@@ -510,6 +510,25 @@ def test_a_killed_pass_rerun_downloads_nothing_twice_and_spends_no_quota_twice(
     assert not (root / ".daily-journal.jsonl").exists()
 
 
+def test_a_pmc_sync_run_by_hand_takes_in_a_killed_daily_pass_first(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A DOI OpenAlex no longer finds stays in the store only if its PDF is in the tables.
+    doi = "10.1101/k"
+    root = paper_store(tmp_path, [paper(doi, published=dt.date(2021, 1, 1)), paper("41000001")])
+    fake = DailyWeb(kill_after=1)
+    use(monkeypatch, fake, KEYS[:1])
+    killed = CliRunner().invoke(app, ["papers", "daily", "--root", str(root), "--today", TODAY])
+    assert killed.exit_code != 0
+    assert fake.downloads == [f"W{doi}"]
+
+    synced = CliRunner().invoke(app, ["papers", "pmc-sync", "--root", str(root), "--today", TODAY])
+
+    assert synced.exit_code == 0, synced.output
+    assert [f["paper"] for f in tables.read(root, tables.FILES)] == [doi]
+    assert by_key(root, tables.PAPERS)[doi]["status"] == "fetched"
+
+
 def test_the_manual_queue_holds_exactly_the_manual_papers_newest_first(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
