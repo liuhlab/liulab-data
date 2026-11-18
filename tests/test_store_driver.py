@@ -241,6 +241,24 @@ def test_a_refresh_replaced_after_its_switch_hands_on_its_copy_and_prune_removes
     assert Path(seen[-1]).is_dir()
 
 
+def test_rerunning_a_finished_round_leaves_the_status_record_and_says_the_round_is_done(
+    root: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    folder = root / "work" / "run" / "2026-10-14-all"
+    folder.mkdir(parents=True)
+    (folder / "copy.done").touch()
+    # A hand build after the round finished.
+    lifecycle.write_status(root, {"update": "build", "outcome": "finalized", "build": "b1"})
+    before = (root / "refresh-status.json").read_bytes()
+    seen = _folders(monkeypatch)
+
+    output = _store("run", "--root", str(root))
+
+    assert seen == []
+    assert (root / "refresh-status.json").read_bytes() == before
+    assert f"{folder} is done" in caplog.text, output
+
+
 @pytest.mark.parametrize("job", [None, _UNASKED], ids=["off Slurm", "no Slurm answer"])
 def test_a_refresh_whose_owner_cannot_be_checked_refuses_unless_told_it_is_gone(
     root: Path, monkeypatch: pytest.MonkeyPatch, slurm: None, job: str | None

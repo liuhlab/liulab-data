@@ -245,11 +245,10 @@ _AFTER_EUTILS = {"eutils_after_geo": 1, "pack": 1, "build": 1, "switch": 1, "pru
     [
         ("geo", {"all": 1, "geo": 1, **_AFTER_EUTILS}),
         ("eutils", {"all": 1, **_AFTER_EUTILS}),
-        (None, {}),
     ],
 )
 def test_a_lane_that_left_items_failed_reruns_with_every_step_after_it(
-    store: Path, monkeypatch: pytest.MonkeyPatch, failed: str | None, jobs: dict[str, int]
+    store: Path, monkeypatch: pytest.MonkeyPatch, failed: str, jobs: dict[str, int]
 ) -> None:
     work = store / "work" / "run" / f"{_DATE}-all"
     work.mkdir(parents=True)
@@ -260,8 +259,7 @@ def test_a_lane_that_left_items_failed_reruns_with_every_step_after_it(
     steps = ["geo", "eutils-beside-geo", "eutils", "pack", "build", "switch", "prune", "copy"]
     for marker in [*extracts, *steps]:
         (work / f"{marker}.done").touch()
-    if failed:
-        (work / f"{failed}.failed").touch()
+    (work / f"{failed}.failed").touch()
     seen: dict[str, dict[str, int]] = {}
 
     def fake(argv: list[str], *, verbose: bool) -> int:

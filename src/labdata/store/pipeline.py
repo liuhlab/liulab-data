@@ -43,6 +43,9 @@ STEPS_SHARE = 0.9
 #: the DAG rule that writes that file.
 LANES = {"geo": "geo", "eutils": "eutils_after_geo"}
 
+#: The marker of every store DAG's last step.
+DONE = "copy.done"
+
 
 @dataclass(frozen=True, slots=True)
 class Round:
@@ -64,6 +67,11 @@ class Round:
     fields: dict[str, Any] = field(default_factory=dict)
     config: dict[str, Any] = field(default_factory=dict)
     rerun: list[str] = field(default_factory=list)
+
+    @property
+    def finished(self) -> bool:
+        """Whether the run's last step is done and no rule is to run again."""
+        return (self.folder / DONE).is_file() and not self.rerun
 
 
 def memory_plan(total_mb: int) -> dict[str, int]:
@@ -111,7 +119,8 @@ def drive(
 
     Under the lock, ``plan`` reads the status record and names the run's folder; the update
     starts there, or carries on. The driver writes the config, with the memory plan, runs
-    Snakemake and records how the run stopped.
+    Snakemake and records how the run stopped. A run that finished every step runs nothing
+    and leaves the status record as it was.
 
     Parameters
     ----------
@@ -145,6 +154,13 @@ def drive(
     with lifecycle.run_lock(root, update, owner_gone=owner_gone):
         chosen = plan(lifecycle.read_status(root))
         work = chosen.folder
+        if chosen.finished:
+            logger.warning(
+                "the run in %s is done: every step finished, so nothing runs; to run it "
+                "again, delete that folder",
+                work,
+            )
+            return 0
         lifecycle.start(root, update, work.relative_to(root).as_posix(), **chosen.fields)
         work.mkdir(parents=True, exist_ok=True)
         memory = int(_limits.allocation_mb() * STEPS_SHARE)
@@ -195,7 +211,7 @@ def run(
     ``run.json`` in its folder, and the round in the status record. A rerun of the same
     round resumes at the first unfinished step; the fetch steps skip every item already
     saved, by this round or a smaller one. A fetch lane that left items failed runs again,
-    and so does every step after it.
+    and so does every step after it. A rerun of a finished round runs nothing.
 
     Parameters
     ----------
@@ -231,17 +247,18 @@ def run(
             if (work / f"{lane}.failed").is_file():
                 logger.info("the %s lane left items failed last time; it runs again", lane)
                 rerun.append(rule)
-        work.mkdir(parents=True, exist_ok=True)
-        started = utc_stamp()
-        record = {"fraction": fraction, "snapshots": dates, "started": started}
-        (work / "run.json").write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
-        logger.info("round %s: snapshots %s", work.name, dates)
         config = {
             "fraction": "" if fraction is None else repr(fraction),
             "snapshots": dates,
             "targets": str(targets.list_path(root, geo_date, fraction)),
         }
-        return Round(work, config=config, rerun=rerun)
+        chosen = Round(work, config=config, rerun=rerun)
+        if not chosen.finished:
+            work.mkdir(parents=True, exist_ok=True)
+            record = {"fraction": fraction, "snapshots": dates, "started": utc_stamp()}
+            (work / "run.json").write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
+            logger.info("round %s: snapshots %s", work.name, dates)
+        return chosen
 
     return drive(
         root,
