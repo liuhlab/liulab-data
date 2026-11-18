@@ -26,10 +26,12 @@ from labdata.store.reader import BuildReader, current_build, current_path
 SOFT_MISSING = "soft-missing"
 #: Retries were exhausted; a rerun clears it.
 FETCH_FAILED = "fetch-failed"
+#: Confirmed gone: GEO no longer serves the Series (see :mod:`labdata.store.removals`).
+WITHDRAWN = "withdrawn"
 #: Not held and no known reason.
 UNEXPLAINED = "unexplained"
-#: Every gap reason. A new reason is added here, on purpose.
-REASONS = (SOFT_MISSING, FETCH_FAILED, UNEXPLAINED)
+#: Every gap reason, the recordable ones first. A new reason is added here, on purpose.
+REASONS = (SOFT_MISSING, FETCH_FAILED, WITHDRAWN, UNEXPLAINED)
 
 #: Note kind: a target Series whose SOFT ``!Series_type`` names no sequencing.
 TYPE_DISAGREES = "series type disagrees"
@@ -97,14 +99,14 @@ class Coverage:
 
 
 def gap_row(series: str, reason: str, fetch_date: str, detail: str = "") -> raw.RawRow:
-    """Return the ``raw/geo-gaps/`` row recording why the fetch could not save a Series.
+    """Return the ``raw/geo-gaps/`` row recording why the store does not hold a Series.
 
     Parameters
     ----------
     series : str
         The target Series.
     reason : str
-        ``SOFT_MISSING`` or ``FETCH_FAILED``.
+        Any reason but ``UNEXPLAINED``.
     fetch_date : str
         The fetch date.
     detail : str
@@ -120,7 +122,7 @@ def gap_row(series: str, reason: str, fetch_date: str, detail: str = "") -> raw.
     >>> gap_row("GSE1", SOFT_MISSING, "2026-10-14").raw_text
     'soft-missing'
     """
-    if reason not in (SOFT_MISSING, FETCH_FAILED):
+    if reason not in REASONS[:-1]:
         raise ValueError(f"not a recordable gap reason: {reason!r}")
     line = " ".join(detail.split())
     return raw.RawRow(series, f"{reason}\n{line}" if line else reason, fetch_date)
