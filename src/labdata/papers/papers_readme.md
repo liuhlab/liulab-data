@@ -89,6 +89,7 @@ Four Parquet tables at the root, each sorted by `paper`. Query them with DuckDB,
   | Status | Reason | Meaning |
   | --- | --- | --- |
   | `waiting` | `pmc-embargo` | published under a year ago; PMC may still release it |
+  | `waiting` | `pmc-sync` | it has a PMCID the PMC sync has not yet looked for in the bucket |
   | `waiting` | `openalex-backlog` | OpenAlex sells a copy; it waits for a day's quota |
   | `waiting` | `host-link` | a free link on the publisher's site is still to be tried |
   | `manual` | `no-route` | no source serves it |

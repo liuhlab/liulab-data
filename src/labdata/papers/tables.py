@@ -8,6 +8,7 @@ replaces the file by a rename, so a reader sees the old table or the new one, ne
 
 from __future__ import annotations
 
+import datetime as dt
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -17,6 +18,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from labdata._files import temp_beside
+from labdata.papers import ladder
 from labdata.papers.folder import PaperFolder
 
 #: Paper statuses: the store holds its XML or PDF; a tier serves it later; only a Paperpile
@@ -280,8 +282,13 @@ class PaperTables:
         state.folder.recover(state.named())
         return state
 
-    def save(self, root: Path) -> None:
-        """Write every table back, each through a temp file and a rename, then move files."""
+    def save(self, root: Path, today: dt.date) -> None:
+        """Settle every paper on the tier ladder, then write every table back and move files.
+
+        Each table is written through a temp file and a rename. ``today`` is the UTC date of
+        the pass.
+        """
+        ladder.settle(self, today)
 
         def write_all() -> None:
             write(root, PAPERS, self.papers.values())
@@ -297,4 +304,4 @@ class PaperTables:
 
     def held(self) -> set[str]:
         """Return the papers whose XML or PDF the store holds."""
-        return {f["paper"] for f in self.files if f["kind"] in ("xml", "pdf") and f["path"]}
+        return {f["paper"] for f in self.files if ladder.holds(f)}

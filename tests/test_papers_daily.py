@@ -492,8 +492,14 @@ def test_a_killed_pass_rerun_downloads_nothing_twice_and_spends_no_quota_twice(
     assert killed.exit_code != 0
     assert status_file(root)["last_pass"]["outcome"] == "failed"
     assert len(fake.downloads) == 5
+    # Taking in the killed pass's downloads settles their papers on the ladder.
+    daily_mod.take_in(root, dt.date.fromisoformat(TODAY))
+    taken = by_key(root, tables.PAPERS)
+    got = {k for k, r in taken.items() if (r["status"], r["pdf_tier"]) == ("fetched", "openalex")}
+    assert got == {w.removeprefix("W") for w in fake.downloads}
 
     # A hard kill leaves its temporary file behind; the rerun clears it.
+    (root / TEMP).mkdir(exist_ok=True)
     (root / TEMP / "41000001.pdf.part").write_bytes(b"%PDF")
     fake.kill_after = None
     daily(root)

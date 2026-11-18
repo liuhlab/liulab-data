@@ -118,7 +118,7 @@ def daily_pass(
     root = store.root
     transport = transport or HttpTransport()
     host_limiter = host_limiter or RateLimiter(*HOST_PACE)
-    if take_in(root):
+    if take_in(root, today):
         log("took in the downloads a stopped pass left in its journal")
     state = PaperTables.load(root)
     journal = _Journal(root / JOURNAL)
@@ -135,15 +135,16 @@ def daily_pass(
         fetch.hosts()
     finally:
         journal.close()
-    ladder.settle(state, today)
-    state.save(root)
+    state.save(root, today)
     journal.clear()
     queued = _manual_queue(root, state, client, log)
     report = DailyReport(queued=queued)
     todays = [a for a in state.attempts if a.get("date") == today]
     report.fetched = dict(Counter(a["tier"] for a in todays if a["outcome"] == "fetched"))
     report.quota = {a.email: 0 for a in openalex.accounts} | dict(
-        Counter(a["account"] for a in todays if a["tier"] == "openalex" and a["outcome"] in SPENT)
+        Counter(
+            a["account"] for a in todays if a["tier"] == ladder.OPENALEX and a["outcome"] in SPENT
+        )
     )
     counts: dict[str, Counter[str]] = {}
     for row in state.papers.values():
@@ -152,13 +153,15 @@ def daily_pass(
     return report
 
 
-def take_in(root: Path) -> bool:
+def take_in(root: Path, today: dt.date) -> bool:
     """Save the downloads a stopped pass left in its journal to the tables, then drop it.
 
     Parameters
     ----------
     root : pathlib.Path
         The paper store root; the caller holds its lock.
+    today : datetime.date
+        The UTC date the papers are settled for.
 
     Returns
     -------
@@ -170,7 +173,7 @@ def take_in(root: Path) -> bool:
         return False
     state = PaperTables.load(root)
     journal.replay(state)
-    state.save(root)
+    state.save(root, today)
     journal.clear()
     return True
 
@@ -223,13 +226,13 @@ class _Fetcher:
         stopped: set[str] = set()
         tried: set[str] = set()
         for a in self.state.attempts:
-            if a["tier"] == "openalex" and a.get("date") == self.today:
+            if a["tier"] == ladder.OPENALEX and a.get("date") == self.today:
                 if a["outcome"] in SPENT:
                     spent[a["account"]] += 1
                     tried.add(a["paper"])
                 elif a["outcome"] == "rate-limited":
                     stopped.add(a["account"])
-        queue = self._due("openalex", tried)
+        queue = self._due(ladder.OPENALEX, tried)
         active = [a for a in accounts if a.email not in stopped and spent[a.email] < QUOTA]
         self.log(f"OpenAlex: {len(queue)} papers waiting, {len(active)} accounts with quota left")
         turn = done = 0
@@ -244,7 +247,7 @@ class _Fetcher:
                     waits += 1
                     _sleep(got.retry_after)
                     continue
-                self._attempt(key, "openalex", account.email, "rate-limited", "HTTP 429")
+                self._attempt(key, ladder.OPENALEX, account.email, "rate-limited", "HTTP 429")
                 self.log(f"OpenAlex account {account.email} is out of quota for today")
                 active.remove(account)
                 waits = 0
@@ -256,9 +259,9 @@ class _Fetcher:
                 outcome = "error"
             else:
                 outcome = "failed"
-            self._attempt(key, "openalex", account.email, outcome, got.detail)
+            self._attempt(key, ladder.OPENALEX, account.email, outcome, got.detail)
             if got.ok:
-                self._file(key, "openalex", url, got)
+                self._file(key, ladder.OPENALEX, url, got)
             spent[account.email] += 1
             if spent[account.email] >= QUOTA:
                 active.remove(account)
@@ -269,7 +272,7 @@ class _Fetcher:
 
     def hosts(self) -> None:
         """Try each free host link once, for papers OpenAlex cannot serve."""
-        queue = self._due("host")
+        queue = self._due(ladder.HOST)
         self.log(f"host links: {len(queue)} papers to try")
         for n, key in enumerate(queue, 1):
             got, url = _Got(), ""
@@ -279,12 +282,12 @@ class _Fetcher:
                 if got.ok:
                     break
             if got.ok:
-                self._attempt(key, "host", None, "fetched", url)
-                self._file(key, "host", url, got)
+                self._attempt(key, ladder.HOST, None, "fetched", url)
+                self._file(key, ladder.HOST, url, got)
             else:
                 blocked = got.status in _BLOCKED or got.detail == "not a PDF"
                 outcome = "blocked" if blocked else "failed"
-                self._attempt(key, "host", None, outcome, f"{got.detail}: {url}")
+                self._attempt(key, ladder.HOST, None, outcome, f"{got.detail}: {url}")
             self._progress(f"host links: {n}/{len(queue)} papers tried")
 
     def _due(self, tier: str, tried: Collection[str] = ()) -> list[str]:
