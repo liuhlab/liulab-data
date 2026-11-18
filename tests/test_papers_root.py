@@ -11,8 +11,10 @@ import pytest
 from typer.testing import CliRunner
 
 from labdata.cli import app
+from labdata.exceptions import StoreNotConfiguredError
 from labdata.papers import open_paper_store, paper_lock, read_status
 from labdata.papers.status import STATUS, PaperStatus, encode
+from labdata.store import save_pointer
 
 
 @pytest.fixture(autouse=True)
@@ -28,17 +30,18 @@ def geo_store(path: Path) -> Path:
     return path
 
 
-def test_init_writes_the_marker_readme_and_pointer(tmp_path: Path) -> None:
-    store = geo_store(tmp_path / "store")
+def test_init_writes_the_marker_readme_and_pointer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("LABDATA_STORE", str(geo_store(tmp_path / "store")))
     root = tmp_path / "paper-store"
-    args = ["papers", "init", str(root), "--store", str(store)]
+    args = ["papers", "init", str(root)]
     result = CliRunner().invoke(
         app, [*args, "--copy-to", "gcs:lab/datalake/paper-store", "--drive-folder", "1AbC"]
     )
     assert result.exit_code == 0, result.output
     assert tomllib.loads((root / "labdata-papers.toml").read_text(encoding="utf-8")) == {
         "format_version": 1,
-        "store": str(store),
         "copy_to": "gcs:lab/datalake/paper-store",
         "drive_remote": "",
         "drive_folder": "1AbC",
@@ -46,22 +49,34 @@ def test_init_writes_the_marker_readme_and_pointer(tmp_path: Path) -> None:
     assert "paper-status.json" in (root / "README.md").read_text(encoding="utf-8")
     pointer = tmp_path / "cache" / "liulab-data" / "papers.toml"
     assert tomllib.loads(pointer.read_text(encoding="utf-8")) == {"papers": {"root": str(root)}}
-    opened = open_paper_store()
-    assert opened.root == root
-    assert opened.store.root == store
+    assert open_paper_store().root == root
 
     again = CliRunner().invoke(app, args)
     assert again.exit_code == 1
     assert "already" in again.output
 
 
-def test_init_refuses_a_folder_that_is_not_a_geo_store(tmp_path: Path) -> None:
-    result = CliRunner().invoke(
-        app, ["papers", "init", str(tmp_path / "p"), "--store", str(tmp_path)]
-    )
+def test_init_refuses_when_no_geo_store_opens(tmp_path: Path) -> None:
+    result = CliRunner().invoke(app, ["papers", "init", str(tmp_path / "p")])
     assert result.exit_code == 1
-    assert "labdata-store.toml" in result.output
+    assert "store not configured" in result.output
     assert not (tmp_path / "p" / "labdata-papers.toml").exists()
+
+
+def test_the_geo_store_is_the_variable_then_the_pointer_never_the_settings_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    by_env, by_pointer, old = (geo_store(tmp_path / n) for n in ("env", "pointer", "old"))
+    root = tmp_path / "papers"
+    root.mkdir()
+    (root / "labdata-papers.toml").write_text(f'store = "{old}"\n', encoding="utf-8")
+    paper = open_paper_store(root)
+    with pytest.raises(StoreNotConfiguredError, match="store not configured"):
+        paper.store  # noqa: B018
+    save_pointer(by_pointer)
+    assert open_paper_store(root).store.root == by_pointer
+    monkeypatch.setenv("LABDATA_STORE", str(by_env))
+    assert open_paper_store(root).store.root == by_env
 
 
 _HOLDER = """

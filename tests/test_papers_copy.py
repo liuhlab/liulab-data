@@ -14,11 +14,11 @@ import pytest
 from typer.testing import CliRunner, Result
 
 from labdata.cli import app
-from labdata.papers import init_paper_store, open_paper_store, tables
+from labdata.papers import open_paper_store, tables
 from labdata.papers.copy import COPIED, PaperCopyError
 from labdata.papers.lifecycle import copy
 from tests._fake_gcs import FakeGcs, KilledError
-from tests._paper_fakes import fixture_build
+from tests._paper_fakes import fixture_build, init_papers
 
 DEST = "gcs:bucket/datalake/paper-store"
 STATUS = "paper-status.json"
@@ -35,7 +35,7 @@ def root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.delenv("LABDATA_PAPERS", raising=False)
     store = fixture_build(tmp_path / "store", [("GSE1", "PMID:41000001", "SOFT")])
     path = tmp_path / "papers"
-    init_paper_store(path, store, copy_to=DEST)
+    init_papers(path, store, copy_to=DEST)
     return path
 
 

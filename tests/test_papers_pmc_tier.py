@@ -16,10 +16,10 @@ from labdata.cli import app
 from labdata.ncbi import entrez as entrez_mod
 from labdata.ncbi.config import NcbiCredentials
 from labdata.ncbi.entrez import EntrezClient
-from labdata.papers import init_paper_store, open_paper_store, paper_dir, pmc, tables
+from labdata.papers import open_paper_store, paper_dir, pmc, tables
 from labdata.papers.folder import TEMP
 from labdata.papers.openalex import OpenAlex
-from tests._paper_fakes import Article, FakeBucket, FakeWeb, Reply, fixture_build, md5
+from tests._paper_fakes import Article, FakeBucket, FakeWeb, Reply, fixture_build, init_papers, md5
 
 TODAY = "2026-11-07"
 #: An open-access article in two versions: XML, PDF, a figure and supplements.
@@ -102,7 +102,7 @@ def _isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 def store(tmp_path: Path, fake: FakeWeb, monkeypatch: pytest.MonkeyPatch) -> Path:
     links = [(f"GSE{n}", f"PMID:{p}", "SOFT") for n, p in enumerate((OA, AM, CLOSED))]
     root = tmp_path / "papers"
-    init_paper_store(root, fixture_build(tmp_path / "store", links))
+    init_papers(root, fixture_build(tmp_path / "store", links))
 
     def client() -> EntrezClient:
         creds = NcbiCredentials("t@t.org", "abc")
