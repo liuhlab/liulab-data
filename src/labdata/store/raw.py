@@ -5,7 +5,7 @@ A raw row is ``accession``, ``raw_text``, ``hash`` and ``fetch_date``. A source'
 A fetch saves rows as a part under ``work/parts/``, and a removal as a removal part; pack
 merges them into the bucket files.
 
-Every read and pack share :func:`merge`: the bucket file, then the parts oldest first, the
+Every read and pack share one merge: the bucket file, then the parts oldest first, the
 newest row of an accession winning and a removal dropping the rows saved before it. So an
 accession is held, or left to fetch, alike before and after pack. Writer side only, so pyarrow
 is imported here freely.
@@ -62,22 +62,8 @@ WIDTHS: dict[str, int] = {
 }
 #: Raw text sorted in memory as one chunk before it is written.
 SORT_CHUNK_BYTES = 32 << 20
-#: Most rows sorted as one chunk.
-SORT_CHUNK_ROWS = 10_000
-#: Row groups one chunk is written as.
-GROUPS_PER_CHUNK = 8
-#: Rows read from a file at a time when they hold raw text.
-READ_ROWS = 16
-#: Rows read from a file at a time when they hold no raw text.
-_NARROW_ROWS = 1 << 16
-#: The parquet key listing the accessions a part's piece asked for, one per line.
-ASKED_KEY = b"labdata.asked"
-#: The parquet key listing the accessions a removal part deletes, one per line.
-REMOVED_KEY = b"labdata.removed"
 #: The ``fetch_date`` that marks a row as a removal in a file pack merges through.
 REMOVED = "removed"
-#: The columns a merged row's values hold, after its accession.
-ROW = ("raw_text", "fetch_date")
 
 SCHEMA = pa.schema(
     [
@@ -87,6 +73,20 @@ SCHEMA = pa.schema(
         ("fetch_date", pa.string()),
     ]
 )
+#: Most rows sorted as one chunk.
+_SORT_CHUNK_ROWS = 10_000
+#: Row groups one chunk is written as.
+_GROUPS_PER_CHUNK = 8
+#: Rows read from a file at a time when they hold raw text.
+_READ_ROWS = 16
+#: Rows read from a file at a time when they hold no raw text.
+_NARROW_ROWS = 1 << 16
+#: The parquet key listing the accessions a part's piece asked for, one per line.
+_ASKED_KEY = b"labdata.asked"
+#: The parquet key listing the accessions a removal part deletes, one per line.
+_REMOVED_KEY = b"labdata.removed"
+#: The columns a merged row's values hold, after its accession.
+_ROW = ("raw_text", "fetch_date")
 _ACCESSION = re.compile(r"^([A-Z]+)(\d+)$")
 #: Digits of the write stamp in a part's name, ``<bucket>.<stamp>.<tag>.parquet``.
 _STAMP_DIGITS = 20
@@ -141,23 +141,18 @@ def parts_dir(root: Path, source: str) -> Path:
     return paths.PARTS.at(root, source)
 
 
-def part_files(root: Path, source: str) -> list[Path]:
-    """Return a source's finished part files, oldest first.
+def parts_by_bucket(root: Path, source: str) -> dict[str, list[Path]]:
+    """Return a source's finished part files by bucket, each bucket's oldest first.
 
     Oldest is by the stamp in the name, and a part without one by its mtime. Across
     processes, the order follows each writer's clock.
     """
     folder = parts_dir(root, source)
     if not folder.is_dir():
-        return []
+        return {}
     files = [p for p in folder.glob("*.parquet") if not p.name.startswith(".")]
-    return sorted(files, key=_order_key)
-
-
-def parts_by_bucket(root: Path, source: str) -> dict[str, list[Path]]:
-    """Return a source's part files by bucket, each bucket's oldest first."""
     out: dict[str, list[Path]] = defaultdict(list)
-    for path in part_files(root, source):
+    for path in sorted(files, key=_order_key):
         out[_name_fields(path)[0]].append(path)
     return dict(out)
 
@@ -204,12 +199,13 @@ class _Mark:
 
 
 #: The entry of an accession a removal part lists: the rows saved before it are dropped.
-GONE = _Mark("gone")
+_GONE = _Mark("gone")
 #: The entry of an accession a part's piece asked for.
 _ASKED = _Mark("asked")
 
-type Value = tuple[str, ...] | _Mark
-type Run = Iterable[tuple[str, Value]]
+type _Value = tuple[str, ...] | _Mark
+type Run = Iterable[tuple[str, _Value]]
+type _Entries = list[tuple[int, _Value]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -233,7 +229,7 @@ class _Wanted:
         return at < len(self.ordered) and self.ordered[at] <= stats.max
 
 
-def merge(runs: Sequence[Run]) -> Iterator[tuple[str, list[tuple[int, Value]]]]:
+def _merge(runs: Sequence[Run]) -> Iterator[tuple[str, _Entries]]:
     """Merge runs sorted by accession, oldest first, into each accession's entries.
 
     An entry is ``(run index, value)``, in run order; within a run, in row order.
@@ -244,19 +240,47 @@ def merge(runs: Sequence[Run]) -> Iterator[tuple[str, list[tuple[int, Value]]]]:
         yield accession, [(rank, value) for _, rank, value in group]
 
 
-def _ranked(rank: int, run: Run) -> Iterator[tuple[str, int, Value]]:
+def _ranked(rank: int, run: Run) -> Iterator[tuple[str, int, _Value]]:
     return ((accession, rank, value) for accession, value in run)
 
 
-def newest(entries: list[tuple[int, Value]]) -> tuple[int, Value]:
-    """Return the entry that decides an accession: its newest row or removal.
+def _newest(entries: _Entries) -> tuple[int, tuple[str, ...] | None]:
+    """Return the run index and values of an accession's newest row; None for no row.
 
-    The value is :data:`GONE` when a removal is newer than every row, or there is no row.
+    There is none when a removal is newer than every row, or no row was saved.
     """
     for rank, value in reversed(entries):
-        if value is not _ASKED:
+        if isinstance(value, tuple):
             return rank, value
-    return -1, GONE
+        if value is _GONE:
+            return rank, None
+    return -1, None
+
+
+def _asked_since_removal(entries: _Entries) -> bool:
+    """Return whether a piece asked for the accession after its last removal."""
+    for _, value in reversed(entries):
+        if value is _GONE:
+            return False
+        if value is _ASKED:
+            return True
+    return False
+
+
+def newest_rows(
+    runs: Sequence[Run], bucket_runs: int = 0
+) -> Iterator[tuple[str, RawRow | None, str | None]]:
+    """Yield each accession's newest row, None when removed, and its bucket file's text.
+
+    The first ``bucket_runs`` of ``runs`` are the bucket file's; with none, or no row of the
+    accession in them, its old text is None. Runs hold the columns ``raw_text`` and
+    ``fetch_date``.
+    """
+    for accession, entries in _merge(runs):
+        _, values = _newest(entries)
+        rank, first = entries[0]
+        old = first[0] if rank < bucket_runs and isinstance(first, tuple) else None
+        yield accession, None if values is None else RawRow(accession, *values), old
 
 
 def layers(
@@ -264,36 +288,36 @@ def layers(
     source: str,
     bucket: str,
     parts: list[Path],
-    columns: tuple[str, ...] = ROW,
+    columns: tuple[str, ...] = _ROW,
     *,
-    packed: bool = True,
+    with_bucket: bool = True,
     asked: bool = False,
     wanted: _Wanted | None = None,
 ) -> tuple[list[Run], int]:
-    """Return a bucket's runs for :func:`merge`, oldest first, and how many its bucket file gave.
+    """Return a bucket's runs, oldest first, and how many of them its bucket file gave.
 
-    The bucket file is one run, unless ``packed`` is false; each of ``parts`` follows, with
-    ``asked`` the accessions its piece asked for as one more run.
+    The bucket file is one run, unless ``with_bucket`` is false; each of ``parts`` follows,
+    with ``asked`` the accessions its piece asked for as one more run.
     """
     out: list[Run] = []
     path = paths.RAW.at(root, source, f"{bucket}.parquet")
-    if packed and path.is_file():
+    if with_bucket and path.is_file():
         out.append(file_run(path, columns, wanted))
-    first = len(out)
+    bucket_runs = len(out)
     for part in parts:
-        out += runs(part, columns, wanted)
+        out += _runs(part, columns, wanted)
         if asked:
-            out.append([(a, _ASKED) for a in sorted(_listed(part, ASKED_KEY)) if _in(a, wanted)])
-    return out, first
+            out.append([(a, _ASKED) for a in sorted(_listed(part, _ASKED_KEY)) if _in(a, wanted)])
+    return out, bucket_runs
 
 
-def runs(path: Path, columns: tuple[str, ...] = ROW, wanted: _Wanted | None = None) -> list[Run]:
+def _runs(path: Path, columns: tuple[str, ...], wanted: _Wanted | None) -> list[Run]:
     """Return a part's sorted runs, oldest first: its row groups in order, by their stats.
 
-    A removal part is one run of :data:`GONE`.
+    A removal part is one run of removals.
     """
-    if gone := _listed(path, REMOVED_KEY):
-        return [[(a, GONE) for a in sorted(gone) if _in(a, wanted)]]
+    if gone := _listed(path, _REMOVED_KEY):
+        return [[(a, _GONE) for a in sorted(gone) if _in(a, wanted)]]
     metadata = pq.read_metadata(path)
     out: list[Run] = []
     run: list[int] = []
@@ -313,14 +337,14 @@ def runs(path: Path, columns: tuple[str, ...] = ROW, wanted: _Wanted | None = No
 
 def file_run(
     path: Path,
-    columns: tuple[str, ...] = ROW,
+    columns: tuple[str, ...] = _ROW,
     wanted: _Wanted | None = None,
     groups: list[int] | None = None,
-) -> Iterator[tuple[str, Value]]:
+) -> Iterator[tuple[str, _Value]]:
     """Yield a file's ``(accession, values)``, or some row groups', in file order.
 
-    A row dated :data:`REMOVED` yields :data:`GONE`. Raw text is read a few rows at a time,
-    and only from row groups whose accession range takes in a ``wanted`` one.
+    A row dated :data:`REMOVED` is a removal. Raw text is read a few rows at a time, and only
+    from row groups whose accession range takes in a ``wanted`` one.
     """
     text = "raw_text" in columns
     dated = columns.index("fetch_date") if "fetch_date" in columns else None
@@ -331,7 +355,7 @@ def file_run(
         if not groups:
             return
         for batch in fh.iter_batches(
-            batch_size=READ_ROWS if text else _NARROW_ROWS,
+            batch_size=_READ_ROWS if text else _NARROW_ROWS,
             row_groups=groups,
             columns=["accession", *columns],
         ):
@@ -344,7 +368,7 @@ def file_run(
                 if not _in(accession, wanted):
                     continue
                 gone = dated is not None and values[dated] == REMOVED
-                yield accession, GONE if gone else tuple(values)
+                yield accession, _GONE if gone else tuple(values)
 
 
 def _in(accession: str, wanted: _Wanted | None) -> bool:
@@ -359,20 +383,6 @@ def _saved(
     since_pack: bool,
 ) -> Iterator[tuple[str, tuple[str, ...]]]:
     """Yield each held accession's newest row values, bucket by bucket in accession order."""
-    for accession, entries in _merged(root, source, accessions, columns, since_pack):
-        _, value = newest(entries)
-        if isinstance(value, tuple):
-            yield accession, value
-
-
-def _merged(
-    root: Path,
-    source: str,
-    accessions: Iterable[str] | None,
-    columns: tuple[str, ...],
-    since_pack: bool,
-) -> Iterator[tuple[str, list[tuple[int, Value]]]]:
-    """Yield each accession's merge entries, bucket by bucket in accession order."""
     wanted = None if accessions is None else _Wanted.of(accessions)
     parts = parts_by_bucket(root, source)
     if wanted is not None:
@@ -383,8 +393,13 @@ def _merged(
         buckets = {p.stem for p in paths.RAW.at(root, source).glob("*.parquet")} | set(parts)
     for bucket in sorted(buckets):
         mine = parts.get(bucket, [])
-        found, _ = layers(root, source, bucket, mine, columns, packed=not since_pack, wanted=wanted)
-        yield from merge(found)
+        found, _ = layers(
+            root, source, bucket, mine, columns, with_bucket=not since_pack, wanted=wanted
+        )
+        for accession, entries in _merge(found):
+            _, values = _newest(entries)
+            if values is not None:
+                yield accession, values
 
 
 def held(
@@ -419,31 +434,23 @@ def scan(
     pattern: re.Pattern[str],
     *,
     since_pack: bool = False,
-    every_version: bool = False,
 ) -> set[str]:
     """Return what ``pattern`` finds in the newest saved text of ``accessions``.
 
-    With ``since_pack``, only rows saved since the last pack count. With ``every_version``,
-    so do the older rows pack will replace and no removal dropped: what a text was and is.
+    With ``since_pack``, only rows saved since the last pack count.
     """
     found: set[str] = set()
-    for _, entries in _merged(root, source, accessions, ("raw_text",), since_pack):
-        cut = max((i for i, (_, v) in enumerate(entries) if v is GONE), default=-1)
-        versions = [v for _, v in entries[cut + 1 :]] if every_version else [newest(entries)[1]]
-        for value in versions:
-            if isinstance(value, tuple):
-                found.update(pattern.findall(value[0]))
+    for _, (text,) in _saved(root, source, accessions, ("raw_text",), since_pack):
+        found.update(pattern.findall(text))
     return found
 
 
-def rows(
-    root: Path, source: str, accessions: Iterable[str] | None = None, *, since_pack: bool = False
-) -> Iterator[RawRow]:
+def rows(root: Path, source: str, accessions: Iterable[str] | None = None) -> Iterator[RawRow]:
     """Yield the newest row of each held accession of ``accessions``, in accession order.
 
     With None, every held accession's. Memory holds a few rows of each part, never a bucket.
     """
-    for accession, (text, date) in _saved(root, source, accessions, ROW, since_pack):
+    for accession, (text, date) in _saved(root, source, accessions, _ROW, False):
         yield RawRow(accession, text, date)
 
 
@@ -451,10 +458,10 @@ def removing(root: Path, source: str) -> set[str]:
     """Return the accessions a pending removal drops: no row is saved after it."""
     out: set[str] = set()
     for bucket, parts in parts_by_bucket(root, source).items():
-        if not any(_listed(part, REMOVED_KEY) for part in parts):
+        if not any(_listed(part, _REMOVED_KEY) for part in parts):
             continue
-        found, _ = layers(root, source, bucket, parts, (), packed=False)
-        out |= {a for a, entries in merge(found) if newest(entries)[1] is GONE}
+        found, _ = layers(root, source, bucket, parts, (), with_bucket=False)
+        out |= {a for a, entries in _merge(found) if _newest(entries)[1] is None}
     return out
 
 
@@ -472,11 +479,7 @@ def merged_files(root: Path, source: str, scratch: Path) -> list[Path]:
         scratch.mkdir(parents=True, exist_ok=True)
         out.append(scratch / f"{bucket}.parquet")
         found, _ = layers(root, source, bucket, parts[bucket])
-        newer = (
-            RawRow(accession, *value)
-            for accession, entries in merge(found)
-            if isinstance(value := newest(entries)[1], tuple)
-        )
+        newer = (row for _, row, _ in newest_rows(found) if row is not None)
         write_sorted_runs(out[-1], newer, SCHEMA)
     return out
 
@@ -498,22 +501,21 @@ def pieces(
     out = []
     for bucket, members in sorted(by_bucket.items()):
         wanted = _Wanted.of(members)
-        found, packed = layers(
+        found, bucket_runs = layers(
             root, source, bucket, parts.get(bucket, []), (), asked=True, wanted=wanted
         )
-        done = {a for a, entries in merge(found) if _done(entries, packed, a in again)}
+        done = {a for a, entries in _merge(found) if _done(entries, bucket_runs, a in again)}
         if left := members - done:
             out.append(Piece(source, bucket, tuple(sorted(left))))
     return out
 
 
-def _done(entries: list[tuple[int, Value]], packed: int, again: bool) -> bool:
+def _done(entries: _Entries, bucket_runs: int, again: bool) -> bool:
     """Return whether an accession needs no fetch: held, or asked since its last removal."""
-    rank, value = newest(entries)
-    cut = max((r for r, v in entries if v is GONE), default=-1)
-    if any(v is _ASKED and r > cut for r, v in entries):
+    if _asked_since_removal(entries):
         return True
-    return isinstance(value, tuple) and (rank >= packed or not again)
+    rank, values = _newest(entries)
+    return values is not None and (rank >= bucket_runs or not again)
 
 
 def _listed(path: Path, key: bytes) -> set[str]:
@@ -544,7 +546,7 @@ def write_removals(root: Path, source: str, accessions: Iterable[str]) -> list[P
         if kept := _parts_of(folder, bucket, tag):
             written += kept
             continue
-        schema = SCHEMA.with_metadata({REMOVED_KEY: listed.encode()})
+        schema = SCHEMA.with_metadata({_REMOVED_KEY: listed.encode()})
         written.append(_write_part_file(folder, bucket, tag, [], schema))
     return written
 
@@ -582,7 +584,7 @@ def fetch_pieces(
         The parts written; a saved piece writes none and makes no call to ``get``.
     """
     return [
-        write_part(
+        _write_part(
             root,
             piece,
             (RawRow(a, text, date) for a, text in get(list(piece.todo))),
@@ -593,38 +595,53 @@ def fetch_pieces(
 
 
 def save(
-    root: Path, source: str, rows: Iterable[RawRow], *, record_asked: bool = True
+    root: Path,
+    source: str,
+    rows: Iterable[RawRow],
+    *,
+    asked: Sequence[str] | None = None,
+    chunk_bytes: int = SORT_CHUNK_BYTES,
 ) -> list[Path]:
     """Save rows as parts, one per bucket: a row wins over every older row of its accession.
 
-    The rows are held in memory; a fetch that streams its rows writes them with
-    :func:`write_part`.
+    ``asked`` lists what one bucket's fetch asked for: the rows stream to one part that
+    records them, so one that got no row is not fetched again before the next pack. Without
+    it, the rows are held in memory.
 
     Returns
     -------
     list of pathlib.Path
         The parts written.
+
+    Raises
+    ------
+    ValueError
+        If a row is not in the bucket of ``asked``.
     """
+    if asked is not None:
+        piece = Piece(source, bucket_of(source, asked[0]), tuple(asked))
+        return [_write_part(root, piece, rows, record_asked=True, chunk_bytes=chunk_bytes)]
     by_bucket: dict[str, list[RawRow]] = defaultdict(list)
     for row in rows:
         by_bucket[bucket_of(source, row.accession)].append(row)
     return [
-        write_part(
+        _write_part(
             root,
             Piece(source, bucket, tuple(sorted({row.accession for row in chunk}))),
             chunk,
-            record_asked=record_asked,
+            record_asked=False,
+            chunk_bytes=chunk_bytes,
         )
         for bucket, chunk in sorted(by_bucket.items())
     ]
 
 
-def write_part(
+def _write_part(
     root: Path,
     piece: Piece,
     rows: Iterable[RawRow],
     *,
-    record_asked: bool = True,
+    record_asked: bool,
     chunk_bytes: int = SORT_CHUNK_BYTES,
 ) -> Path:
     """Write one piece's rows as a part file, chunk by chunk, renamed into place when whole.
@@ -650,7 +667,7 @@ def write_part(
             yield row
 
     listed = "\n".join(piece.todo) if record_asked else ""
-    schema = SCHEMA.with_metadata({ASKED_KEY: listed.encode()})
+    schema = SCHEMA.with_metadata({_ASKED_KEY: listed.encode()})
     return _write_part_file(folder, piece.bucket, tag, checked(), schema, chunk_bytes)
 
 
@@ -668,7 +685,7 @@ def _write_part_file(
     rename order. An earlier copy is an older part of the same bucket and tag.
     """
     global _last_stamp
-    tmp = writer_temp(folder / part_name(bucket, tag))
+    tmp = _writer_temp(folder / part_name(bucket, tag))
     try:
         _write_runs(tmp, rows, schema, chunk_bytes)
         with _stamp_lock:
@@ -688,11 +705,11 @@ def write_sorted_runs(
 ) -> None:
     """Write rows to ``path`` one chunk at a time, each chunk sorted by accession.
 
-    A chunk is written as :data:`GROUPS_PER_CHUNK` row groups, so a reader merging many
-    sorted runs holds one small row group of each. The file appears by a rename once whole.
-    Rows already in order make a sorted file.
+    A chunk is written as a few row groups, so a reader merging many sorted runs holds one
+    small row group of each. The file appears by a rename once whole. Rows already in order
+    make a sorted file.
     """
-    tmp = writer_temp(path)
+    tmp = _writer_temp(path)
     try:
         _write_runs(tmp, rows, schema, chunk_bytes)
         tmp.replace(path)
@@ -707,7 +724,7 @@ def _write_runs(path: Path, rows: Iterable[RawRow], schema: pa.Schema, chunk_byt
         for row in rows:
             chunk.append(row)
             size += len(row.raw_text)
-            if size >= chunk_bytes or len(chunk) >= SORT_CHUNK_ROWS:
+            if size >= chunk_bytes or len(chunk) >= _SORT_CHUNK_ROWS:
                 _write_chunk(writer, chunk, schema, chunk_bytes)
                 chunk, size = [], 0
         if chunk:
@@ -722,14 +739,14 @@ def _write_chunk(
     for row in sorted(chunk, key=_key):
         group.append(row)
         size += len(row.raw_text)
-        if size >= chunk_bytes // GROUPS_PER_CHUNK:
+        if size >= chunk_bytes // _GROUPS_PER_CHUNK:
             writer.write_table(_table(group, schema))
             group, size = [], 0
     if group:
         writer.write_table(_table(group, schema))
 
 
-def writer_temp(path: Path) -> Path:
+def _writer_temp(path: Path) -> Path:
     """Return a hidden temporary path beside ``path``, unique to this process and thread."""
     return path.with_name(f".{path.name}.{os.getpid()}-{threading.get_ident()}.tmp")
 

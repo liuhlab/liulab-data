@@ -219,7 +219,7 @@ def _sync(
         rekeyed = _look_up(state, chunk, client, openalex, today, report, log)
         for old, new in rekeyed.items():
             linked[new] = linked.pop(old, set()) | linked.get(new, set())
-        state.save(root)
+        state.save(root, today)
         log(
             f"looked up {min(i + CHUNK, len(todo))}/{len(todo)} papers "
             f"in {time.monotonic() - clock:.0f} s; {report.failed} failed, "
@@ -235,8 +235,7 @@ def _sync(
         log=log,
         on_failure=lambda replies: setattr(report, "bucket", replies),
     )
-    ladder.settle(state, today)
-    state.save(root)
+    state.save(root, today)
     counts: dict[str, Counter[str]] = {}
     for row in state.papers.values():
         counts.setdefault(row["status"] or "", Counter())[row["reason"] or ""] += 1

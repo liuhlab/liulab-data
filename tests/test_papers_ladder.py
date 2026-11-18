@@ -30,6 +30,7 @@ def test_a_paper_moves_to_the_next_tier_only_when_the_one_before_cannot_serve_it
     error = ("openalex", "error")
     assert {
         "PMC not tried": place(every),
+        "PMC not tried, no other route": place({"pmcid": "PMC1"}),
         "not in PMC": place(every, (("pmc", "absent"),)),
         "two OpenAlex errors": place(every, (pmc_failed, error, error)),
         "three OpenAlex errors": place(every, (pmc_failed, error, error, error)),
@@ -38,7 +39,8 @@ def test_a_paper_moves_to_the_next_tier_only_when_the_one_before_cannot_serve_it
         "under a year old, free link": place({"host_pdf_urls": HOST, "published": TODAY}),
         "held": place(every, (), held("pdf", "openalex")),
     } == {
-        "PMC not tried": ("waiting", "openalex-backlog", "pmc"),
+        "PMC not tried": ("waiting", "pmc-sync", "pmc"),
+        "PMC not tried, no other route": ("waiting", "pmc-sync", "pmc"),
         "not in PMC": ("waiting", "openalex-backlog", "openalex"),
         "two OpenAlex errors": ("waiting", "openalex-backlog", "openalex"),
         "three OpenAlex errors": ("waiting", "host-link", "host"),

@@ -1040,7 +1040,9 @@ def store_eutils(
     ),
     date: str | None = typer.Option(None, help="SRA_Accessions.tab snapshot date."),
     refetch: Path | None = typer.Option(
-        None, help="The re-fetch list: Series whose experiments to fetch again."
+        None,
+        help="The re-fetch list: Series whose experiments to fetch again; the experiments file "
+        "`_changes` wrote beside it adds those their old SOFT named.",
     ),
     soft_only: bool = typer.Option(
         False, help="Take the experiments from the saved SOFT only, not SRA_Accessions.tab."
@@ -1065,7 +1067,7 @@ def store_eutils(
     today = dt.datetime.now(dt.UTC).date().isoformat()
     again = set()
     if refetch is not None:
-        again = changes.refetch_experiments(store.root, _accession_file(refetch))
+        again = changes.refetch_experiments(store.root, refetch)
     report = eutils.fetch_packages(
         store.root, listed, client=_store_client(), date=today, refetch=again
     )

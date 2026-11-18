@@ -204,7 +204,7 @@ def copy(
     if full and accept_deletes:
         raise PaperCopyError("--full deletes nothing, so it takes no --accept-deletes")
     with paper_lock(store.root):
-        daily_mod.take_in(store.root)
+        daily_mod.take_in(store.root, _today())
         return _send(store, dest, full=full, accept_deletes=accept_deletes)
 
 
@@ -277,12 +277,12 @@ def _finalize(store: PaperStore, log: _Log) -> CopyResult | None:
     root = store.root
     dest = destination(store)
     if not dest:
-        daily_mod.take_in(root)
+        daily_mod.take_in(root, _today())
         if not read_status(root).finalized:
             log(f"no {COPY_TO_KEY} in {MARKER}: the GCS copy is skipped")
         return None
     try:
-        daily_mod.take_in(root)
+        daily_mod.take_in(root, _today())
         status = read_status(root)
         if status.finalized and not status.copy_pending:
             return None
@@ -315,3 +315,7 @@ def _write(root: Path, status: PaperStatus) -> None:
 
 def _now() -> str:
     return dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
+
+
+def _today() -> dt.date:
+    return dt.datetime.now(dt.UTC).date()

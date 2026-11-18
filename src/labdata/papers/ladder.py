@@ -2,21 +2,32 @@
 
 The tiers run in :data:`TIERS` order, and a paper moves to the next tier only when the one
 before cannot serve it. Tiers record attempts and files; only this module sets a paper's
-``status``, ``reason``, ``xml_tier`` and ``pdf_tier``. The daily pass and the PMC sync both
-settle papers here.
+``status``, ``reason``, ``xml_tier`` and ``pdf_tier``, and every save of the tables settles
+them here first.
 """
 
 from __future__ import annotations
 
 import datetime as dt
-from collections.abc import Collection, Mapping
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from labdata.papers.tables import PaperTables
+if TYPE_CHECKING:
+    from labdata.papers.tables import PaperTables
 
-#: The tiers in order. A manual paper's next tier is the Paperpile step, still to be written.
-TIERS = ("pmc", "openalex", "host", "paperpile")
+#: The PMC bucket.
+PMC = "pmc"
+#: A copy OpenAlex sells.
+OPENALEX = "openalex"
+#: A free link on the publisher's site.
+HOST = "host"
+#: The manual queue in Paperpile.
+PAPERPILE = "paperpile"
+#: The tiers in order. A manual paper's next tier is :data:`PAPERPILE`.
+TIERS = (PMC, OPENALEX, HOST, PAPERPILE)
+#: The tiers tried while a paper waits for PMC to release it: those that spend no quota.
+FREE = (PMC, HOST)
 
 #: A paper published this many days ago or less waits for PMC.
 EMBARGO_DAYS = 365
@@ -24,8 +35,29 @@ EMBARGO_DAYS = 365
 #: Days an OpenAlex server or network error is tried before the paper moves on.
 OPENALEX_TRIES = 3
 
-#: The reasons on a row an older PMC sync left for a non-paper; the ladder leaves it as it is.
+#: The reasons on a non-paper's row; the ladder leaves such a row as it is.
 NOT_PAPERS = ("placeholder", "not-article")
+
+type _Serves = Callable[[Mapping[str, Any], list[str]], bool]
+
+#: Whether a tier can still serve a paper, from its row and the outcomes of that tier's tries.
+_SERVES: dict[str, _Serves] = {
+    PMC: lambda row, tried: bool(row.get("pmcid")) and not tried,
+    OPENALEX: lambda row, tried: (
+        bool(row.get("openalex_pdf"))
+        and "failed" not in tried
+        and tried.count("error") < OPENALEX_TRIES
+    ),
+    HOST: lambda row, tried: bool(row.get("host_pdf_urls")) and not tried,
+    PAPERPILE: lambda row, tried: True,
+}
+#: The reason a paper waits on each tier before the manual queue.
+_WAITING = {PMC: "pmc-sync", OPENALEX: "openalex-backlog", HOST: "host-link"}
+#: The reason a manual paper takes from a tier's last failed try, by its outcome.
+_FAILED: dict[str, Callable[[str], str]] = {
+    OPENALEX: lambda outcome: "openalex-failed",
+    HOST: lambda outcome: "host-blocked" if outcome == "blocked" else "host-failed",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +74,11 @@ class Standing:
     tier: str | None
     xml_tier: str | None
     pdf_tier: str | None
+
+
+def holds(file: Mapping[str, Any]) -> bool:
+    """Return whether a ``files`` row is an XML or PDF the store holds."""
+    return file["kind"] in ("xml", "pdf") and bool(file["path"])
 
 
 def standing(
@@ -77,31 +114,18 @@ def standing(
         return at("skipped", row["reason"], None)
     if row.get("retracted"):
         return at("skipped", "retracted", None)
-    if any(f["kind"] in ("xml", "pdf") and f["path"] for f in files):
+    if any(holds(f) for f in files):
         return at("fetched", None, None)
     tried = {t: [a["outcome"] for a in attempts if a["tier"] == t] for t in TIERS}
-    pmc = bool(row.get("pmcid")) and not tried["pmc"]
-    openalex = (
-        bool(row.get("openalex_pdf"))
-        and "failed" not in tried["openalex"]
-        and tried["openalex"].count("error") < OPENALEX_TRIES
-    )
-    host = bool(row.get("host_pdf_urls")) and not tried["host"]
-    nearest = "pmc" if pmc else "openalex" if openalex else "host" if host else "paperpile"
+    nearest = next(t for t in TIERS if _SERVES[t](row, tried[t]))
     published = row.get("published")
     if published is not None and published > today - dt.timedelta(days=EMBARGO_DAYS):
         # Quota and manual work wait for PMC; the free tiers are tried meanwhile.
-        return at("waiting", "pmc-embargo", nearest if nearest in ("pmc", "host") else None)
-    if openalex:
-        return at("waiting", "openalex-backlog", nearest)
-    if host:
-        return at("waiting", "host-link", nearest)
-    if tried["host"]:
-        reason = "host-blocked" if tried["host"][-1] == "blocked" else "host-failed"
-    elif tried["openalex"]:
-        reason = "openalex-failed"
-    else:
-        reason = "no-route"
+        return at("waiting", "pmc-embargo", nearest if nearest in FREE else None)
+    if nearest in _WAITING:
+        return at("waiting", _WAITING[nearest], nearest)
+    failed = [t for t in TIERS if t in _FAILED and tried[t]]
+    reason = _FAILED[failed[-1]](tried[failed[-1]][-1]) if failed else "no-route"
     return at("manual", reason, nearest)
 
 
@@ -120,9 +144,9 @@ def replaced(files: Collection[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
     list of mapping
         The rows of the PDFs to remove; none while PMC gives no XML.
     """
-    if not any(f["tier"] == "pmc" and f["kind"] == "xml" and f["path"] for f in files):
+    if not any(f["tier"] == PMC and f["kind"] == "xml" and f["path"] for f in files):
         return []
-    return [f for f in files if f["kind"] == "pdf" and f["tier"] != "pmc"]
+    return [f for f in files if f["kind"] == "pdf" and f["tier"] != PMC]
 
 
 def standings(state: PaperTables, today: dt.date) -> dict[str, Standing]:
@@ -145,7 +169,7 @@ def standings(state: PaperTables, today: dt.date) -> dict[str, Standing]:
         attempts.setdefault(a["paper"], []).append(a)
     files: dict[str, list[dict[str, Any]]] = {}
     for f in state.files:
-        if f["kind"] in ("xml", "pdf"):
+        if holds(f):
             files.setdefault(f["paper"], []).append(f)
     return {
         key: standing(row, attempts.get(key, []), files.get(key, []), today)
@@ -159,7 +183,7 @@ def settle(state: PaperTables, today: dt.date) -> None:
     Parameters
     ----------
     state : PaperTables
-        The paper store's tables, loaded; the caller saves them.
+        The paper store's tables, loaded.
     today : datetime.date
         The UTC date of the pass.
     """
@@ -170,4 +194,4 @@ def settle(state: PaperTables, today: dt.date) -> None:
 
 
 def _held_tier(files: Collection[Mapping[str, Any]], kind: str) -> str | None:
-    return next((f["tier"] for f in files if f["kind"] == kind and f["path"]), None)
+    return next((f["tier"] for f in files if f["kind"] == kind and holds(f)), None)

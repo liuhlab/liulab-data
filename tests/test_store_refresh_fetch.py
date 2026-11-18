@@ -194,8 +194,13 @@ def test_the_refetch_list_is_changed_new_and_related_target_series(
 # ---------------------------------------------------------------- fetching it again
 
 
-def _held_store(tmp_path: Path) -> Path:
-    """A store holding GSE1, GSE2 and GSE5 with their packages, as the last refresh left it."""
+def _held_store(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, updated: tuple[str, ...] = ("GSE1",)
+) -> Path:
+    """A store holding GSE1, GSE2 and GSE5 with their packages, as the last refresh left it.
+
+    Its re-fetch list is made for ``updated``, the Series GEO changed since.
+    """
     root = _store(tmp_path, ["GSE1", "GSE2", "GSE5"])
     tab = root / "snapshots" / "sra-accessions" / "2026-11-01" / "SRA_Accessions.tab"
     tab.parent.mkdir(parents=True)
@@ -212,7 +217,8 @@ def _held_store(tmp_path: Path) -> Path:
     _hold(root, raw.GEO_FILELIST, {"GSE1": "old list\n", "GSE2": "", "GSE5": ""})
     _hold(root, raw.SRA_XML, {a: package(a) for a in ("SRX1", "SRX2", "SRX5", "SRX20")})
     (tmp_path / "targets.txt").write_text("GSE1\nGSE2\nGSE5\n")
-    (tmp_path / "refetch.txt").write_text("GSE1\n")
+    out = ["--out", str(tmp_path / "refetch.txt"), "--root", str(root)]
+    _cli(Ncbi(updated=list(updated)), monkeypatch, "_changes", "--since", "2026-11-01", *out)
     return root
 
 
@@ -226,14 +232,15 @@ def _changed_ncbi() -> Ncbi:
 
 
 def _fetch_again(
-    ncbi: Ncbi, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, root: Path, lanes: str = "both"
+    ncbi: Ncbi,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    root: Path,
+    lanes: tuple[str, ...] = ("_geo", "_eutils"),
 ) -> str:
     where = ["--refetch", str(tmp_path / "refetch.txt"), "--root", str(root)]
     series = ["--series", str(tmp_path / "targets.txt")]
-    said = _cli(ncbi, monkeypatch, "_geo", *series, *where)
-    if lanes == "both":
-        said += _cli(ncbi, monkeypatch, "_eutils", *series, *where)
-    return said
+    return "".join(_cli(ncbi, monkeypatch, lane, *series, *where) for lane in lanes)
 
 
 def _raw(root: Path, source: str) -> dict[str, str]:
@@ -244,10 +251,12 @@ def _raw(root: Path, source: str) -> dict[str, str]:
 def test_a_changed_series_replaces_its_soft_filelist_related_series_and_packages(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    root = _held_store(tmp_path)
+    root = _held_store(tmp_path, monkeypatch)
     ncbi = _changed_ncbi()
 
-    said = _fetch_again(ncbi, monkeypatch, tmp_path, root)
+    said = _fetch_again(ncbi, monkeypatch, tmp_path, root, lanes=("_geo",))
+    pack.pack(root)  # as if pack ran first: raw/ no longer holds GSE1's old SOFT
+    said += _fetch_again(ncbi, monkeypatch, tmp_path, root, lanes=("_eutils",))
 
     soft = _raw(root, raw.GEO_SOFT)
     assert "version 2" in soft["GSE1"]
@@ -267,13 +276,12 @@ def test_a_changed_series_replaces_its_soft_filelist_related_series_and_packages
 def test_a_rerun_after_a_kill_asks_only_for_what_is_not_yet_fetched_again(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    root = _held_store(tmp_path)
-    (tmp_path / "refetch.txt").write_text("GSE1\nGSE2\n")
+    root = _held_store(tmp_path, monkeypatch, ("GSE1", "GSE2"))
     ncbi = _changed_ncbi()
     ncbi.serve_series("GSE2", series_soft("GSE2", "SRX20", version="2"))
     ncbi.packages["SRX20"] = package("SRX20", "2")
     ncbi.stalled.add(soft_url("GSE1"))  # as if the job were killed before GSE1 was saved
-    _fetch_again(ncbi, monkeypatch, tmp_path, root, lanes="geo")
+    _fetch_again(ncbi, monkeypatch, tmp_path, root, lanes=("_geo",))
 
     ncbi.stalled.clear()
     ncbi.fetched.clear()
@@ -290,9 +298,9 @@ def test_a_rerun_after_a_kill_asks_only_for_what_is_not_yet_fetched_again(
 def test_a_series_whose_soft_fetch_failed_is_fetched_again_by_the_next_refresh(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    root = _held_store(tmp_path)
+    root = _held_store(tmp_path, monkeypatch)
     ncbi = Ncbi()  # GSE1's SOFT is not served this time
-    _fetch_again(ncbi, monkeypatch, tmp_path, root, lanes="geo")
+    _fetch_again(ncbi, monkeypatch, tmp_path, root, lanes=("_geo",))
     pack.pack(root)
     out = tmp_path / "next.txt"
     changes_args = ["_changes", "--since", "2026-11-01", "--out", str(out), "--root", str(root)]
@@ -303,7 +311,7 @@ def test_a_series_whose_soft_fetch_failed_is_fetched_again_by_the_next_refresh(
     assert "1 whose last SOFT fetch failed" in said
     ncbi.serve_series("GSE1", series_soft("GSE1", "SRX1", version="2"))
     (tmp_path / "refetch.txt").write_text(out.read_text())
-    _fetch_again(ncbi, monkeypatch, tmp_path, root, lanes="geo")
+    _fetch_again(ncbi, monkeypatch, tmp_path, root, lanes=("_geo",))
     assert "version 2" in _raw(root, raw.GEO_SOFT)["GSE1"]
     _cli(ncbi, monkeypatch, *changes_args)
     assert out.read_text().split() == []

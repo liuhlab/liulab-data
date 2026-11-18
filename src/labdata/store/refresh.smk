@@ -71,6 +71,7 @@ rule changes:
         "targets.done",
     output:
         "refetch.txt",
+        "refetch-experiments.txt",
     log:
         "logs/changes.log",
     resources:
@@ -97,6 +98,7 @@ rule geo:
 rule eutils_beside_geo:
     input:
         "refetch.txt",
+        "refetch-experiments.txt",
     output:
         touch("eutils-beside-geo.done"),
     log:

@@ -455,17 +455,16 @@ def _fetch(client: EntrezClient, ids: list[str]) -> FetchedRecords:
 
 def _save(root: Path, part: _Part, date: str) -> None:
     """Write the part; an experiment whose call failed is left unasked, to be fetched again."""
-    bucket = part.piece.bucket
-    asked = tuple(a for a in part.piece.todo if a not in part.failed)
+    asked = [a for a in part.piece.todo if a not in part.failed]
     if asked:
-        raw.write_part(root, raw.Piece(raw.SRA_XML, bucket, asked), part.rows(date))
+        raw.save(root, raw.SRA_XML, part.rows(date), asked=asked)
     part.spill.unlink(missing_ok=True)
 
 
 def _record_failed(root: Path, failed: dict[str, str], date: str) -> None:
     """Save each experiment whose fetch failed as an ``sra-fetch-failed`` row: its last error."""
     rows = [raw.RawRow(a, " ".join(text.split()), date) for a, text in failed.items()]
-    raw.save(root, raw.SRA_FETCH_FAILED, rows, record_asked=False)
+    raw.save(root, raw.SRA_FETCH_FAILED, rows)
 
 
 def _jobs(
