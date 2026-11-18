@@ -25,7 +25,7 @@ Follow "Refresh the store" in `docs/how-to/store-run.md`.
    against the 2 h budget. Put the table in the report and the log entry.
 6. **Refresh logs.** `scripts/store/keep_run_logs.sh "$LABDATA_STORE" refresh/<started>`, with
    `<started>` from the status record's `folder`. Deleting `work/` after that needs the user's
-   yes.
+   yes, and never takes `work/extract/`: every build reads the extracts there.
 7. **GCS copy.** The routine check of "Check the copy", in `docs/how-to/store-gcs.md`, passes:
    `copy_pending` is `false` in `refresh-status.json`, and the copy record check reports 0
    differences. No step here lists every file of the store: that section's full check runs
