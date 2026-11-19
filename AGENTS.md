@@ -57,7 +57,9 @@ src/labdata/
                        (the yearly removal of withdrawn SRA records),
                        _removal.py (the helpers both removals share),
                        refresh.py + refresh.smk (the refresh DAG; runs from
-                       a checkout, as it calls scripts/bulk/)
+                       a checkout, as it calls scripts/bulk/);
+                       subset.py (a small store cut from one build to a
+                       list of Series; it only reads its source)
   papers/            the paper store: paths.py (its top-level paths and their kinds);
                        root.py (marker, pointer, lock, paper folders);
                        tables.py (the four tables and the paper files they name:
@@ -73,7 +75,8 @@ src/labdata/
                        folder.py (internal to tables.py: writes, moves and
                        deletes paper files; temp files);
                        daily.py (quota, host links, manual queue); copy.py
-                       (GCS copy); job.py (the long-running paper job)
+                       (GCS copy); job.py (the long-running paper job);
+                       subset.py (the papers a subset store links)
 tests/               pytest suite, mirrors src; mocks the EntrezClient + subprocess seams
 conftest.py          the suite budget and the slow lane
 scripts/check.sh     the gate runner

@@ -40,6 +40,8 @@
 
 ::: labdata.store.gcs
 
+::: labdata.store.subset
+
 ::: labdata.papers.root
 
 ::: labdata.papers.tables
@@ -47,3 +49,5 @@
 ::: labdata.papers.status
 
 ::: labdata.papers.reader
+
+::: labdata.papers.subset

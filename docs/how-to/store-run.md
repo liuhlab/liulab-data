@@ -346,6 +346,57 @@ pixi run python scripts/store/benchmark.py /path/to/scratch
 The benchmark also prints the share of links whose far end the sample holds. Most links
 point outside a sample, so its link-query timings are indicative only.
 
+## Cut a store down to a list of Series
+
+A subset is a small store that holds only the Series you list and the records they link to.
+It has the tables and layout of a full store, so the same code reads it, and it is small
+enough for a laptop. Write the Series accessions one a line, then give the full store, the
+list and an empty folder:
+
+```bash
+labdata store subset --from /path/to/store --series series.txt --root /path/to/small
+```
+
+The full store is only read. The command prints how many records of each type it kept and
+the bytes it wrote:
+
+```text
+Cut build 20261114T020000Z to /path/to/small/builds/20261114T020000Z-subset
+BioProject: 3
+GEO Platform: 2
+GEO Sample: 2
+GEO Series: 2
+SRA experiment: 2
+SRA run: 2
+SRA sample: 2
+SRA study: 2
+not listed, so not held: GSE246308 SubSeries of GSE246310
+Wrote 140009 bytes
+```
+
+The subset follows links forward only: from a Series to its Samples, their experiments and
+runs, and each record's Platform and BioProject. A paper or a BioProject that other Series
+share adds none of those Series. The last line but one names a Series outside your list that
+a listed Series belongs to; add it to the list if you want it. `open_store("/path/to/small")`
+opens the subset. Unlike a sample build, it copies rows and reads no raw file, so it has no
+`raw/` or `snapshots/` and cannot be refreshed: run the command again to change the list.
+
+To take the papers of those Series too, cut the paper store with the subset you just made:
+
+```bash
+labdata papers subset --from /path/to/papers --store /path/to/small --root /path/to/small-papers
+```
+
+It copies the rows and the files of each paper that a Series or BioProject in the subset
+links, and prints the papers, the files and the bytes. The full paper store is only read.
+The command stops with a message if the paper job is saving its tables at that moment; run
+it again then. Neither small store names a bucket, so no copy command run on one can reach
+the full stores' copies. To read both:
+
+```bash
+export LABDATA_STORE=/path/to/small LABDATA_PAPERS=/path/to/small-papers
+```
+
 ## Go deeper
 
 The steps are also commands of their own: `labdata store pack`, `build`, `coverage`, `prune`
