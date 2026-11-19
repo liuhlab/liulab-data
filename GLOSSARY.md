@@ -172,6 +172,17 @@ share's sample lies inside a larger one's.
 
 _Avoid_: round (a share of the target Series list that the full download fetches)
 
+### Subset
+
+A small store cut from one build of a full store to a given list of Series, with a full
+store's tables and layout. It holds the listed Series and every record reached from them by
+following links forward; a paper or a BioProject shared with other Series adds none of them.
+It keeps every link of a held record. Its rows are copied from the build, not parsed again,
+so it has no raw files or snapshots. A paper store's subset holds the papers that a
+subset's Series and BioProjects link, with their files.
+
+_Avoid_: sample build (a seeded share, parsed again from the raw files)
+
 ### Round
 
 One run of the full download over a seeded sample of the target Series list, such as 1%. A

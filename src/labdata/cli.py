@@ -361,6 +361,38 @@ def papers_restore(
     _restore(lambda ok: restore(where, source, approve=ok), where, accept_download)
 
 
+@papers_app.command("subset")
+def papers_subset(
+    source: Path = typer.Option(..., "--from", help="The source paper store's root; only read."),
+    store: Path = typer.Option(
+        ..., help="The small store `labdata store subset` made; its links choose the papers."
+    ),
+    root: Path = typer.Option(
+        ..., help="The new paper store root: an empty folder, or a subset for the same build."
+    ),
+) -> None:
+    """Cut a paper store down to the papers a small store's Series and BioProjects link.
+
+    Copies those papers' rows of all four tables and every file they name, with the account
+    column of attempts left empty. The source paper store is only read, under no lock: the
+    command refuses while it saves its tables, or when a table changes during the read. The
+    new marker names no copy target, and the per-user pointer file is left as it is: set
+    LABDATA_PAPERS to read the small paper store. Prints the papers, the files and the bytes
+    written.
+    """
+    from labdata.papers.subset import subset
+
+    try:
+        made = subset(source, store, root)
+    except (LabdataError, OSError) as err:
+        typer.echo(str(err), err=True)
+        raise typer.Exit(1) from err
+    typer.echo(f"Cut the paper store to {made.root}")
+    typer.echo(f"papers: {made.papers}")
+    typer.echo(f"files: {made.files}")
+    typer.echo(f"Wrote {made.bytes} bytes")
+
+
 @papers_app.command("serve")
 def papers_serve(
     root: Path | None = typer.Option(
@@ -573,6 +605,43 @@ def store_build(
         typer.echo(f"Built {out}; the run's switch step checks it, then switches to it")
         return
     typer.echo(f"Built {out} and switched {'the store' if source is None else target} to it")
+
+
+@store_app.command("subset")
+def store_subset(
+    source: Path = typer.Option(..., "--from", help="The source store's root; only read."),
+    series: Path = typer.Option(..., help="A file of GEO Series accessions, one a line."),
+    root: Path = typer.Option(
+        ..., help="The new store root: an empty folder, or a subset of the same source build."
+    ),
+    build_id: str | None = typer.Option(
+        None, help="Build folder name; default: <source build ID>-subset."
+    ),
+) -> None:
+    """Cut a store's current build down to a list of Series, into a small store of its own.
+
+    The small store has the tables and layout of a full one. It holds the listed Series and
+    every record reached from them by following links forward, never backward: a paper or a
+    BioProject shared with other Series adds none of them. It keeps every link of a held
+    record. Rows are copied, not parsed again, and the new root gets no raw/, snapshots/ or
+    extracts/. The source store is only read. Prints the records held by type, each link
+    from a listed Series to an unlisted one, and the bytes written.
+    """
+    from labdata.store.subset import read_series, subset
+
+    try:
+        made = subset(source, read_series(series), root, build_id)
+    except (LabdataError, OSError) as err:
+        typer.echo(str(err), err=True)
+        raise typer.Exit(1) from err
+    typer.echo(f"Cut build {made.source_build} to {made.build}")
+    for kind, count in made.records.items():
+        typer.echo(f"{kind}: {count}")
+    if made.not_held:
+        typer.echo(f"listed, not held by the source: {', '.join(made.not_held)}")
+    for listed, relation, other in made.outside:
+        typer.echo(f"not listed, so not held: {listed} {relation} {other}")
+    typer.echo(f"Wrote {made.bytes} bytes")
 
 
 @store_app.command("readme")
