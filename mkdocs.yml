@@ -37,6 +37,9 @@ theme:
   icon:
     repo: fontawesome/brands/github
 
+extra_css:
+  - stylesheets/diagrams.css
+
 plugins:
   - search
   - mkdocstrings:
@@ -96,7 +99,9 @@ markdown_extensions:
       anchor_linenums: true
       pygments_lang_class: true
   - pymdownx.inlinehilite
-  - pymdownx.snippets
+  # A wrong snippet path would build green and leave an empty figure.
+  - pymdownx.snippets:
+      check_paths: true
   - pymdownx.superfences:
       custom_fences:
         - name: mermaid

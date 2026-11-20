@@ -33,3 +33,6 @@ config:
   # repeating its own section, which is the duplicate that is a real mistake.
   MD024:
     siblings_only: true
+  # A hand-drawn SVG diagram is inlined into a raw <figure> with an HTML <figcaption>.
+  MD033:
+    allowed_elements: [figure, figcaption]

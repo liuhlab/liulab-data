@@ -4,7 +4,9 @@ Two stores live on a work disk on the cluster. The GEO/SRA store keeps study met
 NCBI. The paper store keeps the papers those studies link to. Google Cloud Storage (GCS) holds
 both and is the source of truth. An update is done only once GCS holds it.
 
-This page shows how data moves from its sources to GCS. To run a store, follow
+This page shows how data moves from its sources to GCS. Each colour in its diagrams means one
+thing: **the GEO/SRA store**{ .d-key .d-store }, **the paper store**{ .d-key .d-paper },
+**GCS**{ .d-key .d-gcs } and **a failure**{ .d-key .d-fail }. To run a store, follow
 [Run the full download](store-run.md), [Copy the store to GCS](store-gcs.md) or
 [Run the paper store](papers-run.md).
 
@@ -14,22 +16,10 @@ The GEO/SRA store takes its records from NCBI. The paper store reads which paper
 the current GEO/SRA build, then fetches each paper from the cheapest source that has it. Both
 stores copy their changes to GCS, and a new work disk restores from GCS.
 
-```mermaid
-flowchart LR
-  ncbi["NCBI<br/>bulk files, GEO, E-utilities"]
-  others["PMC, PubMed, OpenAlex,<br/>publisher sites"]
-  subgraph disk["Work disk on the cluster"]
-    store["GEO/SRA store<br/>one build per update"]
-    papers["Paper store<br/>four tables, paper files"]
-  end
-  gcs[("GCS<br/>the source of truth")]
-  ncbi -- monthly refresh --> store
-  store -- PMID and DOI links --> papers
-  others -- daily pass, PMC sync --> papers
-  store -- copy --> gcs
-  papers -- copy --> gcs
-  gcs -. restore .-> disk
-```
+<figure class="diagram">
+--8<-- "docs/diagrams/store-overview.svg"
+<figcaption>Each store fills on the work disk from its own sources, and copies to its own path in GCS.</figcaption>
+</figure>
 
 Each source gives the stores these records:
 
@@ -53,35 +43,10 @@ written. A small marker file names the current build, and readers open that one 
 A full run and a monthly refresh are Snakemake workflows. Each step runs once its inputs
 exist. Only a few network steps run at once, so the store stays gentle on NCBI.
 
-```mermaid
-flowchart TB
-  snapshots["Snapshots<br/>FTP bulk files"]:::refresh
-  series["GEO Series list<br/>patch the summaries"]:::refresh
-  targets["Targets<br/>the Series to hold"]
-  changes["Changes<br/>what to fetch again"]:::refresh
-  geo["GEO lane<br/>SOFT and file lists"]
-  sra1["SRA lane, pass 1<br/>beside the GEO lane"]
-  sra2["SRA lane, pass 2<br/>experiments the SOFT adds"]
-  confirm["Confirm<br/>withdrawn Series"]:::refresh
-  pack["Pack<br/>parts into raw/"]
-  extract["Extract<br/>snapshots to Parquet"]
-  build["Build<br/>a new build"]
-  switch["Switch<br/>check coverage, move the marker"]
-  prune["Prune<br/>builds out of use"]
-  copy["Copy<br/>to GCS"]
-  snapshots --> targets
-  series --> targets
-  targets --> changes
-  changes --> geo
-  changes --> sra1
-  geo --> sra2
-  sra1 --> sra2
-  sra2 --> confirm --> pack --> build
-  snapshots --> extract
-  series --> extract
-  extract --> build --> switch --> prune --> copy
-  classDef refresh stroke-dasharray: 5 4
-```
+<figure class="diagram">
+--8<-- "docs/diagrams/store-update.svg"
+<figcaption>A step starts once every step with an arrow into it is done.</figcaption>
+</figure>
 
 The dashed steps run only in a refresh. A refresh downloads new snapshots and fetches again
 only the GEO Series that changed. Before it packs, it confirms which Series NCBI withdrew. A
@@ -93,17 +58,10 @@ because each saved SOFT file can name more SRA experiments.
 
 The status record, `refresh-status.json`, names the outcome of the last update.
 
-```mermaid
-stateDiagram-v2
-  direction LR
-  [*] --> running: take the run lock
-  running --> built: coverage passes, switch
-  running --> failed: a step fails
-  failed --> running: resume
-  failed --> abandoned: a new update replaces it
-  built --> finalized: copy, status record last
-  finalized --> [*]
-```
+<figure class="diagram">
+--8<-- "docs/diagrams/store-states.svg"
+<figcaption>An update is finalized only once GCS holds its status record.</figcaption>
+</figure>
 
 - **running**: the update holds the run lock. It starts only when the work disk matches GCS.
 - **failed**: a step failed, or the new build missed too many target Series. Readers keep the
@@ -124,25 +82,10 @@ The paper store fetches the papers that target GEO Series and held BioProjects l
 or DOI. It reads those links from the current GEO/SRA build, so a new build brings in new
 papers. Each paper waits on the first tier that can still serve it, cheapest first:
 
-```mermaid
-flowchart TB
-  new["New paper<br/>a PMID or DOI the build links"]
-  embargo["Waiting for PMC<br/>published in the last year"]
-  pmc["Tier 1: PMC bucket<br/>free, monthly"]
-  openalex["Tier 2: OpenAlex PDF<br/>paid quota, daily"]
-  host["Tier 3: publisher link<br/>free, daily"]
-  manual["Manual queue<br/>saved in Paperpile"]
-  fetched(["fetched"])
-  new --> pmc
-  new -- recent --> embargo -- free tiers only --> pmc
-  pmc -- absent or failed --> openalex
-  openalex -- failed --> host
-  host -- blocked or failed --> manual
-  pmc -- "XML or PDF" --> fetched
-  openalex -- PDF --> fetched
-  host -- PDF --> fetched
-  manual -. a later PMC sync .-> fetched
-```
+<figure class="diagram">
+--8<-- "docs/diagrams/paper-ladder.svg"
+<figcaption>Each paper climbs from the cheapest tier until one serves it.</figcaption>
+</figure>
 
 - A tier that has no copy, or fails, passes the paper on. Repeated server errors pass it on
   too.

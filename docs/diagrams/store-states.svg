@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 660 262" role="img" aria-labelledby="store-states-title">
+  <title id="store-states-title">The states of one update: running, then built after the switch, then finalized once the copy sends the status record last. A running update that fails can resume, or is abandoned when a new update replaces it.</title>
+  <defs>
+    <marker id="store-states-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+    <marker id="store-states-ah-store" class="d-store" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+    <marker id="store-states-ah-gcs" class="d-gcs" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+    <marker id="store-states-ah-fail" class="d-fail" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+    <marker id="store-states-ah-idle" class="d-idle" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+  </defs>
+  <!-- Start -->
+  <circle class="d-dot" cx="85" cy="11" r="5"/>
+  <path class="d-edge" d="M85,16 V50" marker-end="url(#store-states-ah)"/>
+  <text class="d-l" x="91" y="38">take the run lock</text>
+  <!-- running and built -->
+  <g class="d-store">
+    <rect class="d-tint" x="20" y="50" width="130" height="58" rx="7"/>
+    <text class="d-t" x="85" y="75" text-anchor="middle">running</text>
+    <text class="d-s" x="85" y="92" text-anchor="middle">holds the run lock</text>
+    <path class="d-edge" d="M150,79 H310" marker-end="url(#store-states-ah-store)"/>
+    <text class="d-l" x="230" y="59" text-anchor="middle">coverage passes,</text>
+    <text class="d-l" x="230" y="72" text-anchor="middle">switch</text>
+    <rect class="d-tint" x="310" y="50" width="130" height="58" rx="7"/>
+    <text class="d-t" x="375" y="70" text-anchor="middle">built</text>
+    <text class="d-s" x="375" y="87" text-anchor="middle">the work disk reads</text>
+    <text class="d-s" x="375" y="101" text-anchor="middle">the new build</text>
+    <path class="d-edge" d="M40,200 V108" marker-end="url(#store-states-ah-store)"/>
+    <text class="d-l" x="46" y="158">resume</text>
+  </g>
+  <!-- finalized -->
+  <g class="d-gcs">
+    <path class="d-edge" d="M440,79 H528" marker-end="url(#store-states-ah-gcs)"/>
+    <text class="d-l" x="484" y="59" text-anchor="middle">copy, status</text>
+    <text class="d-l" x="484" y="72" text-anchor="middle">record last</text>
+    <rect class="d-tint" x="528" y="50" width="130" height="58" rx="7"/>
+    <text class="d-t" x="593" y="70" text-anchor="middle">finalized</text>
+    <text class="d-s" x="593" y="87" text-anchor="middle">GCS holds the build</text>
+    <text class="d-s" x="593" y="101" text-anchor="middle">and the status record</text>
+  </g>
+  <!-- Failure paths -->
+  <g class="d-fail">
+    <path class="d-edge d-dash" d="M355,50 C355,24 395,24 395,50" marker-end="url(#store-states-ah-fail)"/>
+    <text class="d-l" x="375" y="14" text-anchor="middle">copy failed: the next run copies first</text>
+    <path class="d-edge" d="M130,108 V200" marker-end="url(#store-states-ah-fail)"/>
+    <text class="d-l" x="138" y="140">a step fails, or the</text>
+    <text class="d-l" x="138" y="154">new build misses too</text>
+    <text class="d-l" x="138" y="168">many target Series</text>
+    <rect class="d-tint" x="20" y="200" width="130" height="58" rx="7"/>
+    <text class="d-t" x="85" y="220" text-anchor="middle">failed</text>
+    <text class="d-s" x="85" y="237" text-anchor="middle">readers keep</text>
+    <text class="d-s" x="85" y="251" text-anchor="middle">the old build</text>
+  </g>
+  <!-- abandoned -->
+  <g class="d-idle">
+    <path class="d-edge" d="M150,229 H310" marker-end="url(#store-states-ah-idle)"/>
+    <text class="d-l" x="230" y="221" text-anchor="middle">a new update replaces it,</text>
+    <text class="d-l" x="230" y="243" text-anchor="middle">or a refresh waits too long</text>
+    <rect class="d-tint d-dash" x="310" y="200" width="130" height="58" rx="7"/>
+    <text class="d-t" x="375" y="220" text-anchor="middle">abandoned</text>
+    <text class="d-s" x="375" y="237" text-anchor="middle">only the run folder</text>
+    <text class="d-s" x="375" y="251" text-anchor="middle">records it</text>
+  </g>
+</svg>

@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 660 360" role="img" aria-labelledby="store-update-title">
+  <title id="store-update-title">The update workflow. A refresh downloads snapshots and patches the GEO Series list; both runs pick the target Series, fetch them in the GEO and SRA lanes and pack the parts into raw/. A refresh also lists the changes and confirms withdrawn Series. Then extract, build, switch, prune and copy to GCS.</title>
+  <defs>
+    <marker id="store-update-ah-store" class="d-store" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+    <marker id="store-update-ah-gcs" class="d-gcs" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+  </defs>
+  <rect class="d-band" x="22" y="0" width="638" height="118" rx="6"/>
+  <rect class="d-band" x="22" y="136" width="638" height="118" rx="6"/>
+  <rect class="d-band" x="22" y="272" width="638" height="86" rx="6"/>
+  <text class="d-h" x="28" y="14">WHAT TO FETCH</text>
+  <text class="d-h" x="28" y="150">FETCH AND PACK</text>
+  <text class="d-h" x="28" y="286">BUILD AND COPY</text>
+  <g class="d-store">
+    <!-- What to fetch -->
+    <rect class="d-box d-dash" x="28" y="22" width="148" height="40" rx="5"/>
+    <text class="d-t" x="36" y="38">Snapshots</text>
+    <text class="d-s" x="36" y="54">FTP bulk files</text>
+    <rect class="d-box d-dash" x="28" y="70" width="148" height="40" rx="5"/>
+    <text class="d-t" x="36" y="86">GEO Series list</text>
+    <text class="d-s" x="36" y="102">patch the summaries</text>
+    <path class="d-edge" d="M176,42 H196 V90 H176"/>
+    <path class="d-edge" d="M196,66 H226" marker-end="url(#store-update-ah-store)"/>
+    <rect class="d-box" x="226" y="46" width="148" height="40" rx="5"/>
+    <text class="d-t" x="234" y="62">Targets</text>
+    <text class="d-s" x="234" y="78">the Series to hold</text>
+    <path class="d-edge" d="M374,66 H404" marker-end="url(#store-update-ah-store)"/>
+    <rect class="d-box d-dash" x="404" y="46" width="148" height="40" rx="5"/>
+    <text class="d-t" x="412" y="62">Changes</text>
+    <text class="d-s" x="412" y="78">what to fetch again</text>
+    <!-- Fetch and pack -->
+    <path class="d-edge" d="M478,86 V128 H16 V226 H28" marker-end="url(#store-update-ah-store)"/>
+    <path class="d-edge" d="M16,178 H28" marker-end="url(#store-update-ah-store)"/>
+    <rect class="d-box" x="28" y="158" width="148" height="40" rx="5"/>
+    <text class="d-t" x="36" y="174">GEO lane</text>
+    <text class="d-s" x="36" y="190">SOFT and file lists</text>
+    <rect class="d-box" x="28" y="206" width="148" height="40" rx="5"/>
+    <text class="d-t" x="36" y="222">SRA lane, pass 1</text>
+    <text class="d-s" x="36" y="238">beside the GEO lane</text>
+    <path class="d-edge" d="M176,178 H196 V226 H176"/>
+    <path class="d-edge" d="M196,202 H226" marker-end="url(#store-update-ah-store)"/>
+    <rect class="d-box" x="226" y="182" width="156" height="40" rx="5"/>
+    <text class="d-t" x="234" y="198">SRA lane, pass 2</text>
+    <text class="d-s" x="234" y="214">experiments the SOFT adds</text>
+    <path class="d-edge" d="M382,202 H398" marker-end="url(#store-update-ah-store)"/>
+    <rect class="d-box d-dash" x="398" y="182" width="116" height="40" rx="5"/>
+    <text class="d-t" x="406" y="198">Confirm</text>
+    <text class="d-s" x="406" y="214">withdrawn Series</text>
+    <path class="d-edge" d="M514,202 H530" marker-end="url(#store-update-ah-store)"/>
+    <rect class="d-box" x="530" y="182" width="120" height="40" rx="5"/>
+    <text class="d-t" x="538" y="198">Pack</text>
+    <text class="d-s" x="538" y="214">parts into raw/</text>
+    <!-- Build and copy -->
+    <path class="d-edge" d="M28,42 H6 V322 H28" marker-end="url(#store-update-ah-store)"/>
+    <path class="d-edge" d="M28,90 H6"/>
+    <path class="d-edge" d="M590,222 V262 H211 V294" marker-end="url(#store-update-ah-store)"/>
+    <rect class="d-box" x="28" y="294" width="110" height="56" rx="5"/>
+    <text class="d-t" x="36" y="311">Extract</text>
+    <text class="d-s" x="36" y="327">snapshots</text>
+    <text class="d-s" x="36" y="341">to Parquet</text>
+    <path class="d-edge" d="M138,322 H156" marker-end="url(#store-update-ah-store)"/>
+    <rect class="d-tint" x="156" y="294" width="110" height="56" rx="5"/>
+    <text class="d-t" x="164" y="311">Build</text>
+    <text class="d-s" x="164" y="327">a new build</text>
+    <path class="d-edge" d="M266,322 H284" marker-end="url(#store-update-ah-store)"/>
+    <rect class="d-box" x="284" y="294" width="110" height="56" rx="5"/>
+    <text class="d-t" x="292" y="311">Switch</text>
+    <text class="d-s" x="292" y="327">check coverage,</text>
+    <text class="d-s" x="292" y="341">move the marker</text>
+    <path class="d-edge" d="M394,322 H412" marker-end="url(#store-update-ah-store)"/>
+    <rect class="d-box" x="412" y="294" width="110" height="56" rx="5"/>
+    <text class="d-t" x="420" y="311">Prune</text>
+    <text class="d-s" x="420" y="327">builds out of use</text>
+  </g>
+  <g class="d-gcs">
+    <path class="d-edge" d="M522,322 H540" marker-end="url(#store-update-ah-gcs)"/>
+    <rect class="d-tint" x="540" y="294" width="110" height="56" rx="5"/>
+    <text class="d-t" x="548" y="311">Copy</text>
+    <text class="d-s" x="548" y="327">to GCS</text>
+  </g>
+</svg>
