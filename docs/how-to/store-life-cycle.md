@@ -6,7 +6,8 @@ both and is the source of truth. An update is done only once GCS holds it.
 
 This page shows how data moves from its sources to GCS. Each colour in its diagrams means one
 thing: **the GEO/SRA store**{ .d-key .d-store }, **the paper store**{ .d-key .d-paper },
-**GCS**{ .d-key .d-gcs } and **a failure**{ .d-key .d-fail }. To run a store, follow
+**GCS**{ .d-key .d-gcs }, **a failure**{ .d-key .d-fail } and
+**an update or paper set aside**{ .d-key .d-idle }. To run a store, follow
 [Run the full download](store-run.md), [Copy the store to GCS](store-gcs.md) or
 [Run the paper store](papers-run.md).
 
@@ -18,7 +19,7 @@ stores copy their changes to GCS, and a new work disk restores from GCS.
 
 <figure class="diagram">
 --8<-- "docs/diagrams/store-overview.svg"
-<figcaption>Each store fills on the work disk from its own sources, and copies to its own path in GCS.</figcaption>
+<figcaption>Records flow from their sources through the work disk to GCS.</figcaption>
 </figure>
 
 Each source gives the stores these records:
@@ -45,7 +46,7 @@ exist. Only a few network steps run at once, so the store stays gentle on NCBI.
 
 <figure class="diagram">
 --8<-- "docs/diagrams/store-update.svg"
-<figcaption>A step starts once every step with an arrow into it is done.</figcaption>
+<figcaption>Every update ends the same way: extract, build, switch, prune and copy.</figcaption>
 </figure>
 
 The dashed steps run only in a refresh. A refresh downloads new snapshots and fetches again

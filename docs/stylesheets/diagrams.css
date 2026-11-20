@@ -48,40 +48,34 @@
 .diagram .d-dash { stroke-dasharray: 5 4; }
 .diagram .d-dot { fill: currentColor; }
 
-/* Text: titles, notes, paths, arrow labels, headers, group names, tier names, text on a fill */
+/* Text. Unclassed text is an arrow label, in its group's colour. */
 .diagram text { font-size: 11px; fill: currentColor; }
-.diagram .d-t { font-size: 12px; font-weight: 700; fill: var(--md-default-fg-color); }
-.diagram .d-s { font-size: 11px; fill: var(--md-default-fg-color--light); }
-.diagram .d-c {
+.diagram .d-title { font-size: 12px; font-weight: 700; fill: var(--md-default-fg-color); }
+.diagram .d-note { font-size: 11px; fill: var(--md-default-fg-color--light); }
+.diagram .d-path {
   font-family: var(--md-code-font-family);
   font-size: 11.5px;
   fill: var(--md-default-fg-color);
 }
-.diagram .d-l { font-size: 11px; fill: currentColor; }
-.diagram .d-h {
+.diagram .d-head {
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.06em;
   fill: var(--md-default-fg-color--light);
 }
-.diagram .d-g { font-size: 12.5px; font-weight: 700; fill: currentColor; }
-.diagram .d-e { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; fill: currentColor; }
-.diagram .d-on { fill: var(--md-default-bg-color); }
+.diagram .d-group { font-size: 12.5px; font-weight: 700; fill: currentColor; }
+.diagram .d-tier { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; fill: currentColor; }
+.diagram .d-on-fill { fill: var(--md-default-bg-color); }
 
-/* A word in a page's colour key */
-.md-typeset strong.d-key { color: inherit; }
+/* A word in a page's colour key: the word and its swatch take the domain's colour. */
 .md-typeset strong.d-key::before {
   content: "";
   display: inline-block;
   width: 0.75em;
   height: 0.75em;
   margin-right: 0.3em;
-  border: 1.5px solid var(--d-swatch);
+  border: 1.5px solid currentColor;
   border-radius: 2px;
-  background: color-mix(in srgb, var(--d-swatch) 18%, transparent);
+  background: color-mix(in srgb, currentColor 18%, transparent);
   vertical-align: -0.05em;
 }
-.md-typeset strong.d-key.d-store { --d-swatch: var(--d-store); }
-.md-typeset strong.d-key.d-paper { --d-swatch: var(--d-paper); }
-.md-typeset strong.d-key.d-gcs { --d-swatch: var(--d-gcs); }
-.md-typeset strong.d-key.d-fail { --d-swatch: var(--d-fail); }

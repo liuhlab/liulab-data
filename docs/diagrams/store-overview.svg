@@ -5,133 +5,133 @@
     <marker id="store-overview-ah-paper" class="d-paper" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
     <marker id="store-overview-ah-gcs" class="d-gcs" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
   </defs>
-  <text class="d-h" x="1" y="14">SOURCES</text>
-  <text class="d-h" x="245" y="14">WORK DISK ON THE CLUSTER</text>
-  <text class="d-h" x="495" y="14">GCS</text>
+  <text class="d-head" x="1" y="14">SOURCES</text>
+  <text class="d-head" x="245" y="14">WORK DISK ON THE CLUSTER</text>
+  <text class="d-head" x="495" y="14">GCS</text>
   <!-- Sources for the GEO/SRA store -->
-  <g class="d-store"><text class="d-g" x="1" y="43">For the GEO/SRA store</text></g>
+  <g class="d-store"><text class="d-group" x="1" y="43">For the GEO/SRA store</text></g>
   <g class="d-quiet">
     <rect class="d-box" x="1" y="52" width="168" height="38" rx="5"/>
-    <text class="d-t" x="9" y="68">NCBI FTP bulk files</text>
-    <text class="d-s" x="9" y="83">SRA, BioProject, BioSample</text>
+    <text class="d-title" x="9" y="68">NCBI FTP bulk files</text>
+    <text class="d-note" x="9" y="83">SRA, BioProject, BioSample</text>
     <rect class="d-box" x="1" y="98" width="168" height="38" rx="5"/>
-    <text class="d-t" x="9" y="114">E-utilities esummary</text>
-    <text class="d-s" x="9" y="129">a summary of every Series</text>
+    <text class="d-title" x="9" y="114">E-utilities esummary</text>
+    <text class="d-note" x="9" y="129">a summary of every Series</text>
     <rect class="d-box" x="1" y="200" width="168" height="38" rx="5"/>
-    <text class="d-t" x="9" y="216">GEO download site</text>
-    <text class="d-s" x="9" y="231">family SOFT, file list</text>
+    <text class="d-title" x="9" y="216">GEO download site</text>
+    <text class="d-note" x="9" y="231">family SOFT, file list</text>
     <rect class="d-box" x="1" y="246" width="168" height="38" rx="5"/>
-    <text class="d-t" x="9" y="262">E-utilities efetch</text>
-    <text class="d-s" x="9" y="277">SRA experiment XML</text>
+    <text class="d-title" x="9" y="262">E-utilities efetch</text>
+    <text class="d-note" x="9" y="277">SRA experiment XML</text>
   </g>
   <!-- Sources for the paper store -->
-  <g class="d-paper"><text class="d-g" x="1" y="423">For the paper store</text></g>
+  <g class="d-paper"><text class="d-group" x="1" y="423">For the paper store</text></g>
   <g class="d-quiet">
     <rect class="d-box" x="1" y="430" width="168" height="38" rx="5"/>
-    <text class="d-t" x="9" y="446">PMC Open Access bucket</text>
-    <text class="d-s" x="9" y="461">XML, figures, supplements</text>
+    <text class="d-title" x="9" y="446">PMC Open Access bucket</text>
+    <text class="d-note" x="9" y="461">XML, figures, supplements</text>
     <rect class="d-box" x="1" y="474" width="168" height="52" rx="5"/>
-    <text class="d-t" x="9" y="490">PubMed</text>
-    <text class="d-s" x="9" y="505">and the PMC ID converter</text>
-    <text class="d-s" x="9" y="519">details, IDs, retractions</text>
+    <text class="d-title" x="9" y="490">PubMed</text>
+    <text class="d-note" x="9" y="505">and the PMC ID converter</text>
+    <text class="d-note" x="9" y="519">details, IDs, retractions</text>
     <rect class="d-box" x="1" y="532" width="168" height="38" rx="5"/>
-    <text class="d-t" x="9" y="548">OpenAlex</text>
-    <text class="d-s" x="9" y="563">details, paid PDFs</text>
+    <text class="d-title" x="9" y="548">OpenAlex</text>
+    <text class="d-note" x="9" y="563">paid PDFs</text>
     <rect class="d-box" x="1" y="576" width="168" height="38" rx="5"/>
-    <text class="d-t" x="9" y="592">Publisher sites</text>
-    <text class="d-s" x="9" y="607">free PDF links</text>
+    <text class="d-title" x="9" y="592">Publisher sites</text>
+    <text class="d-note" x="9" y="607">free PDF links</text>
     <rect class="d-box" x="1" y="620" width="168" height="38" rx="5"/>
-    <text class="d-t" x="9" y="636">Paperpile</text>
-    <text class="d-s" x="9" y="651">papers saved by hand</text>
+    <text class="d-title" x="9" y="636">Paperpile</text>
+    <text class="d-note" x="9" y="651">papers saved by hand</text>
   </g>
   <!-- GEO/SRA store -->
   <g class="d-store">
     <rect class="d-frame" x="245" y="24" width="200" height="352" rx="8"/>
-    <text class="d-g" x="255" y="43">GEO/SRA store</text>
+    <text class="d-group" x="255" y="43">GEO/SRA store</text>
     <rect class="d-box" x="255" y="52" width="180" height="56" rx="5"/>
-    <text class="d-c" x="263" y="70">labdata-store.toml</text>
-    <text class="d-s" x="263" y="86">the marker: names the</text>
-    <text class="d-s" x="263" y="100">current build</text>
+    <text class="d-path" x="263" y="70">labdata-store.toml</text>
+    <text class="d-note" x="263" y="86">the marker: names the</text>
+    <text class="d-note" x="263" y="100">current build</text>
     <rect class="d-box" x="255" y="120" width="140" height="40" rx="5"/>
-    <text class="d-c" x="263" y="137">snapshots/</text>
-    <text class="d-s" x="263" y="152">bulk files, summaries</text>
+    <text class="d-path" x="263" y="137">snapshots/</text>
+    <text class="d-note" x="263" y="152">bulk files, summaries</text>
     <path class="d-edge" d="M290,160 V184" marker-end="url(#store-overview-ah-store)"/>
-    <text class="d-l" x="296" y="176">extract</text>
+    <text x="296" y="176">extract</text>
     <rect class="d-box" x="255" y="184" width="140" height="40" rx="5"/>
-    <text class="d-c" x="263" y="201">extracts/</text>
-    <text class="d-s" x="263" y="216">Parquet tables</text>
+    <text class="d-path" x="263" y="201">extracts/</text>
+    <text class="d-note" x="263" y="216">Parquet tables</text>
     <rect class="d-box" x="255" y="244" width="140" height="40" rx="5"/>
-    <text class="d-c" x="263" y="261">raw/</text>
-    <text class="d-s" x="263" y="276">fetched records</text>
+    <text class="d-path" x="263" y="261">raw/</text>
+    <text class="d-note" x="263" y="276">fetched records</text>
     <path class="d-edge" d="M395,204 H415 V336 H395" marker-end="url(#store-overview-ah-store)"/>
     <path class="d-edge" d="M395,264 H415"/>
-    <text class="d-l" x="411" y="300" text-anchor="end">build</text>
+    <text x="411" y="300" text-anchor="end">build</text>
     <rect class="d-tint" x="255" y="308" width="140" height="56" rx="5"/>
-    <text class="d-c" x="263" y="326">builds/&lt;id&gt;/</text>
-    <text class="d-s" x="263" y="342">one per update, never</text>
-    <text class="d-s" x="263" y="356">changed once written</text>
+    <text class="d-path" x="263" y="326">builds/&lt;id&gt;/</text>
+    <text class="d-note" x="263" y="342">one per update, never</text>
+    <text class="d-note" x="263" y="356">changed once written</text>
     <!-- Sources into the store -->
     <path class="d-edge" d="M169,71 H181 V140 H255" marker-end="url(#store-overview-ah-store)"/>
     <path class="d-edge" d="M169,117 H181"/>
-    <text class="d-l" x="187" y="90">monthly</text>
-    <text class="d-l" x="187" y="102">refresh</text>
+    <text x="187" y="90">monthly</text>
+    <text x="187" y="102">refresh</text>
     <path class="d-edge" d="M169,219 H181 V264 H255" marker-end="url(#store-overview-ah-store)"/>
     <path class="d-edge" d="M169,264 H181"/>
-    <text class="d-l" x="187" y="245">per Series</text>
+    <text x="187" y="245">per Series</text>
   </g>
   <!-- Paper store -->
   <g class="d-paper">
     <path class="d-edge" d="M375,364 V432" marker-end="url(#store-overview-ah-paper)"/>
-    <text class="d-l" x="369" y="394" text-anchor="end">PMID and DOI links</text>
+    <text x="369" y="394" text-anchor="end">PMID and DOI links</text>
     <rect class="d-frame" x="245" y="404" width="200" height="268" rx="8"/>
-    <text class="d-g" x="255" y="423">Paper store</text>
+    <text class="d-group" x="255" y="423">Paper store</text>
     <rect class="d-box" x="255" y="432" width="180" height="56" rx="5"/>
-    <text class="d-t" x="263" y="449">Four tables</text>
-    <text class="d-c" x="263" y="466">papers, paper_info,</text>
-    <text class="d-c" x="263" y="481">files, attempts</text>
+    <text class="d-title" x="263" y="449">Four tables</text>
+    <text class="d-path" x="263" y="466">papers, paper_info,</text>
+    <text class="d-path" x="263" y="481">files, attempts</text>
     <rect class="d-tint" x="255" y="500" width="180" height="56" rx="5"/>
-    <text class="d-c" x="263" y="518">papers/</text>
-    <text class="d-s" x="263" y="534">one folder per paper,</text>
-    <text class="d-s" x="263" y="548">by PMID or DOI</text>
+    <text class="d-path" x="263" y="518">papers/</text>
+    <text class="d-note" x="263" y="534">one folder per paper,</text>
+    <text class="d-note" x="263" y="548">by PMID or DOI</text>
     <rect class="d-box" x="255" y="568" width="180" height="40" rx="5"/>
-    <text class="d-c" x="263" y="585">paper-status.json</text>
-    <text class="d-s" x="263" y="600">the status of each pass</text>
+    <text class="d-path" x="263" y="585">paper-status.json</text>
+    <text class="d-note" x="263" y="600">the status of each pass</text>
     <rect class="d-box" x="255" y="619" width="180" height="40" rx="5"/>
-    <text class="d-c" x="263" y="636">manual-queue.nbib</text>
-    <text class="d-s" x="263" y="651">the manual queue</text>
+    <text class="d-path" x="263" y="636">manual-queue.nbib</text>
+    <text class="d-note" x="263" y="651">the manual queue</text>
     <!-- Sources into the store, and the queue out -->
     <path class="d-edge" d="M169,449 H181 V520 H255" marker-end="url(#store-overview-ah-paper)"/>
     <path class="d-edge" d="M169,500 H181"/>
-    <text class="d-l" x="187" y="479">PMC sync</text>
+    <text x="187" y="479">PMC sync</text>
     <path class="d-edge" d="M169,595 H181 V540 H255" marker-end="url(#store-overview-ah-paper)"/>
     <path class="d-edge" d="M169,551 H181"/>
-    <text class="d-l" x="187" y="576">daily pass</text>
+    <text x="187" y="576">daily pass</text>
     <path class="d-edge d-dash" d="M255,639 H169" marker-end="url(#store-overview-ah-paper)"/>
-    <text class="d-l" x="212" y="632" text-anchor="middle">the queue</text>
+    <text x="212" y="632" text-anchor="middle">the queue</text>
   </g>
   <!-- GCS -->
   <g class="d-gcs">
     <rect class="d-tint" x="495" y="150" width="164" height="110" rx="5"/>
-    <text class="d-c" x="503" y="168">gcs:&lt;gcs-bucket&gt;/</text>
-    <text class="d-c" x="503" y="183">&lt;store&gt;</text>
-    <text class="d-s" x="503" y="201">the current build and</text>
-    <text class="d-s" x="503" y="216">the files it reads</text>
-    <text class="d-c" x="503" y="234">refresh-status.json</text>
-    <text class="d-s" x="503" y="249">sent last</text>
+    <text class="d-path" x="503" y="168">gcs:&lt;gcs-bucket&gt;/</text>
+    <text class="d-path" x="503" y="183">&lt;store&gt;</text>
+    <text class="d-note" x="503" y="201">the current build and</text>
+    <text class="d-note" x="503" y="216">the files it reads</text>
+    <text class="d-path" x="503" y="234">refresh-status.json</text>
+    <text class="d-note" x="503" y="249">sent last</text>
     <path class="d-edge" d="M445,185 H495" marker-end="url(#store-overview-ah-gcs)"/>
-    <text class="d-l" x="470" y="179" text-anchor="middle">copy</text>
+    <text x="470" y="179" text-anchor="middle">copy</text>
     <path class="d-edge d-dash" d="M495,230 H445" marker-end="url(#store-overview-ah-gcs)"/>
-    <text class="d-l" x="470" y="224" text-anchor="middle">restore</text>
+    <text x="470" y="224" text-anchor="middle">restore</text>
     <rect class="d-tint" x="495" y="470" width="164" height="110" rx="5"/>
-    <text class="d-c" x="503" y="488">gcs:&lt;gcs-bucket&gt;/</text>
-    <text class="d-c" x="503" y="503">datalake/paper-store</text>
-    <text class="d-s" x="503" y="521">the tables and</text>
-    <text class="d-s" x="503" y="536">paper folders</text>
-    <text class="d-c" x="503" y="554">paper-status.json</text>
-    <text class="d-s" x="503" y="569">sent last</text>
+    <text class="d-path" x="503" y="488">gcs:&lt;gcs-bucket&gt;/</text>
+    <text class="d-path" x="503" y="503">datalake/paper-store</text>
+    <text class="d-note" x="503" y="521">the tables and</text>
+    <text class="d-note" x="503" y="536">paper folders</text>
+    <text class="d-path" x="503" y="554">paper-status.json</text>
+    <text class="d-note" x="503" y="569">sent last</text>
     <path class="d-edge" d="M445,505 H495" marker-end="url(#store-overview-ah-gcs)"/>
-    <text class="d-l" x="470" y="499" text-anchor="middle">copy</text>
+    <text x="470" y="499" text-anchor="middle">copy</text>
     <path class="d-edge d-dash" d="M495,550 H445" marker-end="url(#store-overview-ah-gcs)"/>
-    <text class="d-l" x="470" y="544" text-anchor="middle">restore</text>
+    <text x="470" y="544" text-anchor="middle">restore</text>
   </g>
 </svg>
