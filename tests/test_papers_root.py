@@ -79,6 +79,15 @@ def test_the_geo_store_is_the_variable_then_the_pointer_never_the_settings_file(
     assert open_paper_store(root).store.root == by_env
 
 
+def test_serve_ends_at_start_when_no_geo_store_opens(tmp_path: Path) -> None:
+    root = tmp_path / "papers"
+    root.mkdir()
+    (root / "labdata-papers.toml").write_text("format_version = 1\n", encoding="utf-8")
+    result = CliRunner().invoke(app, ["papers", "serve", "--root", str(root)])
+    assert result.exit_code == 1
+    assert "store not configured" in result.output
+
+
 _HOLDER = """
 import sys
 from pathlib import Path
