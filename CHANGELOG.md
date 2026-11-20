@@ -60,6 +60,11 @@ tags of the form `vYYYY.M.PATCH` (e.g. `v2026.6.0`).
 
 ### Added
 
+- `labdata store subset --from <store> --series <file> --root <new root>` cuts a store's
+  current build down to a list of Series: a small store with the same tables and layout,
+  holding those Series and every record they link forward to.
+  `labdata papers subset --from <papers> --store <small store> --root <new root>` cuts the
+  paper store to the papers that small store links. Both sources are only read.
 - A paper store beside the store: `labdata papers init <root>` makes one. Its four tables
   (`papers`, `paper_info`, `files`, `attempts`) and `paper-status.json` are empty until the
   paper job fills them. `open_paper_store().reader` gives a paper's details, status and files,

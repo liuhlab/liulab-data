@@ -28,6 +28,16 @@ from labdata.store.targets import BuildSource
 README = "README.md"
 
 _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+#: What a build folder holds, as its manifest and README say it.
+_BUILD_LAYOUT = (
+    "records/<type>.parquet, one per record type, sorted by accession; "
+    "links_by_from.parquet and links_by_to.parquet, the same links sorted by each end; "
+    "holdings.parquet, every accession held; known.parquet, every public accession the "
+    "snapshots list with the snapshot date; supplementary_files.parquet, the supplementary "
+    "files of each held record, sorted by owner accession; gaps.parquet, each target "
+    "Series not held with its reason; notes.parquet, what the build met and kept, such "
+    "as a Series whose SOFT type disagrees with the snapshot."
+)
 _CHUNK = 1 << 20
 _FTP = "https://ftp.ncbi.nlm.nih.gov"
 _EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
@@ -210,15 +220,7 @@ def document_build(
         ),
         "date": built or utc_stamp(),
         "build": build_id,
-        "layout": (
-            "records/<type>.parquet, one per record type, sorted by accession; "
-            "links_by_from.parquet and links_by_to.parquet, the same links sorted by each end; "
-            "holdings.parquet, every accession held; known.parquet, every public accession the "
-            "snapshots list with the snapshot date; supplementary_files.parquet, the supplementary "
-            "files of each held record, sorted by owner accession; gaps.parquet, each target "
-            "Series not held with its reason; notes.parquet, what the build met and kept, such "
-            "as a Series whose SOFT type disagrees with the snapshot."
-        ),
+        "layout": _BUILD_LAYOUT,
         "files": files,
         "inputs": _inputs(root if sample_of is None else sample_of.root),
         **(
@@ -233,6 +235,79 @@ def document_build(
         "refresh": (
             "Run `labdata store build`. It writes a new builds/<build-id>/ and then switches "
             "labdata-store.toml to it; readers keep the build they opened."
+        ),
+    }
+    _write(folder, manifest)
+    return manifest
+
+
+def document_subset(
+    folder: Path,
+    build_id: str,
+    of: str,
+    source: dict[str, Any],
+    *,
+    series: list[str],
+    not_held: list[str],
+    outside: list[dict[str, str]],
+) -> dict[str, Any]:
+    """Write a subset build's manifest and README, naming the build it was cut from.
+
+    Parameters
+    ----------
+    folder : pathlib.Path
+        The subset build's folder, holding its tables.
+    build_id : str
+        The subset build's ID.
+    of : str
+        The ID of the build it was cut from.
+    source : dict
+        That build's manifest; empty when it has none.
+    series : list of str
+        The Series list.
+    not_held : list of str
+        The listed Series the source build does not hold.
+    outside : list of dict
+        Each link from a listed Series to an unlisted one: ``series``, ``relation`` as read
+        from the listed Series, and ``other``.
+
+    Returns
+    -------
+    dict
+        The manifest. It names the source by build ID only, never by path.
+    """
+    files = file_entries(folder)
+    for entry in files:
+        entry["rows"] = pq.read_metadata(folder / entry["name"]).num_rows
+    made = source.get("produced_by") or {}
+    snaps = (source.get("inputs") or {}).get("snapshots") or {}
+    manifest = {
+        "title": f"builds/{build_id}",
+        "what": (
+            "A subset of a store's tables: the listed Series, every record they link forward "
+            "to, and the links of those records. Rows are copied from one build; nothing is "
+            "parsed again."
+        ),
+        "source": f"build {of} of another store; see subset",
+        "date": utc_stamp(),
+        "build": build_id,
+        "layout": _BUILD_LAYOUT,
+        "files": files,
+        "inputs": {"snapshots": snaps},
+        "subset": {
+            "of": of,
+            "source_date": source.get("date"),
+            "source_commit": made.get("commit"),
+            "source_version": made.get("version"),
+            "snapshot_dates": {name: snap.get("date") for name, snap in sorted(snaps.items())},
+            "series": series,
+            "not_held": not_held,
+            "links_to_unlisted_series": outside,
+        },
+        "produced_by": produced_by("labdata store subset"),
+        "refresh": (
+            "Run `labdata store subset` again with the same Series list, on the store this "
+            "was cut from or on a newer build of it."
         ),
     }
     _write(folder, manifest)
@@ -430,6 +505,7 @@ def _render(m: dict[str, Any]) -> str:
         "",
         m.get("layout", ""),
         "",
+        *_subset_section(m.get("subset")),
         *_unknown_section(m.get("unknown_relation_labels") or {}),
         *_coverage_section(m.get("target_series"), m.get("notes") or {}),
         "## How these files were made",
@@ -443,6 +519,35 @@ def _render(m: dict[str, Any]) -> str:
         "",
     ]
     return "\n".join(lines)
+
+
+def _subset_section(subset: dict[str, Any] | None) -> list[str]:
+    if subset is None:
+        return []
+    dates = ", ".join(f"{name} {date}" for name, date in subset["snapshot_dates"].items())
+    lines = [
+        "## Subset",
+        "",
+        f"Cut from build `{subset['of']}`, built {subset['source_date'] or 'at an unrecorded time'} "
+        f"at commit `{subset['source_commit'] or 'unknown'}`. "
+        f"Its snapshots: {dates or 'not recorded'}.",
+        "",
+        f"The Series list, {len(subset['series'])} Series: {', '.join(subset['series'])}.",
+        "",
+    ]
+    if subset["not_held"]:
+        lines += [f"Listed, not held by the source: {', '.join(subset['not_held'])}.", ""]
+    if subset["links_to_unlisted_series"]:
+        lines += [
+            "Links from a listed Series to an unlisted one, which this build does not hold:",
+            "",
+            *(
+                f"- {k['series']} {k['relation']} {k['other']}"
+                for k in subset["links_to_unlisted_series"]
+            ),
+            "",
+        ]
+    return lines
 
 
 def _unknown_section(labels: dict[str, dict[str, Any]]) -> list[str]:
