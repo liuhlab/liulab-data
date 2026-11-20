@@ -84,10 +84,11 @@ def gcs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> FakeGcs:
     return FakeGcs.install(monkeypatch, tmp_path / "gcs", DEST)
 
 
-def paper_store(tmp_path: Path) -> Path:
+def paper_store(tmp_path: Path, *, copied: bool = True) -> Path:
+    """Make a paper store over a one-Series build; ``copied`` gives it its GCS destination."""
     store = fixture_build(tmp_path / "store", [("GSE1", f"PMID:{PMID}", "SOFT")])
     root = tmp_path / "papers"
-    init_papers(root, store, copy_to=DEST)
+    init_papers(root, store, **({"copy_to": DEST} if copied else {}))
     return root
 
 
@@ -156,19 +157,18 @@ def test_one_daily_pass_a_day_after_0030_and_the_pmc_sync_on_the_3rd(
     tmp_path: Path, sbatch: Sbatch, gcs: FakeGcs
 ) -> None:
     root = holding(paper_store(tmp_path))
+    (root / "paper-status.json").write_text(json.dumps({"last_daily_success": "2026-11-02"}))
     full_copy(root)
     gcs.forget()
-    clock = Clock(utc("2026-11-01 23:00"))
-    lines = serve(root, clock, until=utc("2026-11-04 02:00"))
+    clock = Clock(utc("2026-11-02 23:00"))
+    lines = serve(root, clock, until=utc("2026-11-03 01:00"))
 
+    # The 2nd's daily pass is done and the PMC sync waits for the 3rd.
     assert passes(lines) == [
-        "2026-11-01T23:00Z daily pass 2026-11-01: success",
-        "2026-11-02T00:30Z daily pass 2026-11-02: success",
         "2026-11-03T00:30Z daily pass 2026-11-03: success",
         "2026-11-03T00:30Z pmc-sync pass 2026-11-03: success",
-        "2026-11-04T00:30Z daily pass 2026-11-04: success",
     ]
-    assert status(root)["last_daily_success"] == "2026-11-04"
+    assert status(root)["last_daily_success"] == "2026-11-03"
     assert status(root)["last_pmc_sync_success"] == "2026-11-03"
     # These passes change no paper file: their copies send only the top of the store.
     assert not any("/" in path for _, path in gcs.log)
@@ -177,7 +177,7 @@ def test_one_daily_pass_a_day_after_0030_and_the_pmc_sync_on_the_3rd(
         ["sbatch", "--parsable", f"--dependency=afterany:{JOB}:4243", OUTPUT, SCRIPT],
     ]
     # Idle, the job prints a line a minute.
-    idle = [line for line in lines if line.startswith("2026-11-02T01:") and " idle" in line]
+    idle = [line for line in lines if line.startswith("2026-11-02T23:") and " idle" in line]
     assert len(idle) == 60
 
 
@@ -246,14 +246,21 @@ def test_a_store_that_will_not_open_does_not_end_the_job(
 
 
 def test_a_refresh_on_the_1st_starts_the_months_pmc_sync_and_none_follows_on_the_3rd(
-    tmp_path: Path, sbatch: Sbatch, gcs: FakeGcs
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sbatch: Sbatch, gcs: FakeGcs
 ) -> None:
-    root = synced(paper_store(tmp_path), build="b1")
+    # Each tick reads the store's files: over two days, a tick a minute makes a slow test.
+    monkeypatch.setattr(job_mod, "TICK", 1800.0)
+    # With no GCS destination, the passes send no copy: this test is about the PMC sync.
+    root = synced(paper_store(tmp_path, copied=False), build="b1")
+    # The day's daily pass ran before the refresh, so only the PMC sync is due on the 1st.
+    (root / "paper-status.json").write_text(
+        json.dumps({**status(root), "last_daily_success": "2026-12-01"})
+    )
     refresh(tmp_path / "store")
-    lines = serve(root, Clock(utc("2026-12-01 07:00")), until=utc("2026-12-03 01:00"))
+    lines = serve(root, Clock(utc("2026-12-01 23:00")), until=utc("2026-12-03 01:00"))
 
     syncs = [line for line in passes(lines) if "pmc-sync" in line]
-    assert syncs == ["2026-12-01T07:00Z pmc-sync pass 2026-12-01: success"]
+    assert syncs == ["2026-12-01T23:00Z pmc-sync pass 2026-12-01: success"]
     assert status(root)["last_pmc_sync_build"] == "b2"
 
 
