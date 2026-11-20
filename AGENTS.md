@@ -86,6 +86,7 @@ scripts/store/       the store full-run job script and its checks
 skills/              repo-local agent skills; install.py links them into .claude/ and .agents/
 ```
 
+The stores' overall flow and life cycle: read `docs/how-to/store-life-cycle.md` before the code.
 Running the store on a cluster: follow `docs/how-to/store-run.md`. A monthly or yearly
 maintenance run: the user invokes `/store-maintenance`.
 Changing the store's code or table layout: try it small first, per `docs/agents/store-dev.md`.
@@ -208,7 +209,3 @@ A fact that must survive lives where it is checked:
 
 Keep a docstring to its contract: Parameters, Returns, Raises, one example if it earns its
 keep. Say the surprising thing in one sentence and stop.
-
-## Out of scope right now
-
-- Zenodo and non-NCBI data sources — GEO/SRA first; the rest come later.
