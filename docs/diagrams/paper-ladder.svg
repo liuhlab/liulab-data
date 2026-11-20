@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 660 272" role="img" aria-labelledby="paper-ladder-title">
+  <title id="paper-ladder-title">The tier ladder: an older paper tries the PMC bucket, then an OpenAlex PDF, then a publisher link, then the manual queue in Paperpile. The tier that serves it marks it fetched. A recent paper waits for PMC and tries only the free tiers. A retracted paper is skipped.</title>
+  <defs>
+    <marker id="paper-ladder-ah-paper" class="d-paper" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+  </defs>
+  <g class="d-paper">
+    <!-- A recent paper -->
+    <rect class="d-box" x="1" y="4" width="110" height="56" rx="6"/>
+    <text class="d-title" x="8" y="22">Waits for PMC</text>
+    <text class="d-note" x="8" y="38">published within</text>
+    <text class="d-note" x="8" y="52">the last 365 days</text>
+    <path class="d-edge" d="M40,96 V60" marker-end="url(#paper-ladder-ah-paper)"/>
+    <text x="46" y="82">recent</text>
+    <path class="d-edge" d="M111,30 H199 V96" marker-end="url(#paper-ladder-ah-paper)"/>
+    <text x="117" y="46">free tiers only</text>
+    <!-- The tiers -->
+    <rect class="d-box" x="1" y="96" width="84" height="60" rx="6"/>
+    <text class="d-title" x="8" y="115">New paper</text>
+    <text class="d-note" x="8" y="131">a PMID or DOI</text>
+    <text class="d-note" x="8" y="145">the build links</text>
+    <path class="d-edge" d="M85,126 H119" marker-end="url(#paper-ladder-ah-paper)"/>
+    <text x="102" y="120" text-anchor="middle">older</text>
+    <rect class="d-tint" x="119" y="96" width="94" height="60" rx="6"/>
+    <text class="d-tier" x="126" y="114">TIER 1</text>
+    <text class="d-title" x="126" y="131">PMC bucket</text>
+    <text class="d-note" x="126" y="146">free, monthly</text>
+    <path class="d-edge" d="M213,126 H265" marker-end="url(#paper-ladder-ah-paper)"/>
+    <text x="239" y="108" text-anchor="middle">no copy</text>
+    <text x="239" y="120" text-anchor="middle">or failed</text>
+    <rect class="d-tint" x="265" y="96" width="94" height="60" rx="6"/>
+    <text class="d-tier" x="272" y="114">TIER 2</text>
+    <text class="d-title" x="272" y="131">OpenAlex PDF</text>
+    <text class="d-note" x="272" y="146">paid quota, daily</text>
+    <path class="d-edge" d="M359,126 H411" marker-end="url(#paper-ladder-ah-paper)"/>
+    <text x="385" y="108" text-anchor="middle">no copy</text>
+    <text x="385" y="120" text-anchor="middle">or failed</text>
+    <rect class="d-tint" x="411" y="96" width="94" height="60" rx="6"/>
+    <text class="d-tier" x="418" y="114">TIER 3</text>
+    <text class="d-title" x="418" y="131">Publisher link</text>
+    <text class="d-note" x="418" y="146">free, daily</text>
+    <path class="d-edge" d="M505,126 H557" marker-end="url(#paper-ladder-ah-paper)"/>
+    <text x="531" y="108" text-anchor="middle">blocked</text>
+    <text x="531" y="120" text-anchor="middle">or failed</text>
+    <rect class="d-box" x="557" y="96" width="98" height="60" rx="6"/>
+    <text class="d-title" x="564" y="115">Manual queue</text>
+    <text class="d-note" x="564" y="131">saved by hand</text>
+    <text class="d-note" x="564" y="145">in Paperpile</text>
+    <!-- What each tier gives -->
+    <path class="d-edge" d="M166,156 V212" marker-end="url(#paper-ladder-ah-paper)"/>
+    <text x="172" y="188">XML or PDF</text>
+    <path class="d-edge" d="M312,156 V212" marker-end="url(#paper-ladder-ah-paper)"/>
+    <text x="318" y="188">PDF</text>
+    <path class="d-edge" d="M458,156 V212" marker-end="url(#paper-ladder-ah-paper)"/>
+    <text x="464" y="188">PDF</text>
+    <path class="d-edge d-dash" d="M606,156 V234 H505" marker-end="url(#paper-ladder-ah-paper)"/>
+    <text x="600" y="186" text-anchor="end">a later</text>
+    <text x="600" y="199" text-anchor="end">PMC sync</text>
+    <rect class="d-solid" x="119" y="212" width="386" height="44" rx="6"/>
+    <text class="d-title d-on-fill" x="312" y="231" text-anchor="middle">fetched</text>
+    <text class="d-note d-on-fill" x="312" y="247" text-anchor="middle">PMC's files later replace any other PDF</text>
+  </g>
+  <g class="d-idle">
+    <rect class="d-tint d-dash" x="1" y="212" width="104" height="56" rx="6"/>
+    <text class="d-title" x="8" y="231">skipped</text>
+    <text class="d-note" x="8" y="247">a retracted paper,</text>
+    <text class="d-note" x="8" y="261">whatever its state</text>
+  </g>
+</svg>
