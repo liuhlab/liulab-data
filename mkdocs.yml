@@ -67,6 +67,7 @@ nav:
       - GEO Series: tutorials/geo-series.md
       - 10x cellranger BAM → FASTQ: tutorials/tenx-bam.md
   - How-to:
+      - How the stores work: how-to/store-life-cycle.md
       - Run the full download: how-to/store-run.md
       - Copy the store to GCS: how-to/store-gcs.md
       - Run the paper store: how-to/papers-run.md
@@ -96,7 +97,11 @@ markdown_extensions:
       pygments_lang_class: true
   - pymdownx.inlinehilite
   - pymdownx.snippets
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.tabbed:
       alternate_style: true
   - toc:
