@@ -420,7 +420,10 @@ def papers_serve(
 
     stop = dt.datetime.fromisoformat(until).replace(tzinfo=dt.UTC) if until else None
     try:
-        store, client = open_paper_store(root), _store_client()
+        store = open_paper_store(root)
+        # A job that cannot open the GEO/SRA store ends here, not at each pass.
+        store.store  # noqa: B018
+        client = _store_client()
     except LabdataError as err:
         typer.echo(str(err), err=True)
         raise typer.Exit(1) from err
