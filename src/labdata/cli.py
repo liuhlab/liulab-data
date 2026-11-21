@@ -71,6 +71,11 @@ papers_app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(papers_app, name="papers")
+ontology_app = typer.Typer(
+    help="Keep the ontology store: dated snapshots of the vocabularies readings name ids from.",
+    no_args_is_help=True,
+)
+app.add_typer(ontology_app, name="ontology")
 
 
 @app.command()
@@ -465,6 +470,59 @@ def papers_configure() -> None:
     path = save_accounts(accounts)
     emails = ", ".join(a.email for a in accounts)
     typer.echo(f"Saved {len(accounts)} OpenAlex accounts ({emails}) to {path}")
+
+
+@ontology_app.command("init")
+def ontology_init(
+    root: Path = typer.Argument(..., help="The ontology store root; created if missing."),
+    copy_to: str = typer.Option("", help="rclone destination <remote>:<bucket>/<path>."),
+) -> None:
+    """Make an ontology store: write labdata-ontologies.toml and README.md, and point to it.
+
+    Refuses if the root already has a labdata-ontologies.toml.
+    """
+    from labdata.ontology import init_ontology_store
+
+    try:
+        marker = init_ontology_store(root, copy_to=copy_to)
+    except LabdataError as err:
+        typer.echo(str(err), err=True)
+        raise typer.Exit(1) from err
+    typer.echo(f"Wrote {marker}")
+
+
+@ontology_app.command("lookup")
+def ontology_lookup(
+    term_id: str = typer.Argument(..., metavar="ID", help="A term id, such as UBERON:0002421."),
+    root: Path | None = typer.Option(
+        None, help="Ontology store root; default: LABDATA_ONTOLOGIES, then pointer."
+    ),
+) -> None:
+    """Print a term, or a retired id and the live ids it points to.
+
+    Exits 1 when no current snapshot has the id.
+    """
+    from labdata.ontology import open_ontology_store
+
+    try:
+        with open_ontology_store(root) as store:
+            term = store.lookup(term_id)
+    except LabdataError as err:
+        typer.echo(str(err), err=True)
+        raise typer.Exit(1) from err
+    if term is None:
+        typer.echo(f"{term_id}: no current snapshot has this id", err=True)
+        raise typer.Exit(1)
+    typer.echo(f"id: {term.id}")
+    if term.name is not None:
+        typer.echo(f"name: {term.name}")
+    if term.obsolete:
+        typer.echo("obsolete: true")
+    if term.retired is not None:
+        typer.echo(f"retired: {term.retired}")
+    if term.replaced_by:
+        typer.echo(f"replaced by: {', '.join(term.replaced_by)}")
+    typer.echo(f"snapshot: {term.snapshot}")
 
 
 def _store_client() -> EntrezClient:

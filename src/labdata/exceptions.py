@@ -43,7 +43,11 @@ class StoreNotConfiguredError(LabdataError):
 
 
 class NotAStoreError(LabdataError):
-    """A folder is not a store: no ``labdata-store.toml`` or ``labdata-papers.toml`` marker."""
+    """A folder is not a store: it has no store's marker file.
+
+    The markers are ``labdata-store.toml``, ``labdata-papers.toml`` and
+    ``labdata-ontologies.toml``.
+    """
 
 
 class NotMirrored(LabdataError):  # noqa: N818 - the spec names it
@@ -60,3 +64,7 @@ class StoreBuildError(LabdataError):
 
 class SnapshotError(LabdataError):
     """A snapshot could not be fetched whole, so none was written."""
+
+
+class OntologyError(LabdataError):
+    """An ontology store's snapshot, or the terms given for one, cannot be used."""

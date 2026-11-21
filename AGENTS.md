@@ -80,6 +80,12 @@ src/labdata/
                        daily.py (quota, host links, manual queue); copy.py
                        (GCS copy); job.py (the long-running paper job);
                        subset.py (the papers a subset store links)
+  ontology/          the ontology store: paths.py (its paths and their kinds);
+                       root.py (marker, init, the current-snapshots record and its
+                       switch); tables.py (the one writer of a snapshot's term
+                       tables, one SQLite file, and the terms it takes);
+                       reader.py (open_ontology_store: pinned at open, lookup);
+                       tiny.py (a tiny store from given terms, for tests)
 tests/               pytest suite, mirrors src; mocks the EntrezClient + subprocess seams
 conftest.py          the suite budget and the slow lane
 scripts/check.sh     the gate runner
