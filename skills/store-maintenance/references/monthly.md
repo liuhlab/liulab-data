@@ -1,12 +1,12 @@
 # Monthly maintenance run
 
-The GEO/SRA store's refresh and its light checks, then the paper store's checks. The procedure
-for each store lives in its how-to; follow it from there, and record each check below in the
-log entry. The run ends only when both stores are **finalized**: GCS holds each store's new
-state, and each status record says so.
+The GEO/SRA store's refresh and its light checks, the paper store's checks, then the ontology
+store's update. The procedure for each store lives in its how-to; follow it from there, and
+record each check below in the log entry. The run ends only when all three stores are
+**finalized**: GCS holds each store's new state, and each status record says so.
 
 **Budget:** the refresh, 2 h wall time. Past 2 h, stop and report: the user decides whether a
-full rebuild is worth it.
+full rebuild is worth it. The ontology update runs beside it, within its job's time limit.
 
 ## GEO/SRA store
 
@@ -59,15 +59,34 @@ Follow `docs/how-to/papers-run.md`. The paper job does the work; these checks re
    [Refusals](#refusals). No step here lists every file of the paper store: that section's full
    check runs only to repair, with the user's yes.
 
-## Both finalized
+## Ontology store
 
-The last check, read after every other check on this page. Pass when both hold at once:
+Follow "Update the store" in `docs/how-to/ontology-run.md`.
+
+1. **Update.** Submit `scripts/ontology/update.sbatch` under the run plan, with
+   `LABDATA_ONTOLOGIES` set. It needs no GEO/SRA build, so submit it beside the refresh. If it
+   refuses to start, see [Refusals](#refusals).
+2. **Status record.** `ontology-status.json` in the ontology store root: `outcome` is
+   `finalized`, `end` is today, and it has one row per vocabulary declared in
+   `src/labdata/ontology/vocabularies.py`. Put a table in the log entry, one row per
+   vocabulary: its `result`, `snapshot` and `terms`, and the `reason` of a failed one. Each
+   failed row is a fail with its own issue; that vocabulary keeps its snapshot. Once its cause
+   is fixed, submit the same job again: it downloads only what is still missing. With
+   `copy_pending` `true`, get the login (SKILL.md, preflight), submit the job again, which
+   copies first, and read the record again.
+3. **GCS copy.** The routine check of "Check the copy", in `docs/how-to/ontology-run.md`,
+   passes: the copy record check reports 0 differences.
+
+## All finalized
+
+The last check, read after every other check on this page. Pass when all three hold at once:
 
 - `refresh-status.json`: `outcome` is `finalized`, `copy_pending` is `false`, and `build` is
   the build ID recorded in the GEO/SRA status-record step.
 - `paper-status.json`: `finalized` is `true` and `copy_pending` is `false`.
+- `ontology-status.json`: `outcome` is `finalized` and `copy_pending` is `false`.
 
-Log it as its own row, last in the entry's table: `Both stores finalized`, with the build ID
+Log it as its own row, last in the entry's table: `All stores finalized`, with the build ID
 and the time each record was read. This check is never skipped and never ends as fail: until it
 passes, the run stays open, and each report names what holds it.
 
@@ -75,18 +94,20 @@ passes, the run stays open, and each report names what holds it.
 
 Each update and each copy can refuse before it changes anything. The message names the cause.
 
-- **Another update holds the run lock.** If the message says the holder still runs, wait for it.
+- **Another update holds the run lock.** Each store has its own. If the message says the
+  holder still runs, wait for it.
   If it says this host cannot check, run `squeue` on the holder's cluster. Once the holder has
   ended, resubmit with `--owner-gone`. A refresh killed inside a job that still runs, such as
   the held `labdata-dev` job, looks alive from any other node: start the next refresh on that
   node, where the check asks the process itself.
 - **The work disk is behind GCS.** The copy record on the disk is not the one in GCS, or the
   disk has none while GCS does. Stop and report: the fix is the restore the message names
-  (`labdata store restore` or `labdata papers restore`, per "Restore the store from GCS" in
-  the how-to). A restore downloads out of GCS, so it needs a job in the run plan, and the
-  user's yes past 1 GB. A store restore takes the run lock, so it refuses while an update
-  runs. For the paper store, stop the paper job before the restore and start it after.
+  (`labdata store restore`, `labdata papers restore` or `labdata ontology restore`, per
+  "Restore the store from GCS" in the how-to). A restore downloads out of GCS, so it needs a
+  job in the run plan, and the user's yes past 1 GB. A GEO/SRA or ontology restore takes its
+  store's run lock, so it refuses while an update runs. For the paper store, stop the paper
+  job before the restore and start it after.
 - **GCS holds no copy record.** The message asks for `--full`. Stop and report; a full copy
   needs the user's yes.
 
-Done when: every check on this page has an outcome, and "Both finalized" has passed.
+Done when: every check on this page has an outcome, and "All finalized" has passed.

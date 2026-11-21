@@ -28,7 +28,7 @@ src/labdata/
   _slurm.py          the Slurm query seam (scontrol): does a lock's owner still run
   _gcs.py            the GCS protocol every store shares: copy and restore; store/gcs.py,
                        papers/copy.py and ontology/copy.py are its adapters
-  _paths.py          the path kinds both stores declare (state, rebuildable, scratch)
+  _paths.py          the path kinds every store declares (state, rebuildable, scratch)
   _root.py           a store's root: the argument, then its env variable, then its pointer
   _lock.py           the run lock: an owner record, inherited by the holder's steps, taken
                        over from a gone owner; store/lifecycle.py uses it at work/run.lock
@@ -81,30 +81,29 @@ src/labdata/
                        (GCS copy); job.py (the long-running paper job);
                        subset.py (the papers a subset store links)
   ontology/          the ontology store: paths.py (its paths and their kinds);
-                       root.py (marker, init, the current-snapshots record and its
-                       switch, prune); tables.py (the one writer of a snapshot's term
-                       tables and search index, one SQLite file, and the terms
-                       it takes); reader.py (open_ontology_store: pinned at
-                       open, lookup, search);
-                       tiny.py (a tiny store from given terms, for tests);
-                       vocabularies.py (one declaration per vocabulary, release
-                       naming); fetch.py (header read and download over HTTP);
-                       obo.py (the OBO reader); cellosaurus.py (Cellosaurus's
-                       line reader and deleted list); taxdump.py (NCBI
-                       Taxonomy's dump and checksum); lifecycle.py (the run lock,
-                       the status record's only writer, copy and restore under
-                       the lock); update.py (the update); copy.py (the GCS adapter)
+                       root.py (marker, init, the current-snapshots record,
+                       switch, prune); vocabularies.py (one declaration per
+                       vocabulary, release naming); fetch.py (header read,
+                       download); the readers obo.py, cellosaurus.py and
+                       taxdump.py; tables.py (the only writer of a snapshot's
+                       tables and search index, one SQLite file); update.py;
+                       lifecycle.py (run lock; the status record's only writer;
+                       copy and restore under the lock); copy.py (the GCS
+                       adapter); reader.py (open_ontology_store: lookup, search);
+                       tiny.py (a tiny store from given terms, for tests)
 tests/               pytest suite, mirrors src; mocks the EntrezClient + subprocess seams
 conftest.py          the suite budget and the slow lane
 scripts/check.sh     the gate runner
 scripts/conformance.py  the lab template's rules, checked against this repo
 scripts/bulk/        the NCBI bulk snapshot downloader
 scripts/store/       the store full-run job script and its checks
+scripts/ontology/    the ontology update job script
 skills/              repo-local agent skills; install.py links them into .claude/ and .agents/
 ```
 
 The stores' overall flow and life cycle: read `docs/how-to/store-life-cycle.md` before the code.
-Running the store on a cluster: follow `docs/how-to/store-run.md`. A monthly or yearly
+Running the store on a cluster: follow `docs/how-to/store-run.md`; the ontology store,
+`docs/how-to/ontology-run.md`. A monthly or yearly
 maintenance run: the user invokes `/store-maintenance`.
 Changing the store's code or table layout: try it small first, per `docs/agents/store-dev.md`.
 
