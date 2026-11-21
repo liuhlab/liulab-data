@@ -2,7 +2,8 @@
 
 One process under the store's run lock. Per vocabulary it reads the release from the file's
 header, downloads the file only when that release has no snapshot yet, reads it and writes
-the snapshot. Then it switches every vocabulary that succeeded at once.
+the snapshot. Then it switches every vocabulary that succeeded at once, and copies the store
+to GCS (:mod:`labdata.ontology.lifecycle`).
 """
 
 from __future__ import annotations
@@ -50,16 +51,20 @@ def update(
     Returns
     -------
     UpdateStatus
-        The status record as written; its outcome is ``failed`` if any vocabulary failed.
+        The status record as written; its outcome is ``failed`` if any vocabulary failed,
+        and ``copy_pending`` is set if the copy to GCS failed or was skipped.
 
     Raises
     ------
     OntologyBusyError
         If another update holds the store's run lock.
+    OntologyCopyError
+        If the work disk is not in step with GCS, or a pending copy fails, before any download.
     """
     path = find_root(root)
     web = transport if transport is not None else HttpTransport()
     with lifecycle.run_lock(path, "update", owner_gone=owner_gone):
+        lifecycle.copy_first(path)
         start = utc_stamp()
         lifecycle.write_status(path, UpdateStatus(start=start, outcome=Outcome.RUNNING))
         try:
@@ -73,9 +78,9 @@ def update(
             raise
         failed = any(row.result == Result.FAILED for row in rows.values())
         outcome = Outcome.FAILED if failed else Outcome.BUILT
-        status = UpdateStatus(start, utc_stamp(), outcome, rows)
-        lifecycle.write_status(path, status)
-    return status
+        lifecycle.write_status(path, UpdateStatus(start, utc_stamp(), outcome, rows))
+        lifecycle.copy_last(path)
+    return lifecycle.read_status(path)
 
 
 def _update_one(root: Path, vocab: Vocabulary, transport: Transport) -> VocabularyResult:

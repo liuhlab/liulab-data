@@ -1,22 +1,28 @@
-"""The ontology store's run lock and its status record, ``ontology-status.json``.
+"""The ontology store's run lock, its status record, ``ontology-status.json``, and its copy.
 
-Only this module writes the status record.
+An update is finalized once GCS holds it. It first copies when the last update's copy is
+pending, or else checks the work disk against GCS, and ends with a copy that sends the status
+record last, marked finalized. A copy that fails or is skipped leaves the copy pending, for the
+next update or ``labdata ontology copy``. Only this module writes the status record.
 """
 
 from __future__ import annotations
 
 import enum
 import json
-from collections.abc import Iterator
+import logging
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass, field, fields
+from dataclasses import asdict, dataclass, field, fields, replace
 from pathlib import Path
 from typing import Any
 
-from labdata import _lock
+from labdata import _gcs, _lock
 from labdata._files import write_atomic
 from labdata.exceptions import LabdataError
-from labdata.ontology import paths
+from labdata.ontology import copy, paths
+
+logger = logging.getLogger(__name__)
 
 
 class OntologyBusyError(LabdataError):
@@ -31,6 +37,8 @@ class Outcome(enum.StrEnum):
     FAILED = "failed"
     #: Every vocabulary is current on the work disk.
     BUILT = "built"
+    #: Built, and GCS holds it.
+    FINALIZED = "finalized"
 
 
 class Result(enum.StrEnum):
@@ -60,12 +68,14 @@ class UpdateStatus:
     """The status record: the last update's start, end and outcome, and one row per vocabulary.
 
     ``start`` and ``end`` are UTC, ISO 8601; ``end`` is ``None`` while it runs.
+    ``copy_pending`` says GCS is behind the work disk.
     """
 
     start: str | None = None
     end: str | None = None
     outcome: str = ""
     vocabularies: dict[str, VocabularyResult] = field(default_factory=dict)
+    copy_pending: bool = False
 
 
 @contextmanager
@@ -102,10 +112,132 @@ def read_status(root: Path) -> UpdateStatus:
 
 def write_status(root: Path, status: UpdateStatus) -> None:
     """Write the status record whole."""
-    text = json.dumps(asdict(status), indent=2, sort_keys=True) + "\n"
-    write_atomic(paths.STATUS.at(root), text)
+    write_atomic(paths.STATUS.at(root), _encode(status).decode())
 
 
 def _known(cls: type[UpdateStatus | VocabularyResult], data: dict[str, Any]) -> dict[str, Any]:
     names = {f.name for f in fields(cls)}
     return {k: v for k, v in data.items() if k in names}
+
+
+def finalize(
+    root: Path,
+    destination: str | None = None,
+    *,
+    full: bool = False,
+    accept_deletes: int = 0,
+    owner_gone: bool = False,
+) -> _gcs.CopyResult:
+    """Copy the store to GCS under the run lock; see :func:`labdata.ontology.copy.send`.
+
+    Parameters
+    ----------
+    root : pathlib.Path
+        The ontology store root.
+    destination : str or None
+        An rclone path, ``<remote>:<bucket>/<path>``; defaults to the marker's ``copy_to``.
+    full, accept_deletes
+        Passed to the copy; ``full`` takes no ``accept_deletes``.
+    owner_gone : bool
+        As for :func:`run_lock`.
+
+    Returns
+    -------
+    CopyResult
+        ``skipped`` is true, with a message, when the copy was skipped; it stays pending.
+
+    Raises
+    ------
+    OntologyCopyError
+        If no destination is set, or ``full`` comes with ``accept_deletes``; or the copy's
+        own refusals and failures, which leave the copy pending.
+    OntologyBusyError
+        If an update holds the run lock.
+    """
+    dest = destination or copy.destination(root)
+    if not dest:
+        raise copy.OntologyCopyError(
+            f"no destination: pass --to <remote>:<bucket>/<path> or set "
+            f"{_gcs.COPY_TO_KEY} in {paths.MARKER.at(root)}"
+        )
+    if full and accept_deletes:
+        raise copy.OntologyCopyError("--full deletes nothing, so it takes no --accept-deletes")
+    with run_lock(root, "copy", owner_gone=owner_gone):
+        return _send(root, dest, full=full, accept_deletes=accept_deletes)
+
+
+def restore(
+    root: Path,
+    source: str | None = None,
+    *,
+    approve: Callable[[int, int], bool],
+    owner_gone: bool = False,
+) -> str | None:
+    """Fill the work disk from GCS under the run lock; see :func:`labdata.ontology.copy.restore`.
+
+    Raises
+    ------
+    OntologyBusyError
+        If an update holds the run lock.
+    """
+    root.mkdir(parents=True, exist_ok=True)
+    with run_lock(root, "restore", owner_gone=owner_gone):
+        return copy.restore(root, source, approve=approve)
+
+
+def copy_first(root: Path) -> None:
+    """Start an update: copy when the last copy is pending, or else check the disk against GCS.
+
+    A skipped copy, or a check rclone's expired login stops, only logs.
+
+    Raises
+    ------
+    OntologyCopyError
+        If the work disk is not in step with GCS, or the copy fails.
+    """
+    dest = copy.destination(root)
+    if not dest:
+        return
+    if read_status(root).copy_pending:
+        result = _owed(root, dest)
+        if result.skipped:
+            logger.warning("the pending GCS copy was skipped: %s", result.message)
+    elif not copy.check(root, dest):
+        logger.warning("rclone's Google login has expired, so the disk was not checked against GCS")
+
+
+def copy_last(root: Path) -> None:
+    """End an update with a copy; one that fails or is skipped leaves it pending, logged."""
+    dest = copy.destination(root)
+    if not dest:
+        return
+    try:
+        result = _owed(root, dest)
+    except LabdataError as err:
+        logger.warning("the GCS copy failed, so it is pending: %s", err)
+        return
+    if result.skipped:
+        logger.warning("the GCS copy was skipped, so it is pending: %s", result.message)
+
+
+def _owed(root: Path, dest: str) -> _gcs.CopyResult:
+    """Send an update's copy; the store's first, with no copy record on the disk, sends all."""
+    return _send(root, dest, full=not paths.COPY_RECORD.at(root).is_file())
+
+
+def _send(root: Path, dest: str, *, full: bool = False, accept_deletes: int = 0) -> _gcs.CopyResult:
+    """Mark the copy pending, then copy; a copy that works sends the record marked finalized."""
+    status = replace(read_status(root), copy_pending=True)
+    write_status(root, status)
+    # Under the lock, a record left running was stopped.
+    ended = {
+        Outcome.RUNNING: Outcome.FAILED,
+        Outcome.BUILT: Outcome.FINALIZED,
+        "": Outcome.FINALIZED,
+    }
+    done = replace(status, outcome=ended.get(status.outcome, status.outcome), copy_pending=False)
+    return copy.send(root, dest, _encode(done), full=full, accept_deletes=accept_deletes)
+
+
+def _encode(status: UpdateStatus) -> bytes:
+    return (json.dumps(asdict(status), indent=2, sort_keys=True) + "\n").encode()

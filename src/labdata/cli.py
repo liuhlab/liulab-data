@@ -584,8 +584,91 @@ def ontology_update(
     for name, row in status.vocabularies.items():
         detail = row.snapshot or row.reason
         typer.echo(f"{name}: {row.result} ({detail})", err=row.reason is not None)
-    if status.outcome == Outcome.FAILED:
+    if status.copy_pending:
+        typer.echo("the GCS copy is pending: the update is not finalized", err=True)
+    if status.outcome == Outcome.FAILED or status.copy_pending:
         raise typer.Exit(1)
+
+
+@ontology_app.command("copy")
+def ontology_copy(
+    root: Path | None = typer.Option(
+        None, help="Ontology store root; default: LABDATA_ONTOLOGIES, then pointer."
+    ),
+    to: str | None = typer.Option(
+        None, help="rclone destination <remote>:<bucket>/<path>; default: copy_to in the marker."
+    ),
+    full: bool = typer.Option(
+        False,
+        "--full",
+        help="Upload every kept snapshot and delete nothing; for a first copy or a repair.",
+    ),
+    accept_deletes: int = typer.Option(
+        0,
+        "--accept-deletes",
+        min=0,
+        help="Delete up to this many snapshots that left the store on purpose.",
+    ),
+    owner_gone: bool = _OWNER_GONE,
+) -> None:
+    """Send the ontology store's changes since the last copy to a bucket with rclone.
+
+    It sends the kept snapshots, and deletes in the bucket, by name, the snapshots the last
+    copy sent that the store no longer keeps. It refuses, exiting 1, when a current snapshot
+    has no tables, when the work disk's copy record is not the one in GCS (run `labdata
+    ontology restore`), or when it would delete more snapshots than it adds, past a small
+    share and --accept-deletes. With no copy record, on the disk or in the bucket, or when
+    rclone's Google login has expired, it skips with a message and exits 1. Sends
+    ontology-status.json last, marked finalized. Holds the store's run lock, so it refuses
+    while an update runs.
+    """
+    from labdata.ontology.lifecycle import finalize
+    from labdata.ontology.root import find_root
+
+    try:
+        result = finalize(
+            find_root(root), to, full=full, accept_deletes=accept_deletes, owner_gone=owner_gone
+        )
+    except LabdataError as err:
+        typer.echo(str(err), err=True)
+        raise typer.Exit(1) from err
+    if result.skipped:
+        typer.echo(result.message, err=True)
+        raise typer.Exit(1)
+    typer.echo(f"Copied the ontology store to {result.destination}")
+
+
+@ontology_app.command("restore")
+def ontology_restore(
+    root: Path | None = typer.Option(
+        None,
+        help="Ontology store root, empty or behind GCS; default: LABDATA_ONTOLOGIES, then pointer.",
+    ),
+    source: str | None = typer.Option(
+        None, "--from", help="rclone path <remote>:<bucket>/<path>; default: copy_to in the marker."
+    ),
+    accept_download: bool = typer.Option(
+        False, "--accept-download", help=f"Download more than {_ASK_ABOVE} without asking."
+    ),
+    owner_gone: bool = _OWNER_GONE,
+) -> None:
+    """Fill a work disk from GCS: the ontology store as the copy record in GCS names it.
+
+    Downloads only what the disk lacks or holds differently, deletes the state files GCS no
+    longer holds and leaves work/ alone. It prints the download size and asks before a large
+    one; without a terminal it then needs --accept-download. Holds the store's run lock, so it
+    refuses while an update runs.
+    """
+    from labdata._root import resolve_root
+    from labdata.ontology.lifecycle import restore
+    from labdata.ontology.root import ONTOLOGIES_ENV, pointer_path
+
+    where = _restore_root(resolve_root(root, ONTOLOGIES_ENV, pointer_path(), "ontologies"))
+    _restore(
+        lambda ok: restore(where, source, approve=ok, owner_gone=owner_gone),
+        where,
+        accept_download,
+    )
 
 
 def _store_client() -> EntrezClient:
