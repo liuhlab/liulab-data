@@ -22,6 +22,8 @@ from labdata.ontology.tables import Reason, Scope, TextKind, fold
 
 _WORD = re.compile(r"\w+")
 _TEXT_ROW = "x.id, t.name, x.text, x.kind, x.scope, x.synonym_type"
+#: The most texts a search ranks by shared words, which keeps it fast on the largest vocabulary.
+_RANK_CAP = 50_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,7 +146,8 @@ class OntologyStore:
 
         Case is folded and whitespace collapsed. Whole-text matches come first: on the name,
         then on an EXACT synonym, then on another scope. Then terms sharing words with the text,
-        by BM25 relevance. Ties break on id. Each term appears once, with its best-ranked text;
+        by BM25 relevance; words so common that ranking them would be slow are left out, so a
+        label of one such word gets whole-text matches only. Ties break on id. Each term appears once, with its best-ranked text;
         an obsolete term never appears.
 
         Parameters
@@ -187,15 +190,8 @@ class OntologyStore:
             if found.id not in whole or rank[:2] < whole[found.id][:2]:
                 whole[found.id] = rank
         ranked = [c for _, _, c in sorted(whole.values(), key=lambda r: (r[0], r[2].id))]
-        words = " OR ".join(f'"{word}"' for word in _WORD.findall(key))
-        if len(ranked) < limit and words:
-            rows = db.execute(
-                f"select {_TEXT_ROW}, min(f.rank) as score from texts_words f"
-                " join texts x on x.rowid = f.rowid join terms t on t.id = x.id"
-                " where texts_words match ? group by x.id order by score, x.id limit ?",
-                (words, limit + len(ranked)),
-            )
-            ranked += [c for *row, _ in rows if (c := _candidate(row, snapshot)).id not in whole]
+        if len(ranked) < limit:
+            ranked += _shared_words(db, key, limit - len(ranked), set(whole), snapshot)
         return ranked[:limit]
 
     def _searchable(self, vocabulary: str) -> sqlite3.Connection:
@@ -219,6 +215,58 @@ class OntologyStore:
         if row is None:
             return Term(key, None, False, replaced_by, reason, snapshot)
         return Term(key, row[0], bool(row[1]), replaced_by, reason, snapshot)
+
+
+def _shared_words(
+    db: sqlite3.Connection, key: str, wanted: int, skip: set[str], snapshot: str
+) -> list[Candidate]:
+    # BM25 scores every text a query matches, so the most common words are left out until
+    # the rest match at most _RANK_CAP texts; they weigh least in BM25.
+    words = sorted(set(_WORD.findall(key)))
+    if words and _count(db, words) > _RANK_CAP:
+        counts = {word: _count(db, [word]) for word in words}
+        words.sort(key=lambda w: (counts[w], w))
+        while words and sum(counts[w] for w in words) > _RANK_CAP:
+            words.pop()
+    if not words:
+        return []
+    best: dict[str, int] = {}
+    size = 4 * (wanted + len(skip))
+    while True:
+        rows = db.execute(
+            "select f.rowid, x.id from (select rowid, bm25(texts_words) as score"
+            " from texts_words where texts_words match ? order by score, rowid limit ?) f"
+            " join texts x on x.rowid = f.rowid order by f.score, f.rowid",
+            (_match(words), size),
+        ).fetchall()
+        best = {}
+        for rowid, id in rows:
+            if id not in skip and id not in best:
+                best[id] = rowid
+                if len(best) == wanted:
+                    break
+        if len(best) == wanted or len(rows) < size:
+            break
+        size *= 4
+    marks = ", ".join("?" * len(best))
+    found = {
+        rowid: _candidate(row, snapshot)
+        for rowid, *row in db.execute(
+            f"select x.rowid, {_TEXT_ROW} from texts x join terms t on t.id = x.id"
+            f" where x.rowid in ({marks})",
+            list(best.values()),
+        )
+    }
+    return [found[rowid] for rowid in best.values()]
+
+
+def _count(db: sqlite3.Connection, words: list[str]) -> int:
+    query = "select count(*) from texts_words where texts_words match ?"
+    return db.execute(query, (_match(words),)).fetchone()[0]
+
+
+def _match(words: list[str]) -> str:
+    return " OR ".join(f'"{word}"' for word in words)
 
 
 def _candidate(row: list[Any], snapshot: str) -> Candidate:

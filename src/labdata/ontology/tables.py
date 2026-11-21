@@ -38,13 +38,15 @@ create index retired_old_id on retired (old_id);
 """
 
 # Built after the inserts: the whole-text index, and the word index over live terms' texts.
+# Texts go in by term id, so their row ids order terms by id, which breaks a search's ties.
 _INDEX = """
 create index texts_folded on texts (folded);
 create virtual table texts_words using fts5 (
     folded, content = '', tokenize = 'porter unicode61 remove_diacritics 2'
 );
 insert into texts_words (rowid, folded)
-    select x.rowid, x.folded from texts x join terms t on t.id = x.id where t.obsolete = 0;
+    select x.rowid, x.folded from texts x join terms t on t.id = x.id where t.obsolete = 0
+    order by x.rowid;
 """
 
 _PREFIX = re.compile(r"[A-Za-z][A-Za-z0-9]*[:_]")
@@ -251,7 +253,10 @@ def _write_tables(path: Path, data: SnapshotData, name: str) -> None:
                 "insert into terms values (?, ?, ?)",
                 ((t.id, t.name, int(t.obsolete)) for t in data.terms),
             )
-            db.executemany("insert into texts values (?, ?, ?, ?, ?, ?)", _texts(data.terms))
+            db.executemany(
+                "insert into texts values (?, ?, ?, ?, ?, ?)",
+                _texts(sorted(data.terms, key=lambda t: t.id)),
+            )
             db.executemany("insert into retired values (?, ?, ?)", _retired(data))
             db.executescript(_INDEX)
         except sqlite3.IntegrityError as err:
