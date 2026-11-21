@@ -151,8 +151,8 @@ class OntologyStore:
         Case is folded and whitespace collapsed. Whole-text matches come first: on the name,
         then on an EXACT synonym, then on another scope. Then terms sharing words with the text,
         by BM25 relevance; words so common that ranking them would be slow are left out, so a
-        label of one such word gets whole-text matches only. Ties break on id. Each term appears once, with its best-ranked text;
-        an obsolete term never appears.
+        label of one such word gets whole-text matches only. Ties break on id. Each term
+        appears once, with its best-ranked text; an obsolete term never appears.
 
         Parameters
         ----------

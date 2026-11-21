@@ -31,8 +31,9 @@ _Avoid_: sync (says less than the whole pass)
 ### Update
 
 A change to a store that ends finalized. For the GEO/SRA store: a refresh, a full run, a build
-by hand or the SRA removal, one at a time under the run lock. For the paper store: a pass. Each
-checks the work disk against GCS at its start and ends with a copy.
+by hand or the SRA removal, one at a time under the run lock. For the paper store: a pass. For
+the ontology store: one process under its run lock that brings each vocabulary to its current
+release. Each checks the work disk against GCS at its start and ends with a copy.
 
 ### Build reader
 
@@ -124,21 +125,24 @@ abandoned. It also holds the date of the last successful refresh, written only a
 switch, the records the refresh added, replaced and removed per source, and the refresh DAG
 version that started it; a refresh another version started is not resumed before its switch,
 and after it only its copy runs. The paper store's, `paper-status.json`, holds its passes'
-dates and paper counts. GCS holds each store's status record as the copy that finalized its
-last update left it, so GCS never holds one that is running or pending.
+dates and paper counts; the ontology store's, `ontology-status.json`, one row per vocabulary.
+GCS holds each store's status record as the copy that finalized its last update left it, so
+GCS never holds one that is running or pending.
 
 _Avoid_: status file, refresh log
 
 ### Run lock
 
-The GEO/SRA store's record of the process running an update, `work/run.lock`: its Slurm job,
-host, process and start time. One update holds it at a time: a refresh, a full run, a build by
-hand or the SRA removal. Every command that writes the store holds it: a fetch, pack, extract,
-copy, prune, restore or README rewrite run by hand too. The steps an update starts inherit the
-owner's token and pass. A start that finds it asks whether the owner still runs, by Slurm or on
-the owner's host. It refuses while the owner runs, and takes the lock once the owner is gone. When it cannot check, it refuses unless told the owner is gone (`--owner-gone`). A
-refresh stopped before its switch resumes only within 7 days of its start; one switched with
-its copy pending is finished by the copy alone, however old.
+A store's record of the process running an update, `work/run.lock`, in the GEO/SRA store and
+the ontology store: its Slurm job, host, process and start time. One update holds it at a time.
+Every command that writes the store holds it: in the GEO/SRA store a fetch, pack, extract,
+copy, prune, restore or README rewrite run by hand too; in the ontology store a copy or
+restore. The steps an update starts inherit the owner's token and pass. A start that finds it
+asks whether the owner still runs, by Slurm or on the owner's host. It refuses while the owner
+runs, and takes the lock once the owner is gone. When it cannot check, it refuses unless told
+the owner is gone (`--owner-gone`). A GEO/SRA refresh stopped before its switch resumes only
+within 7 days of its start; one switched with its copy pending is finished by the copy alone,
+however old. The paper job holds a lock of its own instead.
 
 _Avoid_: build lock (the lock one build, prune or copy holds while it writes)
 

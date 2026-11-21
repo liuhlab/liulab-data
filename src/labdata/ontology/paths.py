@@ -24,7 +24,7 @@ SNAPSHOTS = Declared("snapshots/", STATE)
 #: The run lock and the work in progress.
 WORK = Declared("work/", SCRATCH)
 #: Held by a running update, so two updates never write the store at once.
-LOCK = Declared("work/update.lock", SCRATCH)
+LOCK = Declared("work/run.lock", SCRATCH)
 #: Source files being downloaded.
 DOWNLOADS = Declared("work/downloads/", SCRATCH)
 #: Snapshots being written, renamed into ``snapshots/`` once whole; and remade tables files.
