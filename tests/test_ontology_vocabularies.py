@@ -12,7 +12,7 @@ from typer.testing import CliRunner
 
 from labdata import _lock
 from labdata.cli import app
-from labdata.ontology import Reason, Scope, Term, lifecycle, open_ontology_store, paths
+from labdata.ontology import Reason, Scope, Term, lifecycle, open_ontology_store, paths, tables
 from labdata.ontology import fetch as fetch_mod
 from labdata.ontology.root import make_store
 from labdata.ontology.update import update
@@ -57,7 +57,7 @@ def _serve_taxonomy(web: OntologyWeb, *, md5: str | None = None) -> bytes:
     digest = md5 or hashlib.md5(body).hexdigest()
     web.files[TAXDUMP] = body
     web.files[f"{TAXDUMP}.md5"] = f"{digest}  taxdump.tar.gz\n".encode()
-    web.dates[TAXDUMP] = TAXON_DATE
+    web.modified[TAXDUMP] = TAXON_DATE
     return body
 
 
@@ -189,3 +189,36 @@ def test_a_deleted_cellosaurus_id_looks_up_as_deleted(root: Path) -> None:
         "cellosaurus.obo",
         "cellosaurus_deleted_ACs.txt",
     ]
+
+
+def test_a_raised_table_layout_remakes_every_reader_kind_from_its_kept_files(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    hsapdv = "https://purl.obolibrary.org/obo/hsapdv"
+    web = OntologyWeb()
+    _serve_taxonomy(web)
+    web.files[CELLOSAURUS] = (DATA / "cellosaurus.obo").read_bytes()
+    web.files[CELLOSAURUS_DELETED] = (DATA / "cellosaurus_deleted_ACs.txt").read_bytes()
+    web.files[f"{hsapdv}.obo"] = _obo("hsapdv", "HsapDv:", None)
+    web.files[f"{hsapdv}.owl"] = (DATA / "hsapdv.owl").read_bytes()
+    chosen = _declared("ncbitaxon") + _declared("cellosaurus") + _declared("hsapdv")
+    with monkeypatch.context() as old:
+        old.setattr(tables, "TABLE_LAYOUT", 1)
+        update(root, vocabularies=chosen, transport=web)
+    web.calls.clear()
+
+    update(root, vocabularies=chosen, transport=web)
+
+    assert [c.url for c in web.calls if "Range" not in c.headers] == []  # no download
+    with open_ontology_store(root) as store:
+        for snapshot in store.snapshots.values():
+            assert tables.layout_of(root, snapshot) == tables.TABLE_LAYOUT
+        assert store.lookup("12") == Term(
+            "NCBITaxon:12", None, False, ("NCBITaxon:9606",), Reason.MERGED, TAXON
+        )
+        assert store.lookup("CVCL_0222") == Term(
+            "CVCL_0222", None, False, (), Reason.DELETED, "cellosaurus-57.0"
+        )
+        assert store.lookup("HsapDv:0000001") == Term(
+            "HsapDv:0000001", "a hsapdv term", False, (), None, "hsapdv-2025-01-23"
+        )

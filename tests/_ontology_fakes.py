@@ -54,14 +54,14 @@ class OntologyWeb:
 
     ``failures`` lists, per URL, statuses to answer before serving it. A URL in
     ``no_ranges`` answers a Range request with the whole file, as a server that ignores
-    Range does. ``dates`` gives a served file's ``Last-Modified`` header.
+    Range does. ``modified`` gives a URL's ``Last-Modified`` header.
     """
 
     files: dict[str, bytes] = field(default_factory=dict)
     redirects: dict[str, str] = field(default_factory=dict)
     failures: dict[str, list[int]] = field(default_factory=dict)
     no_ranges: set[str] = field(default_factory=set)
-    dates: dict[str, str] = field(default_factory=dict)
+    modified: dict[str, str] = field(default_factory=dict)
     calls: list[Call] = field(default_factory=list)
 
     @contextmanager
@@ -86,8 +86,8 @@ class OntologyWeb:
             yield _Reply(call, b"not found", 404, {})
 
     def _serve(self, call: Call, data: bytes, wanted: str | None) -> _Reply:
-        dated = {"Last-Modified": self.dates[call.url]} if call.url in self.dates else {}
         match = _RANGE.fullmatch(wanted or "")
+        dated = {"Last-Modified": self.modified[call.url]} if call.url in self.modified else {}
         if match is None or call.url in self.no_ranges:
             return _Reply(call, data, 200, {"Content-Length": str(len(data)), **dated})
         start = int(match.group(1))

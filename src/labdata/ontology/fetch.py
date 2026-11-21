@@ -6,7 +6,9 @@ server. Every try starts again from the first address.
 
 from __future__ import annotations
 
+import email.utils
 import http.client
+import os
 import time
 import urllib.parse
 from collections.abc import Callable
@@ -77,6 +79,7 @@ def download(url: str, dest: Path, *, transport: Transport) -> Path:
             with tmp.open("wb") as out:
                 while chunk := response.read(_CHUNK):
                     out.write(chunk)
+            _date(tmp, response.getheader("Last-Modified"))
             tmp.replace(dest)
         finally:
             tmp.unlink(missing_ok=True)
@@ -116,6 +119,15 @@ def _get[T](
         return retry(once, tries=_TRIES, cap=60.0, sleep=_sleep)
     except GaveUp as err:
         raise DownloadError(f"GET {url} failed: {err}") from None
+
+
+def _date(path: Path, modified: str | None) -> None:
+    """Give a saved file the server's ``Last-Modified`` time, which then travels with it."""
+    try:
+        stamp = email.utils.parsedate_to_datetime(modified or "").timestamp()
+    except ValueError:
+        return
+    os.utime(path, (stamp, stamp))
 
 
 def _upto(response: Response, size: int) -> bytes:

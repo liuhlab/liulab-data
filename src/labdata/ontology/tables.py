@@ -18,7 +18,6 @@ from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 
-from labdata._files import temp_beside
 from labdata.exceptions import OntologyError
 from labdata.ontology import paths
 
@@ -171,8 +170,8 @@ def write_snapshot(root: Path, data: SnapshotData, *, sources: Sequence[Path] = 
     """Write one snapshot's tables, and move its source files in; switch nothing.
 
     A new snapshot is built under ``work/building/`` and renamed into ``snapshots/`` whole. A
-    snapshot that exists gets its source files moved in, then its tables file replaced whole,
-    so its tables are remade with no download.
+    snapshot that exists gets its source files moved in, then its tables file replaced whole by
+    one written under ``work/building/``, so its tables are remade with no download.
 
     Parameters
     ----------
@@ -198,11 +197,11 @@ def write_snapshot(root: Path, data: SnapshotData, *, sources: Sequence[Path] = 
     final = paths.SNAPSHOTS.at(root, name)
     if final.is_dir():
         _move_sources(final, sources)
-        tables = tables_path(root, name)
-        tmp = temp_beside(tables)
+        tmp = paths.BUILDING.at(root, f"{name}.{os.getpid()}.sqlite")
+        tmp.parent.mkdir(parents=True, exist_ok=True)
         try:
             _write_tables(tmp, data, name)
-            tmp.replace(tables)
+            tmp.replace(tables_path(root, name))
         finally:
             tmp.unlink(missing_ok=True)
         return name
