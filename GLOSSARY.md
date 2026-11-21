@@ -290,3 +290,39 @@ record in GCS names that the disk lacks or holds differently, never scratch. An 
 the whole store; a disk that fell behind gets only the difference.
 
 _Avoid_: pull, sync
+
+### Ontology store
+
+The store of the vocabularies that study readings name ids from, beside the GEO/SRA store and
+the paper store. It keeps each vocabulary as snapshots, one per release, and answers searches
+from each vocabulary's current snapshot.
+
+_Avoid_: ontology cache, ontology database
+
+### Vocabulary
+
+One list of terms that a reading names ids from, with its own releases, such as UBERON,
+Cellosaurus or NCBI Taxonomy. A vocabulary's snapshot is named by its release.
+
+_Avoid_: ontology (Cellosaurus and NCBI Taxonomy are not ontologies)
+
+### Term
+
+One entry of a vocabulary: its id, its name and its synonyms, each synonym with its scope
+(exact, narrow, broad or related). An obsolete term keeps its id and may name the term that
+replaces it.
+
+### Candidate
+
+A term that a search returns for a label's text, with the text that matched, that text's
+scope, and the snapshot that answered.
+
+_Avoid_: hit, match (the matched text alone)
+
+### Retired id
+
+An id that names no live term in a vocabulary's current snapshot: obsolete, merged into
+another, kept as another term's alternative id, or deleted. A lookup by id still finds it and
+names the live term that replaces it, if any.
+
+_Avoid_: dead id, old id
