@@ -25,10 +25,16 @@ UBERON = SnapshotData(
     "2026-11-05",
     [
         SourceTerm("UBERON:0000002", "hippocampus proper"),
-        SourceTerm("UBERON:0000005", "brain stem", synonyms=(Synonym("hippocampus", "RELATED"),)),
-        SourceTerm("UBERON:0000006", "Ammon's horn", synonyms=(Synonym("hippocampus", "EXACT"),)),
+        SourceTerm(
+            "UBERON:0000005", "brain stem", synonyms=(Synonym("hippocampus", Scope.RELATED),)
+        ),
+        SourceTerm(
+            "UBERON:0000006", "Ammon's horn", synonyms=(Synonym("hippocampus", Scope.EXACT),)
+        ),
         SourceTerm("UBERON:0000004", "Hippocampus"),
-        SourceTerm("UBERON:0000003", "cornu ammonis", synonyms=(Synonym("hippocampus", "EXACT"),)),
+        SourceTerm(
+            "UBERON:0000003", "cornu ammonis", synonyms=(Synonym("hippocampus", Scope.EXACT),)
+        ),
         SourceTerm("UBERON:0000001", "hippocampal formation"),
     ],
 )
@@ -76,7 +82,7 @@ def test_a_longer_label_gets_shared_word_candidates_ranked_by_relevance(tmp_path
             SourceTerm("UBERON:0000003", "dorsal root ganglion"),
             SourceTerm("UBERON:0000004", "liver"),
             SourceTerm(
-                "UBERON:0000005", "dHPC", synonyms=(Synonym("Dorsal hippocampus", "EXACT"),)
+                "UBERON:0000005", "dHPC", synonyms=(Synonym("Dorsal hippocampus", Scope.EXACT),)
             ),
         ],
         "dorsal hippocampus",
@@ -93,15 +99,15 @@ def test_a_term_matching_several_texts_appears_once_with_its_best(tmp_path: Path
                 "UBERON:0000001",
                 "hippocampal formation",
                 synonyms=(
-                    Synonym("hippocampus proper", "NARROW"),
-                    Synonym("Hippocampus", "RELATED"),
-                    Synonym("hippocampus", "EXACT"),
+                    Synonym("hippocampus proper", Scope.NARROW),
+                    Synonym("Hippocampus", Scope.RELATED),
+                    Synonym("hippocampus", Scope.EXACT),
                 ),
             ),
             SourceTerm(
                 "UBERON:0000002",
                 "left hippocampus region",
-                synonyms=(Synonym("region of left hippocampus", "EXACT"),),
+                synonyms=(Synonym("region of left hippocampus", Scope.EXACT),),
             ),
         ],
         "hippocampus",
@@ -118,7 +124,7 @@ def test_obsolete_terms_are_never_returned(tmp_path: Path) -> None:
             "UBERON:0000001",
             "hippocampus",
             obsolete=True,
-            synonyms=(Synonym("dorsal hippocampus", "EXACT"),),
+            synonyms=(Synonym("dorsal hippocampus", Scope.EXACT),),
         ),
         SourceTerm("UBERON:0000002", "liver"),
     ]
@@ -148,7 +154,7 @@ def test_every_candidate_field_is_filled(tmp_path: Path) -> None:
             SourceTerm(
                 "UBERON:0002421",
                 "hippocampal formation",
-                synonyms=(Synonym("hippocampus", "NARROW", "INCONSISTENT"),),
+                synonyms=(Synonym("hippocampus", Scope.NARROW, "INCONSISTENT"),),
             ),
             SourceTerm("UBERON:0001954", "Ammon's horn"),
         ],

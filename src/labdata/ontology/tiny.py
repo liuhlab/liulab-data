@@ -31,10 +31,10 @@ def build_tiny_store(root: str | os.PathLike[str], snapshots: Iterable[SnapshotD
 
     Examples
     --------
-    >>> from labdata.ontology import SnapshotData, SourceTerm, Synonym, open_ontology_store
+    >>> from labdata.ontology import Scope, SnapshotData, SourceTerm, Synonym, open_ontology_store
     >>> uberon = SnapshotData("uberon", "2026-11-05", [
     ...     SourceTerm("UBERON:0002421", "hippocampal formation",
-    ...                synonyms=(Synonym("hippocampus", "NARROW", "INCONSISTENT"),)),
+    ...                synonyms=(Synonym("hippocampus", Scope.NARROW, "INCONSISTENT"),)),
     ... ])
     >>> with open_ontology_store(build_tiny_store("ontologies", [uberon])) as store:
     ...     store.lookup("UBERON:0002421").name

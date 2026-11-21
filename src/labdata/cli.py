@@ -663,11 +663,10 @@ def ontology_restore(
     one; without a terminal it then needs --accept-download. Holds the store's run lock, so it
     refuses while an update runs.
     """
-    from labdata._root import resolve_root
     from labdata.ontology.lifecycle import restore
-    from labdata.ontology.root import ONTOLOGIES_ENV, pointer_path
+    from labdata.ontology.root import configured_root
 
-    where = _restore_root(resolve_root(root, ONTOLOGIES_ENV, pointer_path(), "ontologies"))
+    where = _restore_root(configured_root(root))
     _restore(
         lambda ok: restore(where, source, approve=ok, owner_gone=owner_gone),
         where,

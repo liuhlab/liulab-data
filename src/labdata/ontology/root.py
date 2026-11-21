@@ -32,6 +32,7 @@ ONTOLOGIES_ENV = "LABDATA_ONTOLOGIES"
 
 #: Basename of the per-user pointer file.
 POINTER_FILENAME = "ontologies.toml"
+_SECTION = "ontologies"
 
 #: The ontology store layout version ``labdata ontology init`` writes.
 FORMAT_VERSION = 1
@@ -50,7 +51,7 @@ def find_root(root: str | os.PathLike[str] | None = None) -> Path:
     NotAStoreError
         If the root has no ``labdata-ontologies.toml``.
     """
-    path = resolve_root(root, ONTOLOGIES_ENV, pointer_path(), "ontologies")
+    path = configured_root(root)
     if path is None:
         raise StoreNotConfiguredError(
             "ontology store not configured: pass open_ontology_store(root=...), set "
@@ -58,6 +59,14 @@ def find_root(root: str | os.PathLike[str] | None = None) -> Path:
         )
     read_toml_marker(path, paths.MARKER.rel, "an ontology store")
     return path
+
+
+def configured_root(root: str | os.PathLike[str] | None = None) -> Path | None:
+    """Return the root set by argument, ``LABDATA_ONTOLOGIES`` or pointer; ``None`` if unset.
+
+    Checks no marker, so a restore can name an empty root.
+    """
+    return resolve_root(root, ONTOLOGIES_ENV, pointer_path(), _SECTION)
 
 
 def init_ontology_store(root: str | os.PathLike[str], *, copy_to: str = "") -> Path:
@@ -83,7 +92,7 @@ def init_ontology_store(root: str | os.PathLike[str], *, copy_to: str = "") -> P
         If the root already has a marker.
     """
     marker = make_store(root, copy_to=copy_to)
-    write_pointer(pointer_path(), "ontologies", marker.parent)
+    write_pointer(pointer_path(), _SECTION, marker.parent)
     return marker
 
 

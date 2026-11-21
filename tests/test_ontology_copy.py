@@ -10,17 +10,18 @@ from typing import NoReturn
 import pytest
 from typer.testing import CliRunner
 
-from labdata import _lock
 from labdata.cli import app
 from labdata.ontology import Term, lifecycle, open_ontology_store, paths
-from labdata.ontology import fetch as fetch_mod
 from labdata.ontology import vocabularies as vocab_mod
 from labdata.ontology.root import make_store, switch
 from labdata.ontology.tables import SnapshotData, SourceTerm, write_snapshot
 from labdata.ontology.update import update
 from labdata.ontology.vocabularies import Vocabulary
 from tests._fake_gcs import FakeGcs
-from tests._ontology_fakes import OntologyWeb
+from tests._ontology_fakes import (
+    OntologyWeb,
+    _isolated,  # noqa: F401 - autouse: the cache, no lock owner, no sleeps
+)
 
 DEST = "gcs:bucket/datalake/ontology-store"
 FBDV = (Path(__file__).parent / "data" / "ontology" / "fbdv.obo").read_bytes()
@@ -28,14 +29,6 @@ URL = "https://purl.obolibrary.org/obo/fbdv.obo"
 SNAPSHOT = "fbdv-2026-11-02"
 STATUS = paths.STATUS.rel
 RECORD = paths.COPY_RECORD.rel
-
-
-@pytest.fixture(autouse=True)
-def _isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
-    monkeypatch.delenv("LABDATA_ONTOLOGIES", raising=False)
-    monkeypatch.delenv(_lock.RUN_OWNER, raising=False)
-    monkeypatch.setattr(fetch_mod, "_sleep", lambda _s: None)
 
 
 @pytest.fixture

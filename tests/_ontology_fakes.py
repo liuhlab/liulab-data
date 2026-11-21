@@ -1,7 +1,8 @@
 """A fake web for the ontology update: canned files, redirects and failures at the transport seam.
 
 It records each request with its headers, and how many body bytes each response gave, so a
-test can show what was downloaded and when.
+test can show what was downloaded and when. ``_isolated`` is the autouse fixture the update
+tests import.
 """
 
 from __future__ import annotations
@@ -11,8 +12,23 @@ import re
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from pathlib import Path
+
+import pytest
+
+from labdata import _lock
+from labdata.ontology import fetch
 
 _RANGE = re.compile(r"bytes=(\d+)-(\d*)")
+
+
+@pytest.fixture(autouse=True)
+def _isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Give a test its own cache, no store from the environment, no lock owner and no sleeps."""
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    monkeypatch.delenv("LABDATA_ONTOLOGIES", raising=False)
+    monkeypatch.delenv(_lock.RUN_OWNER, raising=False)
+    monkeypatch.setattr(fetch, "_sleep", lambda _s: None)
 
 
 @dataclass

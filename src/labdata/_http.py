@@ -26,6 +26,14 @@ USER_AGENT = "liulab-data"
 RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
 
 
+#: HTTP statuses that send a request on to the address in ``Location``.
+MOVED = frozenset({301, 302, 303, 307, 308})
+
+
+class TooManyRedirects(Exception):  # noqa: N818 - it names what happened
+    """A GET was sent on more times than allowed; the text says how many."""
+
+
 class TryAgain(Exception):  # noqa: N818 - it names what the caller should do
     """One try failed in a way another try may fix; the text says how it failed."""
 
@@ -110,6 +118,50 @@ class Transport(Protocol):
     ) -> AbstractContextManager[Response]:
         """Send a request and yield its response for reading."""
         ...
+
+
+@contextmanager
+def get_following(
+    transport: Transport,
+    url: str,
+    *,
+    headers: Mapping[str, str],
+    timeout: float,
+    hops: int,
+) -> Iterator[tuple[str, Response]]:
+    """GET ``url``, following redirects, and yield the last address and its response.
+
+    Each address is percent-encoded first. The response is the first that is not a redirect
+    with a ``Location``, so a redirect with none comes back as it is. An ``Authorization``
+    header is not passed on to another host.
+
+    Raises
+    ------
+    TooManyRedirects
+        If more than ``hops`` redirects follow one another.
+    """
+    sent = dict(headers)
+    for _ in range(hops + 1):
+        url = quoted(url)
+        with transport.open("GET", url, body=None, headers=sent, timeout=timeout) as response:
+            location = response.getheader("Location") if response.status in MOVED else None
+            if not location:
+                yield url, response
+                return
+            response.read()
+        moved = urllib.parse.urljoin(url, location)
+        if urllib.parse.urlsplit(moved).netloc != urllib.parse.urlsplit(url).netloc:
+            sent.pop("Authorization", None)
+        url = moved
+    raise TooManyRedirects(f"more than {hops} redirects")
+
+
+def quoted(url: str) -> str:
+    """Percent-encode a URL's path and query, leaving ``%XX`` as is; drop its fragment."""
+    parts = urllib.parse.urlsplit(url)
+    path = urllib.parse.quote(parts.path, safe="/%:@!$&'()*+,;=~")
+    query = urllib.parse.quote(parts.query, safe="/%:@!$&'()*+,;=~?")
+    return urllib.parse.urlunsplit((parts.scheme, parts.netloc, path, query, ""))
 
 
 class _Conns(dict[tuple[str, str], http.client.HTTPConnection]):

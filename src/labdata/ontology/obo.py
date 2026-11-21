@@ -14,7 +14,7 @@ from fastobo import header, term  # pyright: ignore[reportAttributeAccessIssue]
 from fastobo import iter as frames_of  # pyright: ignore[reportAttributeAccessIssue]
 
 from labdata.exceptions import OntologyError
-from labdata.ontology.tables import SnapshotData, SourceTerm, Synonym
+from labdata.ontology.tables import Scope, SnapshotData, SourceTerm, Synonym
 from labdata.ontology.vocabularies import Vocabulary, release_of
 
 _TAG = "data-version:"
@@ -79,7 +79,7 @@ def _term(frame: Any) -> SourceTerm:
         elif isinstance(clause, term.SynonymClause):
             syn = clause.synonym
             kind = None if syn.type is None else str(syn.type)
-            synonyms.append(Synonym(str(syn.desc), str(syn.scope), kind))
+            synonyms.append(Synonym(str(syn.desc), Scope(str(syn.scope)), kind))
         elif isinstance(clause, term.IsObsoleteClause):
             obsolete = bool(clause.obsolete)
         elif isinstance(clause, term.ReplacedByClause):

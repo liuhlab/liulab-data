@@ -10,14 +10,16 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from labdata import _lock
 from labdata.cli import app
 from labdata.ontology import Reason, Scope, Term, lifecycle, open_ontology_store, paths, tables
 from labdata.ontology import fetch as fetch_mod
 from labdata.ontology.root import make_store
 from labdata.ontology.update import update
 from labdata.ontology.vocabularies import VOCABULARIES
-from tests._ontology_fakes import OntologyWeb
+from tests._ontology_fakes import (
+    OntologyWeb,
+    _isolated,  # noqa: F401 - autouse: the cache, no lock owner, no sleeps
+)
 
 DATA = Path(__file__).parent / "data" / "ontology"
 TAXDUMP = "https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump.tar.gz"
@@ -25,14 +27,6 @@ TAXON_DATE = "Sat, 21 Nov 2026 16:29:20 GMT"
 TAXON = "ncbitaxon-2026-11-21"
 CELLOSAURUS = "https://ftp.expasy.org/databases/cellosaurus/cellosaurus.obo"
 CELLOSAURUS_DELETED = "https://ftp.expasy.org/databases/cellosaurus/cellosaurus_deleted_ACs.txt"
-
-
-@pytest.fixture(autouse=True)
-def _isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
-    monkeypatch.delenv("LABDATA_ONTOLOGIES", raising=False)
-    monkeypatch.delenv(_lock.RUN_OWNER, raising=False)
-    monkeypatch.setattr(fetch_mod, "_sleep", lambda _s: None)
 
 
 @pytest.fixture

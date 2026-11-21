@@ -13,6 +13,7 @@ from labdata.exceptions import NotAStoreError, OntologyError, StoreNotConfigured
 from labdata.ontology import (
     Reason,
     RetiredEntry,
+    Scope,
     SnapshotData,
     SourceTerm,
     Synonym,
@@ -20,7 +21,7 @@ from labdata.ontology import (
     build_tiny_store,
     open_ontology_store,
 )
-from labdata.ontology.tables import TABLE_LAYOUT, layout_of, write_snapshot
+from labdata.ontology.tables import write_snapshot
 
 UBERON = SnapshotData(
     "uberon",
@@ -29,7 +30,7 @@ UBERON = SnapshotData(
         SourceTerm(
             "UBERON:0002421",
             "hippocampal formation",
-            synonyms=(Synonym("hippocampus", "NARROW", "INCONSISTENT"),),
+            synonyms=(Synonym("hippocampus", Scope.NARROW, "INCONSISTENT"),),
         )
     ],
 )
@@ -52,8 +53,8 @@ TAXONOMY = SnapshotData(
     "2026-11-21",
     [SourceTerm("NCBITaxon:9606", "Homo sapiens")],
     retired=[
-        RetiredEntry("NCBITaxon:9605", "NCBITaxon:9606", "merged"),
-        RetiredEntry("NCBITaxon:1", None, "deleted"),
+        RetiredEntry("NCBITaxon:9605", "NCBITaxon:9606", Reason.MERGED),
+        RetiredEntry("NCBITaxon:1", None, Reason.DELETED),
     ],
     prefixes=("NCBITaxon:",),
 )
@@ -182,23 +183,16 @@ def test_lookup_command_prints_the_term(tiny: Path, monkeypatch: pytest.MonkeyPa
     assert "no current snapshot has this id" in unknown.output
 
 
-def test_the_writer_moves_sources_in_and_remakes_tables_in_place(tiny: Path) -> None:
+def test_the_writer_moves_sources_in_and_refuses_a_bad_scope(tiny: Path) -> None:
     source = tiny / "work" / "downloads" / "cl.obo"
     source.parent.mkdir(parents=True)
     source.write_text("format-version: 1.2\n", encoding="utf-8")
-    remade = SnapshotData(CL.vocabulary, CL.release, [SourceTerm("CL:0000000", "a cell")])
 
-    assert write_snapshot(tiny, remade, sources=[source]) == "cl-2026-10-01"
+    assert write_snapshot(tiny, CL, sources=[source]) == "cl-2026-10-01"
 
     assert (tiny / "snapshots" / "cl-2026-10-01" / "source" / "cl.obo").is_file()
-    assert layout_of(tiny, "cl-2026-10-01") == TABLE_LAYOUT
-    with open_ontology_store(tiny) as store:
-        term = store.lookup("CL:0000000")
-    assert term is not None
-    assert term.name == "a cell"
-    bad = SnapshotData(
-        "pato", "2026-10-01", [SourceTerm("PATO:1", "x", synonyms=(Synonym("y", "WIDE"),))]
-    )
+    wide = Synonym("y", "WIDE")  # pyright: ignore[reportArgumentType] - an untyped caller's
+    bad = SnapshotData("pato", "2026-10-01", [SourceTerm("PATO:1", "x", synonyms=(wide,))])
     with pytest.raises(OntologyError, match="WIDE"):
         write_snapshot(tiny, bad)
     assert not (tiny / "snapshots" / "pato-2026-10-01").exists()

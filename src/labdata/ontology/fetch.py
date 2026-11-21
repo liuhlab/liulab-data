@@ -10,7 +10,6 @@ import email.utils
 import http.client
 import os
 import time
-import urllib.parse
 from collections.abc import Callable
 from pathlib import Path
 
@@ -20,8 +19,10 @@ from labdata._http import (
     USER_AGENT,
     GaveUp,
     Response,
+    TooManyRedirects,
     Transport,
     TryAgain,
+    get_following,
     retry,
 )
 from labdata.exceptions import DownloadError
@@ -33,7 +34,6 @@ _TRIES = 5
 _TIMEOUT = 60.0
 _REDIRECTS = 5
 _CHUNK = 1 << 20
-_MOVED = frozenset({301, 302, 303, 307, 308})
 
 # Bound at import, so tests patch out the backoff sleep.
 _sleep = time.sleep
@@ -95,25 +95,21 @@ def _get[T](
 
     def once() -> T:
         target = url
-        for _ in range(_REDIRECTS + 1):
-            try:
-                with transport.open(
-                    "GET", target, body=None, headers=headers, timeout=_TIMEOUT
-                ) as response:
-                    status = response.status
-                    if status in (200, 206):
-                        return take(response)
-                    location = response.getheader("Location")
-                    response.read()
-            except (OSError, ValueError, http.client.HTTPException) as err:
-                raise TryAgain(f"{type(err).__name__} from {target}") from err
-            if status in _MOVED and location:
-                target = urllib.parse.urljoin(target, location)
-                continue
-            if status in RETRY_STATUSES:
-                raise TryAgain(f"HTTP {status} from {target}")
-            raise GaveUp(f"HTTP {status} from {target}")
-        raise GaveUp(f"more than {_REDIRECTS} redirects")
+        try:
+            with get_following(
+                transport, url, headers=headers, timeout=_TIMEOUT, hops=_REDIRECTS
+            ) as (target, response):
+                status = response.status
+                if status in (200, 206):
+                    return take(response)
+                response.read()
+        except TooManyRedirects as err:
+            raise GaveUp(str(err)) from None
+        except (OSError, ValueError, http.client.HTTPException) as err:
+            raise TryAgain(f"{type(err).__name__} from {target}") from err
+        if status in RETRY_STATUSES:
+            raise TryAgain(f"HTTP {status} from {target}")
+        raise GaveUp(f"HTTP {status} from {target}")
 
     try:
         return retry(once, tries=_TRIES, cap=60.0, sleep=_sleep)

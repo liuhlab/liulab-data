@@ -11,7 +11,14 @@ import re
 from pathlib import Path
 
 from labdata.exceptions import OntologyError
-from labdata.ontology.tables import Reason, RetiredEntry, SnapshotData, SourceTerm, Synonym
+from labdata.ontology.tables import (
+    Reason,
+    RetiredEntry,
+    Scope,
+    SnapshotData,
+    SourceTerm,
+    Synonym,
+)
 from labdata.ontology.vocabularies import Vocabulary, release_of
 
 _SYNONYM = re.compile(r'"((?:[^"\\]|\\.)*)"\s+(EXACT|NARROW|BROAD|RELATED)(?:\s+([^\s\[]+))?')
@@ -66,7 +73,7 @@ def _keep(
         if found is None:
             raise OntologyError(f"{obo.name}: {id} has a synonym that does not read: {value!r}")
         text, scope, kind = found.groups()
-        synonyms.append(Synonym(_ESCAPE.sub(r"\1", text), scope, kind))
+        synonyms.append(Synonym(_ESCAPE.sub(r"\1", text), Scope(scope), kind))
     terms.append(SourceTerm(id, names[0] or None, synonyms=tuple(synonyms)))
 
 

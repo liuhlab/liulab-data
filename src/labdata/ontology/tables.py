@@ -84,12 +84,11 @@ class Reason(enum.StrEnum):
 class Synonym:
     """One synonym of a source term.
 
-    ``scope`` is one of :class:`Scope`, given as the enum or its string; ``type`` is the
-    vocabulary's own synonym type, such as UBERON's ``INCONSISTENT``.
+    ``type`` is the vocabulary's own synonym type, such as UBERON's ``INCONSISTENT``.
     """
 
     text: str
-    scope: str
+    scope: Scope
     type: str | None = None
 
 
@@ -118,7 +117,7 @@ class RetiredEntry:
 
     id: str
     live_id: str | None
-    reason: str
+    reason: Reason
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,6 +224,12 @@ def layout_of(root: Path, snapshot: str) -> int | None:
         return None
     with closing(connect(path)) as db:
         return int(read_meta(db)["layout"])
+
+
+def term_count(root: Path, snapshot: str) -> int:
+    """Return a snapshot's own-term count, obsolete terms included."""
+    with closing(connect(tables_path(root, snapshot))) as db:
+        return int(db.execute("select count(*) from terms").fetchone()[0])
 
 
 def connect(path: Path) -> sqlite3.Connection:

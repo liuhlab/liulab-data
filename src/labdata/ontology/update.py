@@ -33,6 +33,7 @@ from labdata.ontology.tables import (
     read_meta,
     snapshot_name,
     tables_path,
+    term_count,
     write_snapshot,
 )
 from labdata.ontology.vocabularies import (
@@ -212,7 +213,7 @@ def _check_terms(root: Path, data: SnapshotData) -> None:
     current = read_current(root).get(data.vocabulary)
     if current is None:
         return
-    held = _term_count(root, current)
+    held = term_count(root, current)
     if len(data.terms) < MIN_TERM_SHARE * held:
         raise OntologyError(
             f"release {data.release} holds {len(data.terms)} own terms, under "
@@ -229,10 +230,5 @@ def _described(root: Path, row: VocabularyResult, current: str | None) -> Vocabu
     newest = max((f.stat().st_mtime for f in files), default=None)
     date = None if newest is None else f"{dt.datetime.fromtimestamp(newest, dt.UTC):%Y-%m-%d}"
     return dataclasses.replace(
-        row, snapshot=snapshot, terms=_term_count(root, snapshot), source_date=date
+        row, snapshot=snapshot, terms=term_count(root, snapshot), source_date=date
     )
-
-
-def _term_count(root: Path, snapshot: str) -> int:
-    with closing(tables.connect(tables_path(root, snapshot))) as db:
-        return int(db.execute("select count(*) from terms").fetchone()[0])
