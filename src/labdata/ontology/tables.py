@@ -23,18 +23,30 @@ from labdata.exceptions import OntologyError
 from labdata.ontology import paths
 
 #: The layout of the tables :func:`write_snapshot` writes; a change to them raises it.
-TABLE_LAYOUT = 1
+TABLE_LAYOUT = 2
 
 _SCHEMA = """
 create table meta (key text primary key, value text not null);
 create table terms (id text primary key, name text, obsolete integer not null);
 create table texts (
     id text not null, text text not null, kind text not null,
-    scope text, synonym_type text
+    scope text, synonym_type text, folded text not null
 );
 create table retired (old_id text not null, live_id text, reason text not null);
 create index texts_id on texts (id);
 create index retired_old_id on retired (old_id);
+"""
+
+# Built after the inserts: the whole-text index, and the word index over live terms' texts.
+# Texts go in by term id, so their row ids order terms by id, which breaks a search's ties.
+_INDEX = """
+create index texts_folded on texts (folded);
+create virtual table texts_words using fts5 (
+    folded, content = '', tokenize = 'porter unicode61 remove_diacritics 2'
+);
+insert into texts_words (rowid, folded)
+    select x.rowid, x.folded from texts x join terms t on t.id = x.id where t.obsolete = 0
+    order by x.rowid;
 """
 
 _PREFIX = re.compile(r"[A-Za-z][A-Za-z0-9]*[:_]")
@@ -137,6 +149,11 @@ class SnapshotData:
     prefixes: tuple[str, ...] = ()
 
 
+def fold(text: str) -> str:
+    """Return ``text`` as search matches it: case folded and whitespace collapsed."""
+    return " ".join(text.split()).casefold()
+
+
 def snapshot_name(vocabulary: str, release: str) -> str:
     """Return a snapshot's name, ``<vocabulary>-<release>``."""
     return f"{vocabulary}-{release}"
@@ -236,8 +253,12 @@ def _write_tables(path: Path, data: SnapshotData, name: str) -> None:
                 "insert into terms values (?, ?, ?)",
                 ((t.id, t.name, int(t.obsolete)) for t in data.terms),
             )
-            db.executemany("insert into texts values (?, ?, ?, ?, ?)", _texts(data.terms))
+            db.executemany(
+                "insert into texts values (?, ?, ?, ?, ?, ?)",
+                _texts(sorted(data.terms, key=lambda t: t.id)),
+            )
             db.executemany("insert into retired values (?, ?, ?)", _retired(data))
+            db.executescript(_INDEX)
         except sqlite3.IntegrityError as err:
             raise OntologyError(f"{name}: a term id appears twice ({err})") from err
         except ValueError as err:
@@ -245,12 +266,15 @@ def _write_tables(path: Path, data: SnapshotData, name: str) -> None:
         db.commit()
 
 
-def _texts(terms: Sequence[SourceTerm]) -> Iterator[tuple[str, str, str, str | None, str | None]]:
+def _texts(
+    terms: Sequence[SourceTerm],
+) -> Iterator[tuple[str, str, str, str | None, str | None, str]]:
     for term in terms:
         if term.name:
-            yield term.id, term.name, TextKind.NAME.value, None, None
+            yield term.id, term.name, TextKind.NAME.value, None, None, fold(term.name)
         for syn in term.synonyms:
-            yield term.id, syn.text, TextKind.SYNONYM.value, Scope(syn.scope).value, syn.type
+            scope = Scope(syn.scope).value
+            yield term.id, syn.text, TextKind.SYNONYM.value, scope, syn.type, fold(syn.text)
 
 
 def _retired(data: SnapshotData) -> Iterator[tuple[str, str | None, str]]:
