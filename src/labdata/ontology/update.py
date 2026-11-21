@@ -5,7 +5,7 @@ tables of current snapshots an older table layout wrote. Per vocabulary it then 
 release with no full download, from a header or the file's date, downloads the files only when
 that release has no snapshot yet, reads them, checks the own-term count against the current
 snapshot's and writes the snapshot. Then it switches every vocabulary that succeeded at once,
-and prunes.
+prunes, and copies the store to GCS (:mod:`labdata.ontology.lifecycle`).
 """
 
 from __future__ import annotations
@@ -77,17 +77,21 @@ def update(
     Returns
     -------
     UpdateStatus
-        The status record as written; its outcome is ``failed`` if any vocabulary failed.
+        The status record as written; its outcome is ``failed`` if any vocabulary failed,
+        and ``copy_pending`` is set if the copy to GCS failed or was skipped.
 
     Raises
     ------
     OntologyBusyError
         If another update holds the store's run lock.
+    OntologyCopyError
+        If the work disk is not in step with GCS, or a pending copy fails, before any download.
     """
     path = find_root(root)
     web = transport if transport is not None else HttpTransport()
     chosen = declared.VOCABULARIES if vocabularies is None else vocabularies
     with lifecycle.run_lock(path, "update", owner_gone=owner_gone):
+        lifecycle.copy_first(path)
         start = utc_stamp()
         lifecycle.write_status(path, UpdateStatus(start=start, outcome=Outcome.RUNNING))
         try:
@@ -111,9 +115,9 @@ def update(
             raise
         failed = any(row.result == Result.FAILED for row in rows.values())
         outcome = Outcome.FAILED if failed else Outcome.BUILT
-        status = UpdateStatus(start, utc_stamp(), outcome, rows)
-        lifecycle.write_status(path, status)
-    return status
+        lifecycle.write_status(path, UpdateStatus(start, utc_stamp(), outcome, rows))
+        lifecycle.copy_last(path)
+    return lifecycle.read_status(path)
 
 
 def _update_one(root: Path, vocab: Vocabulary, transport: Transport) -> VocabularyResult:

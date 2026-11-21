@@ -26,8 +26,8 @@ src/labdata/
   exceptions.py      LabdataError hierarchy
   _http.py, _rclone.py  the HTTP and rclone seams every client shares
   _slurm.py          the Slurm query seam (scontrol): does a lock's owner still run
-  _gcs.py            the GCS protocol both stores share: copy and restore; store/gcs.py and
-                       papers/copy.py are its adapters
+  _gcs.py            the GCS protocol every store shares: copy and restore; store/gcs.py,
+                       papers/copy.py and ontology/copy.py are its adapters
   _paths.py          the path kinds both stores declare (state, rebuildable, scratch)
   _root.py           a store's root: the argument, then its env variable, then its pointer
   _lock.py           the run lock: an owner record, inherited by the holder's steps, taken
@@ -91,8 +91,9 @@ src/labdata/
                        naming); fetch.py (header read and download over HTTP);
                        obo.py (the OBO reader); cellosaurus.py (Cellosaurus's
                        line reader and deleted list); taxdump.py (NCBI
-                       Taxonomy's dump and checksum); lifecycle.py (the run lock, the
-                       status record's only writer); update.py (the update)
+                       Taxonomy's dump and checksum); lifecycle.py (the run lock,
+                       the status record's only writer, copy and restore under
+                       the lock); update.py (the update); copy.py (the GCS adapter)
 tests/               pytest suite, mirrors src; mocks the EntrezClient + subprocess seams
 conftest.py          the suite budget and the slow lane
 scripts/check.sh     the gate runner

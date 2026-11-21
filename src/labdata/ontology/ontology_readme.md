@@ -5,7 +5,8 @@ or NCBI Taxonomy, as snapshots, one per release. Searches and lookups read each 
 current snapshot, from the files here, with no download.
 
 Google Cloud Storage (GCS) holds the ontology store, and its copy there is the one source of
-truth. Paths in this file are relative to the store root, written `<ontologies>`.
+truth. Each update ends with `labdata ontology copy`, and `labdata ontology restore` fills an
+empty disk from GCS. Paths in this file are relative to the store root, written `<ontologies>`.
 
 ## Contents
 
@@ -14,6 +15,7 @@ truth. Paths in this file are relative to the store root, written `<ontologies>`
   README.md                     this file
   labdata-ontologies.toml       the marker: where it is copied
   ontology-status.json          the last update, and each vocabulary's result
+  .copied-files.json            the files GCS holds, as the last copy left them
   current-snapshots.json        each vocabulary's current snapshot
   snapshots/<vocabulary>-<release>/
     terms.sqlite                the snapshot's term tables
