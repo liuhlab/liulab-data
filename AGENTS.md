@@ -89,9 +89,11 @@ src/labdata/
                        tiny.py (a tiny store from given terms, for tests);
                        vocabularies.py (one declaration per vocabulary, release
                        naming); fetch.py (header read and download over HTTP);
-                       obo.py (the OBO reader); lifecycle.py (the run lock, the
-                       status record's only writer, copy and restore under the
-                       lock); update.py (the update); copy.py (the GCS adapter)
+                       obo.py (the OBO reader); cellosaurus.py (Cellosaurus's
+                       line reader and deleted list); taxdump.py (NCBI
+                       Taxonomy's dump and checksum); lifecycle.py (the run lock,
+                       the status record's only writer, copy and restore under
+                       the lock); update.py (the update); copy.py (the GCS adapter)
 tests/               pytest suite, mirrors src; mocks the EntrezClient + subprocess seams
 conftest.py          the suite budget and the slow lane
 scripts/check.sh     the gate runner

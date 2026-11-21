@@ -67,7 +67,8 @@ One SQLite file per snapshot. Query it with `sqlite3`, or with
   `RELATED`, and `synonym_type` is the vocabulary's own type for it, if any. `folded` is the
   text as a search matches it: lower case, with spaces collapsed.
 - `texts_words` is a SQLite full-text index (FTS5). It holds no text of its own; its row ids
-  are `texts` row ids.
+  are `texts` row ids. NCBI Taxonomy is looked up by id only, so its snapshots have no
+  search index.
 - `reason` is `obsolete`, `merged`, `alternative` (kept as another term's alternative id) or
   `deleted`. `live_id` is empty when the id points to no live term.
 - `meta` names the vocabulary, its release, the snapshot, the id prefixes of its own terms, and

@@ -19,6 +19,7 @@ from labdata.exceptions import OntologyError
 from labdata.ontology import tables
 from labdata.ontology.root import find_root, read_current
 from labdata.ontology.tables import Reason, Scope, TextKind, fold
+from labdata.ontology.vocabularies import LOOKUP_ONLY, TAXON_PREFIX
 
 _WORD = re.compile(r"\w+")
 _TEXT_ROW = "x.id, t.name, x.text, x.kind, x.scope, x.synonym_type"
@@ -114,13 +115,14 @@ class OntologyStore:
             db.close()
         self._dbs.clear()
 
-    def lookup(self, id: str) -> Term | None:
+    def lookup(self, id: str | int) -> Term | None:
         """Return the term or retired id ``id``, from the vocabulary its prefix names.
 
         Parameters
         ----------
-        id : str
-            A term id, such as ``UBERON:0002421``.
+        id : str or int
+            A term id, such as ``UBERON:0002421``; a bare number, such as ``9606``, is a
+            taxonomy id.
 
         Returns
         -------
@@ -133,7 +135,9 @@ class OntologyStore:
         ...     store.lookup("CHEBI:1").replaced_by
         ('CHEBI:18357',)
         """
-        key = id.strip()
+        key = str(id).strip()
+        if key.isdigit():
+            key = f"{TAXON_PREFIX}{key}"
         for prefix, vocabulary in self._routes:
             if key.startswith(prefix):
                 found = self._find(vocabulary, key)
@@ -166,7 +170,7 @@ class OntologyStore:
         Raises
         ------
         OntologyError
-            If the store holds no such vocabulary.
+            If the store holds no such vocabulary, or the vocabulary is looked up by id only.
 
         Examples
         --------
@@ -199,6 +203,8 @@ class OntologyStore:
         if vocabulary not in self._dbs:
             held = ", ".join(sorted(self.snapshots)) or "none"
             raise OntologyError(f"no vocabulary {vocabulary!r} in this store; it holds: {held}")
+        if vocabulary in LOOKUP_ONLY:
+            raise OntologyError(f"{vocabulary} is looked up by id only and cannot be searched")
         return self._dbs[vocabulary]
 
     def _find(self, vocabulary: str, key: str) -> Term | None:

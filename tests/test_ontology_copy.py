@@ -14,9 +14,11 @@ from labdata import _lock
 from labdata.cli import app
 from labdata.ontology import Term, lifecycle, open_ontology_store, paths
 from labdata.ontology import fetch as fetch_mod
+from labdata.ontology import vocabularies as vocab_mod
 from labdata.ontology.root import make_store, switch
 from labdata.ontology.tables import SnapshotData, SourceTerm, write_snapshot
 from labdata.ontology.update import update
+from labdata.ontology.vocabularies import Vocabulary
 from tests._fake_gcs import FakeGcs
 from tests._ontology_fakes import OntologyWeb
 
@@ -47,7 +49,9 @@ def root(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def web() -> OntologyWeb:
+def web(monkeypatch: pytest.MonkeyPatch) -> OntologyWeb:
+    """FBdv alone, declared and served."""
+    monkeypatch.setattr(vocab_mod, "VOCABULARIES", (Vocabulary("fbdv", ("FBdv:",)),))
     return OntologyWeb(files={URL: FBDV})
 
 

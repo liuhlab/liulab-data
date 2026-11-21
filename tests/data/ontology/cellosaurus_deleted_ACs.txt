@@ -1,0 +1,13 @@
+----------------------------------------------------------------------------
+        CALIPHO group at the SIB - Swiss Institute of Bioinformatics
+        Geneva, Switzerland
+----------------------------------------------------------------------------
+
+ Description: Cellosaurus: deleted accession numbers
+ Version: 57.0
+ Last update: 22-October-2026
+
+----------------------------------------------------------------------------
+
+CVCL_0048  Was never publicly available
+CVCL_0222  Deleted in release 20; not a real cell line but a global description of the COS-1 and COS-7 cells (COS)

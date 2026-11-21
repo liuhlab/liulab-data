@@ -2,10 +2,10 @@
 
 One process under the store's run lock. It first remakes, from their kept source files, the
 tables of current snapshots an older table layout wrote. Per vocabulary it then reads the
-release from the file's header, downloads the file only when that release has no snapshot
-yet, reads it, checks its own-term count against the current snapshot's and writes the
-snapshot. Then it switches every vocabulary that succeeded at once, prunes, and copies the
-store to GCS (:mod:`labdata.ontology.lifecycle`).
+release with no full download, from a header or the file's date, downloads the files only when
+that release has no snapshot yet, reads them, checks the own-term count against the current
+snapshot's and writes the snapshot. Then it switches every vocabulary that succeeded at once,
+prunes, and copies the store to GCS (:mod:`labdata.ontology.lifecycle`).
 """
 
 from __future__ import annotations
@@ -22,18 +22,27 @@ from pathlib import Path
 from labdata._files import utc_stamp
 from labdata._http import HttpTransport, Transport
 from labdata.exceptions import LabdataError, OntologyError
-from labdata.ontology import fetch, lifecycle, obo, paths, tables
+from labdata.ontology import cellosaurus, fetch, lifecycle, obo, paths, tables, taxdump
 from labdata.ontology import vocabularies as declared
 from labdata.ontology.lifecycle import Outcome, Result, UpdateStatus, VocabularyResult
 from labdata.ontology.root import find_root, prune, read_current, switch
 from labdata.ontology.tables import (
     SnapshotData,
+    connect,
     layout_of,
+    read_meta,
     snapshot_name,
     tables_path,
     write_snapshot,
 )
-from labdata.ontology.vocabularies import Vocabulary, release_of
+from labdata.ontology.vocabularies import (
+    ReaderKind,
+    VersionRule,
+    Vocabulary,
+    file_date,
+    owl_version,
+    release_of,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -114,27 +123,57 @@ def update(
 def _update_one(root: Path, vocab: Vocabulary, transport: Transport) -> VocabularyResult:
     release: str | None = None
     try:
-        head = fetch.read_head(vocab.url, transport=transport)
-        release = release_of(obo.header_version(head))
+        release = current_release(vocab, transport=transport)
         name = snapshot_name(vocab.name, release)
         if layout_of(root, name) == tables.TABLE_LAYOUT:
             return VocabularyResult(release, name, Result.UNCHANGED)
-        source = paths.DOWNLOADS.at(root, _file_name(vocab))
+        sources = [paths.DOWNLOADS.at(root, _file_name(url)) for url in vocab.downloads]
         try:
-            fetch.download(vocab.url, source, transport=transport)
-            data = obo.read_obo(source, vocab)
+            for url, source in zip(vocab.downloads, sources, strict=True):
+                fetch.download(url, source, transport=transport)
+            if vocab.reader is ReaderKind.TAXDUMP:
+                listed = fetch.read_head(f"{vocab.url}.md5", transport=transport)
+                taxdump.check_md5(sources[0], listed)
+            data = _read(vocab, sources, release)
             _check_terms(root, data)
-            name = write_snapshot(root, data, sources=[source])
+            name = write_snapshot(root, data, sources=sources)
         finally:
-            source.unlink(missing_ok=True)
+            for source in sources:
+                source.unlink(missing_ok=True)
         return VocabularyResult(data.release, name, Result.UPDATED)
     except LabdataError as err:
         logger.warning("%s: %s", vocab.name, err)
         return VocabularyResult(release, None, Result.FAILED, str(err))
 
 
-def _file_name(vocab: Vocabulary) -> str:
-    return Path(urllib.parse.urlsplit(vocab.url).path).name or f"{vocab.name}.obo"
+def current_release(vocab: Vocabulary, *, transport: Transport) -> str:
+    """Return the release a vocabulary's source states now, read with no full download.
+
+    Raises
+    ------
+    LabdataError
+        If the source cannot be reached, or states no usable release.
+    """
+    if vocab.version is VersionRule.FILE_DATE:
+        return file_date(fetch.last_modified(vocab.version_url, transport=transport))
+    head = fetch.read_head(vocab.version_url, transport=transport)
+    if vocab.version is VersionRule.OWL_VERSION_INFO:
+        return release_of(owl_version(head))
+    return release_of(obo.header_version(head))
+
+
+def _read(vocab: Vocabulary, sources: Sequence[Path], release: str) -> SnapshotData:
+    """Read a vocabulary's files, in the order of its downloads, with its reader."""
+    if vocab.reader is ReaderKind.TAXDUMP:
+        return taxdump.read_taxdump(sources[0], vocab, release)
+    if vocab.reader is ReaderKind.CELLOSAURUS:
+        return cellosaurus.read_cellosaurus(sources[0], sources[1], vocab)
+    stated = None if vocab.version is VersionRule.DATA_VERSION else release
+    return obo.read_obo(sources[0], vocab, release=stated)
+
+
+def _file_name(url: str) -> str:
+    return Path(urllib.parse.urlsplit(url).path).name
 
 
 def _remake(root: Path, vocabularies: Sequence[Vocabulary]) -> None:
@@ -157,10 +196,15 @@ def _remake(root: Path, vocabularies: Sequence[Vocabulary]) -> None:
 
 
 def _read_kept(root: Path, vocab: Vocabulary, snapshot: str) -> SnapshotData:
-    files = sorted(paths.SNAPSHOTS.at(root, snapshot, paths.SOURCE_DIR).glob("*"))
-    if not files:
-        raise OntologyError(f"{snapshot} keeps no source file")
-    return obo.read_obo(files[0], vocab)
+    # A release not stated in the source files, such as a file date, is the snapshot's own.
+    kept = paths.SNAPSHOTS.at(root, snapshot, paths.SOURCE_DIR)
+    files = [kept / _file_name(url) for url in vocab.downloads]
+    missing = [f.name for f in files if not f.is_file()]
+    if missing:
+        raise OntologyError(f"{snapshot} keeps no {', '.join(missing)}")
+    with closing(connect(tables_path(root, snapshot))) as db:
+        release = read_meta(db)["release"]
+    return _read(vocab, files, release)
 
 
 def _check_terms(root: Path, data: SnapshotData) -> None:

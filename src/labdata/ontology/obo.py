@@ -36,15 +36,17 @@ def header_version(head: bytes) -> str:
     raise OntologyError("the OBO header states no data-version")
 
 
-def read_obo(path: Path, vocabulary: Vocabulary) -> SnapshotData:
+def read_obo(path: Path, vocabulary: Vocabulary, *, release: str | None = None) -> SnapshotData:
     """Read the vocabulary's own terms from an OBO file, with the release its header states.
 
     Terms whose id has none of the vocabulary's prefixes, such as imported ones, are left out.
+    A given ``release`` is used instead of the header's, for a file that states none.
 
     Raises
     ------
     OntologyError
-        If the file does not parse, or its header states no ``data-version``.
+        If the file does not parse, or no release is given and its header states no
+        ``data-version``.
     """
     try:
         frames = frames_of(str(path))
@@ -59,9 +61,10 @@ def read_obo(path: Path, vocabulary: Vocabulary) -> SnapshotData:
         ]
     except (SyntaxError, ValueError) as err:
         raise OntologyError(f"{path.name} does not parse as OBO: {err}") from err
-    if version is None:
+    if release is None and version is None:
         raise OntologyError(f"{path.name}: the OBO header states no data-version")
-    return SnapshotData(vocabulary.name, release_of(version), terms, prefixes=vocabulary.prefixes)
+    stated = release if release is not None else release_of(str(version))
+    return SnapshotData(vocabulary.name, stated, terms, prefixes=vocabulary.prefixes)
 
 
 def _term(frame: Any) -> SourceTerm:

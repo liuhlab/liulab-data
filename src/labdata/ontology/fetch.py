@@ -52,6 +52,17 @@ def read_head(url: str, *, transport: Transport, size: int = HEAD_BYTES) -> byte
     return _get(url, transport, {"Range": f"bytes=0-{size - 1}"}, lambda r: _upto(r, size))
 
 
+def last_modified(url: str, *, transport: Transport) -> str | None:
+    """Return the ``Last-Modified`` header of the file at ``url``, asking for one byte.
+
+    Raises
+    ------
+    DownloadError
+        If every try fails, or the server refuses.
+    """
+    return _get(url, transport, {"Range": "bytes=0-0"}, lambda r: r.getheader("Last-Modified"))
+
+
 def download(url: str, dest: Path, *, transport: Transport) -> Path:
     """Save the file at ``url`` to ``dest``, written whole, and return ``dest``.
 

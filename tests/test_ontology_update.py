@@ -63,9 +63,10 @@ def root(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def web(monkeypatch: pytest.MonkeyPatch) -> OntologyWeb:
-    """FBdv's purl redirects to GitHub, as the real one does."""
+    """FBdv alone; its purl redirects to GitHub, as the real one does."""
     fake = OntologyWeb(files={GITHUB: FBDV}, redirects={PURL: GITHUB})
     monkeypatch.setattr("labdata.cli._ontology_transport", lambda: fake)
+    monkeypatch.setattr(vocab_mod, "VOCABULARIES", (Vocabulary("fbdv", ("FBdv:",)),))
     return fake
 
 
