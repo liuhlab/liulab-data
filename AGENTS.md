@@ -29,6 +29,9 @@ src/labdata/
   _gcs.py            the GCS protocol both stores share: copy and restore; store/gcs.py and
                        papers/copy.py are its adapters
   _paths.py          the path kinds both stores declare (state, rebuildable, scratch)
+  _root.py           a store's root: the argument, then its env variable, then its pointer
+  _lock.py           the run lock: an owner record, inherited by the holder's steps, taken
+                       over from a gone owner; store/lifecycle.py uses it at work/run.lock
   _files.py          files written whole (atomic write and create), the UTC stamp
   cli.py             thin Typer CLI (labdata version, labdata ncbi configure,
                        labdata geo download, + hidden per-stage subcommands)

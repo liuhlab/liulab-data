@@ -7,14 +7,14 @@ store settings live in the store's own ``labdata-store.toml``.
 from __future__ import annotations
 
 import os
-import tomllib
 from collections.abc import Collection, Iterable, Sequence
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, overload
 
-from labdata._cache import ensure_cache_dir, liulab_data_cache_dir
-from labdata._files import create_marker, toml_line, write_atomic
+from labdata._cache import liulab_data_cache_dir
+from labdata._files import create_marker
+from labdata._root import resolve_root, write_pointer
 from labdata.exceptions import (
     AccessionError,
     LabdataError,
@@ -548,32 +548,6 @@ def open_store(root: str | os.PathLike[str] | None = None) -> Store:
     return Store(root=path, settings=paths.read_marker(path))
 
 
-def resolve_root(
-    root: str | os.PathLike[str] | None, env: str, pointer: Path, section: str
-) -> Path | None:
-    """Return a root: ``root``, else the ``env`` variable, else the pointer file's.
-
-    Parameters
-    ----------
-    root : str or os.PathLike or None
-        The root as given; ``None`` falls back.
-    env : str
-        The environment variable naming the root.
-    pointer : pathlib.Path
-        The per-user pointer file, which holds ``root`` under ``[section]``.
-    section : str
-        The pointer file's table.
-
-    Returns
-    -------
-    pathlib.Path or None
-        ``None`` when no root is set anywhere.
-    """
-    if root is None:
-        root = os.environ.get(env, "").strip() or _from_pointer(pointer, section)
-    return None if root is None else Path(root)
-
-
 def init_store(root: str | os.PathLike[str]) -> Path:
     """Create the store root if missing and write its marker, ``format_version = 1``.
 
@@ -626,19 +600,3 @@ def save_pointer(root: str | os.PathLike[str]) -> Path:
         The path the pointer was written to.
     """
     return write_pointer(pointer_path(), "store", root)
-
-
-def write_pointer(path: Path, section: str, root: str | os.PathLike[str]) -> Path:
-    """Write a per-user pointer file holding only ``root``, absolute, under ``[section]``."""
-    ensure_cache_dir()
-    absolute = Path(root).expanduser().absolute()
-    write_atomic(path, f"[{section}]\n{toml_line('root', str(absolute))}\n")
-    return path
-
-
-def _from_pointer(path: Path, section: str) -> str | None:
-    if not path.is_file():
-        return None
-    with path.open("rb") as fh:
-        data = tomllib.load(fh)
-    return str(data.get(section, {}).get("root", "")).strip() or None

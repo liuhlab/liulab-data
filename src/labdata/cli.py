@@ -353,9 +353,9 @@ def papers_restore(
     before a large one; without a terminal it then needs --accept-download. Holds the paper
     store's lock: stop the paper job first.
     """
+    from labdata._root import resolve_root
     from labdata.papers.copy import restore
     from labdata.papers.root import PAPERS_ENV, pointer_path
-    from labdata.store.root import resolve_root
 
     where = _restore_root(resolve_root(root, PAPERS_ENV, pointer_path(), "papers"))
     _restore(lambda ok: restore(where, source, approve=ok), where, accept_download)
@@ -782,8 +782,9 @@ def store_restore(
     and asks before a large one; without a terminal it then needs --accept-download.
     Holds the store's run lock, so it refuses while an update runs.
     """
+    from labdata._root import resolve_root
     from labdata.store.lifecycle import restore
-    from labdata.store.root import STORE_ENV, pointer_path, resolve_root
+    from labdata.store.root import STORE_ENV, pointer_path
 
     where = _restore_root(resolve_root(root, STORE_ENV, pointer_path(), "store"))
     _restore(

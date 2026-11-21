@@ -20,7 +20,6 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
-import os
 from collections import defaultdict
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
@@ -29,8 +28,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from labdata import _gcs, _slurm
-from labdata._files import create, utc_stamp, write_atomic
+from labdata import _gcs, _lock
+from labdata._files import utc_stamp, write_atomic
 from labdata.exceptions import StoreBuildError
 from labdata.ncbi.entrez import EntrezClient
 from labdata.store import build as _build
@@ -71,7 +70,7 @@ PACK_COUNTS = "pack-counts.jsonl"
 #: refresh's.
 ABANDONED_RECORD = "abandoned.json"
 #: The environment variable naming the run lock's holder, ``host:pid``, to the steps it starts.
-RUN_OWNER = "LABDATA_RUN_OWNER"
+RUN_OWNER = _lock.RUN_OWNER
 #: An outcome before the switch: the work disk still reads the build before the update's.
 _UNSWITCHED = (RUNNING, FAILED)
 #: A refresh stopped before its switch resumes only within this time of its start.
@@ -195,9 +194,7 @@ def _stale(status: Mapping[str, Any], dag: int | None, now: dt.datetime | None) 
 def run_lock(root: Path, update: str, *, owner_gone: bool = False) -> Iterator[None]:
     """Hold the store's run lock, so one update runs at a time.
 
-    The lock is an owner record made by an atomic create. Steps the holder starts hold it too:
-    they inherit :data:`RUN_OWNER` in their environment. A lock left by an owner that is gone
-    is taken over.
+    The lock is :func:`labdata._lock.run_lock` at the store's run lock path.
 
     Parameters
     ----------
@@ -213,23 +210,10 @@ def run_lock(root: Path, update: str, *, owner_gone: bool = False) -> Iterator[N
     StoreBusyError
         If the holder still runs, or this host cannot check it and ``owner_gone`` is False.
     """
-    lock = paths.RUN_LOCK.at(root)
-    held = _read_lock(lock)
-    if held is not None and os.environ.get(RUN_OWNER) == _token(held):
+    with _lock.run_lock(
+        paths.RUN_LOCK.at(root), update, error=StoreBusyError, owner_gone=owner_gone
+    ):
         yield
-        return
-    mine = _take(lock, update, owner_gone)
-    outer = os.environ.get(RUN_OWNER)
-    os.environ[RUN_OWNER] = _token(mine)
-    try:
-        yield
-    finally:
-        if outer is None:
-            os.environ.pop(RUN_OWNER, None)
-        else:
-            os.environ[RUN_OWNER] = outer
-        if _read_lock(lock) == mine:
-            lock.unlink(missing_ok=True)
 
 
 def read_status(root: Path) -> dict[str, Any]:
@@ -641,57 +625,6 @@ def _gcs_holds_marker_build(status: Mapping[str, Any]) -> bool:
     recorded, it is not pending now. False when the store has no status record.
     """
     return bool(status) and not status.get(AT_SWITCH, status.get("copy_pending"))
-
-
-def _take(lock: Path, update: str, owner_gone: bool) -> dict[str, Any]:
-    """Create the run lock, taking it over from a holder that is gone; return its record."""
-    mine = {"update": update, **_slurm.Owner.me().record()}
-    lock.parent.mkdir(parents=True, exist_ok=True)
-    for _ in range(3):
-        if create(lock, _dump(mine)):
-            return mine
-        held = _read_lock(lock)
-        if held is None:
-            continue
-        owner = _slurm.Owner.from_record(held)
-        alive = None if owner is None else _slurm.alive(owner)
-        if alive or (alive is None and not owner_gone):
-            raise StoreBusyError(_busy(lock, held, owner, alive))
-        logger.warning("the run lock's holder (%s) is gone, so this %s takes it", owner, update)
-        if _read_lock(lock) == held:
-            lock.unlink(missing_ok=True)
-    raise StoreBusyError(f"another update took the run lock {lock} as this {update} started")
-
-
-def _read_lock(lock: Path) -> dict[str, Any] | None:
-    """Return the run lock's record: None with no lock, empty when it cannot be read."""
-    try:
-        text = lock.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return None
-    try:
-        record = json.loads(text)
-    except ValueError:
-        return {}
-    return record if isinstance(record, dict) else {}
-
-
-def _token(record: Mapping[str, Any]) -> str:
-    return f"{record.get('host')}:{record.get('pid')}"
-
-
-def _busy(
-    lock: Path, held: Mapping[str, Any], owner: _slurm.Owner | None, alive: bool | None
-) -> str:
-    if owner is None:
-        return f"the run lock {lock} cannot be read; if no update runs, run again with --owner-gone"
-    holds = f"a {held.get('update', 'run')} holds this store's run lock ({lock}): {owner}"
-    if alive:
-        return f"{holds}; wait for it to end"
-    return (
-        f"{holds}, and this host cannot check whether it still runs; if it has ended, run "
-        "again with --owner-gone"
-    )
 
 
 def _dump(status: Mapping[str, Any]) -> str:
