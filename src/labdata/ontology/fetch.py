@@ -1,0 +1,114 @@
+"""GET a vocabulary's file, or only its first bytes, through the HTTP transport seam.
+
+Both follow redirects, which the transport does not, and retry a dropped connection or a busy
+server. Every try starts again from the first address.
+"""
+
+from __future__ import annotations
+
+import http.client
+import time
+import urllib.parse
+from collections.abc import Callable
+from pathlib import Path
+
+from labdata._files import temp_beside
+from labdata._http import (
+    RETRY_STATUSES,
+    USER_AGENT,
+    GaveUp,
+    Response,
+    Transport,
+    TryAgain,
+    retry,
+)
+from labdata.exceptions import DownloadError
+
+#: The bytes a header read asks for, and the most it reads.
+HEAD_BYTES = 64 * 1024
+
+_TRIES = 5
+_TIMEOUT = 60.0
+_REDIRECTS = 5
+_CHUNK = 1 << 20
+_MOVED = frozenset({301, 302, 303, 307, 308})
+
+# Bound at import, so tests patch out the backoff sleep.
+_sleep = time.sleep
+
+
+def read_head(url: str, *, transport: Transport, size: int = HEAD_BYTES) -> bytes:
+    """Return at most the first ``size`` bytes of the file at ``url``.
+
+    Asks for a byte range, and reads no further than ``size`` when the server sends more.
+
+    Raises
+    ------
+    DownloadError
+        If every try fails, or the server refuses.
+    """
+    return _get(url, transport, {"Range": f"bytes=0-{size - 1}"}, lambda r: _upto(r, size))
+
+
+def download(url: str, dest: Path, *, transport: Transport) -> Path:
+    """Save the file at ``url`` to ``dest``, written whole, and return ``dest``.
+
+    Raises
+    ------
+    DownloadError
+        If every try fails, or the server refuses.
+    """
+    dest.parent.mkdir(parents=True, exist_ok=True)
+
+    def save(response: Response) -> Path:
+        tmp = temp_beside(dest)
+        try:
+            with tmp.open("wb") as out:
+                while chunk := response.read(_CHUNK):
+                    out.write(chunk)
+            tmp.replace(dest)
+        finally:
+            tmp.unlink(missing_ok=True)
+        return dest
+
+    return _get(url, transport, {}, save)
+
+
+def _get[T](
+    url: str, transport: Transport, extra: dict[str, str], take: Callable[[Response], T]
+) -> T:
+    headers = {"User-Agent": USER_AGENT, **extra}
+
+    def once() -> T:
+        target = url
+        for _ in range(_REDIRECTS + 1):
+            try:
+                with transport.open(
+                    "GET", target, body=None, headers=headers, timeout=_TIMEOUT
+                ) as response:
+                    status = response.status
+                    if status in (200, 206):
+                        return take(response)
+                    location = response.getheader("Location")
+                    response.read()
+            except (OSError, ValueError, http.client.HTTPException) as err:
+                raise TryAgain(f"{type(err).__name__} from {target}") from err
+            if status in _MOVED and location:
+                target = urllib.parse.urljoin(target, location)
+                continue
+            if status in RETRY_STATUSES:
+                raise TryAgain(f"HTTP {status} from {target}")
+            raise GaveUp(f"HTTP {status} from {target}")
+        raise GaveUp(f"more than {_REDIRECTS} redirects")
+
+    try:
+        return retry(once, tries=_TRIES, cap=60.0, sleep=_sleep)
+    except GaveUp as err:
+        raise DownloadError(f"GET {url} failed: {err}") from None
+
+
+def _upto(response: Response, size: int) -> bytes:
+    got = bytearray()
+    while len(got) < size and (chunk := response.read(size - len(got))):
+        got += chunk
+    return bytes(got)

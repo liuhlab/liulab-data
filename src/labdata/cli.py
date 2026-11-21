@@ -187,6 +187,13 @@ def _paper_transport() -> Transport:
     return HttpTransport()
 
 
+def _ontology_transport() -> Transport:
+    """Return the HTTP transport the ontology update downloads through."""
+    from labdata._http import HttpTransport
+
+    return HttpTransport()
+
+
 def _paper_setup(root: Path | None) -> tuple[PaperStore, EntrezClient, OpenAlex]:
     """Open the paper store and its clients; a setup failure exits 1 with its message."""
     from labdata.papers import open_paper_store
@@ -523,6 +530,33 @@ def ontology_lookup(
     if term.replaced_by:
         typer.echo(f"replaced by: {', '.join(term.replaced_by)}")
     typer.echo(f"snapshot: {term.snapshot}")
+
+
+@ontology_app.command("update")
+def ontology_update(
+    root: Path | None = typer.Option(
+        None, help="Ontology store root; default: LABDATA_ONTOLOGIES, then pointer."
+    ),
+    owner_gone: bool = _OWNER_GONE,
+) -> None:
+    """Bring each vocabulary's current release into the store, and make it current.
+
+    Downloads only the vocabularies whose release has no snapshot yet. Exits 1 if any fails;
+    a failed vocabulary keeps its current snapshot.
+    """
+    from labdata.ontology.lifecycle import Outcome
+    from labdata.ontology.update import update
+
+    try:
+        status = update(root, transport=_ontology_transport(), owner_gone=owner_gone)
+    except LabdataError as err:
+        typer.echo(str(err), err=True)
+        raise typer.Exit(1) from err
+    for name, row in status.vocabularies.items():
+        detail = row.snapshot or row.reason
+        typer.echo(f"{name}: {row.result} ({detail})", err=row.reason is not None)
+    if status.outcome == Outcome.FAILED:
+        raise typer.Exit(1)
 
 
 def _store_client() -> EntrezClient:

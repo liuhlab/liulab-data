@@ -85,7 +85,11 @@ src/labdata/
                        switch); tables.py (the one writer of a snapshot's term
                        tables, one SQLite file, and the terms it takes);
                        reader.py (open_ontology_store: pinned at open, lookup);
-                       tiny.py (a tiny store from given terms, for tests)
+                       tiny.py (a tiny store from given terms, for tests);
+                       vocabularies.py (one declaration per vocabulary, release
+                       naming); fetch.py (header read and download over HTTP);
+                       obo.py (the OBO reader); lifecycle.py (the run lock, the
+                       status record's only writer); update.py (the update)
 tests/               pytest suite, mirrors src; mocks the EntrezClient + subprocess seams
 conftest.py          the suite budget and the slow lane
 scripts/check.sh     the gate runner
