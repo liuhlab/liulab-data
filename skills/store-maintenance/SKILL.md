@@ -1,15 +1,15 @@
 ---
 name: store-maintenance
-description: Run the monthly or yearly maintenance run on the GEO/SRA store and the paper store, then log it.
+description: Run the monthly or yearly maintenance run on the GEO/SRA store, the paper store and the ontology store, then log it.
 disable-model-invocation: true
 argument-hint: monthly | yearly
 ---
 
 # Store maintenance
 
-One **maintenance run** (`GLOSSARY.md`) on both stores, by one procedure: preflight, the
+One **maintenance run** (`GLOSSARY.md`) on the three stores, by one procedure: preflight, the
 period's page, reports while it runs, one log entry at the end. The **period** is the argument.
-A run ends only once both stores are **finalized** (`GLOSSARY.md`): GCS holds what the run
+A run ends only once all three are **finalized** (`GLOSSARY.md`): GCS holds what the run
 made.
 
 ## 1. Period
@@ -27,14 +27,14 @@ Take all five in order, and state each to the user in one line:
 1. **Held node.** The standing `labdata-dev` job runs on arc. Short commands and checks run
    inside it. If it is gone, resubmitting it is the run plan's first job.
 2. **rclone login.** The Google login lasts one day. `pixi run rclone lsd <copy_to>` lists
-   each store's place in GCS (`copy_to` in `labdata-store.toml` and in `labdata-papers.toml`).
-   If it fails, ask the user to log in as `docs/how-to/store-gcs.md` shows, and wait. A refresh
-   with no login ends `built`, not finalized, and the run stays open until the login and the
-   copy.
-3. **Code.** The refresh runs the code in the repository folder it is submitted from
-   ("Refresh the store" in `docs/how-to/store-run.md`). In that folder, if
-   `git status --untracked-files=no` shows local changes, stop and ask the user. Otherwise run
-   `git fetch origin`, then `git switch --detach origin/main`. Put the commit,
+   each store's place in GCS (`copy_to` in `labdata-store.toml`, `labdata-papers.toml` and
+   `labdata-ontologies.toml`). If it fails, ask the user to log in as
+   `docs/how-to/store-gcs.md` shows, and wait. A refresh or an ontology update with no login
+   ends `built`, not finalized, and the run stays open until the login and the copy.
+3. **Code.** The refresh and the ontology update run the code in the repository folder
+   they are submitted from ("Refresh the store" in `docs/how-to/store-run.md`). In that
+   folder, if `git status --untracked-files=no` shows local changes, stop and ask the user.
+   Otherwise run `git fetch origin`, then `git switch --detach origin/main`. Put the commit,
    `git rev-parse --short HEAD`, in the run plan; the log entry records it.
 
    Done when: the folder is detached at the `origin/main` just fetched, and the run plan names
@@ -82,7 +82,8 @@ from NCBI, stop the run's jobs and report; the user decides what comes next.
 
 Add one entry to `docs/maintenance-log.md`, newest first, in the shape of the entries already
 there: the date, the period, the build ID, the commit from the preflight, each check's outcome,
-wall time against budget (with the page's step-time table when it has one), and links to the
+wall time against budget (with the page's step-time table when it has one), the ontology
+update's table of vocabularies, and links to the
 issues filed. The repo is public: the entry names no hostname, username, absolute path or
 GCS path. Write the same way in every issue and comment of the run.
 

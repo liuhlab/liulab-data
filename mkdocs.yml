@@ -74,6 +74,7 @@ nav:
       - Run the full download: how-to/store-run.md
       - Copy the store to GCS: how-to/store-gcs.md
       - Run the paper store: how-to/papers-run.md
+      - Run the ontology store: how-to/ontology-run.md
   - Maintenance log: maintenance-log.md
   - API reference: reference.md
 
