@@ -63,8 +63,13 @@ def last_modified(url: str, *, transport: Transport) -> str | None:
     return _get(url, transport, {"Range": "bytes=0-0"}, lambda r: r.getheader("Last-Modified"))
 
 
-def download(url: str, dest: Path, *, transport: Transport) -> Path:
-    """Save the file at ``url`` to ``dest``, written whole, and return ``dest``.
+def download(url: str, dest: Path, *, transport: Transport) -> str | None:
+    """Save the file at ``url`` to ``dest``, written whole, dated by its ``Last-Modified``.
+
+    Returns
+    -------
+    str or None
+        The response's ``Last-Modified`` header.
 
     Raises
     ------
@@ -73,17 +78,18 @@ def download(url: str, dest: Path, *, transport: Transport) -> Path:
     """
     dest.parent.mkdir(parents=True, exist_ok=True)
 
-    def save(response: Response) -> Path:
+    def save(response: Response) -> str | None:
+        modified = response.getheader("Last-Modified")
         tmp = temp_beside(dest)
         try:
             with tmp.open("wb") as out:
                 while chunk := response.read(_CHUNK):
                     out.write(chunk)
-            _date(tmp, response.getheader("Last-Modified"))
+            _date(tmp, modified)
             tmp.replace(dest)
         finally:
             tmp.unlink(missing_ok=True)
-        return dest
+        return modified
 
     return _get(url, transport, {}, save)
 

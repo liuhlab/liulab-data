@@ -151,6 +151,19 @@ def test_a_failed_copy_leaves_the_update_built_and_the_next_update_copies_first(
     assert gcs_status(gcs)["copy_pending"] is False
 
 
+def test_a_pending_copy_skipped_again_stays_pending_when_the_update_stops(
+    root: Path, gcs: FakeGcs, web: OntologyWeb
+) -> None:
+    gcs.expired = "copy"
+    update(root, transport=web)
+
+    with pytest.raises(RuntimeError, match="offline"):
+        update(root, transport=_Offline())
+
+    stopped = lifecycle.read_status(root)
+    assert (stopped.outcome, stopped.copy_pending) == ("failed", True)
+
+
 def test_a_copy_that_would_delete_more_snapshots_than_the_guard_allows_stops(
     root: Path, gcs: FakeGcs
 ) -> None:

@@ -227,6 +227,13 @@ def test_a_second_update_downloads_only_the_vocabulary_with_a_new_release(
     }
     assert lifecycle.read_status(root) == status
 
+    # The source goes back a release: its kept snapshot is switched in with no download.
+    both.calls.clear()
+    both.files[GITHUB] = FBDV
+    back = update(root, transport=both).vocabularies["fbdv"]
+    assert (back.snapshot, back.result) == (SNAPSHOT, Result.UPDATED)
+    assert _downloads(both) == []
+
 
 @pytest.mark.parametrize("fault", ["download", "broken"])
 def test_a_failed_vocabulary_keeps_its_snapshot_while_the_others_switch(
