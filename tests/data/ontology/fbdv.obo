@@ -2,6 +2,7 @@ format-version: 1.2
 data-version: fbdv/releases/2026-11-02
 subsetdef: fbdv_simple "Simple subset"
 synonymtypedef: OMO:0003004 "plural form"
+synonymtypedef: INCONSISTENT "indicates that a synonym is used in an inconsistent or confusing way, typically between species"
 ontology: fbdv
 
 [Term]
@@ -13,6 +14,7 @@ synonym: "embryo stage" EXACT []
 synonym: "embryonic stages" EXACT OMO:0003004 []
 synonym: "embryogenesis" BROAD []
 synonym: "early life" RELATED []
+synonym: "embryo" BROAD INCONSISTENT []
 synonym: "embryonic stage 1-17" NARROW []
 is_a: FBdv:00007012 ! life stage
 

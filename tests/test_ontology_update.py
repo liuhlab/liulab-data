@@ -116,15 +116,17 @@ def test_terms_with_another_prefix_are_not_stored(root: Path, web: OntologyWeb) 
     assert ids == {"FBdv:00005289", "FBdv:00007012", "FBdv:00005333", "FBdv:00005334"}
 
 
-def test_all_four_synonym_scopes_and_a_synonym_type_are_kept(root: Path, web: OntologyWeb) -> None:
+def test_all_four_synonym_scopes_and_synonym_types_are_kept(root: Path, web: OntologyWeb) -> None:
     update(root, transport=web)
 
     stage = {row for row in _texts(root) if row[0] == "FBdv:00005289"}
+    # A numbered type is stored by its name in the header; a named one by itself.
     assert stage == {
         ("FBdv:00005289", "embryonic stage", "name", None, None),
         ("FBdv:00005289", "embryo stage", "synonym", "EXACT", None),
-        ("FBdv:00005289", "embryonic stages", "synonym", "EXACT", "OMO:0003004"),
+        ("FBdv:00005289", "embryonic stages", "synonym", "EXACT", "plural form"),
         ("FBdv:00005289", "embryogenesis", "synonym", "BROAD", None),
+        ("FBdv:00005289", "embryo", "synonym", "BROAD", "INCONSISTENT"),
         ("FBdv:00005289", "early life", "synonym", "RELATED", None),
         ("FBdv:00005289", "embryonic stage 1-17", "synonym", "NARROW", None),
     }
