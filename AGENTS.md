@@ -83,8 +83,9 @@ src/labdata/
   ontology/          the ontology store: paths.py (its paths and their kinds);
                        root.py (marker, init, the current-snapshots record and its
                        switch); tables.py (the one writer of a snapshot's term
-                       tables, one SQLite file, and the terms it takes);
-                       reader.py (open_ontology_store: pinned at open, lookup);
+                       tables and search index, one SQLite file, and the terms
+                       it takes); reader.py (open_ontology_store: pinned at
+                       open, lookup, search);
                        tiny.py (a tiny store from given terms, for tests);
                        vocabularies.py (one declaration per vocabulary, release
                        naming); fetch.py (header read and download over HTTP);

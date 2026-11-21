@@ -532,6 +532,35 @@ def ontology_lookup(
     typer.echo(f"snapshot: {term.snapshot}")
 
 
+@ontology_app.command("search")
+def ontology_search(
+    vocabulary: str = typer.Argument(..., help="The vocabulary to search, such as uberon."),
+    text: str = typer.Argument(..., help="A label's text, such as hippocampus."),
+    limit: int = typer.Option(10, help="The most candidates to print."),
+    root: Path | None = typer.Option(
+        None, help="Ontology store root; default: LABDATA_ONTOLOGIES, then pointer."
+    ),
+) -> None:
+    """Print a label's candidates, best first, after the snapshot that answered.
+
+    Each line holds the id, name, matched on, scope, synonym type and matched text, split by
+    tabs; a dash marks an empty field. Exits 1 for a vocabulary the store does not hold.
+    """
+    from labdata.ontology import open_ontology_store
+
+    try:
+        with open_ontology_store(root) as store:
+            found = store.search(text, vocabulary, limit=limit)
+            snapshot = store.snapshots[vocabulary]
+    except LabdataError as err:
+        typer.echo(str(err), err=True)
+        raise typer.Exit(1) from err
+    typer.echo(f"snapshot: {snapshot}")
+    for c in found:
+        fields = (c.id, c.name, c.matched_on, c.scope, c.synonym_type, c.text)
+        typer.echo("\t".join("-" if f is None else str(f) for f in fields))
+
+
 @ontology_app.command("update")
 def ontology_update(
     root: Path | None = typer.Option(
