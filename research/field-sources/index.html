@@ -1,0 +1,1703 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Data curation, download, and organization utilities for the Liu Lab.">
+      
+      
+      
+        <link rel="canonical" href="https://liuhlab.github.io/liulab-data/research/field-sources/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="zensical-0.0.57">
+    
+    
+      
+        <title>Which source carries each study, sample, experiment and run field - liulab-data</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../../assets/stylesheets/modern/main.5da3a30f.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/modern/palette.812a03bb.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../stylesheets/diagrams.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+  
+
+
+  
+  
+
+<script id="__analytics">function __md_analytics(){function e(){dataLayer.push(arguments)}window.dataLayer=window.dataLayer||[],e("js",new Date),e("config","G-6M1CJF9WXY"),document.addEventListener("DOMContentLoaded",(function(){document.forms.search&&document.forms.search.query.addEventListener("blur",(function(){this.value&&e("event","search",{search_term:this.value})}));document$.subscribe((function(){var t=document.forms.feedback;if(void 0!==t)for(var a of t.querySelectorAll("[type=submit]"))a.addEventListener("click",(function(a){a.preventDefault();var n=document.location.pathname,d=this.getAttribute("data-md-value");e("event","feedback",{page:n,data:d}),t.firstElementChild.disabled=!0;var r=t.querySelector(".md-feedback__note [data-md-value='"+d+"']");r&&(r.hidden=!1)})),t.hidden=!1})),location$.subscribe((function(t){e("config","G-6M1CJF9WXY",{page_path:t.pathname})}))}));var t=document.createElement("script");t.async=!0,t.src="https://www.googletagmanager.com/gtag/js?id=G-6M1CJF9WXY",document.getElementById("__analytics").insertAdjacentElement("afterEnd",t)}</script>
+  
+    <script>"undefined"!=typeof __md_analytics&&__md_analytics()</script>
+  
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-label="Navigation"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#which-source-carries-each-study-sample-experiment-and-run-field" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="liulab-data" class="md-header__button md-logo" aria-label="liulab-data" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer" aria-label="Navigation">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            liulab-data
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Which source carries each study, sample, experiment and run field
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search" aria-label="Search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/liuhlab/liulab-data" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M216.5 362.5c-66-8-112.5-55.5-112.5-117 0-25 9-52 24-70-6.5-16.5-5.5-51.5 2-66 20-2.5 47 8 63 22.5 19-6 39-9 63.5-9s44.5 3 62.5 8.5c15.5-14 43-24.5 63-22 7 13.5 8 48.5 1.5 65.5 16 19 24.5 44.5 24.5 70.5 0 61.5-46.5 108-113.5 116.5 17 11 28.5 35 28.5 62.5v52c0 15 12.5 23.5 27.5 17.5C441 459.5 512 369 512 257 512 115.5 397 0 255.5 0S0 115.5 0 257c0 111 70.5 203 165.5 237.5 13.5 5 26.5-4 26.5-17.5v-40c-7 3-16 5-24 5-33 0-52.5-18-66.5-51.5-5.5-13.5-11.5-21.5-23-23-6-.5-8-3-8-6 0-6 10-10.5 20-10.5 14.5 0 27 9 40 27.5 10 14.5 20.5 21 33 21s20.5-4.5 32-16c8.5-8.5 15-16 21-21"/></svg>
+  </div>
+  <div class="md-source__repository">
+    liuhlab/liulab-data
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="liulab-data" class="md-nav__button md-logo" aria-label="liulab-data" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    liulab-data
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/liuhlab/liulab-data" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M216.5 362.5c-66-8-112.5-55.5-112.5-117 0-25 9-52 24-70-6.5-16.5-5.5-51.5 2-66 20-2.5 47 8 63 22.5 19-6 39-9 63.5-9s44.5 3 62.5 8.5c15.5-14 43-24.5 63-22 7 13.5 8 48.5 1.5 65.5 16 19 24.5 44.5 24.5 70.5 0 61.5-46.5 108-113.5 116.5 17 11 28.5 35 28.5 62.5v52c0 15 12.5 23.5 27.5 17.5C441 459.5 512 369 512 257 512 115.5 397 0 255.5 0S0 115.5 0 257c0 111 70.5 203 165.5 237.5 13.5 5 26.5-4 26.5-17.5v-40c-7 3-16 5-24 5-33 0-52.5-18-66.5-51.5-5.5-13.5-11.5-21.5-23-23-6-.5-8-3-8-6 0-6 10-10.5 20-10.5 14.5 0 27 9 40 27.5 10 14.5 20.5 21 33 21s20.5-4.5 32-16c8.5-8.5 15-16 21-21"/></svg>
+  </div>
+  <div class="md-source__repository">
+    liuhlab/liulab-data
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Home
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Tutorials
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+  Tutorials
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/understanding-geo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Understanding GEO & SRA
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/geo-series/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  GEO Series
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/tenx-bam/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  10x cellranger BAM → FASTQ
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  How-to
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+  How-to
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/store-life-cycle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  How the stores work
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/store-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Run the full download
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/store-gcs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Copy the store to GCS
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/papers-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Run the paper store
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../maintenance-log/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Maintenance log
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API reference
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#answer" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Answer
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#field-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Field table
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Field table">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#study" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Study
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sample" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Sample
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#experiment" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Experiment
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#run" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Run
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#two-probed-studies" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Two probed studies
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#does-sample_relation-carry-the-sra-and-biosample-links" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Does <code>!Sample_relation</code> carry the SRA and BioSample links
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-lossy-the-gsm-to-srx-join-is" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        How lossy the GSM to SRX join is
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-bulk-files-against-the-live-services" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The bulk files against the live services
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-bulk-geo-series-dump" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The bulk GEO Series dump
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#scripts-behind-the-numbers" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Scripts behind the numbers
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sources" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Sources
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+  
+    <a href="https://github.com/liuhlab/liulab-data/edit/main/docs/research/field-sources.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-file-pen" viewBox="0 0 24 24"><path d="M12.659 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v9.34"/><path d="M14 2v5a1 1 0 0 0 1 1h5M10.378 12.622a1 1 0 0 1 3 3.003L8.36 20.637a2 2 0 0 1-.854.506l-2.867.837a.5.5 0 0 1-.62-.62l.836-2.869a2 2 0 0 1 .506-.853z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="which-source-carries-each-study-sample-experiment-and-run-field">Which source carries each study, sample, experiment and run field<a class="headerlink" href="#which-source-carries-each-study-sample-experiment-and-run-field" title="Permanent link">&para;</a></h1>
+<p>Question: for each field a study needs, which source carries it? Where two sources carry the
+same field, which one should win? And how much does the join from a GEO sample (GSM) to an SRA
+experiment (SRX) lose?</p>
+<p>All checks ran on 2026-10-14 against live NCBI services and the bulk files dated 2026-10-14.
+Only metadata was read. Each table row has a mark:</p>
+<ul>
+<li><strong>measured</strong>: a live probe or a bulk query printed it on 2026-10-14.</li>
+<li><strong>read</strong>: an official page, a schema or an earlier note says it.</li>
+<li><strong>to-verify</strong>: needs a check not yet run. No row has this mark now.</li>
+</ul>
+<h2 id="answer">Answer<a class="headerlink" href="#answer" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>The bulk GEO dump finds studies; SOFT describes them.</strong> The esummary dump of all 298,404
+  Series matches live family SOFT on title, summary, organism, platform, type, sample count,
+  PubMed IDs, public date and the GSM list for 90 of 90 Series. It never carries SuperSeries
+  links and has no sample fields beyond titles, so family SOFT is still needed.</li>
+<li><strong>GEO wins on text, SRA wins on reads.</strong> For a study with a GEO Series, the family SOFT file
+  is the source for every text field. That covers titles, summary, design, characteristics,
+  protocols, PubMed IDs, dates and SuperSeries links. SRA is the source for library layout,
+  runs, spot and base counts and submitted files. GEO lacks all of these.</li>
+<li><strong>The library fields agree.</strong> GEO and SRA agree on library strategy, source, selection and
+  instrument for 60 to 63 of 63 sampled samples. Every disagreement is a pre-2011 or reused
+  third-party deposit, where the SRA record describes the reads. So SRA wins.</li>
+<li><strong>For an SRA-only study, BioProject and BioSample carry the text.</strong> The SRA <code>STUDY</code> title
+  and abstract copy the BioProject. BioSample holds the sample attributes, with NCBI's
+  <code>harmonized_name</code> beside each one.</li>
+<li><strong>BioSample is an annotation layer, not a copy of GEO.</strong> Only 233 of 325 sampled GEO
+  characteristics (72%) reach BioSample with the same key and value. BioSample can be a stale
+  snapshot, can belong to another submitter, and rewrites values (<code>None</code> becomes <code>missing</code>,
+  <code>Male</code> becomes <code>male</code>). Keep the GEO text, and take only <code>harmonized_name</code> from BioSample.</li>
+<li><strong>The bulk files match the live services.</strong> Bulk <code>bioproject.xml</code> and
+  <code>biosample_set.xml.gz</code> records equal the <code>efetch</code> replies field for field. The Parquet and
+  <code>SRA_Accessions.tab</code> agree with the SRA XML on every compared field.</li>
+<li><strong>The Parquet is not complete.</strong> It lacks 971,528 of the 43,022,633 live public runs in
+  <code>SRA_Accessions.tab</code> (2.3%), and it holds no suppressed or withdrawn runs. Use
+  <code>SRA_Accessions.tab</code> for the list of runs and for exact spot and base counts.</li>
+<li><strong>The join.</strong> Of 72 random sequencing GSMs, 9 (12.5%) have no SRX. The other 63 each map to
+  exactly one SRX. The SOFT <code>Sample_relation = SRA:</code> line finds all 63. In bulk,
+  <code>SRA_Accessions.tab</code> aliases find 60. A GSM can map to several SRX: the sample had none, but
+  GSE20301 and GSE19456 have them, and so do 450 of 5.6 million GSMs in the bulk aliases.</li>
+</ul>
+<h2 id="field-table">Field table<a class="headerlink" href="#field-table" title="Permanent link">&para;</a></h2>
+<p>Source names used below:</p>
+<ul>
+<li><strong>SOFT</strong>: the GEO family SOFT file, the format chosen in
+  <a href="https://github.com/liuhlab/liulab-data/issues/21">the GEO format note</a>.</li>
+<li><strong>SRA XML</strong>: <code>efetch db=sra</code>, one <code>EXPERIMENT_PACKAGE</code> per experiment.</li>
+<li><strong>Parquet</strong>: NCBI's SRA metadata table (<code>sra.metadata</code>), one row per run.</li>
+<li><strong>Accessions</strong>: <code>SRA_Accessions.tab</code>, one row per SRA object.</li>
+<li><strong>BioProject</strong> and <strong>BioSample</strong>: the bulk <code>bioproject.xml</code> and <code>biosample_set.xml.gz</code>, which
+  equal the <code>efetch</code> replies.</li>
+<li><strong>esummary</strong>: <code>esummary db=gds</code> or <code>db=sra</code>.</li>
+</ul>
+<p>The seqforge column says what seqforge's <code>fetch_records</code> reads <strong>today</strong> and what it wants
+<strong>next</strong>, from its list on issue #23. A dash means seqforge has not asked for the field.</p>
+<h3 id="study">Study<a class="headerlink" href="#study" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>seqforge</th>
+<th>Sources</th>
+<th>Winner and why</th>
+<th>Mark</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Study ID</td>
+<td>today</td>
+<td>GSE (SOFT). BioProject: SOFT <code>Series_relation</code>, SRA XML <code>STUDY</code> external ID, Parquet <code>bioproject</code>, Accessions <code>BioProject</code>. SRP: SRA XML, Parquet <code>sra_study</code>, Accessions <code>Study</code></td>
+<td>GSE when one exists, else BioProject. The SRP is SRA's internal ID; GEO omits it from 4 of 10 Series (#21). The Parquet had a BioProject for 1 run where the SRA XML had none</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>Title</td>
+<td>today, next</td>
+<td>SOFT <code>Series_title</code>, SRA XML <code>STUDY_TITLE</code>, BioProject <code>Title</code></td>
+<td>SOFT for GEO; BioProject otherwise. The other two are copies on GSE60450 and PRJNA1027859. The Parquet has no title</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>Summary or abstract</td>
+<td>today, next</td>
+<td>SOFT <code>Series_summary</code>, SRA XML <code>STUDY_ABSTRACT</code>, BioProject <code>Description</code></td>
+<td>SOFT; BioProject otherwise. For GEO deposits SRA's abstract is the summary plus <code>Overall design:</code> and the design text, joined</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>Overall design</td>
+<td>next</td>
+<td>SOFT <code>Series_overall_design</code></td>
+<td>SOFT</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>Study type</td>
+<td>today</td>
+<td>SOFT <code>Series_type</code>, BioProject <code>ProjectDataTypeSet</code>, SRA XML <code>STUDY_TYPE</code></td>
+<td>SOFT for GEO, BioProject otherwise. The vocabularies differ, so keep both</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>Contributors</td>
+<td>–</td>
+<td>SOFT <code>Series_contributor</code> only</td>
+<td>SOFT. A SuperSeries has none of its own (#21)</td>
+<td>read</td>
+</tr>
+<tr>
+<td>Center</td>
+<td>today</td>
+<td>SRA XML <code>SUBMISSION center_name</code>, Parquet <code>center_name</code>, Accessions <code>Center</code>, BioProject owner</td>
+<td>BioProject owner or SOFT contact institute. For every GEO deposit SRA says <code>GEO</code>, which names the broker, not the lab</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>PubMed IDs</td>
+<td>next</td>
+<td>SOFT <code>Series_pubmed_id</code>, esummary <code>pubmedids</code>, BioProject <code>Publication</code>, SRA XML <code>STUDY_LINKS</code>, PubMed's <code>[si]</code> field</td>
+<td>Keep each with its source. All four agree on GSE60450. For SRA-only studies NCBI rarely records one (#22)</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>Dates</td>
+<td>today</td>
+<td>SOFT submission, last update, public date. BioProject <code>submitted</code> and <code>last_update</code>. esummary <code>pdat</code></td>
+<td>SOFT for GEO, BioProject otherwise</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>Series relations</td>
+<td>next</td>
+<td>SOFT <code>Series_relation</code>: SuperSeries, SubSeries, BioProject, SRA</td>
+<td>SOFT; esummary leaves the SuperSeries links empty (#21)</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>Organisms</td>
+<td>–</td>
+<td>SOFT <code>Series_sample_taxid</code>, BioProject target organism</td>
+<td>Roll up from the samples</td>
+<td>measured</td>
+</tr>
+</tbody>
+</table>
+<h3 id="sample">Sample<a class="headerlink" href="#sample" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>seqforge</th>
+<th>Sources</th>
+<th>Winner and why</th>
+<th>Mark</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Sample ID</td>
+<td>today</td>
+<td>GSM (SOFT). BioSample: SOFT <code>Sample_relation</code>, SRA XML <code>SAMPLE</code> external ID, Parquet <code>biosample</code>, Accessions <code>BioSample</code>. SRS: SRA XML, Parquet <code>sample_acc</code></td>
+<td>GSM, plus the BioSample from the SOFT line. 7 of 63 GSMs point at a different BioSample than their SRA sample. These are 2008 to 2010 deposits that got two BioSamples. Keep both</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>Sample title</td>
+<td>today, next</td>
+<td>SOFT <code>Sample_title</code>, SRA XML <code>SAMPLE/TITLE</code>, BioSample <code>Title</code></td>
+<td>SOFT. For GEO the other two copy it. For SRA-only, SRA has no title and BioSample's title is generic ("Model organism or animal sample from …"), so use the alias</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>Sample alias</td>
+<td>today</td>
+<td>SRA XML <code>SAMPLE alias</code>, BioSample "Sample name" ID, Parquet <code>sample_name</code></td>
+<td>SRA XML; for GEO it is the GSM. Parquet equal for 90 of 90 runs</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>Taxid</td>
+<td>today</td>
+<td>SOFT <code>Sample_taxid_ch1</code>, SRA XML <code>TAXON_ID</code>, BioSample <code>Organism</code></td>
+<td>SOFT for GEO. 2 of 63 differ, and SRA has the more specific strain-level taxid each time. Keep both</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>Organism name</td>
+<td>next</td>
+<td>SOFT <code>Sample_organism_ch1</code>, Parquet <code>organism</code></td>
+<td>SOFT</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>Characteristics</td>
+<td>today, next</td>
+<td>SOFT <code>Sample_characteristics_ch1</code> (<code>key: value</code> text), BioSample <code>Attribute</code>, SRA XML <code>SAMPLE_ATTRIBUTE</code>, Parquet <code>attributes</code></td>
+<td>SOFT for GEO, kept raw line by line. BioSample for SRA-only. See the join section for the loss</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>Harmonized names</td>
+<td>today</td>
+<td>BioSample <code>harmonized_name</code> only</td>
+<td>BioSample. The Parquet keys are the submitter's names, lowercased, with <code>_sam</code> added, so they carry no harmonized name</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>Owner</td>
+<td>today</td>
+<td>BioSample <code>Owner/Name</code></td>
+<td>BioSample</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>Package</td>
+<td>today</td>
+<td>BioSample <code>Package</code></td>
+<td>BioSample</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>Source name</td>
+<td>next</td>
+<td>SOFT <code>Sample_source_name_ch1</code>, BioSample attribute <code>source_name</code></td>
+<td>SOFT</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>Molecule</td>
+<td>next</td>
+<td>SOFT <code>Sample_molecule_ch1</code> only</td>
+<td>SOFT</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>Extract protocol</td>
+<td>next</td>
+<td>SOFT <code>Sample_extract_protocol_ch1</code>; SRA XML <code>LIBRARY_CONSTRUCTION_PROTOCOL</code> copies it for GEO deposits</td>
+<td>SOFT</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>Description</td>
+<td>next</td>
+<td>SOFT <code>Sample_description</code> only</td>
+<td>SOFT</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>Data processing</td>
+<td>next</td>
+<td>SOFT <code>Sample_data_processing</code> only</td>
+<td>SOFT</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>Sample relations</td>
+<td>next</td>
+<td>SOFT <code>Sample_relation</code>: SRA, BioSample, reanalysis, annotation</td>
+<td>SOFT. See the relation check below</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>Sample files</td>
+<td>next</td>
+<td>SOFT <code>Sample_supplementary_file_*</code></td>
+<td>SOFT</td>
+<td>read</td>
+</tr>
+<tr>
+<td>Other Series of the sample</td>
+<td>–</td>
+<td>SOFT <code>Sample_series_id</code></td>
+<td>SOFT</td>
+<td>read</td>
+</tr>
+</tbody>
+</table>
+<h3 id="experiment">Experiment<a class="headerlink" href="#experiment" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>seqforge</th>
+<th>Sources</th>
+<th>Winner and why</th>
+<th>Mark</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Experiment ID and alias</td>
+<td>today</td>
+<td>SRA XML, Parquet <code>experiment</code>, Accessions <code>Alias</code></td>
+<td>SRA XML. GEO aliases take four forms: <code>GSMn</code>, <code>GSMn: title</code>, <code>GSMn_k</code> and <code>GSMn_rk</code></td>
+<td>measured</td>
+</tr>
+<tr>
+<td>Experiment title</td>
+<td>today</td>
+<td>SRA XML <code>TITLE</code></td>
+<td>For GEO it is generated: "GSM…: sample title; organism; strategy"</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>Library strategy, source, selection</td>
+<td>today, next</td>
+<td>SRA XML, SOFT <code>Sample_library_*</code>, Parquet <code>assay_type</code>, <code>librarysource</code>, <code>libraryselection</code></td>
+<td>SRA. SOFT agrees for 61, 63 and 60 of 63 GSMs, ignoring case; every mismatch is an old or reused deposit. Parquet equals the SRA XML for 90 of 90 runs</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>Library layout</td>
+<td>next</td>
+<td>SRA XML <code>LIBRARY_LAYOUT</code>, esummary sra, Parquet <code>librarylayout</code></td>
+<td>SRA XML. GEO has no layout. Parquet equal for 90 of 90</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>Nominal length</td>
+<td>next</td>
+<td>SRA XML <code>PAIRED@NOMINAL_LENGTH</code>, Parquet <code>insertsize</code></td>
+<td>SRA XML, but it is rare: 1 of 33 paired runs sampled. The Parquet <code>insertsize</code> was 0 for all 90 runs, that one included</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>Library name</td>
+<td>today</td>
+<td>SRA XML <code>LIBRARY_NAME</code>, Parquet <code>library_name</code></td>
+<td>SRA. Often empty for GEO deposits. Parquet equal for 90 of 90</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>Instrument</td>
+<td>today</td>
+<td>SRA XML, SOFT <code>Sample_instrument_model</code>, Parquet <code>instrument</code></td>
+<td>SRA. SOFT agrees for 62 of 63. Parquet equal for 90 of 90</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>Design description</td>
+<td>today</td>
+<td>SRA XML <code>DESIGN_DESCRIPTION</code></td>
+<td>SRA. Empty for GEO deposits</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>Library construction protocol</td>
+<td>today</td>
+<td>SRA XML <code>LIBRARY_CONSTRUCTION_PROTOCOL</code></td>
+<td>SRA for SRA-only; for GEO it copies the SOFT extract protocol. Not in the Parquet</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>GEO platform (GPL)</td>
+<td>–</td>
+<td>SOFT only</td>
+<td>SOFT</td>
+<td>read</td>
+</tr>
+</tbody>
+</table>
+<h3 id="run">Run<a class="headerlink" href="#run" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>seqforge</th>
+<th>Sources</th>
+<th>Winner and why</th>
+<th>Mark</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Run ID and alias</td>
+<td>today</td>
+<td>SRA XML <code>RUN</code>, Parquet <code>acc</code>, Accessions</td>
+<td>Accessions for the full list: the Parquet lacks 2.3% of live public runs. SRA XML for one study</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>Spots and bases</td>
+<td>next</td>
+<td>SRA XML <code>total_spots</code>, <code>total_bases</code>; esummary sra; Accessions <code>Spots</code>, <code>Bases</code>; Parquet <code>mbases</code>, <code>avgspotlen</code></td>
+<td>Accessions: it equals the SRA XML for 91 of 91 runs. The Parquet rounds down to whole megabases and whole bases per spot, so it cannot give an exact spot count</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>Read lengths</td>
+<td>–</td>
+<td>SRA XML <code>Statistics/Read</code> only</td>
+<td>SRA XML. PRJNA1027859 shows 28 + 94 bases, the 10x read layout</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>Size in bytes</td>
+<td>–</td>
+<td>SRA XML <code>size</code>, esummary, Parquet <code>mbytes</code></td>
+<td>SRA XML</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>Submitted files</td>
+<td>today</td>
+<td>SRA XML <code>SRAFile supertype="Original"</code>: name, md5, size, first URL</td>
+<td>SRA XML only; no bulk file lists them</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>Release date</td>
+<td>–</td>
+<td>SRA XML <code>published</code>, Parquet <code>releasedate</code>, Accessions <code>Published</code></td>
+<td>Accessions. Parquet matches the SRA XML day for 90 of 90. Accessions matches for 88 of 91, because it stores UTC and the SRA XML does not</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>Status</td>
+<td>–</td>
+<td>Accessions <code>Status</code>, <code>Updated</code>, <code>ReplacedBy</code></td>
+<td>Accessions, the only per-object change signal. It lists live, suppressed, unpublished and withdrawn runs; the Parquet holds live runs only</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>Access</td>
+<td>–</td>
+<td>Accessions <code>Visibility</code>, Parquet <code>consent</code></td>
+<td>Accessions. 1,746,336 live runs are controlled access</td>
+<td>measured</td>
+</tr>
+</tbody>
+</table>
+<p>Mark counts across the 46 rows: 42 measured, 4 read, 0 to-verify. The GEO rows rest on family
+SOFT files fetched live. The bulk GEO download is an esummary dump, not SOFT; the section on it
+below says which Series rows it can serve.</p>
+<h2 id="two-probed-studies">Two probed studies<a class="headerlink" href="#two-probed-studies" title="Permanent link">&para;</a></h2>
+<p><strong>PRJNA1027859, SRA-only.</strong> Six experiments, one run each, 10x single-nucleus RNA-seq
+(<code>TRANSCRIPTOMIC SINGLE CELL</code>, <code>PAIRED</code>, NovaSeq 6000). The SRA <code>STUDY</code> title and abstract
+match the BioProject. The SRA sample has no <code>TITLE</code>. Its alias equals BioSample's "Sample
+name", and BioSample's own title is the package's generic text. SRA's <code>SAMPLE_ATTRIBUTE</code> list
+adds a <code>BioSampleModel</code> tag that BioSample does not list as an attribute. Every BioSample
+attribute has a <code>harmonized_name</code>, because the submitter used the model-organism package. In
+the Parquet, <code>sex</code> becomes the computed key <code>sex_calc</code> and <code>geo_loc_name: not applicable</code> is
+dropped. The bulk BioProject and BioSample records equal the <code>efetch</code> replies.</p>
+<p><strong>GSE60450, GEO.</strong> Twelve GSMs, twelve SRX, one run each, single-end HiSeq 2000. The series
+title, PubMed ID (25730472) and BioProject (PRJNA258286) match across SOFT, esummary, SRA and
+BioProject. The SRA <code>center_name</code> is <code>GEO</code> on every object. BioSample keeps the GEO
+characteristic keys as <code>attribute_name</code> and adds <code>harmonized_name</code> for 4 of the 6 keys.
+<code>strain/background</code> and <code>immunophenotype</code> get none. GEO's <code>transcriptomic</code> is SRA's
+<code>TRANSCRIPTOMIC</code>; the values differ only in case. In the Parquet each run also carries the GSM
+as the attribute <code>geo_accession_exp</code>.</p>
+<p><strong>A dropped package.</strong> One <code>efetch db=sra</code> call for the 12 GSE60450 experiments returned 10
+packages without an error. Three repeats of the same call returned all 12. A reader of the
+SRA XML must check that every requested accession came back. seqforge's <code>fetch_records</code> does
+not check this today.</p>
+<h2 id="does-sample_relation-carry-the-sra-and-biosample-links">Does <code>!Sample_relation</code> carry the SRA and BioSample links<a class="headerlink" href="#does-sample_relation-carry-the-sra-and-biosample-links" title="Permanent link">&para;</a></h2>
+<p><strong>Method.</strong> The script <code>docs/research/field-sources/soft_relations.py</code> downloaded the family
+SOFT of all 90 Series touched by the GSM sample and read every sample in them: 60,724 GSMs
+submitted from 2008 to 2025.</p>
+<p><strong>Format.</strong> Each link is one line holding one accession in a fixed URL:</p>
+<div class="language-text highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>!Sample_relation = SRA: https://www.ncbi.nlm.nih.gov/sra?term=SRX681985
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>!Sample_relation = BioSample: https://www.ncbi.nlm.nih.gov/biosample/SAMN02991530
+</code></pre></div>
+<p>Every SRA line held exactly one experiment accession: 41,995 <code>SRX</code> and 25 <code>ERX</code>. Every
+BioSample line held one <code>SAMN</code>. No other URL form appeared. A GSM with several experiments gets
+several <code>SRA:</code> lines. Other relation kinds seen were <code>Reanalyzed by: GSE…</code> and, for Roadmap
+Epigenomics samples, <code>Named Annotation:</code>.</p>
+<p><strong>Reliability.</strong></p>
+<ul>
+<li><strong>BioSample: nearly always.</strong> 60,061 of the 60,339 samples of type <code>SRA</code> have a BioSample
+  line (99.5%).</li>
+<li><strong>SRA: complete in most Series, absent in some.</strong> In 74 of the 90 Series every sample of
+  type <code>SRA</code> has an SRA line. Per sample the rate is lower, 42,020 of 60,339 (70%), because a
+  few large Series dominate the count. The 16 Series with gaps fall into four groups:</li>
+<li>Plate-based single-cell Series with one GSM per cell. GSE158435 links 3,248 of 16,491
+    GSMs, and GSE94820 links none of 2,384.</li>
+<li>Raw data held back: GSE285029 and GSE163634 have no SRA lines; GSE285029 has no
+    BioSample lines either.</li>
+<li>Roadmap Epigenomics (GSE16256, GSE17312, GSE19465) and 2009 to 2010 Series, partly linked.</li>
+<li>SOFT missing a link SRA has. GSE175518 has no SRA line on any of its 942 GSMs, yet SRA
+    holds a run under GSM5339608 in its SRP.</li>
+<li><strong>Family file and GSM record agree.</strong> For all 72 sampled GSMs the family file lists the same
+  SRX as the per-GSM record.</li>
+<li><strong>Multi-SRX GSMs exist.</strong> GSE20301 (2010) has 6 GSMs with 3 or 4 SRX each, one per <code>SRA:</code>
+  line, and 2 GSMs sequenced on 454 (GSM517436, GSM517440) of type <code>SRA</code> with no SRA line.
+  GSE19456 has a GSM (GSM484820) with 2 SRX. Both were checked live with the same script.</li>
+</ul>
+<h2 id="how-lossy-the-gsm-to-srx-join-is">How lossy the GSM to SRX join is<a class="headerlink" href="#how-lossy-the-gsm-to-srx-join-is" title="Permanent link">&para;</a></h2>
+<p><strong>Method.</strong> The script
+<a href="https://github.com/liuhlab/liulab-data/blob/main/docs/research/field-sources/gsm_srx_join.py"><code>docs/research/field-sources/gsm_srx_join.py</code></a>
+produced the live numbers, run with <code>--per-year 4 --seed 23</code>. For each publication year from
+2008 to 2025 it draws 4 random GSMs from
+<code>gsm[ETYP] AND "high throughput sequencing"[PTYP] AND &lt;year&gt;[PDAT]</code>. That gives 72 GSMs in 90
+Series. For each GSM it reads the GSM SOFT record, follows <code>elink gds→sra</code>, fetches every
+linked SRX with <code>efetch db=sra</code>, and fetches the GSM's BioSample. The bulk numbers come from
+<code>docs/research/field-sources/accessions_check.sh</code> and <code>accessions_compare.py</code>, which look
+for the GSM in the <code>Alias</code> column of <code>SRA_Accessions.tab</code>.</p>
+<p><strong>Results.</strong></p>
+<table>
+<thead>
+<tr>
+<th>Check</th>
+<th style="text-align: right;">Count</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GSMs with no SRX link in SOFT</td>
+<td style="text-align: right;">9 of 72</td>
+</tr>
+<tr>
+<td>GSMs with more than one SRX</td>
+<td style="text-align: right;">0 of 63</td>
+</tr>
+<tr>
+<td>GSMs with more than one run</td>
+<td style="text-align: right;">6 of 63</td>
+</tr>
+<tr>
+<td>SRX found from the SOFT <code>Sample_relation</code> line</td>
+<td style="text-align: right;">63 of 63</td>
+</tr>
+<tr>
+<td>SRX found by Entrez <code>elink gds→sra</code></td>
+<td style="text-align: right;">56 of 63, plus 1 that SOFT lacks</td>
+</tr>
+<tr>
+<td>SRX found by the bulk <code>EXPERIMENT</code> alias</td>
+<td style="text-align: right;">54 of 63, plus 1 that SOFT lacks</td>
+</tr>
+<tr>
+<td>SRX found by any bulk alias (experiment, run or sample)</td>
+<td style="text-align: right;">60 of 63, plus 1 that SOFT lacks</td>
+</tr>
+<tr>
+<td>SOFT BioSample equals the SRA sample's BioSample</td>
+<td style="text-align: right;">56 of 63</td>
+</tr>
+<tr>
+<td>Library strategy, source, selection, instrument agree</td>
+<td style="text-align: right;">61, 63, 60, 62 of 63</td>
+</tr>
+<tr>
+<td>Taxid agrees</td>
+<td style="text-align: right;">61 of 63</td>
+</tr>
+<tr>
+<td>GEO characteristics found in BioSample, same key and value</td>
+<td style="text-align: right;">233 of 325 pairs (72%); 47 of 70 GSMs complete</td>
+</tr>
+<tr>
+<td>GEO characteristics found in the SRA sample attributes</td>
+<td style="text-align: right;">204 of 260 pairs (78%); 41 of 63 GSMs complete</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Why 9 GSMs have no SRX.</strong></p>
+<ul>
+<li>Raw data never reached SRA: two 2009 GSMs with no supplementary files, and three human
+  GSMs from 2017, 2021 and 2025. One of them, GSE285029, says "Due to our institution's
+  security policy, we are unable to provide raw data."</li>
+<li>Two 2011 Roadmap Epigenomics GSMs (GSE17312, GSE19465). They link to a project page
+  outside NCBI, not to SRA.</li>
+<li>One 2021 single-cell GSM with no SRA line, in a Series that has an SRP.</li>
+<li>One 2022 GSM (GSM5339608) whose SRX exists, with the GSM as its alias, but SOFT omits the
+  link. Only <code>elink</code>, an SRA search and the bulk aliases find it. Its only run has 8 spots.</li>
+</ul>
+<p><strong>Why the alias joins miss some.</strong> The 2008 to 2010 GEO deposits name the experiment freely,
+such as <code>xrn1 rrp6 lsm1 pat1 Rep 4</code>. Their runs still carry <code>GSMn_1</code>, so the run alias
+recovers six of them. Three stay lost to every alias route: a 2009 Roadmap GSM whose run
+alias is a lab name (<code>renlab.2009-06-23.1</code>), a 2010 GSM that points at an ArrayExpress
+deposit (<code>ERX000501</code>), and a 2014 GSM that points at an SRX another center submitted directly
+to SRA. The old deposits also carry a second, older BioSample on the SRA side. <code>elink</code> misses
+the same old and reused deposits. labdata's <code>experiments_for</code> follows <code>elink</code>, so it should miss them too
+(inferred, not run).</p>
+<p><strong>Across all of SRA.</strong> The aliases in <code>SRA_Accessions.tab</code> name 5,620,204 distinct GSMs. Of
+these, 5,619,754 map to exactly one SRX and 450 map to 2 to 9. The Parquet <code>sample_name</code>
+names 5,461,662 distinct GSMs, fewer, because the Parquet lacks some runs. A join built on
+the Parquet alone will report some Series as only partly joined when they join fully live.</p>
+<p><strong>Why characteristics do not round-trip.</strong> In the GSMs checked by hand:</p>
+<ul>
+<li><strong>The BioSample is older than the GEO record.</strong> GSM1599675 has 5 characteristics in SOFT
+  but only 1 in BioSample.</li>
+<li><strong>BioSample rewrites values.</strong> <code>None</code> becomes <code>missing</code> (GSM6123703) and <code>Male</code> becomes
+  <code>male</code> (GSM2632690).</li>
+<li><strong>The BioSample belongs to another submitter.</strong> GSM6783145 uses an ENCODE BioSample with
+  different attribute names.</li>
+<li><strong>Some early GEO characteristics have no key.</strong> GSM340803 and GSM307158 (2008) carry a
+  bare value with no <code>key:</code> part.</li>
+</ul>
+<p><strong>Caveats.</strong> The sample takes 4 GSMs from each year. Recent years hold most GSMs, so the pooled
+rates over-weight old deposits. For 2011 onward the rates are 7 of 60 with no SRX and 1 of 53
+missed by the experiment alias. With n = 72 the 95% interval on 12.5% is about 7% to 22%
+(Wilson, inferred).</p>
+<h2 id="the-bulk-files-against-the-live-services">The bulk files against the live services<a class="headerlink" href="#the-bulk-files-against-the-live-services" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Bulk file</th>
+<th>Compared</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>bioproject.xml</code></td>
+<td>62 BioProjects: title, description, publications, data types, dates</td>
+<td>62 of 62 equal; one title differs only by a double space</td>
+</tr>
+<tr>
+<td><code>biosample_set.xml.gz</code></td>
+<td>95 BioSamples: title, taxid, package, last update, every attribute</td>
+<td>95 of 95 equal</td>
+</tr>
+<tr>
+<td>Parquet</td>
+<td>91 runs: 12 ID and library fields, counts, dates, attributes</td>
+<td>90 found; every compared field equal. Counts are rounded down. 424 of 471 BioSample attribute pairs appear; 16 of the rest are empty values such as <code>not applicable</code></td>
+</tr>
+<tr>
+<td><code>SRA_Accessions.tab</code></td>
+<td>91 runs: status, spots, bases, BioSample, BioProject, release day</td>
+<td>91 found, all live and public; spots and bases 91 of 91 equal</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Parquet coverage.</strong> The script <code>docs/research/field-sources/parquet_coverage.py</code> joined
+the Parquet's 43,762,704 runs with the 43,022,633 live public runs in <code>SRA_Accessions.tab</code>.
+971,528 live public runs are missing from the Parquet, spread over every year since 2007 and
+mostly from 2021 on. One of the 91 sampled runs, SRR925577 (GSM1180151, 2013), is among them.
+Every Parquet run appears in <code>SRA_Accessions.tab</code>.</p>
+<h2 id="the-bulk-geo-series-dump">The bulk GEO Series dump<a class="headerlink" href="#the-bulk-geo-series-dump" title="Permanent link">&para;</a></h2>
+<p>The bulk GEO download is <code>esummary db=gds</code> for every Series (<code>gse[ETYP]</code>), version 2.0 JSON,
+one record per line. Its manifest lists 298,404 query IDs and 298,404 records. The script
+<code>docs/research/field-sources/geo_esummary_check.py</code> streamed it and compared the 90 Series
+of the GSM sample with live family SOFT and live <code>esummary</code>.</p>
+<p><strong>Coverage.</strong> The dump holds 298,404 distinct Series. Live Entrez counted 298,404 the same day,
+and all 90 sampled Series are present. Live <code>esummary</code> returned the same value for every field
+of all 90 records, so nothing changed between the download and the check.</p>
+<p><strong>Per field, dump against live family SOFT, 90 Series.</strong></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Dump field</th>
+<th style="text-align: right;">Same</th>
+<th>Other</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Title</td>
+<td><code>title</code></td>
+<td style="text-align: right;">90</td>
+<td></td>
+</tr>
+<tr>
+<td>Summary</td>
+<td><code>summary</code></td>
+<td style="text-align: right;">90</td>
+<td>none truncated</td>
+</tr>
+<tr>
+<td>Organisms</td>
+<td><code>taxon</code> against the samples' organisms</td>
+<td style="text-align: right;">90</td>
+<td></td>
+</tr>
+<tr>
+<td>Platforms (GPL)</td>
+<td><code>gpl</code></td>
+<td style="text-align: right;">90</td>
+<td></td>
+</tr>
+<tr>
+<td>Series type</td>
+<td><code>gdstype</code></td>
+<td style="text-align: right;">90</td>
+<td></td>
+</tr>
+<tr>
+<td>Sample count</td>
+<td><code>n_samples</code></td>
+<td style="text-align: right;">90</td>
+<td></td>
+</tr>
+<tr>
+<td>PubMed IDs</td>
+<td><code>pubmedids</code></td>
+<td style="text-align: right;">90</td>
+<td></td>
+</tr>
+<tr>
+<td>BioProject</td>
+<td><code>bioproject</code></td>
+<td style="text-align: right;">85</td>
+<td>5 where the dump has a BioProject and SOFT has none, among them three Roadmap Series (the umbrella PRJNA34535) and GSE53690</td>
+</tr>
+<tr>
+<td>SuperSeries and SubSeries</td>
+<td><code>relations</code></td>
+<td style="text-align: right;">49</td>
+<td>41 missing: <code>relations</code> is empty in all 298,404 records</td>
+</tr>
+<tr>
+<td>Public date</td>
+<td><code>pdat</code> against <code>Series_status</code></td>
+<td style="text-align: right;">90</td>
+<td></td>
+</tr>
+<tr>
+<td>GSM list</td>
+<td><code>samples[].accession</code></td>
+<td style="text-align: right;">90</td>
+<td></td>
+</tr>
+<tr>
+<td>GSM titles</td>
+<td><code>samples[].title</code></td>
+<td style="text-align: right;">90</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p>Across the whole dump: every record has a summary; 232,148 have PubMed IDs; 298,229 have a
+BioProject; 80,415 have an SRA link in <code>extrelations</code>; and the sample list length equals
+<code>n_samples</code> in 298,141 records. Three summaries end in <code>...</code>; they were not checked against
+SOFT.</p>
+<p><strong>What the dump serves and what still needs SOFT.</strong></p>
+<ul>
+<li><strong>The dump is enough to find studies.</strong> It can list every Series with its title, summary,
+  organisms, platforms, assay type, sample count, PubMed IDs, BioProject, public date and GSM
+  accessions and titles.</li>
+<li><strong>SOFT is still needed</strong> for the overall design, contributors, SuperSeries and SubSeries
+  links, the submission and last-update dates, and every sample field beyond the title. That
+  covers characteristics, source, protocols, library fields, data processing and the SRA and
+  BioSample relations.</li>
+<li><strong>The dump cannot detect change.</strong> It has no last-update date; the <code>[UDAT]</code> search remains
+  the change feed (discussion #17).</li>
+</ul>
+<h2 id="scripts-behind-the-numbers">Scripts behind the numbers<a class="headerlink" href="#scripts-behind-the-numbers" title="Permanent link">&para;</a></h2>
+<p>All under <code>docs/research/field-sources/</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Script</th>
+<th>Numbers</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>gsm_srx_join.py --per-year 4 --seed 23</code></td>
+<td>the 72-GSM live sample and its join table</td>
+</tr>
+<tr>
+<td><code>live_reference.py</code></td>
+<td>the live SRA, BioSample and BioProject values the bulk checks compare against</td>
+</tr>
+<tr>
+<td><code>parquet_check.py</code></td>
+<td>Parquet against live, and the Parquet GSM counts</td>
+</tr>
+<tr>
+<td><code>parquet_coverage.py</code></td>
+<td>the runs the Parquet lacks</td>
+</tr>
+<tr>
+<td><code>accessions_check.sh</code>, <code>accessions_compare.py</code></td>
+<td>the bulk alias join, run counts and status tallies</td>
+</tr>
+<tr>
+<td><code>xml_check.py</code></td>
+<td>bulk BioProject and BioSample against live</td>
+</tr>
+<tr>
+<td><code>soft_relations.py</code></td>
+<td>the <code>!Sample_relation</code> survey and the GSE20301 and GSE19456 spot checks</td>
+</tr>
+<tr>
+<td><code>geo_esummary_check.py</code></td>
+<td>the bulk GEO esummary dump against live SOFT and esummary</td>
+</tr>
+</tbody>
+</table>
+<h2 id="sources">Sources<a class="headerlink" href="#sources" title="Permanent link">&para;</a></h2>
+<ul>
+<li>seqforge <code>fetch_records</code>, <code>src/seqforge/io/archive.py</code>, commit <code>17e39a8</code>, and seqforge's
+  field list on issue #23.</li>
+<li>SRA XML schemas: <a href="https://github.com/enasequence/schema/tree/master/src/main/resources/uk/ac/ebi/ena/sra/schema">https://github.com/enasequence/schema/tree/master/src/main/resources/uk/ac/ebi/ena/sra/schema</a></li>
+<li>BioSample and BioProject schemas:
+  <a href="https://www.ncbi.nlm.nih.gov/data_specs/schema/other/bioproject/Core.xsd">https://www.ncbi.nlm.nih.gov/data_specs/schema/other/bioproject/Core.xsd</a>,
+  <a href="https://www.ncbi.nlm.nih.gov/biosample/docs/attributes/">https://www.ncbi.nlm.nih.gov/biosample/docs/attributes/</a></li>
+<li>SRA metadata Parquet columns:
+  <a href="https://www.ncbi.nlm.nih.gov/sra/docs/sra-cloud-based-metadata-table/">https://www.ncbi.nlm.nih.gov/sra/docs/sra-cloud-based-metadata-table/</a></li>
+<li>E-utilities: <a href="https://www.ncbi.nlm.nih.gov/books/NBK25499/">https://www.ncbi.nlm.nih.gov/books/NBK25499/</a></li>
+<li>Earlier notes: the bulk source survey
+  (<a href="https://github.com/liuhlab/liulab-data/discussions/17">discussion #17</a>), the GEO format
+  note (#21) and the SRA-only papers note (#22).</li>
+</ul>
+
+
+
+
+
+
+
+
+
+  
+  
+
+
+
+  
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate":null,"base":"../..","features":["navigation.sections","navigation.expand","content.code.copy","content.code.annotate","content.action.edit","toc.follow"],"search":"../../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.49251538.min.js"></script>
+      
+    
+  </body>
+</html>

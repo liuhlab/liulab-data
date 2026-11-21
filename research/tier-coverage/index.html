@@ -1,0 +1,1360 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Data curation, download, and organization utilities for the Liu Lab.">
+      
+      
+      
+        <link rel="canonical" href="https://liuhlab.github.io/liulab-data/research/tier-coverage/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="zensical-0.0.57">
+    
+    
+      
+        <title>Tier coverage of GEO-linked papers - liulab-data</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../../assets/stylesheets/modern/main.5da3a30f.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/modern/palette.812a03bb.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../stylesheets/diagrams.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+  
+
+
+  
+  
+
+<script id="__analytics">function __md_analytics(){function e(){dataLayer.push(arguments)}window.dataLayer=window.dataLayer||[],e("js",new Date),e("config","G-6M1CJF9WXY"),document.addEventListener("DOMContentLoaded",(function(){document.forms.search&&document.forms.search.query.addEventListener("blur",(function(){this.value&&e("event","search",{search_term:this.value})}));document$.subscribe((function(){var t=document.forms.feedback;if(void 0!==t)for(var a of t.querySelectorAll("[type=submit]"))a.addEventListener("click",(function(a){a.preventDefault();var n=document.location.pathname,d=this.getAttribute("data-md-value");e("event","feedback",{page:n,data:d}),t.firstElementChild.disabled=!0;var r=t.querySelector(".md-feedback__note [data-md-value='"+d+"']");r&&(r.hidden=!1)})),t.hidden=!1})),location$.subscribe((function(t){e("config","G-6M1CJF9WXY",{page_path:t.pathname})}))}));var t=document.createElement("script");t.async=!0,t.src="https://www.googletagmanager.com/gtag/js?id=G-6M1CJF9WXY",document.getElementById("__analytics").insertAdjacentElement("afterEnd",t)}</script>
+  
+    <script>"undefined"!=typeof __md_analytics&&__md_analytics()</script>
+  
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-label="Navigation"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#tier-coverage-of-geo-linked-papers" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="liulab-data" class="md-header__button md-logo" aria-label="liulab-data" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer" aria-label="Navigation">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            liulab-data
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Tier coverage of GEO-linked papers
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search" aria-label="Search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/liuhlab/liulab-data" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M216.5 362.5c-66-8-112.5-55.5-112.5-117 0-25 9-52 24-70-6.5-16.5-5.5-51.5 2-66 20-2.5 47 8 63 22.5 19-6 39-9 63.5-9s44.5 3 62.5 8.5c15.5-14 43-24.5 63-22 7 13.5 8 48.5 1.5 65.5 16 19 24.5 44.5 24.5 70.5 0 61.5-46.5 108-113.5 116.5 17 11 28.5 35 28.5 62.5v52c0 15 12.5 23.5 27.5 17.5C441 459.5 512 369 512 257 512 115.5 397 0 255.5 0S0 115.5 0 257c0 111 70.5 203 165.5 237.5 13.5 5 26.5-4 26.5-17.5v-40c-7 3-16 5-24 5-33 0-52.5-18-66.5-51.5-5.5-13.5-11.5-21.5-23-23-6-.5-8-3-8-6 0-6 10-10.5 20-10.5 14.5 0 27 9 40 27.5 10 14.5 20.5 21 33 21s20.5-4.5 32-16c8.5-8.5 15-16 21-21"/></svg>
+  </div>
+  <div class="md-source__repository">
+    liuhlab/liulab-data
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="liulab-data" class="md-nav__button md-logo" aria-label="liulab-data" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    liulab-data
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/liuhlab/liulab-data" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M216.5 362.5c-66-8-112.5-55.5-112.5-117 0-25 9-52 24-70-6.5-16.5-5.5-51.5 2-66 20-2.5 47 8 63 22.5 19-6 39-9 63.5-9s44.5 3 62.5 8.5c15.5-14 43-24.5 63-22 7 13.5 8 48.5 1.5 65.5 16 19 24.5 44.5 24.5 70.5 0 61.5-46.5 108-113.5 116.5 17 11 28.5 35 28.5 62.5v52c0 15 12.5 23.5 27.5 17.5C441 459.5 512 369 512 257 512 115.5 397 0 255.5 0S0 115.5 0 257c0 111 70.5 203 165.5 237.5 13.5 5 26.5-4 26.5-17.5v-40c-7 3-16 5-24 5-33 0-52.5-18-66.5-51.5-5.5-13.5-11.5-21.5-23-23-6-.5-8-3-8-6 0-6 10-10.5 20-10.5 14.5 0 27 9 40 27.5 10 14.5 20.5 21 33 21s20.5-4.5 32-16c8.5-8.5 15-16 21-21"/></svg>
+  </div>
+  <div class="md-source__repository">
+    liuhlab/liulab-data
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Home
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Tutorials
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+  Tutorials
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/understanding-geo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Understanding GEO & SRA
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/geo-series/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  GEO Series
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/tenx-bam/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  10x cellranger BAM → FASTQ
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  How-to
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+  How-to
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/store-life-cycle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  How the stores work
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/store-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Run the full download
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/store-gcs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Copy the store to GCS
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/papers-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Run the paper store
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../maintenance-log/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Maintenance log
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API reference
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#answer" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Answer
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#strata" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Strata
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#stratum-a-the-pmc-bucket" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Stratum A: the PMC bucket
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#strata-b-and-c-openalex-lookup" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Strata B and C: OpenAlex lookup
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#can-a-script-fetch-the-host-link" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Can a script fetch the host link?
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#coverage-by-tier" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Coverage by tier
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#left-uncertain" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Left uncertain
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+  
+    <a href="https://github.com/liuhlab/liulab-data/edit/main/docs/research/tier-coverage.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-file-pen" viewBox="0 0 24 24"><path d="M12.659 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v9.34"/><path d="M14 2v5a1 1 0 0 0 1 1h5M10.378 12.622a1 1 0 0 1 3 3.003L8.36 20.637a2 2 0 0 1-.854.506l-2.867.837a.5.5 0 0 1-.62-.62l.836-2.869a2 2 0 0 1 .506-.853z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="tier-coverage-of-geo-linked-papers">Tier coverage of GEO-linked papers<a class="headerlink" href="#tier-coverage-of-geo-linked-papers" title="Permanent link">&para;</a></h1>
+<p>Question (<a href="https://github.com/liuhlab/liulab-data/issues/141">#141</a>, map
+<a href="https://github.com/liuhlab/liulab-data/issues/136">#136</a>): on a random sample of the store's
+PMIDs, how many papers can each download tier serve? Tiers: the PMC bucket, a host <code>pdf_url</code>
+from OpenAlex, OpenAlex's own paid copy. Builds on
+<a href="../pmc-routes/">PMC routes</a>
+and
+<a href="../openalex-downloads/">OpenAlex downloads</a>.</p>
+<p>All probes ran on 2026-11-07 with no account, no key and no email. Each number is
+<strong>measured</strong> (counted on a live reply) or <strong>inferred</strong> (scaled or combined from measured
+fractions). Intervals are 95% Wilson intervals; a scaled count is the fraction times the
+stratum size. The scripts are in <a href="../tier-coverage/"><code>tier-coverage/</code></a>; the sample seed is
+20261107.</p>
+<h2 id="answer">Answer<a class="headerlink" href="#answer" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>The PMC bucket gives 81% of PMIDs their XML and 68% a PDF.</strong> Stratum A is 77,674 PMIDs.
+  All 300 sampled were in the bucket; 83% [79–87%] had a PDF, about 64,700 papers
+  (measured, scaled).</li>
+<li><strong>The XML-only papers are author manuscripts.</strong> 16% [12–21%] of stratum A are
+  manuscripts with no open-access flag; none of the 48 sampled had a PDF in the newest
+  version (measured).</li>
+<li><strong>OpenAlex knows nearly every paper outside the bucket</strong>: 98% of stratum B and 99% of
+  stratum C, nearly all with a DOI (measured).</li>
+<li><strong>A host <code>pdf_url</code> exists for about half of B and 40% of C</strong> (measured), but a script gets
+  a PDF from only 19% [14–26%] of those links. Most publisher links return a 403 bot check
+  (measured, 150 links). So host links add about 1,500 PDFs over B and C (inferred).</li>
+<li><strong>bioRxiv is the one host that always served.</strong> 15 of 15 links gave a PDF; Cell Press,
+  PNAS, Wiley, Oxford and ASH links gave a bot check every time (measured).</li>
+<li><strong>OpenAlex's paid copy exists for 54% of B and 39% of C</strong>, about 8,000 papers (inferred).
+  It overlaps the host links almost fully: only 24 of 500 B papers and none of 500 C papers
+  had a paid copy without a host link (measured).</li>
+<li><strong>About 3,100 B papers and 6,600 C papers have no tier at all</strong> (inferred): no PDF link,
+  no paid copy. In C, 39% [35–43%] are closed access (measured).</li>
+</ul>
+<h2 id="strata">Strata<a class="headerlink" href="#strata" title="Permanent link">&para;</a></h2>
+<p>Counted on <code>pmid-pmcid-doi.parquet</code> (measured).</p>
+<table>
+<thead>
+<tr>
+<th>Stratum</th>
+<th>Rule</th>
+<th>PMIDs</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A</td>
+<td>PMCID, in bucket <code>pmc-oa-opendata</code></td>
+<td>77,674</td>
+</tr>
+<tr>
+<td>B</td>
+<td>PMCID, not in bucket</td>
+<td>6,797</td>
+</tr>
+<tr>
+<td>C</td>
+<td>no PMCID</td>
+<td>11,040</td>
+</tr>
+<tr>
+<td>All</td>
+<td></td>
+<td>95,511</td>
+</tr>
+</tbody>
+</table>
+<p>The table holds 95,511 PMIDs, 120 more than the 95,391 from the PMID count. 16 PMIDs are
+below 100,000 (PMIDs 1 to 5 among them), all from BioProject XML only; they look like
+placeholder values, not GEO papers (measured; "placeholder" inferred). No stratum C PMID
+has a DOI in the table (measured).</p>
+<h2 id="stratum-a-the-pmc-bucket">Stratum A: the PMC bucket<a class="headerlink" href="#stratum-a-the-pmc-bucket" title="Permanent link">&para;</a></h2>
+<p>300 PMIDs. Each article's folder was listed over HTTPS and its newest JSON record read
+(measured). S3 answered a 4-thread run with <code>503 Slow Down</code>; the sequential run with a
+0.2 s pause had no error.</p>
+<table>
+<thead>
+<tr>
+<th>Measure</th>
+<th>n</th>
+<th>Fraction [95%]</th>
+<th>Scaled to 77,674</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Folder present in bucket</td>
+<td>300</td>
+<td>100% [98.7–100]</td>
+<td>77,674</td>
+</tr>
+<tr>
+<td>Newest version has a PDF</td>
+<td>250</td>
+<td>83.3% [78.7–87.1]</td>
+<td>64,700 [61,100–67,700]</td>
+</tr>
+<tr>
+<td>No PDF in any version (XML only)</td>
+<td>49</td>
+<td>16.3%</td>
+<td>12,700</td>
+</tr>
+<tr>
+<td><code>is_pmc_openaccess</code> true</td>
+<td>252</td>
+<td>84.0% [79.4–87.7]</td>
+<td>65,200</td>
+</tr>
+<tr>
+<td><code>is_manuscript</code> true</td>
+<td>66</td>
+<td>22.0% [17.7–27.0]</td>
+<td>17,100</td>
+</tr>
+<tr>
+<td>Manuscript, not open access</td>
+<td>48</td>
+<td>16.0% [12.3–20.6]</td>
+<td>12,400</td>
+</tr>
+<tr>
+<td>Several versions</td>
+<td>8</td>
+<td>2.7% [1.4–5.2]</td>
+<td>2,100</td>
+</tr>
+</tbody>
+</table>
+<p>Flags against PDF (measured):</p>
+<table>
+<thead>
+<tr>
+<th><code>is_pmc_openaccess</code></th>
+<th><code>is_manuscript</code></th>
+<th>Articles</th>
+<th>Newest has PDF</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>true</td>
+<td>false</td>
+<td>234</td>
+<td>232</td>
+</tr>
+<tr>
+<td>true</td>
+<td>true</td>
+<td>18</td>
+<td>18</td>
+</tr>
+<tr>
+<td>false</td>
+<td>true</td>
+<td>48</td>
+<td>0 (1 has a PDF in an older version)</td>
+</tr>
+</tbody>
+</table>
+<p>So "author manuscript" alone does not predict a missing PDF: a manuscript later opened by
+the publisher has both flags and a PDF. The rule is <code>is_pmc_openaccess</code> (measured). Licence
+codes: CC BY 167, TDM 61, CC BY-NC-ND 50, CC BY-NC 18, other 4 (measured).</p>
+<h2 id="strata-b-and-c-openalex-lookup">Strata B and C: OpenAlex lookup<a class="headerlink" href="#strata-b-and-c-openalex-lookup" title="Permanent link">&para;</a></h2>
+<p>500 PMIDs each, 10 batch calls of 100 (<code>filter=ids.pmid:</code>), keyless; the 10 calls cost
+$0.001 of the $0.10 daily keyless budget (measured from <code>x-ratelimit-remaining-usd</code>).
+"Non-PMC <code>pdf_url</code>" means a location whose <code>pdf_url</code> is not on an NCBI or Europe PMC host.</p>
+<table>
+<thead>
+<tr>
+<th>Measure</th>
+<th>B (n = 500)</th>
+<th>B scaled</th>
+<th>C (n = 500)</th>
+<th>C scaled</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Found in OpenAlex</td>
+<td>98.0% [96.4–98.9]</td>
+<td>6,660</td>
+<td>99.0% [97.7–99.6]</td>
+<td>10,930</td>
+</tr>
+<tr>
+<td>Has DOI</td>
+<td>97.6%</td>
+<td>6,630</td>
+<td>99.0%</td>
+<td>10,930</td>
+</tr>
+<tr>
+<td>Has PMCID in OpenAlex</td>
+<td>98.0%</td>
+<td>6,660</td>
+<td>0.2%</td>
+<td>20</td>
+</tr>
+<tr>
+<td><code>is_oa</code></td>
+<td>98.0%</td>
+<td>6,660</td>
+<td>60.2% [55.8–64.4]</td>
+<td>6,650</td>
+</tr>
+<tr>
+<td>Non-PMC <code>pdf_url</code></td>
+<td>50.0% [45.6–54.4]</td>
+<td>3,400</td>
+<td>39.8% [35.6–44.2]</td>
+<td>4,390</td>
+</tr>
+<tr>
+<td><code>has_content.pdf</code> (paid copy)</td>
+<td>54.0% [49.6–58.3]</td>
+<td>3,670</td>
+<td>39.0% [34.8–43.3]</td>
+<td>4,310</td>
+</tr>
+<tr>
+<td>Paid copy, no host link</td>
+<td>4.8% [3.2–7.0]</td>
+<td>330</td>
+<td>0% [0–0.8]</td>
+<td>0</td>
+</tr>
+<tr>
+<td>Neither (or not found)</td>
+<td>45.2% [40.9–49.6]</td>
+<td>3,070</td>
+<td>60.2% [55.8–64.4]</td>
+<td>6,650</td>
+</tr>
+</tbody>
+</table>
+<p>First non-PMC host link, by host type (measured fraction of the 500):</p>
+<table>
+<thead>
+<tr>
+<th>Host type</th>
+<th>B</th>
+<th>C</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Publisher</td>
+<td>41.8%</td>
+<td>30.6%</td>
+</tr>
+<tr>
+<td>bioRxiv or medRxiv</td>
+<td>6.0%</td>
+<td>4.8%</td>
+</tr>
+<tr>
+<td>Other repository</td>
+<td>2.0%</td>
+<td>4.4%</td>
+</tr>
+</tbody>
+</table>
+<p><code>oa_status</code> (measured): B is green 235, bronze 146, hybrid 73, gold 33, diamond 3. Every B
+paper is OA through its PMC copy, which serves no file to a script. C is closed 194, bronze
+113, hybrid 75, gold 56, green 55, diamond 2.</p>
+<p>By publication year, works with a non-PMC <code>pdf_url</code> / works found (measured):</p>
+<table>
+<thead>
+<tr>
+<th>Year</th>
+<th>B</th>
+<th>C</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>before 2010</td>
+<td>6 / 9</td>
+<td>0 / 4</td>
+</tr>
+<tr>
+<td>2010–2017</td>
+<td>103 / 183 (56%)</td>
+<td>44 / 93 (47%)</td>
+</tr>
+<tr>
+<td>2018 on</td>
+<td>141 / 298 (47%)</td>
+<td>155 / 398 (39%)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="can-a-script-fetch-the-host-link">Can a script fetch the host link?<a class="headerlink" href="#can-a-script-fetch-the-host-link" title="Permanent link">&para;</a></h2>
+<p>150 of the 449 B and C works with a non-PMC <code>pdf_url</code>, drawn at random; for each, the
+link the tier would try first (<code>best_oa_location</code> if it qualifies, else the first in
+<code>locations</code>). One GET each, User-Agent <code>labdata/0.1</code>, 1 per second, 30 s timeout,
+redirects followed, no retry. A reply is a PDF when its body starts with <code>%PDF</code>; a 403 page
+naming a challenge or captcha counts as a bot check (measured).</p>
+<table>
+<thead>
+<tr>
+<th>Result</th>
+<th>Links</th>
+<th>Fraction [95%]</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>PDF</td>
+<td>29</td>
+<td>19.3% [13.8–26.4]</td>
+</tr>
+<tr>
+<td>Bot check (all HTTP 403)</td>
+<td>106</td>
+<td>70.7%</td>
+</tr>
+<tr>
+<td>HTML page, HTTP 200</td>
+<td>12</td>
+<td>8.0%</td>
+</tr>
+<tr>
+<td>Image, HTTP 200</td>
+<td>2</td>
+<td>1.3%</td>
+</tr>
+<tr>
+<td>Plain 403</td>
+<td>1</td>
+<td>0.7%</td>
+</tr>
+</tbody>
+</table>
+<p>By stratum: B 17 / 78 (21.8% [14.1–32.2]), C 12 / 72 (16.7% [9.8–26.9]). By host type:
+preprint 15 / 15, repository 3 / 10, publisher 11 / 125 (8.8%) (measured).</p>
+<p>By host domain (measured):</p>
+<table>
+<thead>
+<tr>
+<th>Domain</th>
+<th>Links</th>
+<th>PDF</th>
+<th>Other result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>www.cell.com</code></td>
+<td>29</td>
+<td>0</td>
+<td>29 bot check</td>
+</tr>
+<tr>
+<td><code>www.biorxiv.org</code></td>
+<td>15</td>
+<td>15</td>
+<td></td>
+</tr>
+<tr>
+<td><code>www.pnas.org</code></td>
+<td>13</td>
+<td>0</td>
+<td>13 bot check</td>
+</tr>
+<tr>
+<td><code>onlinelibrary.wiley.com</code> (+ <code>febs.</code>)</td>
+<td>15</td>
+<td>0</td>
+<td>15 bot check</td>
+</tr>
+<tr>
+<td><code>academic.oup.com</code></td>
+<td>12</td>
+<td>0</td>
+<td>12 bot check</td>
+</tr>
+<tr>
+<td><code>www.nature.com</code></td>
+<td>7</td>
+<td>0</td>
+<td>7 HTML</td>
+</tr>
+<tr>
+<td><code>www.jci.org</code></td>
+<td>5</td>
+<td>5</td>
+<td></td>
+</tr>
+<tr>
+<td><code>ashpublications.org</code></td>
+<td>5</td>
+<td>0</td>
+<td>5 bot check</td>
+</tr>
+<tr>
+<td><code>www.jbc.org</code></td>
+<td>4</td>
+<td>0</td>
+<td>4 bot check</td>
+</tr>
+<tr>
+<td><code>link.springer.com</code></td>
+<td>3</td>
+<td>3</td>
+<td></td>
+</tr>
+<tr>
+<td>ASM (<code>jvi.</code>, <code>jb.asm.org</code>)</td>
+<td>4</td>
+<td>0</td>
+<td>4 bot check</td>
+</tr>
+<tr>
+<td>CSHL Press (<code>rnajournal.</code>, <code>genome.cshlp.org</code>)</td>
+<td>6</td>
+<td>0</td>
+<td>6 bot check</td>
+</tr>
+<tr>
+<td>Company of Biologists</td>
+<td>4</td>
+<td>0</td>
+<td>4 bot check</td>
+</tr>
+<tr>
+<td><code>ars.els-cdn.com</code></td>
+<td>2</td>
+<td>0</td>
+<td>2 JPEG (graphical abstract)</td>
+</tr>
+<tr>
+<td><code>hal.science</code></td>
+<td>2</td>
+<td>2</td>
+<td></td>
+</tr>
+<tr>
+<td><code>www.zora.uzh.ch</code></td>
+<td>2</td>
+<td>0</td>
+<td>2 HTML</td>
+</tr>
+<tr>
+<td><code>www.jneurosci.org</code></td>
+<td>2</td>
+<td>0</td>
+<td>2 bot check</td>
+</tr>
+<tr>
+<td>Other repositories (6 domains, 1 each)</td>
+<td>6</td>
+<td>1</td>
+<td>3 bot check, 2 HTML</td>
+</tr>
+<tr>
+<td>Other publishers (14 domains, 1 each)</td>
+<td>14</td>
+<td>3</td>
+<td>9 bot check, 1 HTML, 1 plain 403</td>
+</tr>
+</tbody>
+</table>
+<p>Not every <code>pdf_url</code> points at a PDF: two were Elsevier graphical-abstract JPEGs and two were
+landing pages (<code>doi.org</code>, <code>sciencedirect.com</code>) (measured). Nature <code>.pdf</code> links returned an
+HTML page with HTTP 200, not a challenge (measured); why was not checked.</p>
+<h2 id="coverage-by-tier">Coverage by tier<a class="headerlink" href="#coverage-by-tier" title="Permanent link">&para;</a></h2>
+<p>Inferred: scaled fractions above, combined in tier order. Host-link PDFs are the stratum's
+non-PMC <code>pdf_url</code> count times its fetch rate, on the first link only, so a paper with a
+second working link is missed (an undercount).</p>
+<table>
+<thead>
+<tr>
+<th>Tier</th>
+<th>A (77,674)</th>
+<th>B (6,797)</th>
+<th>C (11,040)</th>
+<th>All (95,511)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>PMC bucket XML</td>
+<td>77,674</td>
+<td>0</td>
+<td>0</td>
+<td>77,674 (81%)</td>
+</tr>
+<tr>
+<td>PMC bucket PDF</td>
+<td>64,700</td>
+<td>0</td>
+<td>0</td>
+<td>64,700 (68%)</td>
+</tr>
+<tr>
+<td>Host <code>pdf_url</code>, script gets a PDF</td>
+<td>n/a</td>
+<td>~740</td>
+<td>~730</td>
+<td>~1,470 (1.5%)</td>
+</tr>
+<tr>
+<td>OpenAlex paid copy, rest of those with one</td>
+<td>n/a</td>
+<td>~2,930</td>
+<td>~3,580</td>
+<td>~6,500 (6.8%)</td>
+</tr>
+<tr>
+<td>Nothing</td>
+<td>0 XML; ~13,000 no PDF</td>
+<td>~3,100</td>
+<td>~6,700</td>
+<td>~9,800 (10%)</td>
+</tr>
+</tbody>
+</table>
+<p>At 100 paid files a day per key, the paid tier's ~6,500 papers take about 65 key-days
+(inferred, from the OpenAlex note's quota).</p>
+<h2 id="left-uncertain">Left uncertain<a class="headerlink" href="#left-uncertain" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Whether a second host link in <code>locations</code> would serve when the first did not. Only the
+  first was tried.</li>
+<li>What the Nature <code>.pdf</code> HTML page is: a consent or login interstitial, or a block.</li>
+<li>Whether stratum C has papers outside OpenAlex's PMID index under a DOI only; the lookup
+  was by PMID.</li>
+<li>The 16 low PMIDs: whether they are real GEO links or parse artefacts in the PMID count.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+  
+  
+
+
+
+  
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate":null,"base":"../..","features":["navigation.sections","navigation.expand","content.code.copy","content.code.annotate","content.action.edit","toc.follow"],"search":"../../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.49251538.min.js"></script>
+      
+    
+  </body>
+</html>

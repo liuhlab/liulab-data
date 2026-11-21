@@ -1,0 +1,1181 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Data curation, download, and organization utilities for the Liu Lab.">
+      
+      
+      
+        <link rel="canonical" href="https://liuhlab.github.io/liulab-data/how-to/papers-run/">
+      
+      
+        <link rel="prev" href="../store-gcs/">
+      
+      
+        <link rel="next" href="../../maintenance-log/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="zensical-0.0.57">
+    
+    
+      
+        <title>Run the paper store - liulab-data</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../../assets/stylesheets/modern/main.5da3a30f.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/modern/palette.812a03bb.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../stylesheets/diagrams.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+  
+
+
+  
+  
+
+<script id="__analytics">function __md_analytics(){function e(){dataLayer.push(arguments)}window.dataLayer=window.dataLayer||[],e("js",new Date),e("config","G-6M1CJF9WXY"),document.addEventListener("DOMContentLoaded",(function(){document.forms.search&&document.forms.search.query.addEventListener("blur",(function(){this.value&&e("event","search",{search_term:this.value})}));document$.subscribe((function(){var t=document.forms.feedback;if(void 0!==t)for(var a of t.querySelectorAll("[type=submit]"))a.addEventListener("click",(function(a){a.preventDefault();var n=document.location.pathname,d=this.getAttribute("data-md-value");e("event","feedback",{page:n,data:d}),t.firstElementChild.disabled=!0;var r=t.querySelector(".md-feedback__note [data-md-value='"+d+"']");r&&(r.hidden=!1)})),t.hidden=!1})),location$.subscribe((function(t){e("config","G-6M1CJF9WXY",{page_path:t.pathname})}))}));var t=document.createElement("script");t.async=!0,t.src="https://www.googletagmanager.com/gtag/js?id=G-6M1CJF9WXY",document.getElementById("__analytics").insertAdjacentElement("afterEnd",t)}</script>
+  
+    <script>"undefined"!=typeof __md_analytics&&__md_analytics()</script>
+  
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-label="Navigation"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#run-the-paper-store" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="liulab-data" class="md-header__button md-logo" aria-label="liulab-data" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer" aria-label="Navigation">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            liulab-data
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Run the paper store
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search" aria-label="Search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/liuhlab/liulab-data" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M216.5 362.5c-66-8-112.5-55.5-112.5-117 0-25 9-52 24-70-6.5-16.5-5.5-51.5 2-66 20-2.5 47 8 63 22.5 19-6 39-9 63.5-9s44.5 3 62.5 8.5c15.5-14 43-24.5 63-22 7 13.5 8 48.5 1.5 65.5 16 19 24.5 44.5 24.5 70.5 0 61.5-46.5 108-113.5 116.5 17 11 28.5 35 28.5 62.5v52c0 15 12.5 23.5 27.5 17.5C441 459.5 512 369 512 257 512 115.5 397 0 255.5 0S0 115.5 0 257c0 111 70.5 203 165.5 237.5 13.5 5 26.5-4 26.5-17.5v-40c-7 3-16 5-24 5-33 0-52.5-18-66.5-51.5-5.5-13.5-11.5-21.5-23-23-6-.5-8-3-8-6 0-6 10-10.5 20-10.5 14.5 0 27 9 40 27.5 10 14.5 20.5 21 33 21s20.5-4.5 32-16c8.5-8.5 15-16 21-21"/></svg>
+  </div>
+  <div class="md-source__repository">
+    liuhlab/liulab-data
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="liulab-data" class="md-nav__button md-logo" aria-label="liulab-data" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    liulab-data
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/liuhlab/liulab-data" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M216.5 362.5c-66-8-112.5-55.5-112.5-117 0-25 9-52 24-70-6.5-16.5-5.5-51.5 2-66 20-2.5 47 8 63 22.5 19-6 39-9 63.5-9s44.5 3 62.5 8.5c15.5-14 43-24.5 63-22 7 13.5 8 48.5 1.5 65.5 16 19 24.5 44.5 24.5 70.5 0 61.5-46.5 108-113.5 116.5 17 11 28.5 35 28.5 62.5v52c0 15 12.5 23.5 27.5 17.5C441 459.5 512 369 512 257 512 115.5 397 0 255.5 0S0 115.5 0 257c0 111 70.5 203 165.5 237.5 13.5 5 26.5-4 26.5-17.5v-40c-7 3-16 5-24 5-33 0-52.5-18-66.5-51.5-5.5-13.5-11.5-21.5-23-23-6-.5-8-3-8-6 0-6 10-10.5 20-10.5 14.5 0 27 9 40 27.5 10 14.5 20.5 21 33 21s20.5-4.5 32-16c8.5-8.5 15-16 21-21"/></svg>
+  </div>
+  <div class="md-source__repository">
+    liuhlab/liulab-data
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Home
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Tutorials
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+  Tutorials
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/understanding-geo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Understanding GEO & SRA
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/geo-series/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  GEO Series
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/tenx-bam/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  10x cellranger BAM → FASTQ
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  How-to
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+  How-to
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../store-life-cycle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  How the stores work
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../store-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Run the full download
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../store-gcs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Copy the store to GCS
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Run the paper store
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="././" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Run the paper store
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#set-up-once" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Set up once
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fill-the-store-the-first-time" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fill the store the first time
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#start-the-paper-job" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Start the paper job
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#watch-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Watch it
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#read-paper-statusjson" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Read <code>paper-status.json</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-a-pass-refuses-because-the-disk-is-behind" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        When a pass refuses because the disk is behind
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#check-the-copy" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Check the copy
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#restore-the-store-from-gcs" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Restore the store from GCS
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../maintenance-log/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Maintenance log
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API reference
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#set-up-once" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Set up once
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fill-the-store-the-first-time" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fill the store the first time
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#start-the-paper-job" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Start the paper job
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#watch-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Watch it
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#read-paper-statusjson" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Read <code>paper-status.json</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-a-pass-refuses-because-the-disk-is-behind" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        When a pass refuses because the disk is behind
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#check-the-copy" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Check the copy
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#restore-the-store-from-gcs" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Restore the store from GCS
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+  
+    <a href="https://github.com/liuhlab/liulab-data/edit/main/docs/how-to/papers-run.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-file-pen" viewBox="0 0 24 24"><path d="M12.659 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v9.34"/><path d="M14 2v5a1 1 0 0 0 1 1h5M10.378 12.622a1 1 0 0 1 3 3.003L8.36 20.637a2 2 0 0 1-.854.506l-2.867.837a.5.5 0 0 1-.62-.62l.836-2.869a2 2 0 0 1 .506-.853z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="run-the-paper-store">Run the paper store<a class="headerlink" href="#run-the-paper-store" title="Permanent link">&para;</a></h1>
+<p>The paper store sits beside the GEO/SRA store. It holds the papers that the store's Series and
+BioProjects link to, and the status of each one. One long-running Slurm job, the paper job,
+keeps it current. Each day it fetches what it can, and once a month it takes in new papers.</p>
+<p>Google Cloud Storage (GCS) holds the paper store, and the paper job changes it on a work disk
+on the cluster. Each pass goes through the same steps as a GEO/SRA store update:</p>
+<ol>
+<li><strong>Restore</strong>, by hand and only when the work disk is empty or behind GCS. See
+   <a href="#restore-the-store-from-gcs">Restore the store from GCS</a>.</li>
+<li><strong>Check</strong> that the work disk is in step with GCS.</li>
+<li><strong>Update</strong>: the daily pass or the PMC sync changes the work disk.</li>
+<li><strong>Finalize</strong>: copy the changes to GCS. A pass is done only once GCS holds it.</li>
+</ol>
+<h2 id="set-up-once">Set up once<a class="headerlink" href="#set-up-once" title="Permanent link">&para;</a></h2>
+<p>The paper store reads the GEO/SRA store that <code>LABDATA_STORE</code> names, or else the one
+<code>labdata store configure</code> saved. Make sure one of them is set, then make the paper store:</p>
+<div class="language-bash highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>labdata<span class="w"> </span>papers<span class="w"> </span>init<span class="w"> </span>/path/to/paper-store<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span>--copy-to<span class="w"> </span>gcs:&lt;gcs-bucket&gt;/datalake/paper-store
+</code></pre></div>
+<p>Save your logins. The NCBI one fetches PubMed records. The OpenAlex accounts buy paper
+copies, 100 a day each:</p>
+<div class="language-bash highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>labdata<span class="w"> </span>ncbi<span class="w"> </span>configure
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>labdata<span class="w"> </span>papers<span class="w"> </span>configure
+</code></pre></div>
+<p><code>labdata papers configure</code> asks for one email and API key per account. Leave the email blank
+to finish. Without accounts, the daily pass skips OpenAlex and says so. A running job reads
+the accounts at each pass, so new ones count from the next pass, with no restart.</p>
+<p>For the copy to Google Cloud Storage (GCS), set up the <code>gcs</code> rclone remote and log in as
+<a href="../store-gcs/">Copy the store to GCS</a> shows. Leave out <code>--copy-to</code> to run with no copy.
+The job's rclone reads your own config, <code>~/.config/rclone/rclone.conf</code>, even when your shell
+sets <code>RCLONE_CONFIG</code>; set <code>LABDATA_RCLONE_CONFIG</code> before <code>sbatch</code> to use another file.</p>
+<h2 id="fill-the-store-the-first-time">Fill the store the first time<a class="headerlink" href="#fill-the-store-the-first-time" title="Permanent link">&para;</a></h2>
+<p>The first PMC sync takes in every linked paper, so it runs much longer than a monthly one: plan
+for most of a day. It stores about half a terabyte, mostly supplementary files and figures,
+so check the free space first. Submit it once by hand, from the repository folder on the
+cluster, with more CPUs and a longer time limit:</p>
+<div class="language-bash highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">LABDATA_PAPERS</span><span class="o">=</span>/path/to/paper-store
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>df<span class="w"> </span>-h<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$LABDATA_PAPERS</span><span class="s2">&quot;</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>sbatch<span class="w"> </span>--job-name<span class="o">=</span>labdata-papers-backfill<span class="w"> </span>--partition<span class="o">=</span>cpu_batch<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span>--cpus-per-task<span class="o">=</span><span class="m">4</span><span class="w"> </span>--mem<span class="o">=</span>8G<span class="w"> </span>--time<span class="o">=</span><span class="m">2</span>-00:00:00<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">  </span>--output<span class="o">=</span>labdata-papers-backfill.%j.log<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">  </span>--wrap<span class="w"> </span><span class="s2">&quot;pixi run labdata papers pmc-sync&quot;</span>
+</code></pre></div>
+<p>If it stops, submit it again. It goes on from where it stopped. The paper job can start at the
+same time: it waits until the first sync is done.</p>
+<p>To fill the store in rounds, add <code>--sample 0.01</code>, then <code>--sample 0.1</code>, then run it with no
+<code>--sample</code>. Each round skips the papers the last round looked up this month. A sampled sync
+does not count as the month's PMC sync: <code>paper-status.json</code> records it as the last pass, with
+its <code>sample</code> share, but only a sync over all papers sets <code>last_pmc_sync_success</code> and
+<code>last_pmc_sync_build</code>. So the paper job still runs the month's PMC sync after a sampled round.</p>
+<p>The first copy to GCS sends all of it, with <code>--full</code>. It uploads every file and deletes
+nothing in GCS. Run it once by hand, as its own job,
+after the first sync ends, so the paper job's daily pass does not wait behind it:</p>
+<div class="language-bash highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>sbatch<span class="w"> </span>--job-name<span class="o">=</span>labdata-papers-copy<span class="w"> </span>--partition<span class="o">=</span>cpu_batch<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span>--cpus-per-task<span class="o">=</span><span class="m">2</span><span class="w"> </span>--mem<span class="o">=</span>8G<span class="w"> </span>--time<span class="o">=</span><span class="m">1</span>-00:00:00<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span>--output<span class="o">=</span>labdata-papers-copy.%j.log<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span>--wrap<span class="w"> </span><span class="s2">&quot;pixi run labdata papers copy --full&quot;</span>
+</code></pre></div>
+<p>Log in to rclone first: the login lasts one day. Later copies send only the files added,
+changed or deleted since the last copy that worked, so their cost follows the day's changes,
+not the size of the store. Each copy ends by sending its copy record, a hidden file at the
+paper store root that lists what GCS holds. Until a full copy has worked once, the job's copies
+do nothing and the log asks for <code>--full</code>.</p>
+<h2 id="start-the-paper-job">Start the paper job<a class="headerlink" href="#start-the-paper-job" title="Permanent link">&para;</a></h2>
+<div class="language-bash highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">LABDATA_PAPERS</span><span class="o">=</span>/path/to/paper-store
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>sbatch<span class="w"> </span>scripts/papers/serve.sbatch
+</code></pre></div>
+<p>The job asks for 2 CPUs and 8 GB on <code>cpu_batch</code>, for the 14 days that partition allows.
+It runs the daily pass each day after 00:30 UTC, and the PMC sync on the 3rd of each month.
+It also runs the PMC sync when a refresh makes a new GEO/SRA build current, so the papers the
+new build links come in soon after. That sync counts as the month's, so a refresh on the 1st or
+2nd leaves no sync for the 3rd.
+Each pass ends with a copy of its changes to GCS, even a pass that fails. The job never runs a
+full copy.</p>
+<p>PMC gives the article text, figures and supplements, while OpenAlex and host links give a PDF
+only. So when a paper fetched from OpenAlex or a host link later appears in PMC, the PMC sync
+takes its PMC files and then deletes the old PDF.</p>
+<p>At start, the job makes sure two more jobs wait behind it. When the running job ends, the
+next one takes over; if that one fails at start, the one after it takes over. So the chain
+goes on by itself: Slurm on arc accepts a job submitted from inside a running job.</p>
+<p>To stop the chain, cancel the waiting jobs first, then the running one:</p>
+<div class="language-bash highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>squeue<span class="w"> </span>--me<span class="w"> </span>-n<span class="w"> </span>labdata-papers
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>scancel<span class="w"> </span>-u<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$USER</span><span class="s2">&quot;</span><span class="w"> </span>-n<span class="w"> </span>labdata-papers<span class="w"> </span>-t<span class="w"> </span>PENDING
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>scancel<span class="w"> </span>&lt;running<span class="w"> </span>job<span class="w"> </span>id&gt;
+</code></pre></div>
+<p>If the chain breaks, submit <code>scripts/papers/serve.sbatch</code> again by hand. A new job does only
+what is due: a day with no daily pass, a month with no PMC sync after the 3rd, or a new build
+since the last PMC sync. The job log says <code>successor not submitted</code> when it could not submit a
+waiting job.</p>
+<h2 id="watch-it">Watch it<a class="headerlink" href="#watch-it" title="Permanent link">&para;</a></h2>
+<p>The job log, <code>labdata-papers.&lt;job id&gt;.log</code>, prints a line a minute. The first job writes it
+where <code>sbatch --output</code> says, or into the folder you submitted from. Each next job writes its
+log into the same folder. Between passes it looks like this:</p>
+<div class="language-text highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>2026-11-05T07:01Z idle; last daily pass 2026-11-05, last PMC sync 2026-11-03, copy pending: no
+</code></pre></div>
+<p>Each step can also run alone: <code>labdata papers daily</code>, <code>labdata papers pmc-sync</code> and
+<code>labdata papers copy</code>. Every pass ends with the copy, whatever it changed and whether it
+worked, run by hand or by the job. While a copy is pending, the job tries it again once an
+hour between passes, and a step run by hand exits 1.</p>
+<h2 id="read-paper-statusjson">Read <code>paper-status.json</code><a class="headerlink" href="#read-paper-statusjson" title="Permanent link">&para;</a></h2>
+<p>The file at the paper store root says what the job did last and where the papers stand:</p>
+<div class="language-json highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="p">{</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span><span class="nt">&quot;last_pass&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;kind&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;daily&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;start&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-11-05T00:30:02+00:00&quot;</span><span class="p">,</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">                </span><span class="nt">&quot;end&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-11-05T01:12:40+00:00&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;outcome&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;success&quot;</span><span class="p">},</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">  </span><span class="nt">&quot;last_daily_success&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-11-05&quot;</span><span class="p">,</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">  </span><span class="nt">&quot;last_pmc_sync_success&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-11-03&quot;</span><span class="p">,</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">  </span><span class="nt">&quot;last_pmc_sync_build&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;20261031T020000Z&quot;</span><span class="p">,</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="w">  </span><span class="nt">&quot;fetches&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;date&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-11-05&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;by_tier&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;openalex&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">300</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;host&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">2</span><span class="p">}},</span>
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="w">  </span><span class="nt">&quot;quota&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;date&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-11-05&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;by_key&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;a@lab.org&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">100</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;b@lab.org&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">100</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;c@lab.org&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">100</span><span class="p">}},</span>
+<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="w">  </span><span class="nt">&quot;counts&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;fetched&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">80512</span><span class="p">},</span><span class="w"> </span><span class="nt">&quot;waiting&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;openalex-backlog&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">7690</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;pmc-embargo&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1204</span><span class="p">},</span>
+<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="w">             </span><span class="nt">&quot;manual&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;no-route&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">9300</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;host-blocked&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">120</span><span class="p">},</span><span class="w"> </span><span class="nt">&quot;skipped&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;retracted&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">41</span><span class="p">}},</span>
+<a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="w">  </span><span class="nt">&quot;copy_pending&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+<a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a><span class="w">  </span><span class="nt">&quot;last_copy_success&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-11-05T01:12:41Z&quot;</span><span class="p">,</span>
+<a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a><span class="w">  </span><span class="nt">&quot;paperpile_pending&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span>
+<a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a><span class="p">}</span>
+</code></pre></div>
+<ul>
+<li><code>last_daily_success</code> older than today, after 00:30 UTC, means a missed day.</li>
+<li><code>last_pmc_sync_success</code> is the date of the last PMC sync over all papers. A sampled sync
+  leaves it alone.</li>
+<li><code>last_pmc_sync_build</code> is the GEO/SRA build that sync read. When the store's current build
+  differs, the next PMC sync is due. A sampled sync leaves it alone too.</li>
+<li><code>quota</code> shows the copies each OpenAlex account bought today.</li>
+<li><code>counts</code> gives the papers per status, then per reason.</li>
+<li><code>copy_pending: true</code> means GCS is behind: the GCS login had expired, a copy failed or
+  refused, or no full copy has worked yet. Log in, then run <code>labdata papers copy</code>, or
+  <code>labdata papers copy --full</code> if the log asks for it. A copy that works sets it back to
+  <code>false</code>.</li>
+<li><code>last_copy_success</code> is when the last copy that worked started. The next copy sends what
+  changed after it.</li>
+<li><code>finalized: true</code> means GCS holds the store's last change: a copy sent this record.</li>
+</ul>
+<p>The copy reads the changes from the <code>files</code> table, so it lists only the top level of the
+paper store and GCS. It sends <code>paper-status.json</code> last, after its copy record, marked
+<code>finalized</code>. It leaves out the lock file and the files a pass writes while it runs.</p>
+<p>GCS keeps the paper store for good; the work disk is where passes run. So a copy deletes in
+GCS only the files that left the <code>files</code> table. It refuses, sending nothing, when the table
+is missing or empty, or when more than a small share of the copied files left it at once: the
+table may be damaged. The log says why, with the numbers. Check the table. If the files left
+on purpose, as when a change moves many files at once, run the copy by hand with the number
+of files the log gives. For 1200 files:</p>
+<div class="language-bash highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>labdata<span class="w"> </span>papers<span class="w"> </span>copy<span class="w"> </span>--accept-deletes<span class="w"> </span><span class="m">1200</span>
+</code></pre></div>
+<p>It sends the changes and deletes those files in GCS, up to that number.</p>
+<h2 id="when-a-pass-refuses-because-the-disk-is-behind">When a pass refuses because the disk is behind<a class="headerlink" href="#when-a-pass-refuses-because-the-disk-is-behind" title="Permanent link">&para;</a></h2>
+<p>Each pass and each copy first checks that the work disk's copy record is the one in GCS. It
+compares the MD5 hash GCS keeps for that file with the disk's, and downloads nothing. If the
+two differ, the disk is behind GCS, or another disk has sent to GCS since. A disk with no copy
+record while GCS holds one was never restored, and refuses the same way. The pass then does
+nothing, marks the copy pending, and the log names the command that fixes it,
+<code>labdata papers restore</code>. Stop the paper job, restore as
+<a href="#restore-the-store-from-gcs">Restore the store from GCS</a> shows, then start the job again.
+An expired login skips this check with a warning in the log.</p>
+<h2 id="check-the-copy">Check the copy<a class="headerlink" href="#check-the-copy" title="Permanent link">&para;</a></h2>
+<p>The routine check reads the status record and the copy record, and lists no paper folder.
+Run it between passes. The copy is current when both of these hold:</p>
+<ul>
+<li>In <code>paper-status.json</code>, <code>copy_pending</code> is <code>false</code> and <code>finalized</code> is <code>true</code>: GCS holds the
+  last change. If <code>copy_pending</code> is <code>true</code>, log in and run <code>labdata papers copy</code>.</li>
+<li>The copy record in GCS matches the one on the disk. Each copy sends it last, after
+  the files it lists:</li>
+</ul>
+<div class="language-bash highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>pixi<span class="w"> </span>run<span class="w"> </span>rclone<span class="w"> </span>check<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$LABDATA_PAPERS</span><span class="s2">&quot;</span><span class="w"> </span>&lt;copy_to&gt;<span class="w"> </span>--max-depth<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">  </span>--include<span class="w"> </span><span class="s2">&quot;/.copied-files.parquet&quot;</span>
+</code></pre></div>
+<p>It should report 0 differences and 1 matching file. It lists only the top level of each
+  side.</p>
+<p>A full check finds what differs when the copy record does not match, or after a change made
+in GCS by hand. It lists every file on both sides, so run it only to repair the copy,
+and only when the maintainer says yes. Run it between passes too: a pass that runs beside it
+changes files under it. Like the copy, it leaves out the hidden files. The status record
+differs once a pass has run since the last copy:</p>
+<div class="language-bash highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>pixi<span class="w"> </span>run<span class="w"> </span>rclone<span class="w"> </span>check<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$LABDATA_PAPERS</span><span class="s2">&quot;</span><span class="w"> </span>&lt;copy_to&gt;<span class="w"> </span>--one-way<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span>--filter<span class="w"> </span><span class="s2">&quot;- .*&quot;</span><span class="w"> </span>--filter<span class="w"> </span><span class="s2">&quot;- .*/**&quot;</span><span class="w"> </span>--filter<span class="w"> </span><span class="s2">&quot;- /paper-status.json&quot;</span>
+</code></pre></div>
+<p>It should report 0 differences. If it finds differences, <code>labdata papers copy --full</code> repairs
+them. It deletes nothing.</p>
+<h2 id="restore-the-store-from-gcs">Restore the store from GCS<a class="headerlink" href="#restore-the-store-from-gcs" title="Permanent link">&para;</a></h2>
+<p>Restore the work disk when it is new or lost, or when a pass refuses because the disk is
+behind GCS. Restore before the paper job runs again. An empty disk gets the whole store; a disk that
+fell behind gets only the files that changed. Downloads out of GCS cost money, so run a large
+restore only with the maintainer's yes.</p>
+<p>Stop the paper job first, as <a href="#start-the-paper-job">Start the paper job</a> shows. Then run the
+restore as its own job:</p>
+<div class="language-bash highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">LABDATA_PAPERS</span><span class="o">=</span>/path/to/paper-store
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>sbatch<span class="w"> </span>--job-name<span class="o">=</span>labdata-papers-restore<span class="w"> </span>--partition<span class="o">=</span>cpu_batch<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">  </span>--cpus-per-task<span class="o">=</span><span class="m">2</span><span class="w"> </span>--mem<span class="o">=</span>8G<span class="w"> </span>--time<span class="o">=</span><span class="m">1</span>-00:00:00<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="w">  </span>--output<span class="o">=</span>labdata-papers-restore.%j.log<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="w">  </span>--wrap<span class="w"> </span><span class="s2">&quot;pixi run labdata papers restore --from &lt;copy_to&gt; --accept-download&quot;</span>
+</code></pre></div>
+<p>The restore prints how much it downloads. In a terminal it asks before more than 1 GB. A
+batch job has no terminal, so it needs <code>--accept-download</code> for that. Without the flag, a batch
+job prints the size and stops before a download of more than 1 GB.</p>
+<p>If it stops, submit it again: it skips the files it already has. Then start the paper job.
+It finds the GEO/SRA store through <code>LABDATA_STORE</code> or the pointer, so a new cluster needs
+only that set.</p>
+<p>The restore saves the copy record last, so the job's copies send only what changes from then
+on. It saves <code>paper-status.json</code> as the last copy left it, so the job knows when the last
+daily pass and the last PMC sync ran. It deletes the store's files that GCS does not hold,
+but leaves the hidden files of the disk alone, the daily pass's journal among them.</p>
+<p>Restore before any copy by hand. A copy refuses, and sends nothing, on a disk with no copy
+record while GCS holds one. A full copy, <code>labdata papers copy --full</code>, also reads the list of
+files GCS holds, and refuses when the disk lacks more than a few of them. Its tables would
+replace the ones in GCS.</p>
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate":null,"base":"../..","features":["navigation.sections","navigation.expand","content.code.copy","content.code.annotate","content.action.edit","toc.follow"],"search":"../../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.49251538.min.js"></script>
+      
+    
+  </body>
+</html>

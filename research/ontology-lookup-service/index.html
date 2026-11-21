@@ -1,0 +1,1258 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Data curation, download, and organization utilities for the Liu Lab.">
+      
+      
+      
+        <link rel="canonical" href="https://liuhlab.github.io/liulab-data/research/ontology-lookup-service/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="zensical-0.0.57">
+    
+    
+      
+        <title>How the EBI's Ontology Lookup Service holds many ontologies - liulab-data</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../../assets/stylesheets/modern/main.5da3a30f.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/modern/palette.812a03bb.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../stylesheets/diagrams.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+  
+
+
+  
+  
+
+<script id="__analytics">function __md_analytics(){function e(){dataLayer.push(arguments)}window.dataLayer=window.dataLayer||[],e("js",new Date),e("config","G-6M1CJF9WXY"),document.addEventListener("DOMContentLoaded",(function(){document.forms.search&&document.forms.search.query.addEventListener("blur",(function(){this.value&&e("event","search",{search_term:this.value})}));document$.subscribe((function(){var t=document.forms.feedback;if(void 0!==t)for(var a of t.querySelectorAll("[type=submit]"))a.addEventListener("click",(function(a){a.preventDefault();var n=document.location.pathname,d=this.getAttribute("data-md-value");e("event","feedback",{page:n,data:d}),t.firstElementChild.disabled=!0;var r=t.querySelector(".md-feedback__note [data-md-value='"+d+"']");r&&(r.hidden=!1)})),t.hidden=!1})),location$.subscribe((function(t){e("config","G-6M1CJF9WXY",{page_path:t.pathname})}))}));var t=document.createElement("script");t.async=!0,t.src="https://www.googletagmanager.com/gtag/js?id=G-6M1CJF9WXY",document.getElementById("__analytics").insertAdjacentElement("afterEnd",t)}</script>
+  
+    <script>"undefined"!=typeof __md_analytics&&__md_analytics()</script>
+  
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-label="Navigation"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#how-the-ebis-ontology-lookup-service-holds-many-ontologies" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="liulab-data" class="md-header__button md-logo" aria-label="liulab-data" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer" aria-label="Navigation">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            liulab-data
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              How the EBI's Ontology Lookup Service holds many ontologies
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search" aria-label="Search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/liuhlab/liulab-data" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M216.5 362.5c-66-8-112.5-55.5-112.5-117 0-25 9-52 24-70-6.5-16.5-5.5-51.5 2-66 20-2.5 47 8 63 22.5 19-6 39-9 63.5-9s44.5 3 62.5 8.5c15.5-14 43-24.5 63-22 7 13.5 8 48.5 1.5 65.5 16 19 24.5 44.5 24.5 70.5 0 61.5-46.5 108-113.5 116.5 17 11 28.5 35 28.5 62.5v52c0 15 12.5 23.5 27.5 17.5C441 459.5 512 369 512 257 512 115.5 397 0 255.5 0S0 115.5 0 257c0 111 70.5 203 165.5 237.5 13.5 5 26.5-4 26.5-17.5v-40c-7 3-16 5-24 5-33 0-52.5-18-66.5-51.5-5.5-13.5-11.5-21.5-23-23-6-.5-8-3-8-6 0-6 10-10.5 20-10.5 14.5 0 27 9 40 27.5 10 14.5 20.5 21 33 21s20.5-4.5 32-16c8.5-8.5 15-16 21-21"/></svg>
+  </div>
+  <div class="md-source__repository">
+    liuhlab/liulab-data
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="liulab-data" class="md-nav__button md-logo" aria-label="liulab-data" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    liulab-data
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/liuhlab/liulab-data" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M216.5 362.5c-66-8-112.5-55.5-112.5-117 0-25 9-52 24-70-6.5-16.5-5.5-51.5 2-66 20-2.5 47 8 63 22.5 19-6 39-9 63.5-9s44.5 3 62.5 8.5c15.5-14 43-24.5 63-22 7 13.5 8 48.5 1.5 65.5 16 19 24.5 44.5 24.5 70.5 0 61.5-46.5 108-113.5 116.5 17 11 28.5 35 28.5 62.5v52c0 15 12.5 23.5 27.5 17.5C441 459.5 512 369 512 257 512 115.5 397 0 255.5 0S0 115.5 0 257c0 111 70.5 203 165.5 237.5 13.5 5 26.5-4 26.5-17.5v-40c-7 3-16 5-24 5-33 0-52.5-18-66.5-51.5-5.5-13.5-11.5-21.5-23-23-6-.5-8-3-8-6 0-6 10-10.5 20-10.5 14.5 0 27 9 40 27.5 10 14.5 20.5 21 33 21s20.5-4.5 32-16c8.5-8.5 15-16 21-21"/></svg>
+  </div>
+  <div class="md-source__repository">
+    liuhlab/liulab-data
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Home
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Tutorials
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+  Tutorials
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/understanding-geo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Understanding GEO & SRA
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/geo-series/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  GEO Series
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/tenx-bam/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  10x cellranger BAM → FASTQ
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  How-to
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+  How-to
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/store-life-cycle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  How the stores work
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/store-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Run the full download
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/store-gcs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Copy the store to GCS
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/papers-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Run the paper store
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../maintenance-log/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Maintenance log
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API reference
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#verdict" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Verdict
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-the-ontology-list-and-one-entry" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        1. The ontology list and one entry
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-loading-versions-and-failures" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        2. Loading, versions and failures
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-imported-terms-and-the-defining-ontology" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        3. Imported terms and the defining ontology
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-search-fields-and-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        4. Search fields and options
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-identifiers" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        5. Identifiers
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-related-ebi-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        6. Related EBI tools
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-the-obo-foundry-registry-as-a-source" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        7. The OBO Foundry registry as a source
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#download-facts-measured-2026-11-21" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Download facts (measured 2026-11-21)
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-the-ontology-store-should-take-from-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What the ontology store should take from it
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+  
+    <a href="https://github.com/liuhlab/liulab-data/edit/main/docs/research/ontology-lookup-service.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-file-pen" viewBox="0 0 24 24"><path d="M12.659 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v9.34"/><path d="M14 2v5a1 1 0 0 0 1 1h5M10.378 12.622a1 1 0 0 1 3 3.003L8.36 20.637a2 2 0 0 1-.854.506l-2.867.837a.5.5 0 0 1-.62-.62l.836-2.869a2 2 0 0 1 .506-.853z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="how-the-ebis-ontology-lookup-service-holds-many-ontologies">How the EBI's Ontology Lookup Service holds many ontologies<a class="headerlink" href="#how-the-ebis-ontology-lookup-service-holds-many-ontologies" title="Permanent link">&para;</a></h1>
+<p>Dated <strong>2026-11-21</strong>. The question: how does the EBI's Ontology Lookup Service (OLS4) declare,
+load, version and serve a few hundred ontologies, and what should liulab-data's ontology store
+copy from it, so that a 13th vocabulary needs a new entry and no new code?</p>
+<p>This note is not about calling OLS4 as a search service. Its search options, ranking, coverage
+of the 12 vocabularies and rate limits are in seqforge's note,
+<a href="https://github.com/liuhlab/seqforge/blob/research/ontology-term-lookup/docs/research/ontology-term-lookup-2026-11-21.md">looking up ontology terms for the reading's vocabularies</a>.</p>
+<p>Evidence classes. <strong>Measured</strong> means a call or a download made on 2026-11-21, and the fact is
+its output: a few OLS4 API calls, the OBO Foundry registry file, and the OBO files of nine
+vocabularies streamed once each. <strong>Read</strong> means the named source file or page says it.
+<strong>Inferred</strong> says so. OLS4 code paths are in
+<a href="https://github.com/EBISPOT/ols4/tree/c857752998e0db9e49dfe08950cfdfbf95d8bffb"><code>EBISPOT/ols4</code> at commit <code>c857752</code></a>
+(2026-11-18), cited as <code>path:line</code>.</p>
+<h2 id="verdict">Verdict<a class="headerlink" href="#verdict" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>OLS4 is driven by a list of entries, not by code per ontology.</strong> Its list is the OBO
+  Foundry registry plus an EBI file of additions and overrides. Each entry names an id, a
+  prefix and a download address, and may name label, synonym and definition properties and base
+  URIs. Defaults cover the usual OBO case, so most entries carry no extra keys (read).</li>
+<li><strong>It reloads every ontology on every run and keeps one copy.</strong> A failed load falls back to the
+  last good copy of that ontology alone, flagged as a fallback (read). It keeps no older version.</li>
+<li><strong>"Own term" is decided by the term's address, not by imports.</strong> A term belongs to an
+  ontology when its address starts with that ontology's prefix address. In OLS4, a CL term
+  inside UBERON is flagged "not imported" and also "not defined here" (measured). For our 12
+  vocabularies the id prefix alone is enough (measured on 9 files), and it is needed: only 16,143
+  of the UBERON file's terms are UBERON's own; the rest come from GO, CL, ChEBI and others.</li>
+<li><strong>The OBO Foundry registry cannot be the only source of download addresses.</strong> It lists no
+  <code>uberon.obo</code> product, only <code>uberon-basic.obo</code> (measured), and it says nothing about versions.
+  It is a useful cross-check for each vocabulary's prefix.</li>
+<li><strong>Correction to the brief:</strong> OLS4 no longer uses Solr or Neo4j. At this commit it loads
+  everything into PostgreSQL (read: <code>README.md:34</code>, <code>docs/facet_optimization.md:7</code>).</li>
+</ul>
+<h2 id="1-the-ontology-list-and-one-entry">1. The ontology list and one entry<a class="headerlink" href="#1-the-ontology-list-and-one-entry" title="Permanent link">&para;</a></h2>
+<p><strong>Where the list lives (read).</strong> The load starts from one merged config file. In production,
+<code>fetch_configs</code> copies two files from an EBI file server, <code>obo.json</code> and <code>ebi.json</code>
+(<code>dataload/nextflow/ols_dataload.nf:37-55</code>). <code>obo.json</code> is the OBO Foundry registry, turned from
+YAML to JSON (<code>dataload/configs/get-foundry-config.sh</code>). <code>ebi.json</code> holds EBI additions and
+overrides; the repo copy, <code>ebi_ontologies.json</code>, has 128 entries (measured). The OBO file is
+read first, so an EBI key wins (<code>ols_dataload.nf:60-66</code>). The merge works key by key: an entry
+with the same id replaces only the keys it names (<code>dataload/merge_configs/.../MergeConfigs.java:87-104</code>).</p>
+<p><strong>What an entry carries (read).</strong> From the registry: <code>id</code>, <code>preferredPrefix</code>, <code>ontology_purl</code>
+(the download address) and <code>products</code>. With no <code>ontology_purl</code>, the loader takes the first
+product whose address ends in <code>.owl</code> (<code>dataload/rdf2json/.../OntologyGraph.java:253-271</code>). An
+entry with <code>is_obsolete: true</code> is skipped (<code>RDF2JSON.java:191-199</code>). The EBI file adds, among
+others, <code>base_uri</code>, <code>label_property</code>, <code>synonym_property</code>, <code>definition_property</code>,
+<code>hierarchical_property</code>, <code>hidden_property</code>, <code>preferred_root_term</code>, <code>reasoner</code> and
+<code>shortFormExtractionPattern</code>. A real EBI entry, the Experimental Factor Ontology
+(<code>ebi_ontologies.json:518-547</code>, shortened):</p>
+<div class="language-json highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;efo&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span><span class="nt">&quot;preferredPrefix&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;EFO&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="nt">&quot;definition_property&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;http://purl.obolibrary.org/obo/IAO_0000115&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">                          </span><span class="s2">&quot;http://www.ebi.ac.uk/efo/definition&quot;</span><span class="p">],</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">  </span><span class="nt">&quot;synonym_property&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;http://www.ebi.ac.uk/efo/alternative_term&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">                       </span><span class="s2">&quot;http://www.geneontology.org/formats/oboInOwl#hasExactSynonym&quot;</span><span class="p">],</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">  </span><span class="nt">&quot;base_uri&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;http://www.ebi.ac.uk/efo/EFO_&quot;</span><span class="p">],</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">  </span><span class="nt">&quot;reasoner&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;OWL2&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">  </span><span class="nt">&quot;ontology_purl&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;http://www.ebi.ac.uk/efo/efo.owl&quot;</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="p">}</span>
+</code></pre></div>
+<p><strong>Defaults (read).</strong> With no <code>label_property</code>, the label is <code>rdfs:label</code> or one of three other
+title properties (<code>LabelAnnotator.java:19-37</code>). The synonym properties always include the four
+OBO scopes plus <code>hasSynonym</code>; <code>synonym_property</code> adds to them
+(<code>SynonymAnnotator.java:17-30</code>). So an OBO ontology needs no extra keys.</p>
+<p><strong>Our 12 in the EBI file (read).</strong> Only three of them have an EBI entry, and each is small.
+MONDO loads <code>mondo-international.owl</code> instead of <code>mondo.owl</code> (<code>ebi_ontologies.json:70</code>). UBERON
+names two preferred root terms (<code>:415</code>). NCBITaxon names its base URI (<code>:955</code>). The rest load
+straight from the registry entry.</p>
+<p><strong>Adding an ontology (read).</strong> The owner fills in a spreadsheet and opens a GitHub issue. The
+issue template names <code>preferredPrefix</code> and <code>ontology_purl</code> as the two important fields, and says
+OLS checks that address often for new releases
+(<code>.github/ISSUE_TEMPLATE/add-a-new-ontology-to-the-ebi-ols-instance-.md</code>). The production
+<code>ebi.json</code> lives off GitHub, so a pull request to <code>ebi_ontologies.json</code> may not be the path
+(inferred).</p>
+<h2 id="2-loading-versions-and-failures">2. Loading, versions and failures<a class="headerlink" href="#2-loading-versions-and-failures" title="Permanent link">&para;</a></h2>
+<p><strong>Steps (read).</strong> The load is a Nextflow pipeline (<code>ols_dataload.nf:57-191</code>). Per ontology,
+<code>rdf2json</code> downloads the OWL file, follows its imports and writes one JSON file. Its limits are
+500 GB of memory and 10 hours (<code>:217-222</code>). Then a linker pass over all of them works out which
+ontology defines each term. Then come a PostgreSQL load, a text tagger index, optional
+embeddings, and a load report.</p>
+<p><strong>How often (measured, inferred).</strong> UBERON, HsapDv, ChEBI and NCBITaxon all show a <code>loaded</code>
+time between 00:08 and 00:10 on 2026-11-21. So OLS4 reloads every ontology together, at least
+on that night, and probably nightly (inferred). Nothing in <code>rdf2json</code> compares a release with
+the last run's before it parses the file again (read: <code>OntologyGraph.java:253-279</code>).</p>
+<p><strong>Version record (read, measured).</strong> Each ontology gets <code>loaded</code> (the load time) and
+<code>sourceFileTimestamp</code> (<code>OntologyGraph.java:370-378</code>). The API also shows the file's version IRI
+and its <code>owl:versionInfo</code> as <code>version</code>. Measured on 2026-11-21:</p>
+<table>
+<thead>
+<tr>
+<th>Ontology</th>
+<th><code>version</code></th>
+<th><code>versionIri</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>UBERON</td>
+<td>none</td>
+<td><code>.../uberon/releases/2026-11-05/uberon.owl</code></td>
+</tr>
+<tr>
+<td>HsapDv</td>
+<td><code>2025-01-23</code></td>
+<td><code>.../life-stages/releases/2025-01-23/components/hsapdv.owl</code></td>
+</tr>
+<tr>
+<td>ChEBI</td>
+<td><code>257</code></td>
+<td><code>.../chebi/257/chebi.owl</code></td>
+</tr>
+<tr>
+<td>NCBITaxon</td>
+<td><code>2026-11-09</code></td>
+<td><code>.../ncbitaxon/2026-11-09/ncbitaxon.owl</code></td>
+</tr>
+</tbody>
+</table>
+<p>So <code>version</code> is missing when a file has no <code>versionInfo</code>, and the version IRI is the field
+that is always there for these four. OLS4's NCBITaxon is the OBO build of the taxonomy, 12 days
+behind NCBI's daily dump.</p>
+<p><strong>Failures (read).</strong> Each ontology loads in its own task, and a failure does not stop the run
+(<code>errorStrategy 'ignore'</code>, <code>ols_dataload.nf:221</code>). When <code>OLS_LAST_RUN_DIR</code> holds that
+ontology's JSON from the last good run, the loader uses it (<code>--mergeOutputWith</code>, <code>:240-243</code>). It
+writes status <code>FALLBACK</code>, and flags the ontology <code>is_fallback</code> with a reason the website shows
+(<code>RDF2JSON.java:246-316</code>). With no earlier copy the status is <code>FAILED_NO_FALLBACK</code>. After a
+<code>SUCCESS</code> or <code>FALLBACK</code>, the new JSON overwrites the saved one (<code>ols_dataload.nf:256-258</code>). So
+OLS4 keeps one copy per ontology and no history.</p>
+<h2 id="3-imported-terms-and-the-defining-ontology">3. Imported terms and the defining ontology<a class="headerlink" href="#3-imported-terms-and-the-defining-ontology" title="Permanent link">&para;</a></h2>
+<p><strong>Two flags (read).</strong> <code>imported</code> is true for a term that only came in through an <code>owl:imports</code>
+file (<code>OntologyGraph.java:283-307</code>). <code>isDefiningOntology</code> is true when the term's address starts
+with one of the ontology's base URIs. The linker always adds
+<code>http://purl.obolibrary.org/obo/{preferredPrefix}_</code> to the <code>base_uri</code> list
+(<code>dataload/linker/create_manifest/src/linker_pass1.rs:146-153, 292-300</code>). <code>definedBy</code> lists the
+ontologies that define the term. The search option <code>local=true</code> keeps only defining terms
+(<code>V1SearchController.java:153-155</code>).</p>
+<p><strong>Only the address flag works (measured).</strong> OBO releases merge imported terms into the main
+file. In OLS4's UBERON, <code>CL:0000540</code> (neuron) has <code>imported: false</code>, <code>isDefiningOntology: false</code>
+and <code>definedBy: ["cl"]</code>. UBERON's own <code>UBERON:0002421</code> has <code>isDefiningOntology: true</code>.</p>
+<p><strong>Is one prefix enough for our 12? Yes (measured).</strong> Term ids by prefix in each OBO file,
+obsolete terms included:</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Own prefix, terms</th>
+<th>Largest other prefixes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>uberon.obo</code></td>
+<td>UBERON 16,143</td>
+<td>GO 6,918; CL 1,484; CHEBI 778; NCBITaxon 480</td>
+</tr>
+<tr>
+<td><code>cl.obo</code></td>
+<td>CL 3,890</td>
+<td>GO 7,757; UBERON 5,245; full gene addresses 1,179; PR 980; CLM 955</td>
+</tr>
+<tr>
+<td><code>mondo.obo</code></td>
+<td>MONDO 36,094</td>
+<td>full gene addresses 5,806; UBERON 5,360; HP 4,860; GO 4,142</td>
+</tr>
+<tr>
+<td>WBbt, PATO, HsapDv, MmusDv, WBls, FBdv</td>
+<td>own prefix only</td>
+<td>none</td>
+</tr>
+</tbody>
+</table>
+<p>The full addresses are <code>identifiers.org</code> gene ids (NCBI Gene, HGNC, Ensembl). <code>CLM</code> is CL's
+marker gene sets, not cell types. ChEBI's file holds only <code>CHEBI</code> ids (measured; see the end of
+this note). All 5,243 Cellosaurus ids in the file's first 3 MB start <code>CVCL_</code> (measured), and
+the taxdump holds only taxonomy ids. So an
+own-prefix filter is both needed and enough for the 12. A list of prefixes, as OLS4's
+<code>base_uri</code> list allows, covers a later vocabulary that needs two (inferred).</p>
+<h2 id="4-search-fields-and-options">4. Search fields and options<a class="headerlink" href="#4-search-fields-and-options" title="Permanent link">&para;</a></h2>
+<p><strong>Per term (read, measured).</strong> OLS4 keeps every synonym in one <code>synonym</code> field, and also each
+scope under its own property name. The old search API returns them apart, as <code>exact_synonyms</code>,
+<code>related_synonyms</code>, <code>narrow_synonyms</code> and <code>broad_synonyms</code> (<code>V1SearchController.java:82,
+224-227</code>). Each synonym also keeps its OBO synonym type. On <code>UBERON:0002421</code> (hippocampal
+formation), the synonym "hippocampus" is NARROW and typed <code>INCONSISTENT</code>: "used in an
+inconsistent or confusing way, typically between species" (measured). Obsolete terms are those
+with <code>owl:deprecated true</code>, among other tests (<code>IsObsoleteAnnotator.java:44-59</code>).</p>
+<p><strong>Options worth copying (read).</strong> The search takes <code>exact</code>, <code>queryFields</code>, <code>obsoletes</code> (off by
+default), <code>local</code>, <code>childrenOf</code>, <code>allChildrenOf</code>, <code>isLeaf</code>, <code>rows</code> and <code>start</code>
+(<code>V1SearchController.java:65-124</code>).</p>
+<ul>
+<li><code>exact</code> and <code>queryFields</code>: cheap for us, as whole-text and name-only searches.</li>
+<li><code>local</code>: our store always applies it.</li>
+<li><code>obsoletes</code>: our default matches OLS4's; a flag to include them costs little.</li>
+<li><code>allChildrenOf</code>: a subtree limit, such as "under Metazoa" for the taxonomy or "part of
+  brain" for UBERON. It needs each term's ancestors stored. Worth it later, not now.</li>
+</ul>
+<h2 id="5-identifiers">5. Identifiers<a class="headerlink" href="#5-identifiers" title="Permanent link">&para;</a></h2>
+<p><strong>OLS4's rule (read).</strong> OLS4 builds each term's short form from its address. When the address
+starts with a base URI it writes <code>PREFIX_local</code>. Then it turns the first <code>_</code> into <code>:</code> for the
+CURIE (<code>ShortFormAnnotator.java:21-78, 115-121</code>). With no <code>preferredPrefix</code>, it uses the
+upper-cased ontology id. <code>shortFormExtractionPattern</code> is a regular expression for odd addresses.
+Bioregistry, a community list of id prefixes, is used only to turn cross-references into links
+(<code>dataload/linker/link/src/bioregistry.rs:6-13</code>). It is not used to build a term's own id.</p>
+<p><strong>Id form for our 12 (measured, read).</strong> Store the id as each source writes it:</p>
+<table>
+<thead>
+<tr>
+<th>Vocabulary</th>
+<th>Id form</th>
+<th>Note</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>UBERON, WBbt, CL, MONDO, PATO, HsapDv, MmusDv, WBls, FBdv, ChEBI</td>
+<td><code>UBERON:0002421</code>, <code>WBbt:…</code>, <code>CL:…</code>, <code>MONDO:…</code>, <code>PATO:…</code>, <code>HsapDv:…</code>, <code>MmusDv:…</code>, <code>WBls:…</code>, <code>FBdv:…</code>, <code>CHEBI:41879</code></td>
+<td>as in each file's <code>id:</code> line; mixed case as each ontology spells it</td>
+</tr>
+<tr>
+<td>NCBI Taxonomy</td>
+<td><code>NCBITaxon:9606</code></td>
+<td>the taxdump holds <code>9606</code>; the store adds the prefix</td>
+</tr>
+<tr>
+<td>Cellosaurus</td>
+<td><code>CVCL_0030</code></td>
+<td>Cellosaurus's own form. Bioregistry's CURIE would be <code>cellosaurus:0030</code>, with <code>CVCL</code> as the part it drops (read: bioregistry.io API)</td>
+</tr>
+</tbody>
+</table>
+<p>A lookup could also accept <code>cellosaurus:0030</code> and a bare <code>9606</code>, and map them to the stored
+form (inferred).</p>
+<h2 id="6-related-ebi-tools">6. Related EBI tools<a class="headerlink" href="#6-related-ebi-tools" title="Permanent link">&para;</a></h2>
+<p><strong>ZOOMA</strong> maps free text to terms, from text that EBI curators have already mapped by hand.
+<code>propertyValue=hippocampus</code> returns <code>UBERON_0002421</code> (measured). Its curated sets are now
+published as SSSOM tables (a standard table format for mappings) in
+<a href="https://github.com/mapping-commons/ebi-text-mappings"><code>mapping-commons/ebi-text-mappings</code></a>.
+The sources include Expression Atlas, HCA, FAANG and BioSamples (read: its README). OLS4 loads
+them, when switched on, and shows them on each term as <code>curatedFrom</code>
+(<code>ols_dataload.nf:312-326</code>; measured on <code>UBERON:0002421</code>). <strong>Relevant to seqforge:</strong> these are
+past human decisions on the same kind of sample label. They could be one more table in the
+store, looked up before the word search (inferred).</p>
+<p><strong>OxO</strong> serves cross-references between ontologies, such as <code>UBERON:0002421</code> → <code>FMA:74038</code>
+(measured). It does not turn text into terms. It could help when a paper names a term from a
+vocabulary we don't hold, but it is not needed for label search (inferred).</p>
+<h2 id="7-the-obo-foundry-registry-as-a-source">7. The OBO Foundry registry as a source<a class="headerlink" href="#7-the-obo-foundry-registry-as-a-source" title="Permanent link">&para;</a></h2>
+<p><strong>What it holds (measured).</strong> <code>https://obofoundry.org/registry/ontologies.jsonld</code> lists 268
+ontologies. All 10 of our OBO Foundry vocabularies are there, <code>active</code>, with <code>preferredPrefix</code>
+and an OWL <code>ontology_purl</code>. Nine list <code>{id}.obo</code> as a product. UBERON lists only
+<code>uberon/uberon-basic.obo</code>, though <code>purl.obolibrary.org/obo/uberon.obo</code> serves the full file
+(measured in the table below). The registry has no version, no version rule and no base URI.</p>
+<p><strong>So (inferred):</strong> the registry cannot make a new vocabulary a one-line entry by itself. The
+address <code>purl.obolibrary.org/obo/{id}.obo</code> works for all 10, so a declaration can default to
+it. A test can check each declared prefix against the registry's <code>preferredPrefix</code>.</p>
+<h2 id="download-facts-measured-2026-11-21">Download facts (measured 2026-11-21)<a class="headerlink" href="#download-facts-measured-2026-11-21" title="Permanent link">&para;</a></h2>
+<p>All 12 can be downloaded by script, with no login, from stable addresses:</p>
+<table>
+<thead>
+<tr>
+<th>Vocabulary</th>
+<th>Address</th>
+<th>Size</th>
+<th>Version field in the file</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>UBERON</td>
+<td><code>purl.obolibrary.org/obo/uberon.obo</code></td>
+<td>22.5 MB</td>
+<td><code>data-version: releases/2026-11-05</code></td>
+</tr>
+<tr>
+<td>WBbt</td>
+<td><code>purl…/wbbt.obo</code>, which redirects to GitHub raw <code>master</code></td>
+<td>1.6 MB</td>
+<td><code>releases/2025-08-19</code></td>
+</tr>
+<tr>
+<td>CL</td>
+<td><code>purl…/cl.obo</code></td>
+<td>19.8 MB</td>
+<td><code>releases/2026-11-13</code></td>
+</tr>
+<tr>
+<td>MONDO</td>
+<td><code>purl…/mondo.obo</code></td>
+<td>53.4 MB</td>
+<td><code>releases/2026-11-03</code></td>
+</tr>
+<tr>
+<td>PATO</td>
+<td><code>purl…/pato.obo</code>, which redirects to GitHub raw <code>master</code></td>
+<td>0.8 MB</td>
+<td><code>releases/2026-10-01/pato.obo</code></td>
+</tr>
+<tr>
+<td>HsapDv</td>
+<td><code>purl…/hsapdv.obo</code></td>
+<td>0.14 MB</td>
+<td>none in the OBO file; header <code>date: 05:02:2021</code></td>
+</tr>
+<tr>
+<td>MmusDv</td>
+<td><code>purl…/mmusdv.obo</code></td>
+<td>0.10 MB</td>
+<td>none in the OBO file; same as HsapDv</td>
+</tr>
+<tr>
+<td>WBls</td>
+<td><code>purl…/wbls.obo</code>, which redirects to GitHub raw <code>master</code></td>
+<td>0.4 MB</td>
+<td><code>wbls/releases/2026-04-16/wbls-simple.owl</code></td>
+</tr>
+<tr>
+<td>FBdv</td>
+<td><code>purl…/fbdv.obo</code></td>
+<td>0.12 MB</td>
+<td><code>fbdv/releases/2026-11-02</code></td>
+</tr>
+<tr>
+<td>ChEBI</td>
+<td><code>purl…/chebi.obo</code>, which redirects to <code>ftp.ebi.ac.uk</code></td>
+<td>274 MB</td>
+<td><code>data-version: 257</code></td>
+</tr>
+<tr>
+<td>Cellosaurus</td>
+<td><code>ftp.expasy.org/databases/cellosaurus/cellosaurus.obo</code></td>
+<td>118.6 MB</td>
+<td><code>data-version: 57.0</code>; also <code>api.cellosaurus.org/release-info</code></td>
+</tr>
+<tr>
+<td>NCBI Taxonomy</td>
+<td><code>ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump.tar.gz</code>, with a <code>.md5</code> beside it</td>
+<td>80.4 MB</td>
+<td>none; Last-Modified, rebuilt daily</td>
+</tr>
+</tbody>
+</table>
+<p><strong>HsapDv and MmusDv do have a version.</strong> Both OBO purls redirect to GitHub's
+<code>releases/latest/download/</code> of <code>developmental-stage-ontologies</code>. The OWL files there carry
+<code>owl:versionInfo 2025-01-23</code> and a version IRI with that date; OLS4 reports the same version
+(measured). The OBO files carry no <code>data-version</code>. So their snapshot can be named
+<code>hsapdv-2025-01-23</code>, from the OWL header or the GitHub release.</p>
+<p>More facts:</p>
+<ul>
+<li><strong>Synonym scopes:</strong> UBERON, WBbt, CL, MONDO, PATO, HsapDv, WBls and FBdv use all four. MmusDv
+  has no BROAD synonym. ChEBI showed only EXACT and RELATED. Every Cellosaurus synonym found was
+  RELATED.</li>
+<li><strong>Obsolete terms:</strong> <code>is_obsolete</code> appears in all the OBO Foundry files. For ChEBI, see the
+  next paragraph. Cellosaurus's OBO has no <code>is_obsolete</code>; deleted accessions are listed in
+  <code>cellosaurus_deleted_ACs.txt</code>.</li>
+<li><strong><code>replaced_by</code> can point into another vocabulary:</strong> a CL term points to a CLO term, and a
+  MONDO term to a CHEBI term. WBbt and WBls have obsolete terms with no <code>replaced_by</code>.</li>
+<li><strong>The taxdump</strong> has <code>names.dmp</code>, <code>merged.dmp</code> (an old id merged into a new one) and
+  <code>delnodes.dmp</code>.</li>
+</ul>
+<p><strong>ChEBI's retired ids are mostly <code>alt_id</code> lines, not obsolete terms.</strong> A streamed scan of
+<code>chebi.obo</code> stopped at its 500-second limit after 174,293 <code>[Term]</code> stanzas, most of the file. It
+found one <code>is_obsolete: true</code> (measured). OLS4, which loads <code>chebi.owl</code> of the same release 257,
+counts 19,427 obsolete ChEBI classes. One is <code>CHEBI:1</code>, replaced by <code>CHEBI:18357</code>
+((R)-noradrenaline), which lists <code>CHEBI:1</code> among its alternative ids (measured). So the OWL turns
+each <code>alt_id</code> into an obsolete class, while the OBO file keeps it as an <code>alt_id</code> line on the live
+term (inferred). A lookup by id must index <code>alt_id</code>, or an old ChEBI id finds nothing.</p>
+<h2 id="what-the-ontology-store-should-take-from-it">What the ontology store should take from it<a class="headerlink" href="#what-the-ontology-store-should-take-from-it" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong>One declaration per vocabulary, as data.</strong> Each entry names: the id, the own-term
+   prefixes, the download address, the reader kind (<code>obo</code>, <code>cellosaurus</code>, <code>taxdump</code>), and the
+   version rule (<code>data-version</code> header, OWL <code>versionInfo</code>, Last-Modified date, or a release
+   API). Defaults cover a plain OBO Foundry file: address <code>purl.obolibrary.org/obo/{id}.obo</code>,
+   the four synonym scopes, <code>name:</code> as the label. A new OBO vocabulary is then three lines.</li>
+<li><strong>Own terms by id prefix, from a declared list.</strong> It is the rule OLS4 uses, and it is the
+   one that works on merged OBO files. Imports in the file say nothing useful.</li>
+<li><strong>Check the version before downloading.</strong> OLS4 parses every file every night. We read a
+   header, a Last-Modified date or an <code>.md5</code>, and download only what changed.</li>
+<li><strong>A failed vocabulary leaves its current snapshot in place.</strong> Record a status per
+   vocabulary in the update's status record (updated, unchanged, failed), as OLS4 does with
+   <code>SUCCESS</code> and <code>FALLBACK</code>, and let the other vocabularies go on.</li>
+<li><strong>Record what OLS4 records:</strong> the release, the source file's date, the load time and the
+   term counts, per snapshot.</li>
+<li><strong>Keep the synonym type next to the scope.</strong> A candidate that matched through an
+   <code>INCONSISTENT</code> synonym should say so, so the model that picks among candidates can see it.</li>
+<li><strong>A lookup by id knows every retired id.</strong> Each reader gives the same table of old id → live
+   id or "gone": <code>alt_id</code> and <code>replaced_by</code> from OBO files, <code>merged.dmp</code> and <code>delnodes.dmp</code> from the
+   taxdump, and Cellosaurus's deleted list. A new vocabulary fills the same table.</li>
+<li><strong>Search options to add as they are needed:</strong> whole text only, name only, include obsolete.
+   A subtree limit waits until a reading needs it.</li>
+<li><strong>The EBI's curated text mappings are a candidate source,</strong> loaded as a table beside a
+   vocabulary. That is a later decision, not part of the first 12.</li>
+</ol>
+<p><strong>Leave out:</strong> a database server (PostgreSQL now; Solr and Neo4j before), OWL parsing with
+import resolution and a reasoner (a 500 GB, 10-hour task in OLS4), a nightly reload of
+everything, the cross-ontology linker, embeddings, and Bioregistry at load time. Twelve
+declared prefixes need no prefix registry.</p>
+
+
+
+
+
+
+
+
+
+  
+  
+
+
+
+  
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate":null,"base":"../..","features":["navigation.sections","navigation.expand","content.code.copy","content.code.annotate","content.action.edit","toc.follow"],"search":"../../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.49251538.min.js"></script>
+      
+    
+  </body>
+</html>
