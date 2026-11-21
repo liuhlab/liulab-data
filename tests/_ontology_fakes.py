@@ -54,13 +54,14 @@ class OntologyWeb:
 
     ``failures`` lists, per URL, statuses to answer before serving it. A URL in
     ``no_ranges`` answers a Range request with the whole file, as a server that ignores
-    Range does.
+    Range does. ``modified`` gives a URL's ``Last-Modified`` header.
     """
 
     files: dict[str, bytes] = field(default_factory=dict)
     redirects: dict[str, str] = field(default_factory=dict)
     failures: dict[str, list[int]] = field(default_factory=dict)
     no_ranges: set[str] = field(default_factory=set)
+    modified: dict[str, str] = field(default_factory=dict)
     calls: list[Call] = field(default_factory=list)
 
     @contextmanager
@@ -86,13 +87,14 @@ class OntologyWeb:
 
     def _serve(self, call: Call, data: bytes, wanted: str | None) -> _Reply:
         match = _RANGE.fullmatch(wanted or "")
+        dated = {"Last-Modified": self.modified[call.url]} if call.url in self.modified else {}
         if match is None or call.url in self.no_ranges:
-            return _Reply(call, data, 200, {"Content-Length": str(len(data))})
+            return _Reply(call, data, 200, {"Content-Length": str(len(data)), **dated})
         start = int(match.group(1))
         end = int(match.group(2)) if match.group(2) else len(data) - 1
         part = data[start : end + 1]
         content_range = f"bytes {start}-{start + len(part) - 1}/{len(data)}"
-        return _Reply(call, part, 206, {"Content-Range": content_range})
+        return _Reply(call, part, 206, {"Content-Range": content_range, **dated})
 
     def gets(self, url: str) -> list[Call]:
         """Return the GETs of ``url``, in order."""

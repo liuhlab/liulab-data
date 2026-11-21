@@ -82,7 +82,7 @@ src/labdata/
                        subset.py (the papers a subset store links)
   ontology/          the ontology store: paths.py (its paths and their kinds);
                        root.py (marker, init, the current-snapshots record and its
-                       switch); tables.py (the one writer of a snapshot's term
+                       switch, prune); tables.py (the one writer of a snapshot's term
                        tables and search index, one SQLite file, and the terms
                        it takes); reader.py (open_ontology_store: pinned at
                        open, lookup, search);

@@ -1,46 +1,63 @@
 """The update: bring each declared vocabulary's current release into the store.
 
-One process under the store's run lock. Per vocabulary it reads the release from the file's
-header, downloads the file only when that release has no snapshot yet, reads it and writes
-the snapshot. Then it switches every vocabulary that succeeded at once.
+One process under the store's run lock. It first remakes, from their kept source files, the
+tables of current snapshots an older table layout wrote. Per vocabulary it then reads the
+release from the file's header, downloads the file only when that release has no snapshot
+yet, reads it, checks its own-term count against the current snapshot's and writes the
+snapshot. Then it switches every vocabulary that succeeded at once, and prunes.
 """
 
 from __future__ import annotations
 
+import dataclasses
+import datetime as dt
 import logging
 import os
 import urllib.parse
 from collections.abc import Sequence
+from contextlib import closing
 from pathlib import Path
 
 from labdata._files import utc_stamp
 from labdata._http import HttpTransport, Transport
-from labdata.exceptions import LabdataError
-from labdata.ontology import fetch, lifecycle, obo, paths
+from labdata.exceptions import LabdataError, OntologyError
+from labdata.ontology import fetch, lifecycle, obo, paths, tables
+from labdata.ontology import vocabularies as declared
 from labdata.ontology.lifecycle import Outcome, Result, UpdateStatus, VocabularyResult
-from labdata.ontology.root import find_root, switch
-from labdata.ontology.tables import TABLE_LAYOUT, layout_of, snapshot_name, write_snapshot
-from labdata.ontology.vocabularies import VOCABULARIES, Vocabulary, release_of
+from labdata.ontology.root import find_root, prune, read_current, switch
+from labdata.ontology.tables import (
+    SnapshotData,
+    layout_of,
+    snapshot_name,
+    tables_path,
+    write_snapshot,
+)
+from labdata.ontology.vocabularies import Vocabulary, release_of
 
 logger = logging.getLogger(__name__)
+
+#: The least share of the current snapshot's own terms a new release must hold. Vocabularies
+#: mark retired terms obsolete rather than delete them, so a release that loses more is cut.
+MIN_TERM_SHARE = 0.95
 
 
 def update(
     root: str | os.PathLike[str] | None = None,
     *,
-    vocabularies: Sequence[Vocabulary] = VOCABULARIES,
+    vocabularies: Sequence[Vocabulary] | None = None,
     transport: Transport | None = None,
     owner_gone: bool = False,
 ) -> UpdateStatus:
-    """Update every vocabulary to its current release, under the store's run lock.
+    """Update every vocabulary to its current release, under the store's run lock, and prune.
 
-    A vocabulary that fails keeps its current snapshot, and the others still update.
+    A vocabulary that fails keeps its current snapshot, and the others still update. A new
+    release with fewer than :data:`MIN_TERM_SHARE` of the current snapshot's own terms fails.
 
     Parameters
     ----------
     root : str or os.PathLike, optional
         The ontology store root; default ``LABDATA_ONTOLOGIES``, then the pointer.
-    vocabularies : Sequence of Vocabulary
+    vocabularies : Sequence of Vocabulary, optional
         The vocabularies to update; default every declared one.
     transport : Transport, optional
         The HTTP transport every request goes through.
@@ -59,13 +76,24 @@ def update(
     """
     path = find_root(root)
     web = transport if transport is not None else HttpTransport()
+    chosen = declared.VOCABULARIES if vocabularies is None else vocabularies
     with lifecycle.run_lock(path, "update", owner_gone=owner_gone):
         start = utc_stamp()
         lifecycle.write_status(path, UpdateStatus(start=start, outcome=Outcome.RUNNING))
         try:
-            rows = {vocab.name: _update_one(path, vocab, web) for vocab in vocabularies}
-            done = {name: row.snapshot for name, row in rows.items() if row.snapshot is not None}
-            switch(path, done)
+            _remake(path, chosen)
+            rows = {vocab.name: _update_one(path, vocab, web) for vocab in chosen}
+            switch(
+                path,
+                {
+                    name: row.snapshot
+                    for name, row in rows.items()
+                    if row.result != Result.FAILED and row.snapshot is not None
+                },
+            )
+            current = read_current(path)
+            rows = {name: _described(path, row, current.get(name)) for name, row in rows.items()}
+            prune(path)
         except BaseException:
             lifecycle.write_status(
                 path, UpdateStatus(start=start, end=utc_stamp(), outcome=Outcome.FAILED)
@@ -84,12 +112,13 @@ def _update_one(root: Path, vocab: Vocabulary, transport: Transport) -> Vocabula
         head = fetch.read_head(vocab.url, transport=transport)
         release = release_of(obo.header_version(head))
         name = snapshot_name(vocab.name, release)
-        if layout_of(root, name) == TABLE_LAYOUT:
+        if layout_of(root, name) == tables.TABLE_LAYOUT:
             return VocabularyResult(release, name, Result.UNCHANGED)
         source = paths.DOWNLOADS.at(root, _file_name(vocab))
         try:
             fetch.download(vocab.url, source, transport=transport)
             data = obo.read_obo(source, vocab)
+            _check_terms(root, data)
             name = write_snapshot(root, data, sources=[source])
         finally:
             source.unlink(missing_ok=True)
@@ -101,3 +130,60 @@ def _update_one(root: Path, vocab: Vocabulary, transport: Transport) -> Vocabula
 
 def _file_name(vocab: Vocabulary) -> str:
     return Path(urllib.parse.urlsplit(vocab.url).path).name or f"{vocab.name}.obo"
+
+
+def _remake(root: Path, vocabularies: Sequence[Vocabulary]) -> None:
+    """Remake from its kept source files each current snapshot an older table layout wrote.
+
+    A remake that fails is logged, and the vocabulary's own step then downloads its release.
+    """
+    current = read_current(root)
+    for vocab in vocabularies:
+        name = current.get(vocab.name)
+        if name is None or layout_of(root, name) in (None, tables.TABLE_LAYOUT):
+            continue
+        try:
+            data = _read_kept(root, vocab, name)
+            if snapshot_name(vocab.name, data.release) != name:
+                raise OntologyError(f"its source file states release {data.release}")
+            write_snapshot(root, data)
+        except LabdataError as err:
+            logger.warning("%s: cannot remake %s from its source: %s", vocab.name, name, err)
+
+
+def _read_kept(root: Path, vocab: Vocabulary, snapshot: str) -> SnapshotData:
+    files = sorted(paths.SNAPSHOTS.at(root, snapshot, paths.SOURCE_DIR).glob("*"))
+    if not files:
+        raise OntologyError(f"{snapshot} keeps no source file")
+    return obo.read_obo(files[0], vocab)
+
+
+def _check_terms(root: Path, data: SnapshotData) -> None:
+    """Refuse a release holding far fewer own terms than the current snapshot."""
+    current = read_current(root).get(data.vocabulary)
+    if current is None:
+        return
+    held = _term_count(root, current)
+    if len(data.terms) < MIN_TERM_SHARE * held:
+        raise OntologyError(
+            f"release {data.release} holds {len(data.terms)} own terms, under "
+            f"{MIN_TERM_SHARE:.0%} of the {held} in {current}"
+        )
+
+
+def _described(root: Path, row: VocabularyResult, current: str | None) -> VocabularyResult:
+    """Return ``row`` naming the current snapshot, its own-term count and source file date."""
+    snapshot = current if row.result == Result.FAILED else row.snapshot
+    if snapshot is None:
+        return row
+    files = list(paths.SNAPSHOTS.at(root, snapshot, paths.SOURCE_DIR).glob("*"))
+    newest = max((f.stat().st_mtime for f in files), default=None)
+    date = None if newest is None else f"{dt.datetime.fromtimestamp(newest, dt.UTC):%Y-%m-%d}"
+    return dataclasses.replace(
+        row, snapshot=snapshot, terms=_term_count(root, snapshot), source_date=date
+    )
+
+
+def _term_count(root: Path, snapshot: str) -> int:
+    with closing(tables.connect(tables_path(root, snapshot))) as db:
+        return int(db.execute("select count(*) from terms").fetchone()[0])
