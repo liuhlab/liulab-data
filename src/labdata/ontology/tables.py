@@ -22,7 +22,7 @@ from labdata.exceptions import OntologyError
 from labdata.ontology import paths
 
 #: The layout of the tables :func:`write_snapshot` writes; a change to them raises it.
-TABLE_LAYOUT = 2
+TABLE_LAYOUT = 3
 
 _SCHEMA = """
 create table meta (key text primary key, value text not null);
@@ -84,12 +84,11 @@ class Reason(enum.StrEnum):
 class Synonym:
     """One synonym of a source term.
 
-    ``scope`` is one of :class:`Scope`, given as the enum or its string; ``type`` is the
-    vocabulary's own synonym type, such as UBERON's ``INCONSISTENT``.
+    ``type`` is the vocabulary's own synonym type, such as UBERON's ``INCONSISTENT``.
     """
 
     text: str
-    scope: str
+    scope: Scope
     type: str | None = None
 
 
@@ -118,7 +117,7 @@ class RetiredEntry:
 
     id: str
     live_id: str | None
-    reason: str
+    reason: Reason
 
 
 @dataclass(frozen=True, slots=True)
@@ -227,6 +226,12 @@ def layout_of(root: Path, snapshot: str) -> int | None:
         return int(read_meta(db)["layout"])
 
 
+def term_count(root: Path, snapshot: str) -> int:
+    """Return a snapshot's own-term count, obsolete terms included."""
+    with closing(connect(tables_path(root, snapshot))) as db:
+        return int(db.execute("select count(*) from terms").fetchone()[0])
+
+
 def connect(path: Path) -> sqlite3.Connection:
     """Open a snapshot's tables file read-only; it is never written once in place."""
     return sqlite3.connect(f"{path.as_uri()}?mode=ro&immutable=1", uri=True)
@@ -245,6 +250,7 @@ def _write_tables(path: Path, data: SnapshotData, name: str) -> None:
         "snapshot": name,
         "prefixes": json.dumps(list(prefixes)),
         "layout": str(TABLE_LAYOUT),
+        "searchable": "1" if data.searchable else "0",
     }
     path.unlink(missing_ok=True)
     with closing(sqlite3.connect(path)) as db:

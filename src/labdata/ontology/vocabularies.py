@@ -134,9 +134,6 @@ VOCABULARIES: tuple[Vocabulary, ...] = (
     Vocabulary("fbdv", ("FBdv:",)),
 )
 
-#: The vocabularies a search refuses: they are looked up by id only.
-LOOKUP_ONLY = frozenset(v.name for v in VOCABULARIES if not v.searchable)
-
 
 def release_of(version: str) -> str:
     """Return the release a version string names: its ``YYYY-MM-DD`` date, or else itself.

@@ -6,6 +6,7 @@ parsed frames; only the kept terms are.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -14,10 +15,13 @@ from fastobo import header, term  # pyright: ignore[reportAttributeAccessIssue]
 from fastobo import iter as frames_of  # pyright: ignore[reportAttributeAccessIssue]
 
 from labdata.exceptions import OntologyError
-from labdata.ontology.tables import SnapshotData, SourceTerm, Synonym
+from labdata.ontology.tables import Scope, SnapshotData, SourceTerm, Synonym
 from labdata.ontology.vocabularies import Vocabulary, release_of
 
 _TAG = "data-version:"
+# A type named only by a number, such as OMO:0003004 ("plural form"), reads by its header name;
+# a named one, such as UBERON's INCONSISTENT, whose header text is a definition, reads as is.
+_NUMBERED = re.compile(r"[A-Za-z]+:\d+")
 
 
 def header_version(head: bytes) -> str:
@@ -40,7 +44,8 @@ def read_obo(path: Path, vocabulary: Vocabulary, *, release: str | None = None) 
     """Read the vocabulary's own terms from an OBO file, with the release its header states.
 
     Terms whose id has none of the vocabulary's prefixes, such as imported ones, are left out.
-    A given ``release`` is used instead of the header's, for a file that states none.
+    A given ``release`` is used instead of the header's, for a file that states none. A synonym
+    type named only by a number, such as ``OMO:0003004``, is stored by its name in the header.
 
     Raises
     ------
@@ -50,12 +55,13 @@ def read_obo(path: Path, vocabulary: Vocabulary, *, release: str | None = None) 
     """
     try:
         frames = frames_of(str(path))
+        head = list(frames.header())
         version = next(
-            (str(c.version) for c in frames.header() if isinstance(c, header.DataVersionClause)),
-            None,
+            (str(c.version) for c in head if isinstance(c, header.DataVersionClause)), None
         )
+        labels = _type_labels(head)
         terms = [
-            _term(frame)
+            _term(frame, labels)
             for frame in frames
             if isinstance(frame, term.TermFrame) and str(frame.id).startswith(vocabulary.prefixes)
         ]
@@ -67,7 +73,18 @@ def read_obo(path: Path, vocabulary: Vocabulary, *, release: str | None = None) 
     return SnapshotData(vocabulary.name, stated, terms, prefixes=vocabulary.prefixes)
 
 
-def _term(frame: Any) -> SourceTerm:
+def _type_labels(head: list[Any]) -> dict[str, str]:
+    """Map each numbered synonym type, such as ``OMO:0003004``, to its name in the header."""
+    labels = {}
+    for clause in head:
+        if isinstance(clause, header.SynonymTypedefClause):
+            id, name = str(clause.typedef), str(clause.description)
+            if _NUMBERED.fullmatch(id) and name:
+                labels[id] = name
+    return labels
+
+
+def _term(frame: Any, labels: dict[str, str]) -> SourceTerm:
     name: str | None = None
     obsolete = False
     replaced_by: list[str] = []
@@ -78,8 +95,8 @@ def _term(frame: Any) -> SourceTerm:
             name = str(clause.name)
         elif isinstance(clause, term.SynonymClause):
             syn = clause.synonym
-            kind = None if syn.type is None else str(syn.type)
-            synonyms.append(Synonym(str(syn.desc), str(syn.scope), kind))
+            kind = None if syn.type is None else labels.get(str(syn.type), str(syn.type))
+            synonyms.append(Synonym(str(syn.desc), Scope(str(syn.scope)), kind))
         elif isinstance(clause, term.IsObsoleteClause):
             obsolete = bool(clause.obsolete)
         elif isinstance(clause, term.ReplacedByClause):

@@ -33,6 +33,7 @@ from labdata.ontology.tables import (
     read_meta,
     snapshot_name,
     tables_path,
+    term_count,
     write_snapshot,
 )
 from labdata.ontology.vocabularies import (
@@ -92,8 +93,12 @@ def update(
     chosen = declared.VOCABULARIES if vocabularies is None else vocabularies
     with lifecycle.run_lock(path, "update", owner_gone=owner_gone):
         lifecycle.copy_first(path)
+        # A copy still pending stays so until one works, whatever this update does.
+        pending = lifecycle.read_status(path).copy_pending
         start = utc_stamp()
-        lifecycle.write_status(path, UpdateStatus(start=start, outcome=Outcome.RUNNING))
+        lifecycle.write_status(
+            path, UpdateStatus(start=start, outcome=Outcome.RUNNING, copy_pending=pending)
+        )
         try:
             _remake(path, chosen)
             rows = {vocab.name: _update_one(path, vocab, web) for vocab in chosen}
@@ -109,13 +114,12 @@ def update(
             rows = {name: _described(path, row, current.get(name)) for name, row in rows.items()}
             prune(path)
         except BaseException:
-            lifecycle.write_status(
-                path, UpdateStatus(start=start, end=utc_stamp(), outcome=Outcome.FAILED)
-            )
+            stopped = UpdateStatus(start, utc_stamp(), Outcome.FAILED, copy_pending=pending)
+            lifecycle.write_status(path, stopped)
             raise
         failed = any(row.result == Result.FAILED for row in rows.values())
         outcome = Outcome.FAILED if failed else Outcome.BUILT
-        lifecycle.write_status(path, UpdateStatus(start, utc_stamp(), outcome, rows))
+        lifecycle.write_status(path, UpdateStatus(start, utc_stamp(), outcome, rows, pending))
         lifecycle.copy_last(path)
     return lifecycle.read_status(path)
 
@@ -126,14 +130,12 @@ def _update_one(root: Path, vocab: Vocabulary, transport: Transport) -> Vocabula
         release = current_release(vocab, transport=transport)
         name = snapshot_name(vocab.name, release)
         if layout_of(root, name) == tables.TABLE_LAYOUT:
-            return VocabularyResult(release, name, Result.UNCHANGED)
+            # A kept snapshot that is not current, as when a source goes back a release.
+            current = read_current(root).get(vocab.name) == name
+            return VocabularyResult(release, name, Result.UNCHANGED if current else Result.UPDATED)
         sources = [paths.DOWNLOADS.at(root, _file_name(url)) for url in vocab.downloads]
         try:
-            for url, source in zip(vocab.downloads, sources, strict=True):
-                fetch.download(url, source, transport=transport)
-            if vocab.reader is ReaderKind.TAXDUMP:
-                listed = fetch.read_head(f"{vocab.url}.md5", transport=transport)
-                taxdump.check_md5(sources[0], listed)
+            release = _download(vocab, sources, transport) or release
             data = _read(vocab, sources, release)
             _check_terms(root, data)
             name = write_snapshot(root, data, sources=sources)
@@ -160,6 +162,33 @@ def current_release(vocab: Vocabulary, *, transport: Transport) -> str:
     if vocab.version is VersionRule.OWL_VERSION_INFO:
         return release_of(owl_version(head))
     return release_of(obo.header_version(head))
+
+
+def _download(vocab: Vocabulary, sources: Sequence[Path], transport: Transport) -> str | None:
+    """Download a vocabulary's files; return the release the download names, if it names one."""
+    if vocab.reader is ReaderKind.TAXDUMP:
+        return _download_taxdump(vocab, sources[0], transport)
+    for url, source in zip(vocab.downloads, sources, strict=True):
+        fetch.download(url, source, transport=transport)
+    return None
+
+
+def _download_taxdump(vocab: Vocabulary, dest: Path, transport: Transport) -> str:
+    """Download the taxonomy dump, checked against its ``.md5`` read first; return its date.
+
+    NCBI rebuilds the dump daily, so a pair that does not match is fetched once more.
+    """
+    md5 = f"{vocab.url}.md5"
+    listed = fetch.read_head(md5, transport=transport)
+    modified = fetch.download(vocab.url, dest, transport=transport)
+    try:
+        taxdump.check_md5(dest, listed)
+    except OntologyError as err:
+        logger.warning("%s: %s; fetching both again", vocab.name, err)
+        listed = fetch.read_head(md5, transport=transport)
+        modified = fetch.download(vocab.url, dest, transport=transport)
+        taxdump.check_md5(dest, listed)
+    return file_date(modified)
 
 
 def _read(vocab: Vocabulary, sources: Sequence[Path], release: str) -> SnapshotData:
@@ -212,7 +241,7 @@ def _check_terms(root: Path, data: SnapshotData) -> None:
     current = read_current(root).get(data.vocabulary)
     if current is None:
         return
-    held = _term_count(root, current)
+    held = term_count(root, current)
     if len(data.terms) < MIN_TERM_SHARE * held:
         raise OntologyError(
             f"release {data.release} holds {len(data.terms)} own terms, under "
@@ -229,10 +258,5 @@ def _described(root: Path, row: VocabularyResult, current: str | None) -> Vocabu
     newest = max((f.stat().st_mtime for f in files), default=None)
     date = None if newest is None else f"{dt.datetime.fromtimestamp(newest, dt.UTC):%Y-%m-%d}"
     return dataclasses.replace(
-        row, snapshot=snapshot, terms=_term_count(root, snapshot), source_date=date
+        row, snapshot=snapshot, terms=term_count(root, snapshot), source_date=date
     )
-
-
-def _term_count(root: Path, snapshot: str) -> int:
-    with closing(tables.connect(tables_path(root, snapshot))) as db:
-        return int(db.execute("select count(*) from terms").fetchone()[0])

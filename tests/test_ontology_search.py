@@ -18,6 +18,7 @@ from labdata.ontology import (
     TextKind,
     build_tiny_store,
     open_ontology_store,
+    reader,
 )
 
 UBERON = SnapshotData(
@@ -25,10 +26,16 @@ UBERON = SnapshotData(
     "2026-11-05",
     [
         SourceTerm("UBERON:0000002", "hippocampus proper"),
-        SourceTerm("UBERON:0000005", "brain stem", synonyms=(Synonym("hippocampus", "RELATED"),)),
-        SourceTerm("UBERON:0000006", "Ammon's horn", synonyms=(Synonym("hippocampus", "EXACT"),)),
+        SourceTerm(
+            "UBERON:0000005", "brain stem", synonyms=(Synonym("hippocampus", Scope.RELATED),)
+        ),
+        SourceTerm(
+            "UBERON:0000006", "Ammon's horn", synonyms=(Synonym("hippocampus", Scope.EXACT),)
+        ),
         SourceTerm("UBERON:0000004", "Hippocampus"),
-        SourceTerm("UBERON:0000003", "cornu ammonis", synonyms=(Synonym("hippocampus", "EXACT"),)),
+        SourceTerm(
+            "UBERON:0000003", "cornu ammonis", synonyms=(Synonym("hippocampus", Scope.EXACT),)
+        ),
         SourceTerm("UBERON:0000001", "hippocampal formation"),
     ],
 )
@@ -76,7 +83,7 @@ def test_a_longer_label_gets_shared_word_candidates_ranked_by_relevance(tmp_path
             SourceTerm("UBERON:0000003", "dorsal root ganglion"),
             SourceTerm("UBERON:0000004", "liver"),
             SourceTerm(
-                "UBERON:0000005", "dHPC", synonyms=(Synonym("Dorsal hippocampus", "EXACT"),)
+                "UBERON:0000005", "dHPC", synonyms=(Synonym("Dorsal hippocampus", Scope.EXACT),)
             ),
         ],
         "dorsal hippocampus",
@@ -93,15 +100,15 @@ def test_a_term_matching_several_texts_appears_once_with_its_best(tmp_path: Path
                 "UBERON:0000001",
                 "hippocampal formation",
                 synonyms=(
-                    Synonym("hippocampus proper", "NARROW"),
-                    Synonym("Hippocampus", "RELATED"),
-                    Synonym("hippocampus", "EXACT"),
+                    Synonym("hippocampus proper", Scope.NARROW),
+                    Synonym("Hippocampus", Scope.RELATED),
+                    Synonym("hippocampus", Scope.EXACT),
                 ),
             ),
             SourceTerm(
                 "UBERON:0000002",
                 "left hippocampus region",
-                synonyms=(Synonym("region of left hippocampus", "EXACT"),),
+                synonyms=(Synonym("region of left hippocampus", Scope.EXACT),),
             ),
         ],
         "hippocampus",
@@ -118,7 +125,7 @@ def test_obsolete_terms_are_never_returned(tmp_path: Path) -> None:
             "UBERON:0000001",
             "hippocampus",
             obsolete=True,
-            synonyms=(Synonym("dorsal hippocampus", "EXACT"),),
+            synonyms=(Synonym("dorsal hippocampus", Scope.EXACT),),
         ),
         SourceTerm("UBERON:0000002", "liver"),
     ]
@@ -148,7 +155,7 @@ def test_every_candidate_field_is_filled(tmp_path: Path) -> None:
             SourceTerm(
                 "UBERON:0002421",
                 "hippocampal formation",
-                synonyms=(Synonym("hippocampus", "NARROW", "INCONSISTENT"),),
+                synonyms=(Synonym("hippocampus", Scope.NARROW, "INCONSISTENT"),),
             ),
             SourceTerm("UBERON:0001954", "Ammon's horn"),
         ],
@@ -179,14 +186,18 @@ def test_every_candidate_field_is_filled(tmp_path: Path) -> None:
         ]
 
 
-def test_blank_text_finds_nothing_and_an_unknown_vocabulary_lists_those_held(
+def test_blank_text_finds_nothing_and_an_unknown_or_unsearchable_vocabulary_is_refused(
     tiny: Path,
 ) -> None:
+    taxa = SnapshotData("taxa", "1", [SourceTerm("TAXA:1", "Homo sapiens")], searchable=False)
+    build_tiny_store(tiny, [taxa])
     with open_ontology_store(tiny) as store:
         assert store.search("", "uberon") == []
         assert store.search(" \t ", "uberon") == []
-        with pytest.raises(OntologyError, match=r"ubreon.*holds: uberon"):
+        with pytest.raises(OntologyError, match=r"ubreon.*holds: taxa, uberon"):
             store.search("hippocampus", "ubreon")
+        with pytest.raises(OntologyError, match="taxa is looked up by id only"):
+            store.search("Homo sapiens", "taxa")
 
 
 def test_search_command_prints_the_candidates(tiny: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -202,3 +213,20 @@ def test_search_command_prints_the_candidates(tiny: Path, monkeypatch: pytest.Mo
     unknown = CliRunner().invoke(app, ["ontology", "search", "ubreon", "hippocampus"])
     assert unknown.exit_code == 1
     assert "holds: uberon" in unknown.output
+
+
+def test_words_past_the_rank_cap_are_left_out_and_rarer_words_kept(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(reader, "_RANK_CAP", 3)
+    terms = [
+        SourceTerm("UBERON:0000001", "brain region"),
+        SourceTerm("UBERON:0000002", "liver region"),
+        SourceTerm("UBERON:0000003", "heart region"),
+        SourceTerm("UBERON:0000004", "region"),
+        SourceTerm("UBERON:0000005", "hippocampus"),
+    ]
+    # "region" is in four texts, past the cap: only its whole-text match is left.
+    assert [c.id for c in _search(tmp_path, terms, "region")] == ["UBERON:0000004"]
+    # A label mixing it with a rarer word is ranked on the rarer word alone.
+    assert [c.id for c in _search(tmp_path, terms, "hippocampus region")] == ["UBERON:0000005"]

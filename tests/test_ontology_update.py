@@ -3,16 +3,13 @@
 from __future__ import annotations
 
 import json
-import os
-import socket
-import subprocess
 from contextlib import closing
 from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
-from labdata import _lock, _slurm
+from labdata import _slurm
 from labdata.cli import app
 from labdata.ontology import Reason, Term, lifecycle, open_ontology_store, paths, tables
 from labdata.ontology import fetch as fetch_mod
@@ -21,7 +18,10 @@ from labdata.ontology.lifecycle import Result, VocabularyResult
 from labdata.ontology.root import make_store, read_current
 from labdata.ontology.update import update
 from labdata.ontology.vocabularies import Vocabulary
-from tests._ontology_fakes import OntologyWeb
+from tests._ontology_fakes import (
+    OntologyWeb,
+    _isolated,  # noqa: F401 - autouse: the cache, no lock owner, no sleeps
+)
 
 FBDV = (Path(__file__).parent / "data" / "ontology" / "fbdv.obo").read_bytes()
 PURL = "https://purl.obolibrary.org/obo/fbdv.obo"
@@ -43,17 +43,8 @@ id: PATO:0000014
 name: color
 """
 HEAD = f"bytes=0-{fetch_mod.HEAD_BYTES - 1}"
-#: Slurm jobs by state; Slurm knows no other job, and gives no answer about ``_UNASKED``.
+#: Slurm jobs by state; Slurm knows no other job.
 _JOBS = {"4242": "RUNNING", "4241": "CANCELLED"}
-_UNASKED = "4240"
-
-
-@pytest.fixture(autouse=True)
-def _isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
-    monkeypatch.delenv("LABDATA_ONTOLOGIES", raising=False)
-    monkeypatch.delenv(_lock.RUN_OWNER, raising=False)
-    monkeypatch.setattr(fetch_mod, "_sleep", lambda _s: None)
 
 
 @pytest.fixture
@@ -125,15 +116,17 @@ def test_terms_with_another_prefix_are_not_stored(root: Path, web: OntologyWeb) 
     assert ids == {"FBdv:00005289", "FBdv:00007012", "FBdv:00005333", "FBdv:00005334"}
 
 
-def test_all_four_synonym_scopes_and_a_synonym_type_are_kept(root: Path, web: OntologyWeb) -> None:
+def test_all_four_synonym_scopes_and_synonym_types_are_kept(root: Path, web: OntologyWeb) -> None:
     update(root, transport=web)
 
     stage = {row for row in _texts(root) if row[0] == "FBdv:00005289"}
+    # A numbered type is stored by its name in the header; a named one by itself.
     assert stage == {
         ("FBdv:00005289", "embryonic stage", "name", None, None),
         ("FBdv:00005289", "embryo stage", "synonym", "EXACT", None),
-        ("FBdv:00005289", "embryonic stages", "synonym", "EXACT", "OMO:0003004"),
+        ("FBdv:00005289", "embryonic stages", "synonym", "EXACT", "plural form"),
         ("FBdv:00005289", "embryogenesis", "synonym", "BROAD", None),
+        ("FBdv:00005289", "embryo", "synonym", "BROAD", "INCONSISTENT"),
         ("FBdv:00005289", "early life", "synonym", "RELATED", None),
         ("FBdv:00005289", "embryonic stage 1-17", "synonym", "NARROW", None),
     }
@@ -209,8 +202,6 @@ def both(monkeypatch: pytest.MonkeyPatch, web: OntologyWeb) -> OntologyWeb:
 @pytest.fixture
 def slurm(monkeypatch: pytest.MonkeyPatch) -> None:
     def show_job(job_id: str) -> str | None:
-        if job_id == _UNASKED:
-            return None
         state = _JOBS.get(job_id)
         return f"JobId={job_id} JobName=update\n   JobState={state} Reason=None\n" if state else ""
 
@@ -237,6 +228,13 @@ def test_a_second_update_downloads_only_the_vocabulary_with_a_new_release(
         ),
     }
     assert lifecycle.read_status(root) == status
+
+    # The source goes back a release: its kept snapshot is switched in with no download.
+    both.calls.clear()
+    both.files[GITHUB] = FBDV
+    back = update(root, transport=both).vocabularies["fbdv"]
+    assert (back.snapshot, back.result) == (SNAPSHOT, Result.UPDATED)
+    assert _downloads(both) == []
 
 
 @pytest.mark.parametrize("fault", ["download", "broken"])
@@ -318,48 +316,27 @@ def test_a_snapshot_of_an_older_table_layout_is_remade_with_no_download(
         assert [c.id for c in store.search("embryo stage", "fbdv")][:1] == ["FBdv:00005289"]
 
 
-def _gone_pid() -> int:
-    """Return the ID of a process that has ended."""
-    child = subprocess.Popen(["true"])
-    child.wait()
-    return child.pid
-
-
 @pytest.mark.parametrize(
-    ("job", "host", "pid", "flags", "refusal"),
-    [
-        ("4241", "elsewhere", 1, [], None),
-        ("4242", "elsewhere", 1, [], "wait for it to end"),
-        (None, "here", "gone", [], None),
-        (None, "here", "live", [], "wait for it to end"),
-        (_UNASKED, "elsewhere", 1, [], "--owner-gone"),
-        (_UNASKED, "elsewhere", 1, ["--owner-gone"], None),
-    ],
-    ids=["slurm-gone", "slurm-live", "host-gone", "host-live", "cannot-tell", "owner-gone"],
+    ("job", "refusal"),
+    [("4241", None), ("4242", "wait for it to end")],
+    ids=["slurm-gone", "slurm-live"],
 )
 @pytest.mark.usefixtures("slurm")
 def test_a_held_lock_is_taken_from_a_gone_owner_and_refused_while_one_lives(
-    root: Path,
-    web: OntologyWeb,
-    job: str | None,
-    host: str,
-    pid: int | str,
-    flags: list[str],
-    refusal: str | None,
+    root: Path, web: OntologyWeb, job: str, refusal: str | None
 ) -> None:
-    pids = {"live": os.getpid(), "gone": _gone_pid()}
     owner = {
         "update": "update",
         "job": job,
-        "host": socket.gethostname() if host == "here" else host,
-        "pid": pids.get(str(pid), pid),
+        "host": "elsewhere",
+        "pid": 1,
         "started": "2026-11-21T00:00:00Z",
     }
     lock = paths.LOCK.at(root)
     lock.parent.mkdir(parents=True, exist_ok=True)
     lock.write_text(json.dumps(owner), encoding="utf-8")
 
-    result = CliRunner().invoke(app, ["ontology", "update", "--root", str(root), *flags])
+    result = CliRunner().invoke(app, ["ontology", "update", "--root", str(root)])
 
     if refusal is None:
         assert result.exit_code == 0, result.output

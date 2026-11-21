@@ -10,17 +10,18 @@ from typing import NoReturn
 import pytest
 from typer.testing import CliRunner
 
-from labdata import _lock
 from labdata.cli import app
 from labdata.ontology import Term, lifecycle, open_ontology_store, paths
-from labdata.ontology import fetch as fetch_mod
 from labdata.ontology import vocabularies as vocab_mod
 from labdata.ontology.root import make_store, switch
 from labdata.ontology.tables import SnapshotData, SourceTerm, write_snapshot
 from labdata.ontology.update import update
 from labdata.ontology.vocabularies import Vocabulary
 from tests._fake_gcs import FakeGcs
-from tests._ontology_fakes import OntologyWeb
+from tests._ontology_fakes import (
+    OntologyWeb,
+    _isolated,  # noqa: F401 - autouse: the cache, no lock owner, no sleeps
+)
 
 DEST = "gcs:bucket/datalake/ontology-store"
 FBDV = (Path(__file__).parent / "data" / "ontology" / "fbdv.obo").read_bytes()
@@ -28,14 +29,6 @@ URL = "https://purl.obolibrary.org/obo/fbdv.obo"
 SNAPSHOT = "fbdv-2026-11-02"
 STATUS = paths.STATUS.rel
 RECORD = paths.COPY_RECORD.rel
-
-
-@pytest.fixture(autouse=True)
-def _isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
-    monkeypatch.delenv("LABDATA_ONTOLOGIES", raising=False)
-    monkeypatch.delenv(_lock.RUN_OWNER, raising=False)
-    monkeypatch.setattr(fetch_mod, "_sleep", lambda _s: None)
 
 
 @pytest.fixture
@@ -156,6 +149,19 @@ def test_a_failed_copy_leaves_the_update_built_and_the_next_update_copies_first(
     assert f"snapshots/{SNAPSHOT}/{paths.TABLES_FILE}" in gcs.files()
     assert gcs_status(gcs)["outcome"] == "finalized"
     assert gcs_status(gcs)["copy_pending"] is False
+
+
+def test_a_pending_copy_skipped_again_stays_pending_when_the_update_stops(
+    root: Path, gcs: FakeGcs, web: OntologyWeb
+) -> None:
+    gcs.expired = "copy"
+    update(root, transport=web)
+
+    with pytest.raises(RuntimeError, match="offline"):
+        update(root, transport=_Offline())
+
+    stopped = lifecycle.read_status(root)
+    assert (stopped.outcome, stopped.copy_pending) == ("failed", True)
 
 
 def test_a_copy_that_would_delete_more_snapshots_than_the_guard_allows_stops(

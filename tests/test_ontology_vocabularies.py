@@ -5,19 +5,25 @@ from __future__ import annotations
 import hashlib
 import io
 import tarfile
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
-from labdata import _lock
 from labdata.cli import app
 from labdata.ontology import Reason, Scope, Term, lifecycle, open_ontology_store, paths, tables
 from labdata.ontology import fetch as fetch_mod
 from labdata.ontology.root import make_store
 from labdata.ontology.update import update
 from labdata.ontology.vocabularies import VOCABULARIES
-from tests._ontology_fakes import OntologyWeb
+from tests._ontology_fakes import (
+    OntologyWeb,
+    _isolated,  # noqa: F401 - autouse: the cache, no lock owner, no sleeps
+    _Reply,
+)
 
 DATA = Path(__file__).parent / "data" / "ontology"
 TAXDUMP = "https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump.tar.gz"
@@ -25,14 +31,6 @@ TAXON_DATE = "Sat, 21 Nov 2026 16:29:20 GMT"
 TAXON = "ncbitaxon-2026-11-21"
 CELLOSAURUS = "https://ftp.expasy.org/databases/cellosaurus/cellosaurus.obo"
 CELLOSAURUS_DELETED = "https://ftp.expasy.org/databases/cellosaurus/cellosaurus_deleted_ACs.txt"
-
-
-@pytest.fixture(autouse=True)
-def _isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
-    monkeypatch.delenv("LABDATA_ONTOLOGIES", raising=False)
-    monkeypatch.delenv(_lock.RUN_OWNER, raising=False)
-    monkeypatch.setattr(fetch_mod, "_sleep", lambda _s: None)
 
 
 @pytest.fixture
@@ -44,11 +42,15 @@ def _declared(name: str) -> tuple:
     return tuple(v for v in VOCABULARIES if v.name == name)
 
 
-def _taxdump() -> bytes:
+def _taxdump(note: bytes = b"") -> bytes:
     out = io.BytesIO()
     with tarfile.open(fileobj=out, mode="w:gz") as tar:
         for member in ("names.dmp", "merged.dmp", "delnodes.dmp"):
             tar.add(DATA / "taxdump" / member, arcname=member)
+        if note:  # another build of the dump
+            info = tarfile.TarInfo("readme.txt")
+            info.size = len(note)
+            tar.addfile(info, io.BytesIO(note))
     return out.getvalue()
 
 
@@ -133,6 +135,47 @@ def test_taxonomy_is_named_by_its_file_date_and_looks_up_by_number(root: Path) -
         )
     source = paths.SNAPSHOTS.at(root, TAXON, paths.SOURCE_DIR, "taxdump.tar.gz")
     assert source.is_file()
+
+
+@dataclass
+class _Rebuilt(OntologyWeb):
+    """NCBI's dump, rebuilt the next day just before its first full download."""
+
+    rebuilt: bool = False
+
+    @contextmanager
+    def open(
+        self,
+        method: str,
+        url: str,
+        *,
+        body: bytes | None,
+        headers: Mapping[str, str],
+        timeout: float,
+    ) -> Iterator[_Reply]:
+        if url == TAXDUMP and "Range" not in headers and not self.rebuilt:
+            self.rebuilt = True
+            dump = _taxdump(b"rebuilt")
+            self.files[TAXDUMP] = dump
+            self.files[f"{TAXDUMP}.md5"] = f"{hashlib.md5(dump).hexdigest()}  x\n".encode()
+            self.modified[TAXDUMP] = "Sun, 22 Nov 2026 16:29:20 GMT"
+        with super().open(method, url, body=body, headers=headers, timeout=timeout) as reply:
+            yield reply
+
+
+def test_a_dump_rebuilt_during_the_update_is_fetched_again_and_named_by_its_own_date(
+    root: Path,
+) -> None:
+    web = _Rebuilt()
+    _serve_taxonomy(web)
+
+    status = update(root, vocabularies=_declared("ncbitaxon"), transport=web)
+
+    assert status.vocabularies["ncbitaxon"].snapshot == "ncbitaxon-2026-11-22"
+    # The .md5 file comes before each download; the first pair did not match.
+    md5 = f"{TAXDUMP}.md5"
+    fetched = [c.url for c in web.calls if c.url == md5 or "Range" not in c.headers]
+    assert fetched == [md5, TAXDUMP, md5, TAXDUMP]
 
 
 def test_a_taxdump_that_fails_its_checksum_is_not_used(root: Path) -> None:

@@ -71,5 +71,6 @@ One SQLite file per snapshot. Query it with `sqlite3`, or with
   search index.
 - `reason` is `obsolete`, `merged`, `alternative` (kept as another term's alternative id) or
   `deleted`. `live_id` is empty when the id points to no live term.
-- `meta` names the vocabulary, its release, the snapshot, the id prefixes of its own terms, and
-  the layout of these tables.
+- `meta` names the vocabulary, its release, the snapshot, the id prefixes of its own terms,
+  the layout of these tables, and whether the snapshot can be searched (`searchable`, `1` or
+  `0`).

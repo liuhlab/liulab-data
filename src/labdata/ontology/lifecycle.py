@@ -59,9 +59,9 @@ class VocabularyResult:
     ``source_date`` the date of its source file, ``YYYY-MM-DD``.
     """
 
-    release: str | None = None
-    snapshot: str | None = None
-    result: str = ""
+    release: str | None
+    snapshot: str | None
+    result: Result
     reason: str | None = None
     terms: int | None = None
     source_date: str | None = None
@@ -71,13 +71,13 @@ class VocabularyResult:
 class UpdateStatus:
     """The status record: the last update's start, end and outcome, and one row per vocabulary.
 
-    ``start`` and ``end`` are UTC, ISO 8601; ``end`` is ``None`` while it runs.
-    ``copy_pending`` says GCS is behind the work disk.
+    ``start`` and ``end`` are UTC, ISO 8601; ``end`` is ``None`` while it runs. ``outcome``
+    is ``None`` before the first update. ``copy_pending`` says GCS is behind the work disk.
     """
 
     start: str | None = None
     end: str | None = None
-    outcome: str = ""
+    outcome: Outcome | None = None
     vocabularies: dict[str, VocabularyResult] = field(default_factory=dict)
     copy_pending: bool = False
 
@@ -108,8 +108,10 @@ def read_status(root: Path) -> UpdateStatus:
         return UpdateStatus()
     data: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
     rows = data.pop("vocabularies", {})
+    data["outcome"] = Outcome(data["outcome"]) if data.get("outcome") else None
     status = UpdateStatus(**_known(UpdateStatus, data))
     for name, row in rows.items():
+        row["result"] = Result(row["result"])
         status.vocabularies[name] = VocabularyResult(**_known(VocabularyResult, row))
     return status
 
@@ -237,11 +239,13 @@ def _send(root: Path, dest: str, *, full: bool = False, accept_deletes: int = 0)
     ended = {
         Outcome.RUNNING: Outcome.FAILED,
         Outcome.BUILT: Outcome.FINALIZED,
-        "": Outcome.FINALIZED,
+        None: Outcome.FINALIZED,
     }
     done = replace(status, outcome=ended.get(status.outcome, status.outcome), copy_pending=False)
     return copy.send(root, dest, _encode(done), full=full, accept_deletes=accept_deletes)
 
 
 def _encode(status: UpdateStatus) -> bytes:
-    return (json.dumps(asdict(status), indent=2, sort_keys=True) + "\n").encode()
+    data = asdict(status)
+    data["outcome"] = status.outcome or ""  # the file's form before the first update
+    return (json.dumps(data, indent=2, sort_keys=True) + "\n").encode()

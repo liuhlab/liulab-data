@@ -1,6 +1,6 @@
 # Run the ontology store
 
-The ontology store sits beside the GEO/SRA store and the paper store. It keeps 12
+The ontology store sits beside the GEO/SRA store and the paper store. It keeps
 vocabularies: the term lists that sample labels name ids from, such as UBERON for tissues or
 Cellosaurus for cell lines. The store keeps each vocabulary as dated snapshots, one per
 release, named `<vocabulary>-<release>`, such as `uberon-2026-11-05`.
@@ -19,20 +19,20 @@ run, brings in each new release and ends with a copy to GCS.
 Each vocabulary keeps its current snapshot and the one before it. A search returns only the
 vocabulary's own terms, never an obsolete one.
 
-| Vocabulary | Names | Comes from | Release read from | Snapshot |
+| Vocabulary | Names | Comes from | Release read from | Snapshot name |
 | --- | --- | --- | --- | --- |
-| `ncbitaxon` | species and other taxa, by id only | NCBI Taxonomy, `taxdump.tar.gz` | the file's date, from `Last-Modified` | `ncbitaxon-2026-11-21` |
-| `uberon` | anatomy, across animals | OBO Foundry, `uberon.obo` | `data-version` in the file's header | `uberon-2026-11-05` |
-| `wbbt` | worm anatomy and cell types | OBO Foundry, `wbbt.obo` | `data-version` | `wbbt-2025-08-19` |
-| `cl` | cell types | OBO Foundry, `cl.obo` | `data-version` | `cl-2026-11-13` |
-| `cellosaurus` | cell lines | Cellosaurus, `cellosaurus.obo` and its list of deleted ids | `data-version` | `cellosaurus-57.0` |
-| `mondo` | diseases | OBO Foundry, `mondo.obo` | `data-version` | `mondo-2026-11-03` |
-| `pato` | qualities, such as sex | OBO Foundry, `pato.obo` | `data-version` | `pato-2026-10-01` |
-| `hsapdv` | human developmental stages | OBO Foundry, `hsapdv.obo` | `owl:versionInfo` in `hsapdv.owl` | `hsapdv-2025-01-23` |
-| `mmusdv` | mouse developmental stages | OBO Foundry, `mmusdv.obo` | `owl:versionInfo` in `mmusdv.owl` | `mmusdv-2025-01-23` |
-| `wbls` | worm life stages | OBO Foundry, `wbls.obo` | `data-version` | `wbls-2026-04-16` |
-| `chebi` | chemicals, such as drugs | OBO Foundry, `chebi.obo` | `data-version` | `chebi-257` |
-| `fbdv` | fly developmental stages | OBO Foundry, `fbdv.obo` | `data-version` | `fbdv-2026-11-02` |
+| `ncbitaxon` | species and other taxa, by id only | NCBI Taxonomy, `taxdump.tar.gz` | the file's date, from `Last-Modified` | `ncbitaxon-<file date>` |
+| `uberon` | anatomy, across animals | OBO Foundry, `uberon.obo` | `data-version` in the file's header | `uberon-YYYY-MM-DD` |
+| `wbbt` | worm anatomy and cell types | OBO Foundry, `wbbt.obo` | `data-version` | `wbbt-YYYY-MM-DD` |
+| `cl` | cell types | OBO Foundry, `cl.obo` | `data-version` | `cl-YYYY-MM-DD` |
+| `cellosaurus` | cell lines | Cellosaurus, `cellosaurus.obo` and its list of deleted ids | `data-version` | `cellosaurus-<release number>` |
+| `mondo` | diseases | OBO Foundry, `mondo.obo` | `data-version` | `mondo-YYYY-MM-DD` |
+| `pato` | qualities, such as sex | OBO Foundry, `pato.obo` | `data-version` | `pato-YYYY-MM-DD` |
+| `hsapdv` | human developmental stages | OBO Foundry, `hsapdv.obo` | `owl:versionInfo` in `hsapdv.owl` | `hsapdv-YYYY-MM-DD` |
+| `mmusdv` | mouse developmental stages | OBO Foundry, `mmusdv.obo` | `owl:versionInfo` in `mmusdv.owl` | `mmusdv-YYYY-MM-DD` |
+| `wbls` | worm life stages | OBO Foundry, `wbls.obo` | `data-version` | `wbls-YYYY-MM-DD` |
+| `chebi` | chemicals, such as drugs | OBO Foundry, `chebi.obo` | `data-version` | `chebi-<release number>` |
+| `fbdv` | fly developmental stages | OBO Foundry, `fbdv.obo` | `data-version` | `fbdv-YYYY-MM-DD` |
 
 When a version names a date, as `releases/2026-11-05` does, the release is that date.
 Otherwise it is the version as written, such as `257`. NCBI Taxonomy states no release, so

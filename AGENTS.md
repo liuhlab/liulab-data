@@ -161,10 +161,10 @@ slow and live lanes run in one process.
   keeping the link busy while cores extract/compress. The store DAG adds a `mem_mb` resource:
   each step gets its share as `LABDATA_MEMORY_MB` and caps DuckDB and Ray inside it.
   `store.pipeline.drive` runs both store DAGs under the run lock.
-  Future pipelines follow this split. The paper job is the exception: one process with a
-  lock (ADR 0007).
+  Future pipelines follow this split. The paper job (ADR 0007) and the ontology update
+  (ADR 0014) are the exceptions: one process with a lock.
 - **Lazy, cached domain objects.** `Series(...)` is cheap; network happens on first
-  property access (`functools.cached_property`) and is cached thereafter.
+  property access (`functools.cached_property`), then cached.
 - **Accessions are validated at construction** and malformed input raises
   `AccessionError` (a `ValueError` subclass).
 - **Credentials**: resolve via env (`NCBI_EMAIL`/`NCBI_API_KEY`) → cache file
@@ -182,12 +182,12 @@ slow and live lanes run in one process.
 
 ## Documentation
 
-Two layers, kept strictly separate — never duplicate one in the other:
+Two layers; never duplicate one in the other:
 
 - **Narrative pages** (`docs/*.md`, e.g. `index.md`) are for **human readers**.
-  Task-oriented and short: show the common path with simple, copy-pasteable demos and
-  example output. Aim for the *minimum* an end user needs to get going; favor easy,
-  plain language over completeness. Do **not** spell out per-class/method/parameter
+  Task-oriented and short: show the common path with copy-pasteable demos and
+  example output. Aim for the *minimum* an end user needs to get going; favor plain
+  language over completeness. Do **not** spell out per-class/method/parameter
   behavior in prose — link to the API reference for "going deeper".
 - **API reference** (`docs/reference.md`) is **auto-generated from docstrings** via
   mkdocstrings (NumPy style). This is the single home for exhaustive per-symbol detail
