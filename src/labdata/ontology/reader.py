@@ -8,16 +8,20 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType, TracebackType
-from typing import Self
+from typing import Any, Self
 
 from labdata.exceptions import OntologyError
 from labdata.ontology import tables
 from labdata.ontology.root import find_root, read_current
-from labdata.ontology.tables import Reason
+from labdata.ontology.tables import Reason, Scope, TextKind, fold
+
+_WORD = re.compile(r"\w+")
+_TEXT_ROW = "x.id, t.name, x.text, x.kind, x.scope, x.synonym_type"
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +39,23 @@ class Term:
     obsolete: bool
     replaced_by: tuple[str, ...]
     retired: Reason | None
+    snapshot: str
+
+
+@dataclass(frozen=True, slots=True)
+class Candidate:
+    """A term a search returns for a label's text, with the text of the term that matched.
+
+    ``scope`` and ``synonym_type`` are ``None`` when the name matched; ``synonym_type`` is also
+    ``None`` for a synonym the vocabulary gives no type.
+    """
+
+    id: str
+    name: str | None
+    text: str
+    matched_on: TextKind
+    scope: Scope | None
+    synonym_type: str | None
     snapshot: str
 
 
@@ -118,6 +139,72 @@ class OntologyStore:
                     return found
         return None
 
+    def search(self, text: str, vocabulary: str, limit: int = 10) -> list[Candidate]:
+        """Return up to ``limit`` candidates for a label's text, best first.
+
+        Case is folded and whitespace collapsed. Whole-text matches come first: on the name,
+        then on an EXACT synonym, then on another scope. Then terms sharing words with the text,
+        by BM25 relevance. Ties break on id. Each term appears once, with its best-ranked text;
+        an obsolete term never appears.
+
+        Parameters
+        ----------
+        text : str
+            The label's text; blank text has no candidates.
+        vocabulary : str
+            The vocabulary to search, such as ``uberon``.
+        limit : int
+            The most candidates to return.
+
+        Returns
+        -------
+        list of Candidate
+
+        Raises
+        ------
+        OntologyError
+            If the store holds no such vocabulary.
+
+        Examples
+        --------
+        >>> with open_ontology_store() as store:
+        ...     store.search("hippocampus", "uberon")[0].snapshot
+        'uberon-2026-11-05'
+        """
+        db = self._searchable(vocabulary)
+        key = fold(text)
+        if not key or limit <= 0:
+            return []
+        snapshot = self.snapshots[vocabulary]
+        whole: dict[str, tuple[int, int, Candidate]] = {}
+        for rowid, *row in db.execute(
+            f"select x.rowid, {_TEXT_ROW} from texts x join terms t on t.id = x.id"
+            " where x.folded = ? and t.obsolete = 0",
+            (key,),
+        ):
+            found = _candidate(row, snapshot)
+            rank = (_tier(found), rowid, found)
+            if found.id not in whole or rank[:2] < whole[found.id][:2]:
+                whole[found.id] = rank
+        ranked = [c for _, _, c in sorted(whole.values(), key=lambda r: (r[0], r[2].id))]
+        words = " OR ".join(f'"{word}"' for word in _WORD.findall(key))
+        if len(ranked) < limit and words:
+            rows = db.execute(
+                f"select {_TEXT_ROW}, min(f.rank) as score from texts_words f"
+                " join texts x on x.rowid = f.rowid join terms t on t.id = x.id"
+                " where texts_words match ? group by x.id order by score, x.id limit ?",
+                (words, limit + len(ranked)),
+            )
+            ranked += [c for *row, _ in rows if (c := _candidate(row, snapshot)).id not in whole]
+        return ranked[:limit]
+
+    def _searchable(self, vocabulary: str) -> sqlite3.Connection:
+        # The one gate every search passes on its vocabulary.
+        if vocabulary not in self._dbs:
+            held = ", ".join(sorted(self.snapshots)) or "none"
+            raise OntologyError(f"no vocabulary {vocabulary!r} in this store; it holds: {held}")
+        return self._dbs[vocabulary]
+
     def _find(self, vocabulary: str, key: str) -> Term | None:
         db = self._dbs[vocabulary]
         snapshot = self.snapshots[vocabulary]
@@ -132,6 +219,19 @@ class OntologyStore:
         if row is None:
             return Term(key, None, False, replaced_by, reason, snapshot)
         return Term(key, row[0], bool(row[1]), replaced_by, reason, snapshot)
+
+
+def _candidate(row: list[Any], snapshot: str) -> Candidate:
+    id, name, text, kind, scope, synonym_type = row
+    return Candidate(
+        id, name, text, TextKind(kind), Scope(scope) if scope else None, synonym_type, snapshot
+    )
+
+
+def _tier(candidate: Candidate) -> int:
+    if candidate.matched_on is TextKind.NAME:
+        return 0
+    return 1 if candidate.scope is Scope.EXACT else 2
 
 
 def open_ontology_store(root: str | os.PathLike[str] | None = None) -> OntologyStore:

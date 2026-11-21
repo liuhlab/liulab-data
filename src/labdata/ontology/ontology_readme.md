@@ -44,12 +44,16 @@ One SQLite file per snapshot. Query it with `sqlite3`, or with
 | Table | One row per | Columns |
 | --- | --- | --- |
 | `terms` | term of the vocabulary's own | `id`, `name`, `obsolete` |
-| `texts` | name or synonym of a term | `id`, `text`, `kind`, `scope`, `synonym_type` |
+| `texts` | name or synonym of a term | `id`, `text`, `kind`, `scope`, `synonym_type`, `folded` |
+| `texts_words` | text of a live term, by `texts` row | the search's word index |
 | `retired` | retired id and the live id it points to | `old_id`, `live_id`, `reason` |
 | `meta` | fact about the snapshot | `key`, `value` |
 
 - `kind` is `name` or `synonym`. A synonym's `scope` is `EXACT`, `NARROW`, `BROAD` or
-  `RELATED`, and `synonym_type` is the vocabulary's own type for it, if any.
+  `RELATED`, and `synonym_type` is the vocabulary's own type for it, if any. `folded` is the
+  text as a search matches it: lower case, with spaces collapsed.
+- `texts_words` is a SQLite full-text index (FTS5). It holds no text of its own; its row ids
+  are `texts` row ids.
 - `reason` is `obsolete`, `merged`, `alternative` (kept as another term's alternative id) or
   `deleted`. `live_id` is empty when the id points to no live term.
 - `meta` names the vocabulary, its release, the snapshot, the id prefixes of its own terms, and
