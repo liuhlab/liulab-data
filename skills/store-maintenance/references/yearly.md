@@ -2,7 +2,8 @@
 
 The heavy checks and the removal of withdrawn SRA records, wrapped around one monthly run.
 The steps, their order and their rough cost live in the "Yearly" section of
-`docs/how-to/store-run.md`; follow them from there. The paper store adds nothing yearly.
+`docs/how-to/store-run.md`; follow them from there. The paper store and the ontology store
+add nothing yearly.
 
 **Budget:** the refresh keeps its 2 h. Each heavy step's budget is its row in "What a yearly
 run adds", with an hour's margin; size the run plan from that table.
@@ -14,7 +15,7 @@ run adds", with an hour's margin; size the run plan from that table.
 3. **After the refresh**: "Remove withdrawn SRA records", then "Time the queries on a quiet
    node" on the build that removal made. The removal ends with a copy that finalizes it, so
    run "Check the copy" in `docs/how-to/store-gcs.md` again after it, then the monthly page's
-   "Both finalized" check again, with the removal's build ID.
+   "All finalized" check again, with the removal's build ID.
 
 Record in the log entry, beside the monthly checks:
 
@@ -23,5 +24,5 @@ Record in the log entry, beside the monthly checks:
 - the SRA removal's counts: candidates, confirmed gone, kept on a fetch error;
 - each benchmark query's wall time and memory against its limit.
 
-Done when: the five heavy steps and the monthly checks all have an outcome, and "Both
+Done when: the five heavy steps and the monthly checks all have an outcome, and "All
 finalized" has passed after the removal's copy.

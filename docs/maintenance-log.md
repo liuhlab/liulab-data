@@ -1,14 +1,16 @@
 # Maintenance log
 
 Each maintenance run of the stores adds one entry here, newest first. A monthly run refreshes
-the GEO/SRA store and checks both stores. A yearly run adds the heavy checks and removes
-withdrawn SRA records. The steps are in [Run the full download](how-to/store-run.md) and
-[Run the paper store](how-to/papers-run.md).
+the GEO/SRA store, updates the ontology store and checks all three stores. A yearly run adds
+the heavy checks and removes withdrawn SRA records. The steps are in
+[Run the full download](how-to/store-run.md), [Run the paper store](how-to/papers-run.md) and
+[Run the ontology store](how-to/ontology-run.md).
 
 Each entry gives the build, the liulab-data commit the run used and the wall time against the
 budget. Each check ends as pass, fail or skipped. A failed check links the issue filed for it.
-A run ends only when GCS holds both stores' new state, so the last row of each entry's table,
-`Both stores finalized`, says when both status records said `finalized`.
+The ontology update's check gives each vocabulary's result: updated, unchanged or failed, with
+its snapshot. A run ends only when GCS holds each store's new state, so the last row of each
+entry's table, `All stores finalized`, says when every status record said `finalized`.
 
 ## 2026-11-07, monthly
 
