@@ -17,6 +17,7 @@ from labdata.ontology import Reason, Term, lifecycle, open_ontology_store, paths
 from labdata.ontology import fetch as fetch_mod
 from labdata.ontology.root import make_store
 from labdata.ontology.update import update
+from labdata.ontology.vocabularies import Vocabulary
 from tests._ontology_fakes import OntologyWeb
 
 FBDV = (Path(__file__).parent / "data" / "ontology" / "fbdv.obo").read_bytes()
@@ -42,9 +43,10 @@ def root(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def web(monkeypatch: pytest.MonkeyPatch) -> OntologyWeb:
-    """FBdv's purl redirects to GitHub, as the real one does."""
+    """FBdv alone; its purl redirects to GitHub, as the real one does."""
     fake = OntologyWeb(files={GITHUB: FBDV}, redirects={PURL: GITHUB})
     monkeypatch.setattr("labdata.cli._ontology_transport", lambda: fake)
+    monkeypatch.setattr("labdata.ontology.update.VOCABULARIES", (Vocabulary("fbdv", ("FBdv:",)),))
     return fake
 
 

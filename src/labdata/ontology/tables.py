@@ -140,6 +140,8 @@ class SnapshotData:
     prefixes : tuple of str
         The id prefixes of the vocabulary's own terms, such as ``("UBERON:",)``, which route a
         lookup to it. Empty takes each term id's leading ``<letters>:`` or ``<letters>_``.
+    searchable : bool
+        ``False`` writes no search index, for a vocabulary looked up by id only.
     """
 
     vocabulary: str
@@ -147,6 +149,7 @@ class SnapshotData:
     terms: Sequence[SourceTerm]
     retired: Sequence[RetiredEntry] = ()
     prefixes: tuple[str, ...] = ()
+    searchable: bool = True
 
 
 def fold(text: str) -> str:
@@ -258,7 +261,8 @@ def _write_tables(path: Path, data: SnapshotData, name: str) -> None:
                 _texts(sorted(data.terms, key=lambda t: t.id)),
             )
             db.executemany("insert into retired values (?, ?, ?)", _retired(data))
-            db.executescript(_INDEX)
+            if data.searchable:
+                db.executescript(_INDEX)
         except sqlite3.IntegrityError as err:
             raise OntologyError(f"{name}: a term id appears twice ({err})") from err
         except ValueError as err:

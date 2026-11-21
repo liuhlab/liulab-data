@@ -1,0 +1,30 @@
+format-version: 1.2
+data-version: 57.0
+date: 10:22:2026 12:00
+default-namespace: cellosaurus
+
+subsetdef: Cancer_cell_line "Cancer cell line"
+ontology: Cellosaurus
+
+! Description: Cellosaurus: a knowledge resource on cell lines
+! Version: 57.0
+
+[Term]
+id: CVCL_0030
+name: HeLa
+synonym: "HELA" RELATED []
+synonym: "Henrietta Lacks cells \"HL\"" RELATED []
+subset: Cancer_cell_line
+xref: NCBI_TaxID:9606 ! Homo sapiens (Human)
+comment: "Problematic cell line: Contaminating."
+creation_date: 1998-04-15T00:00:00Z
+
+[Term]
+id: CVCL_B0T9
+name:#132 PC3-1-SC-E8
+synonym: "Z48-5MG-70" RELATED []
+relationship: derived_from CVCL_D145 ! HL-1 Friendly Myeloma-653
+
+[Typedef]
+id: derived_from
+name: derived from
