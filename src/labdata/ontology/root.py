@@ -20,7 +20,7 @@ from pathlib import Path
 from labdata._cache import liulab_data_cache_dir
 from labdata._files import create_marker, read_toml_marker, toml_line, write_atomic
 from labdata._root import resolve_root, write_pointer
-from labdata.exceptions import OntologyError, StoreNotConfiguredError
+from labdata.exceptions import NotAStoreError, OntologyError, StoreNotConfiguredError
 from labdata.ontology import paths, tables
 
 logger = logging.getLogger(__name__)
@@ -33,6 +33,9 @@ ONTOLOGIES_ENV = "LABDATA_ONTOLOGIES"
 #: Basename of the per-user pointer file.
 POINTER_FILENAME = "ontologies.toml"
 _SECTION = "ontologies"
+_POINT = (
+    f"pass --root (root=... in Python), set {ONTOLOGIES_ENV}, or run `labdata ontology init <root>`"
+)
 
 #: The ontology store layout version ``labdata ontology init`` writes.
 FORMAT_VERSION = 1
@@ -53,11 +56,11 @@ def find_root(root: str | os.PathLike[str] | None = None) -> Path:
     """
     path = configured_root(root)
     if path is None:
-        raise StoreNotConfiguredError(
-            "ontology store not configured: pass open_ontology_store(root=...), set "
-            f"{ONTOLOGIES_ENV}, or run `labdata ontology init <root>`"
-        )
-    read_toml_marker(path, paths.MARKER.rel, "an ontology store")
+        raise StoreNotConfiguredError(f"ontology store not configured: {_POINT}")
+    try:
+        read_toml_marker(path, paths.MARKER.rel, "an ontology store")
+    except NotAStoreError as err:
+        raise NotAStoreError(f"{err}; {_POINT}") from None
     return path
 
 

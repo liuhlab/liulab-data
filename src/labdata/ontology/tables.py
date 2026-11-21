@@ -22,7 +22,7 @@ from labdata.exceptions import OntologyError
 from labdata.ontology import paths
 
 #: The layout of the tables :func:`write_snapshot` writes; a change to them raises it.
-TABLE_LAYOUT = 2
+TABLE_LAYOUT = 3
 
 _SCHEMA = """
 create table meta (key text primary key, value text not null);
@@ -250,6 +250,7 @@ def _write_tables(path: Path, data: SnapshotData, name: str) -> None:
         "snapshot": name,
         "prefixes": json.dumps(list(prefixes)),
         "layout": str(TABLE_LAYOUT),
+        "searchable": "1" if data.searchable else "0",
     }
     path.unlink(missing_ok=True)
     with closing(sqlite3.connect(path)) as db:

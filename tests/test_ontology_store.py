@@ -97,8 +97,10 @@ def test_init_makes_a_store_found_by_argument_env_and_pointer(
 def test_opening_no_store_says_how_to_point_to_one(tmp_path: Path) -> None:
     with pytest.raises(StoreNotConfiguredError, match="LABDATA_ONTOLOGIES"):
         open_ontology_store()
-    with pytest.raises(NotAStoreError, match=r"labdata-ontologies\.toml"):
+    with pytest.raises(NotAStoreError, match=r"labdata-ontologies\.toml") as raised:
         open_ontology_store(tmp_path)
+    for way in ("--root", "LABDATA_ONTOLOGIES", "labdata ontology init"):
+        assert way in str(raised.value)
 
 
 def test_a_live_term_looks_up_with_its_name_and_snapshot(tiny: Path) -> None:

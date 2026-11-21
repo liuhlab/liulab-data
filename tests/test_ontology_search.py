@@ -18,6 +18,7 @@ from labdata.ontology import (
     TextKind,
     build_tiny_store,
     open_ontology_store,
+    reader,
 )
 
 UBERON = SnapshotData(
@@ -185,14 +186,18 @@ def test_every_candidate_field_is_filled(tmp_path: Path) -> None:
         ]
 
 
-def test_blank_text_finds_nothing_and_an_unknown_vocabulary_lists_those_held(
+def test_blank_text_finds_nothing_and_an_unknown_or_unsearchable_vocabulary_is_refused(
     tiny: Path,
 ) -> None:
+    taxa = SnapshotData("taxa", "1", [SourceTerm("TAXA:1", "Homo sapiens")], searchable=False)
+    build_tiny_store(tiny, [taxa])
     with open_ontology_store(tiny) as store:
         assert store.search("", "uberon") == []
         assert store.search(" \t ", "uberon") == []
-        with pytest.raises(OntologyError, match=r"ubreon.*holds: uberon"):
+        with pytest.raises(OntologyError, match=r"ubreon.*holds: taxa, uberon"):
             store.search("hippocampus", "ubreon")
+        with pytest.raises(OntologyError, match="taxa is looked up by id only"):
+            store.search("Homo sapiens", "taxa")
 
 
 def test_search_command_prints_the_candidates(tiny: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -208,3 +213,20 @@ def test_search_command_prints_the_candidates(tiny: Path, monkeypatch: pytest.Mo
     unknown = CliRunner().invoke(app, ["ontology", "search", "ubreon", "hippocampus"])
     assert unknown.exit_code == 1
     assert "holds: uberon" in unknown.output
+
+
+def test_words_past_the_rank_cap_are_left_out_and_rarer_words_kept(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(reader, "_RANK_CAP", 3)
+    terms = [
+        SourceTerm("UBERON:0000001", "brain region"),
+        SourceTerm("UBERON:0000002", "liver region"),
+        SourceTerm("UBERON:0000003", "heart region"),
+        SourceTerm("UBERON:0000004", "region"),
+        SourceTerm("UBERON:0000005", "hippocampus"),
+    ]
+    # "region" is in four texts, past the cap: only its whole-text match is left.
+    assert [c.id for c in _search(tmp_path, terms, "region")] == ["UBERON:0000004"]
+    # A label mixing it with a rarer word is ranked on the rarer word alone.
+    assert [c.id for c in _search(tmp_path, terms, "hippocampus region")] == ["UBERON:0000005"]

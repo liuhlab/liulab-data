@@ -19,7 +19,7 @@ from labdata.exceptions import OntologyError
 from labdata.ontology import tables
 from labdata.ontology.root import find_root, read_current
 from labdata.ontology.tables import Reason, Scope, TextKind, fold
-from labdata.ontology.vocabularies import LOOKUP_ONLY, TAXON_PREFIX
+from labdata.ontology.vocabularies import TAXON_PREFIX
 
 _WORD = re.compile(r"\w+")
 _TEXT_ROW = "x.id, t.name, x.text, x.kind, x.scope, x.synonym_type"
@@ -77,6 +77,7 @@ class OntologyStore:
         self.root = root
         current = read_current(root)
         self._dbs: dict[str, sqlite3.Connection] = {}
+        self._lookup_only: set[str] = set()
         routes: list[tuple[str, str]] = []
         try:
             for vocabulary, snapshot in sorted(current.items()):
@@ -86,6 +87,8 @@ class OntologyStore:
                 db = self._dbs[vocabulary] = tables.connect(path)
                 meta = tables.read_meta(db)
                 routes += [(prefix, vocabulary) for prefix in json.loads(meta["prefixes"])]
+                if meta["searchable"] != "1":
+                    self._lookup_only.add(vocabulary)
         except BaseException:
             self.close()
             raise
@@ -203,7 +206,7 @@ class OntologyStore:
         if vocabulary not in self._dbs:
             held = ", ".join(sorted(self.snapshots)) or "none"
             raise OntologyError(f"no vocabulary {vocabulary!r} in this store; it holds: {held}")
-        if vocabulary in LOOKUP_ONLY:
+        if vocabulary in self._lookup_only:
             raise OntologyError(f"{vocabulary} is looked up by id only and cannot be searched")
         return self._dbs[vocabulary]
 
