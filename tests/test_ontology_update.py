@@ -5,18 +5,22 @@ from __future__ import annotations
 import json
 import os
 import socket
+import subprocess
 from contextlib import closing
 from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
-from labdata import _lock
+from labdata import _lock, _slurm
 from labdata.cli import app
 from labdata.ontology import Reason, Term, lifecycle, open_ontology_store, paths, tables
 from labdata.ontology import fetch as fetch_mod
-from labdata.ontology.root import make_store
+from labdata.ontology import vocabularies as vocab_mod
+from labdata.ontology.lifecycle import Result, VocabularyResult
+from labdata.ontology.root import make_store, read_current
 from labdata.ontology.update import update
+from labdata.ontology.vocabularies import Vocabulary
 from tests._ontology_fakes import OntologyWeb
 
 FBDV = (Path(__file__).parent / "data" / "ontology" / "fbdv.obo").read_bytes()
@@ -25,6 +29,23 @@ GITHUB = (
     "https://github.com/FlyBase/drosophila-developmental-ontology/releases/latest/download/fbdv.obo"
 )
 SNAPSHOT = "fbdv-2026-11-02"
+PATO_URL = "https://purl.obolibrary.org/obo/pato.obo"
+PATO = b"""format-version: 1.2
+data-version: releases/2026-10-01/pato.obo
+ontology: pato
+
+[Term]
+id: PATO:0000001
+name: quality
+
+[Term]
+id: PATO:0000014
+name: color
+"""
+HEAD = f"bytes=0-{fetch_mod.HEAD_BYTES - 1}"
+#: Slurm jobs by state; Slurm knows no other job, and gives no answer about ``_UNASKED``.
+_JOBS = {"4242": "RUNNING", "4241": "CANCELLED"}
+_UNASKED = "4240"
 
 
 @pytest.fixture(autouse=True)
@@ -150,9 +171,8 @@ def test_the_status_record_names_the_outcome_and_the_snapshot(root: Path, web: O
     assert first.outcome == lifecycle.Outcome.BUILT
     assert first.start is not None
     assert first.end is not None
-    assert first.vocabularies["fbdv"] == lifecycle.VocabularyResult(
-        release="2026-11-02", snapshot=SNAPSHOT, result=lifecycle.Result.UPDATED
-    )
+    row = first.vocabularies["fbdv"]
+    assert (row.release, row.snapshot, row.result) == ("2026-11-02", SNAPSHOT, "updated")
 
     # The same release again: only the header is read, and the status says so.
     web.calls.clear()
@@ -165,17 +185,188 @@ def test_the_status_record_names_the_outcome_and_the_snapshot(root: Path, web: O
     assert (again.snapshot, again.result) == (SNAPSHOT, lifecycle.Result.UNCHANGED)
 
 
-def test_a_second_update_while_a_live_owner_holds_the_lock_is_refused(
-    root: Path, web: OntologyWeb
+def _release(body: bytes, old: str, new: str) -> bytes:
+    return body.replace(old.encode(), new.encode())
+
+
+def _downloads(web: OntologyWeb) -> list[str]:
+    """Return the URLs whose whole file was served."""
+    return [c.url for c in web.calls if "Range" not in c.headers and c.status == 200]
+
+
+@pytest.fixture
+def both(monkeypatch: pytest.MonkeyPatch, web: OntologyWeb) -> OntologyWeb:
+    """Declare FBdv and PATO, and serve both."""
+    declared = (Vocabulary("fbdv", ("FBdv:",)), Vocabulary("pato", ("PATO:",)))
+    monkeypatch.setattr(vocab_mod, "VOCABULARIES", declared)
+    web.files[PATO_URL] = PATO
+    web.modified[PATO_URL] = "Thu, 01 Oct 2026 08:00:00 GMT"
+    web.modified[GITHUB] = "Mon, 02 Nov 2026 08:00:00 GMT"
+    return web
+
+
+@pytest.fixture
+def slurm(monkeypatch: pytest.MonkeyPatch) -> None:
+    def show_job(job_id: str) -> str | None:
+        if job_id == _UNASKED:
+            return None
+        state = _JOBS.get(job_id)
+        return f"JobId={job_id} JobName=update\n   JobState={state} Reason=None\n" if state else ""
+
+    monkeypatch.setattr(_slurm, "show_job", show_job)
+
+
+def test_a_second_update_downloads_only_the_vocabulary_with_a_new_release(
+    root: Path, both: OntologyWeb
 ) -> None:
-    lock = paths.LOCK.at(root)
-    lock.parent.mkdir(parents=True, exist_ok=True)
-    owner = {"update": "update", "job": None, "host": socket.gethostname(), "pid": os.getpid()}
-    lock.write_text(json.dumps(owner | {"started": "2026-11-21T00:00:00Z"}), encoding="utf-8")
+    update(root, transport=both)
+    both.calls.clear()
+    both.files[GITHUB] = _release(FBDV, "2026-11-02", "2026-12-01")
+    both.modified[GITHUB] = "Tue, 01 Dec 2026 08:00:00 GMT"
+
+    status = update(root, transport=both)
+
+    assert _downloads(both) == [GITHUB]
+    assert status.vocabularies == {
+        "fbdv": VocabularyResult(
+            "2026-12-01", "fbdv-2026-12-01", Result.UPDATED, None, 4, "2026-12-01"
+        ),
+        "pato": VocabularyResult(
+            "2026-10-01", "pato-2026-10-01", Result.UNCHANGED, None, 2, "2026-10-01"
+        ),
+    }
+    assert lifecycle.read_status(root) == status
+
+
+@pytest.mark.parametrize("fault", ["download", "broken"])
+def test_a_failed_vocabulary_keeps_its_snapshot_while_the_others_switch(
+    root: Path, both: OntologyWeb, fault: str
+) -> None:
+    update(root, transport=both)
+    both.files[PATO_URL] = _release(PATO, "2026-10-01", "2026-11-15")
+    new = _release(FBDV, "2026-11-02", "2026-12-01")
+    if fault == "download":
+        both.failures[GITHUB] = [503] * 10
+    else:
+        both.files[GITHUB] = new[: new.index(b"embryo stage")]  # cut part of the way into a line
 
     result = CliRunner().invoke(app, ["ontology", "update", "--root", str(root)])
 
     assert result.exit_code == 1
-    assert "holds this store's run lock" in result.output
-    assert web.calls == []
-    assert not paths.STATUS.at(root).exists()
+    row = lifecycle.read_status(root).vocabularies["fbdv"]
+    assert (row.result, row.snapshot, row.terms) == (Result.FAILED, SNAPSHOT, 4)
+    reason = "HTTP 503" if fault == "download" else "does not parse"
+    assert row.reason is not None
+    assert reason in row.reason
+    assert f"fbdv: failed ({row.reason})" in result.output
+    assert read_current(root) == {"fbdv": SNAPSHOT, "pato": "pato-2026-11-15"}
+    assert not paths.SNAPSHOTS.at(root, "fbdv-2026-12-01").exists()
+
+
+def test_a_release_with_far_fewer_own_terms_is_refused(root: Path, web: OntologyWeb) -> None:
+    update(root, transport=web)
+    new = _release(FBDV, "2026-11-02", "2026-12-01")
+    web.files[GITHUB] = new[: new.index(b"[Term]\nid: FBdv:00007012")]  # cut at a stanza
+
+    status = update(root, transport=web)
+
+    row = status.vocabularies["fbdv"]
+    assert (status.outcome, row.result, row.snapshot) == ("failed", Result.FAILED, SNAPSHOT)
+    assert row.reason is not None
+    assert "1 own terms" in row.reason
+    assert read_current(root) == {"fbdv": SNAPSHOT}
+    assert [p.name for p in paths.SNAPSHOTS.at(root).iterdir()] == [SNAPSHOT]
+
+
+@pytest.mark.parametrize(
+    "releases",
+    [("2026-11-02", "2026-12-01", "2027-01-05"), ("9", "10", "11")],
+    ids=["dates", "numbers"],
+)
+def test_after_three_releases_only_the_newest_two_are_kept(
+    root: Path, web: OntologyWeb, releases: tuple[str, ...]
+) -> None:
+    for release in releases:
+        web.files[GITHUB] = _release(FBDV, "fbdv/releases/2026-11-02", release)
+        update(root, transport=web)
+
+    kept = sorted(p.name for p in paths.SNAPSHOTS.at(root).iterdir())
+    assert kept == sorted(f"fbdv-{r}" for r in releases[1:])
+    assert read_current(root) == {"fbdv": f"fbdv-{releases[2]}"}
+
+
+def test_a_snapshot_of_an_older_table_layout_is_remade_with_no_download(
+    root: Path, web: OntologyWeb, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with monkeypatch.context() as old:
+        old.setattr(tables, "TABLE_LAYOUT", 1)
+        update(root, transport=web)
+    assert tables.layout_of(root, SNAPSHOT) == 1
+    web.calls.clear()
+
+    status = update(root, transport=web)
+
+    assert tables.layout_of(root, SNAPSHOT) == tables.TABLE_LAYOUT
+    assert _downloads(web) == []
+    assert status.vocabularies["fbdv"].result == Result.UNCHANGED
+    assert sorted(f.name for f in paths.SNAPSHOTS.at(root, SNAPSHOT).iterdir()) == [
+        paths.SOURCE_DIR,
+        paths.TABLES_FILE,
+    ]
+    with open_ontology_store(root) as store:
+        assert [c.id for c in store.search("embryo stage", "fbdv")][:1] == ["FBdv:00005289"]
+
+
+def _gone_pid() -> int:
+    """Return the ID of a process that has ended."""
+    child = subprocess.Popen(["true"])
+    child.wait()
+    return child.pid
+
+
+@pytest.mark.parametrize(
+    ("job", "host", "pid", "flags", "refusal"),
+    [
+        ("4241", "elsewhere", 1, [], None),
+        ("4242", "elsewhere", 1, [], "wait for it to end"),
+        (None, "here", "gone", [], None),
+        (None, "here", "live", [], "wait for it to end"),
+        (_UNASKED, "elsewhere", 1, [], "--owner-gone"),
+        (_UNASKED, "elsewhere", 1, ["--owner-gone"], None),
+    ],
+    ids=["slurm-gone", "slurm-live", "host-gone", "host-live", "cannot-tell", "owner-gone"],
+)
+@pytest.mark.usefixtures("slurm")
+def test_a_held_lock_is_taken_from_a_gone_owner_and_refused_while_one_lives(
+    root: Path,
+    web: OntologyWeb,
+    job: str | None,
+    host: str,
+    pid: int | str,
+    flags: list[str],
+    refusal: str | None,
+) -> None:
+    pids = {"live": os.getpid(), "gone": _gone_pid()}
+    owner = {
+        "update": "update",
+        "job": job,
+        "host": socket.gethostname() if host == "here" else host,
+        "pid": pids.get(str(pid), pid),
+        "started": "2026-11-21T00:00:00Z",
+    }
+    lock = paths.LOCK.at(root)
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    lock.write_text(json.dumps(owner), encoding="utf-8")
+
+    result = CliRunner().invoke(app, ["ontology", "update", "--root", str(root), *flags])
+
+    if refusal is None:
+        assert result.exit_code == 0, result.output
+        assert read_current(root) == {"fbdv": SNAPSHOT}
+        assert not lock.exists()
+    else:
+        assert result.exit_code == 1
+        assert "holds this store's run lock" in result.output
+        assert refusal in result.output
+        assert web.calls == []
+        assert not paths.STATUS.at(root).exists()

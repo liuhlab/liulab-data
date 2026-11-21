@@ -54,13 +54,17 @@ class VocabularyResult:
     """One vocabulary's row in the status record.
 
     ``release`` is ``None`` when the update could not read it; ``reason`` says why a
-    vocabulary failed.
+    vocabulary failed. ``snapshot`` is the vocabulary's current snapshot after the update, so
+    a failed vocabulary names the one it kept. ``terms`` is that snapshot's own-term count, and
+    ``source_date`` the date of its source file, ``YYYY-MM-DD``.
     """
 
     release: str | None = None
     snapshot: str | None = None
     result: str = ""
     reason: str | None = None
+    terms: int | None = None
+    source_date: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

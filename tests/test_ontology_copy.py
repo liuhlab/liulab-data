@@ -113,6 +113,20 @@ def test_a_restore_into_an_empty_disk_can_look_up_and_search_at_once(
     assert lifecycle.read_status(empty).outcome == "finalized"
 
 
+def test_a_pruned_snapshot_leaves_gcs_at_the_next_copy(
+    root: Path, gcs: FakeGcs, web: OntologyWeb
+) -> None:
+    for release in ("2026-09-01", "2026-10-01", "2026-11-02"):
+        new = f"fbdv/releases/{release}".encode()
+        web.files[URL] = FBDV.replace(b"fbdv/releases/2026-11-02", new)
+        update(root, transport=web)
+
+    held = {p.split("/")[1] for p in gcs.files() if p.startswith("snapshots/")}
+    assert held == {"fbdv-2026-10-01", SNAPSHOT}
+    assert f"snapshots/fbdv-2026-09-01/{paths.TABLES_FILE}" in gcs.deleted()
+    assert gcs_status(gcs)["outcome"] == "finalized"
+
+
 class _Offline:
     """A transport whose every request fails, to stop an update at its first download."""
 

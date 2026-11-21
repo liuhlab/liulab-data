@@ -25,11 +25,23 @@ empty disk from GCS. Paths in this file are relative to the store root, written 
 
 `work/` is scratch. Delete it only while no update runs.
 
+Each vocabulary keeps its current snapshot and the one before it, so a run that opened the
+store before an update still reads its files. Each update deletes older snapshots.
+
 ## labdata-ontologies.toml
 
 - **What:** the marker that makes this folder an ontology store.
 - **Layout:** TOML. `format_version`; `copy_to`, where the store is copied with rclone.
 - **Made by:** `labdata ontology init`.
+
+## ontology-status.json
+
+- **What:** the last update: its `start`, `end` and `outcome`, and one row per vocabulary.
+- **Layout:** JSON. Each row in `vocabularies` gives the `release` checked, the `result`
+  (`updated`, `unchanged` or `failed`, with its `reason`), the current `snapshot`, its own-term
+  count `terms`, and its source file's date `source_date`. A failed vocabulary keeps its
+  snapshot.
+- **Made by:** each update, which rewrites it whole.
 
 ## current-snapshots.json
 

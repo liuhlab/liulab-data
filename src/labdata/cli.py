@@ -570,7 +570,8 @@ def ontology_update(
 ) -> None:
     """Bring each vocabulary's current release into the store, and make it current.
 
-    Downloads only the vocabularies whose release has no snapshot yet. Exits 1 if any fails;
+    Downloads only the vocabularies whose release has no snapshot yet, then keeps each
+    vocabulary's current and previous snapshots and deletes older ones. Exits 1 if any fails;
     a failed vocabulary keeps its current snapshot.
     """
     from labdata.ontology.lifecycle import Outcome
@@ -582,8 +583,11 @@ def ontology_update(
         typer.echo(str(err), err=True)
         raise typer.Exit(1) from err
     for name, row in status.vocabularies.items():
-        detail = row.snapshot or row.reason
-        typer.echo(f"{name}: {row.result} ({detail})", err=row.reason is not None)
+        if row.reason is None:
+            typer.echo(f"{name}: {row.result} ({row.snapshot})")
+        else:
+            kept = f"; keeps {row.snapshot}" if row.snapshot else ""
+            typer.echo(f"{name}: {row.result} ({row.reason}){kept}", err=True)
     if status.copy_pending:
         typer.echo("the GCS copy is pending: the update is not finalized", err=True)
     if status.outcome == Outcome.FAILED or status.copy_pending:

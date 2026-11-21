@@ -27,8 +27,10 @@ WORK = Declared("work/", SCRATCH)
 LOCK = Declared("work/update.lock", SCRATCH)
 #: Source files being downloaded.
 DOWNLOADS = Declared("work/downloads/", SCRATCH)
-#: Snapshots being written, renamed into ``snapshots/`` once whole.
+#: Snapshots being written, renamed into ``snapshots/`` once whole; and remade tables files.
 BUILDING = Declared("work/building/", SCRATCH)
+#: Snapshots being deleted, moved here whole first.
+PRUNING = Declared("work/pruning/", SCRATCH)
 
 #: Every declared path.
 LAYOUT = (
@@ -43,6 +45,7 @@ LAYOUT = (
     LOCK,
     DOWNLOADS,
     BUILDING,
+    PRUNING,
 )
 
 #: In a snapshot folder: its term tables, one SQLite file.

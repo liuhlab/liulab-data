@@ -1,4 +1,4 @@
-"""Find the ontology store root, make one, and read or switch its current snapshots.
+"""Find the ontology store root, make one, read or switch its current snapshots, and prune.
 
 The pattern is the other stores': a marker file in the root, ``labdata-ontologies.toml``,
 found through ``LABDATA_ONTOLOGIES`` or a per-user pointer file beside ``store.toml``.
@@ -8,15 +8,24 @@ from __future__ import annotations
 
 import importlib.resources
 import json
+import logging
 import os
+import re
+import shutil
+import sqlite3
 from collections.abc import Mapping
+from contextlib import closing
 from pathlib import Path
 
 from labdata._cache import liulab_data_cache_dir
 from labdata._files import create_marker, read_toml_marker, toml_line, write_atomic
 from labdata._root import resolve_root, write_pointer
 from labdata.exceptions import OntologyError, StoreNotConfiguredError
-from labdata.ontology import paths
+from labdata.ontology import paths, tables
+
+logger = logging.getLogger(__name__)
+
+_PART = re.compile(r"\d+|\D+")
 
 #: Environment variable naming the ontology store root.
 ONTOLOGIES_ENV = "LABDATA_ONTOLOGIES"
@@ -144,6 +153,63 @@ def switch(root: Path, snapshots: Mapping[str, str]) -> dict[str, str]:
     current = read_current(root) | dict(snapshots)
     write_atomic(paths.CURRENT.at(root), _dump(current))
     return current
+
+
+def prune(root: Path) -> list[str]:
+    """Delete every snapshot but each vocabulary's current one and the newest one before it.
+
+    The snapshot before the current one stays, so a reader opened before the last switch still
+    reads its files. Releases order as numbers where they hold digits, so ``10`` follows ``9``.
+    A snapshot is moved into scratch whole, then deleted there.
+
+    Parameters
+    ----------
+    root : pathlib.Path
+        The ontology store root.
+
+    Returns
+    -------
+    list of str
+        The snapshots deleted, by name.
+    """
+    pruning = paths.PRUNING.at(root)
+    shutil.rmtree(pruning, ignore_errors=True)
+    record = read_current(root)
+    current = set(record.values())
+    older: dict[str, list[tuple[str, str]]] = {}
+    for folder in sorted(paths.SNAPSHOTS.at(root).iterdir()):
+        if folder.name in current or not folder.is_dir():
+            continue
+        meta = _meta(folder / paths.TABLES_FILE)
+        if meta is None:
+            logger.warning("snapshot %s has no readable tables; prune leaves it", folder.name)
+            continue
+        older.setdefault(meta["vocabulary"], []).append((meta["release"], folder.name))
+    gone: list[str] = []
+    for vocabulary, held in older.items():
+        held.sort(key=lambda pair: _release_key(pair[0]))
+        # A vocabulary with no current snapshot keeps its newest two.
+        keep = 1 if vocabulary in record else 2
+        gone += [name for _, name in held[:-keep]]
+    for name in gone:
+        pruning.mkdir(parents=True, exist_ok=True)
+        paths.SNAPSHOTS.at(root, name).rename(pruning / name)
+    shutil.rmtree(pruning, ignore_errors=True)
+    return sorted(gone)
+
+
+def _meta(path: Path) -> dict[str, str] | None:
+    if not path.is_file():
+        return None
+    try:
+        with closing(tables.connect(path)) as db:
+            return tables.read_meta(db)
+    except sqlite3.Error:
+        return None
+
+
+def _release_key(release: str) -> tuple[tuple[int, int | str], ...]:
+    return tuple((0, int(p)) if p.isdigit() else (1, p) for p in _PART.findall(release))
 
 
 def _dump(record: Mapping[str, str]) -> str:
