@@ -71,6 +71,11 @@ papers_app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(papers_app, name="papers")
+ontology_app = typer.Typer(
+    help="Keep the ontology store: dated snapshots of the vocabularies readings name ids from.",
+    no_args_is_help=True,
+)
+app.add_typer(ontology_app, name="ontology")
 
 
 @app.command()
@@ -177,6 +182,13 @@ def _openalex_client() -> OpenAlex:
 
 def _paper_transport() -> Transport:
     """Return the HTTP transport paper steps download through."""
+    from labdata._http import HttpTransport
+
+    return HttpTransport()
+
+
+def _ontology_transport() -> Transport:
+    """Return the HTTP transport the ontology update downloads through."""
     from labdata._http import HttpTransport
 
     return HttpTransport()
@@ -353,9 +365,9 @@ def papers_restore(
     before a large one; without a terminal it then needs --accept-download. Holds the paper
     store's lock: stop the paper job first.
     """
+    from labdata._root import resolve_root
     from labdata.papers.copy import restore
     from labdata.papers.root import PAPERS_ENV, pointer_path
-    from labdata.store.root import resolve_root
 
     where = _restore_root(resolve_root(root, PAPERS_ENV, pointer_path(), "papers"))
     _restore(lambda ok: restore(where, source, approve=ok), where, accept_download)
@@ -465,6 +477,201 @@ def papers_configure() -> None:
     path = save_accounts(accounts)
     emails = ", ".join(a.email for a in accounts)
     typer.echo(f"Saved {len(accounts)} OpenAlex accounts ({emails}) to {path}")
+
+
+@ontology_app.command("init")
+def ontology_init(
+    root: Path = typer.Argument(..., help="The ontology store root; created if missing."),
+    copy_to: str = typer.Option("", help="rclone destination <remote>:<bucket>/<path>."),
+) -> None:
+    """Make an ontology store: write labdata-ontologies.toml and README.md, and point to it.
+
+    Refuses if the root already has a labdata-ontologies.toml.
+    """
+    from labdata.ontology import init_ontology_store
+
+    try:
+        marker = init_ontology_store(root, copy_to=copy_to)
+    except LabdataError as err:
+        typer.echo(str(err), err=True)
+        raise typer.Exit(1) from err
+    typer.echo(f"Wrote {marker}")
+
+
+@ontology_app.command("lookup")
+def ontology_lookup(
+    term_id: str = typer.Argument(..., metavar="ID", help="A term id, such as UBERON:0002421."),
+    root: Path | None = typer.Option(
+        None, help="Ontology store root; default: LABDATA_ONTOLOGIES, then pointer."
+    ),
+) -> None:
+    """Print a term, or a retired id and the live ids it points to.
+
+    Exits 1 when no current snapshot has the id.
+    """
+    from labdata.ontology import open_ontology_store
+
+    try:
+        with open_ontology_store(root) as store:
+            term = store.lookup(term_id)
+    except LabdataError as err:
+        typer.echo(str(err), err=True)
+        raise typer.Exit(1) from err
+    if term is None:
+        typer.echo(f"{term_id}: no current snapshot has this id", err=True)
+        raise typer.Exit(1)
+    typer.echo(f"id: {term.id}")
+    if term.name is not None:
+        typer.echo(f"name: {term.name}")
+    if term.obsolete:
+        typer.echo("obsolete: true")
+    if term.retired is not None:
+        typer.echo(f"retired: {term.retired}")
+    if term.replaced_by:
+        typer.echo(f"replaced by: {', '.join(term.replaced_by)}")
+    typer.echo(f"snapshot: {term.snapshot}")
+
+
+@ontology_app.command("search")
+def ontology_search(
+    vocabulary: str = typer.Argument(..., help="The vocabulary to search, such as uberon."),
+    text: str = typer.Argument(..., help="A label's text, such as hippocampus."),
+    limit: int = typer.Option(10, help="The most candidates to print."),
+    root: Path | None = typer.Option(
+        None, help="Ontology store root; default: LABDATA_ONTOLOGIES, then pointer."
+    ),
+) -> None:
+    """Print a label's candidates, best first, after the snapshot that answered.
+
+    Each line holds the id, name, matched on, scope, synonym type and matched text, split by
+    tabs; a dash marks an empty field. Exits 1 for a vocabulary the store does not hold.
+    """
+    from labdata.ontology import open_ontology_store
+
+    try:
+        with open_ontology_store(root) as store:
+            found = store.search(text, vocabulary, limit=limit)
+            snapshot = store.snapshots[vocabulary]
+    except LabdataError as err:
+        typer.echo(str(err), err=True)
+        raise typer.Exit(1) from err
+    typer.echo(f"snapshot: {snapshot}")
+    for c in found:
+        fields = (c.id, c.name, c.matched_on, c.scope, c.synonym_type, c.text)
+        typer.echo("\t".join("-" if f is None else str(f) for f in fields))
+
+
+@ontology_app.command("update")
+def ontology_update(
+    root: Path | None = typer.Option(
+        None, help="Ontology store root; default: LABDATA_ONTOLOGIES, then pointer."
+    ),
+    owner_gone: bool = _OWNER_GONE,
+) -> None:
+    """Bring each vocabulary's current release into the store, and make it current.
+
+    Downloads only the vocabularies whose release has no snapshot yet, then keeps each
+    vocabulary's current and previous snapshots and deletes older ones. Exits 1 if any fails;
+    a failed vocabulary keeps its current snapshot.
+    """
+    from labdata.ontology.lifecycle import Outcome
+    from labdata.ontology.update import update
+
+    try:
+        status = update(root, transport=_ontology_transport(), owner_gone=owner_gone)
+    except LabdataError as err:
+        typer.echo(str(err), err=True)
+        raise typer.Exit(1) from err
+    for name, row in status.vocabularies.items():
+        if row.reason is None:
+            typer.echo(f"{name}: {row.result} ({row.snapshot})")
+        else:
+            kept = f"; keeps {row.snapshot}" if row.snapshot else ""
+            typer.echo(f"{name}: {row.result} ({row.reason}){kept}", err=True)
+    if status.copy_pending:
+        typer.echo("the GCS copy is pending: the update is not finalized", err=True)
+    if status.outcome == Outcome.FAILED or status.copy_pending:
+        raise typer.Exit(1)
+
+
+@ontology_app.command("copy")
+def ontology_copy(
+    root: Path | None = typer.Option(
+        None, help="Ontology store root; default: LABDATA_ONTOLOGIES, then pointer."
+    ),
+    to: str | None = typer.Option(
+        None, help="rclone destination <remote>:<bucket>/<path>; default: copy_to in the marker."
+    ),
+    full: bool = typer.Option(
+        False,
+        "--full",
+        help="Upload every kept snapshot and delete nothing; for a first copy or a repair.",
+    ),
+    accept_deletes: int = typer.Option(
+        0,
+        "--accept-deletes",
+        min=0,
+        help="Delete up to this many snapshots that left the store on purpose.",
+    ),
+    owner_gone: bool = _OWNER_GONE,
+) -> None:
+    """Send the ontology store's changes since the last copy to a bucket with rclone.
+
+    It sends the kept snapshots, and deletes in the bucket, by name, the snapshots the last
+    copy sent that the store no longer keeps. It refuses, exiting 1, when a current snapshot
+    has no tables, when the work disk's copy record is not the one in GCS (run `labdata
+    ontology restore`), or when it would delete more snapshots than it adds, past a small
+    share and --accept-deletes. With no copy record, on the disk or in the bucket, or when
+    rclone's Google login has expired, it skips with a message and exits 1. Sends
+    ontology-status.json last, marked finalized. Holds the store's run lock, so it refuses
+    while an update runs.
+    """
+    from labdata.ontology.lifecycle import finalize
+    from labdata.ontology.root import find_root
+
+    try:
+        result = finalize(
+            find_root(root), to, full=full, accept_deletes=accept_deletes, owner_gone=owner_gone
+        )
+    except LabdataError as err:
+        typer.echo(str(err), err=True)
+        raise typer.Exit(1) from err
+    if result.skipped:
+        typer.echo(result.message, err=True)
+        raise typer.Exit(1)
+    typer.echo(f"Copied the ontology store to {result.destination}")
+
+
+@ontology_app.command("restore")
+def ontology_restore(
+    root: Path | None = typer.Option(
+        None,
+        help="Ontology store root, empty or behind GCS; default: LABDATA_ONTOLOGIES, then pointer.",
+    ),
+    source: str | None = typer.Option(
+        None, "--from", help="rclone path <remote>:<bucket>/<path>; default: copy_to in the marker."
+    ),
+    accept_download: bool = typer.Option(
+        False, "--accept-download", help=f"Download more than {_ASK_ABOVE} without asking."
+    ),
+    owner_gone: bool = _OWNER_GONE,
+) -> None:
+    """Fill a work disk from GCS: the ontology store as the copy record in GCS names it.
+
+    Downloads only what the disk lacks or holds differently, deletes the state files GCS no
+    longer holds and leaves work/ alone. It prints the download size and asks before a large
+    one; without a terminal it then needs --accept-download. Holds the store's run lock, so it
+    refuses while an update runs.
+    """
+    from labdata.ontology.lifecycle import restore
+    from labdata.ontology.root import configured_root
+
+    where = _restore_root(configured_root(root))
+    _restore(
+        lambda ok: restore(where, source, approve=ok, owner_gone=owner_gone),
+        where,
+        accept_download,
+    )
 
 
 def _store_client() -> EntrezClient:
@@ -782,8 +989,9 @@ def store_restore(
     and asks before a large one; without a terminal it then needs --accept-download.
     Holds the store's run lock, so it refuses while an update runs.
     """
+    from labdata._root import resolve_root
     from labdata.store.lifecycle import restore
-    from labdata.store.root import STORE_ENV, pointer_path, resolve_root
+    from labdata.store.root import STORE_ENV, pointer_path
 
     where = _restore_root(resolve_root(root, STORE_ENV, pointer_path(), "store"))
     _restore(

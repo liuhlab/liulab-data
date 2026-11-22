@@ -1,7 +1,8 @@
 """Whether a Slurm job or a process still runs, and :func:`show_job`, the one seam that asks Slurm.
 
-The paper job reads its successors' states and its log folder through it. The GEO/SRA store's
-run lock records its :class:`Owner` and asks :func:`alive` whether that owner still runs.
+The paper job reads its successors' states and its log folder through it. The run lock
+(:mod:`labdata._lock`) records its :class:`Owner` and asks :func:`alive` whether that owner
+still runs.
 """
 
 from __future__ import annotations

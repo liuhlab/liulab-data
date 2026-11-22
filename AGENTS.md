@@ -26,9 +26,12 @@ src/labdata/
   exceptions.py      LabdataError hierarchy
   _http.py, _rclone.py  the HTTP and rclone seams every client shares
   _slurm.py          the Slurm query seam (scontrol): does a lock's owner still run
-  _gcs.py            the GCS protocol both stores share: copy and restore; store/gcs.py and
-                       papers/copy.py are its adapters
-  _paths.py          the path kinds both stores declare (state, rebuildable, scratch)
+  _gcs.py            the GCS protocol every store shares: copy and restore; store/gcs.py,
+                       papers/copy.py and ontology/copy.py are its adapters
+  _paths.py          the path kinds every store declares (state, rebuildable, scratch)
+  _root.py           a store's root: the argument, then its env variable, then its pointer
+  _lock.py           the run lock: an owner record, inherited by the holder's steps, taken
+                       over from a gone owner; store/lifecycle.py uses it at work/run.lock
   _files.py          files written whole (atomic write and create), the UTC stamp
   cli.py             thin Typer CLI (labdata version, labdata ncbi configure,
                        labdata geo download, + hidden per-stage subcommands)
@@ -77,17 +80,30 @@ src/labdata/
                        daily.py (quota, host links, manual queue); copy.py
                        (GCS copy); job.py (the long-running paper job);
                        subset.py (the papers a subset store links)
+  ontology/          the ontology store: paths.py (its paths and their kinds);
+                       root.py (marker, init, the current-snapshots record,
+                       switch, prune); vocabularies.py (one declaration per
+                       vocabulary, release naming); fetch.py (header read,
+                       download); the readers obo.py, cellosaurus.py and
+                       taxdump.py; tables.py (the only writer of a snapshot's
+                       tables and search index, one SQLite file); update.py;
+                       lifecycle.py (run lock; the status record's only writer;
+                       copy and restore under the lock); copy.py (the GCS
+                       adapter); reader.py (open_ontology_store: lookup, search);
+                       tiny.py (a tiny store from given terms, for tests)
 tests/               pytest suite, mirrors src; mocks the EntrezClient + subprocess seams
 conftest.py          the suite budget and the slow lane
 scripts/check.sh     the gate runner
 scripts/conformance.py  the lab template's rules, checked against this repo
 scripts/bulk/        the NCBI bulk snapshot downloader
 scripts/store/       the store full-run job script and its checks
+scripts/ontology/    the ontology update job script
 skills/              repo-local agent skills; install.py links them into .claude/ and .agents/
 ```
 
 The stores' overall flow and life cycle: read `docs/how-to/store-life-cycle.md` before the code.
-Running the store on a cluster: follow `docs/how-to/store-run.md`. A monthly or yearly
+Running the store on a cluster: follow `docs/how-to/store-run.md`; the ontology store,
+`docs/how-to/ontology-run.md`. A monthly or yearly
 maintenance run: the user invokes `/store-maintenance`.
 Changing the store's code or table layout: try it small first, per `docs/agents/store-dev.md`.
 
@@ -145,10 +161,10 @@ slow and live lanes run in one process.
   keeping the link busy while cores extract/compress. The store DAG adds a `mem_mb` resource:
   each step gets its share as `LABDATA_MEMORY_MB` and caps DuckDB and Ray inside it.
   `store.pipeline.drive` runs both store DAGs under the run lock.
-  Future pipelines follow this split. The paper job is the exception: one process with a
-  lock (ADR 0007).
+  Future pipelines follow this split. The paper job (ADR 0007) and the ontology update
+  (ADR 0014) are the exceptions: one process with a lock.
 - **Lazy, cached domain objects.** `Series(...)` is cheap; network happens on first
-  property access (`functools.cached_property`) and is cached thereafter.
+  property access (`functools.cached_property`), then cached.
 - **Accessions are validated at construction** and malformed input raises
   `AccessionError` (a `ValueError` subclass).
 - **Credentials**: resolve via env (`NCBI_EMAIL`/`NCBI_API_KEY`) → cache file
@@ -166,12 +182,12 @@ slow and live lanes run in one process.
 
 ## Documentation
 
-Two layers, kept strictly separate — never duplicate one in the other:
+Two layers; never duplicate one in the other:
 
 - **Narrative pages** (`docs/*.md`, e.g. `index.md`) are for **human readers**.
-  Task-oriented and short: show the common path with simple, copy-pasteable demos and
-  example output. Aim for the *minimum* an end user needs to get going; favor easy,
-  plain language over completeness. Do **not** spell out per-class/method/parameter
+  Task-oriented and short: show the common path with copy-pasteable demos and
+  example output. Aim for the *minimum* an end user needs to get going; favor plain
+  language over completeness. Do **not** spell out per-class/method/parameter
   behavior in prose — link to the API reference for "going deeper".
 - **API reference** (`docs/reference.md`) is **auto-generated from docstrings** via
   mkdocstrings (NumPy style). This is the single home for exhaustive per-symbol detail

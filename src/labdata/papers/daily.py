@@ -13,7 +13,6 @@ import datetime as dt
 import hashlib
 import http.client
 import time
-import urllib.parse
 from collections import Counter
 from collections.abc import Callable, Collection, Iterable
 from dataclasses import dataclass, field
@@ -21,7 +20,15 @@ from pathlib import Path
 from typing import Any
 
 from labdata._files import write_atomic
-from labdata._http import USER_AGENT, HttpTransport, RateLimiter, Transport
+from labdata._http import (
+    MOVED,
+    USER_AGENT,
+    HttpTransport,
+    RateLimiter,
+    TooManyRedirects,
+    Transport,
+    get_following,
+)
 from labdata.ncbi.entrez import EntrezClient
 from labdata.papers import ladder, paths
 from labdata.papers.openalex import Account, OpenAlex
@@ -299,39 +306,26 @@ def _download(
     An ``Authorization`` header is not passed on to another host.
     """
     headers = {"User-Agent": USER_AGENT, "Accept": "application/pdf", **headers}
-    for _ in range(_REDIRECTS + 1):
-        url = _quoted(url)
-        try:
-            with transport.open("GET", url, body=None, headers=headers, timeout=_TIMEOUT) as r:
-                if r.status in (301, 302, 303, 307, 308):
-                    location = r.getheader("Location")
-                    r.read()
-                    if not location:
-                        return _Got(status=r.status, detail=f"HTTP {r.status} with no Location")
-                    new = urllib.parse.urljoin(url, location)
-                    if urllib.parse.urlsplit(new).netloc != urllib.parse.urlsplit(url).netloc:
-                        headers = {k: v for k, v in headers.items() if k != "Authorization"}
-                    url = new
-                    continue
-                if r.status != 200:
-                    r.read()
-                    return _Got(
-                        status=r.status,
-                        detail=f"HTTP {r.status}",
-                        retry_after=_seconds(r.getheader("Retry-After")),
-                    )
-                return _save_pdf(r, state, dest)
-        except (OSError, ValueError, http.client.HTTPException) as err:
-            return _Got(detail=type(err).__name__)
-    return _Got(status=310, detail="too many redirects")
-
-
-def _quoted(url: str) -> str:
-    """Percent-encode a URL's path and query, leaving ``%XX`` as is; drop its fragment."""
-    parts = urllib.parse.urlsplit(url)
-    path = urllib.parse.quote(parts.path, safe="/%:@!$&'()*+,;=~")
-    query = urllib.parse.quote(parts.query, safe="/%:@!$&'()*+,;=~?")
-    return urllib.parse.urlunsplit((parts.scheme, parts.netloc, path, query, ""))
+    try:
+        with get_following(transport, url, headers=headers, timeout=_TIMEOUT, hops=_REDIRECTS) as (
+            _,
+            r,
+        ):
+            if r.status in MOVED:
+                r.read()
+                return _Got(status=r.status, detail=f"HTTP {r.status} with no Location")
+            if r.status != 200:
+                r.read()
+                return _Got(
+                    status=r.status,
+                    detail=f"HTTP {r.status}",
+                    retry_after=_seconds(r.getheader("Retry-After")),
+                )
+            return _save_pdf(r, state, dest)
+    except TooManyRedirects:
+        return _Got(status=310, detail="too many redirects")
+    except (OSError, ValueError, http.client.HTTPException) as err:
+        return _Got(detail=type(err).__name__)
 
 
 def _save_pdf(response: Any, state: PaperTables, dest: Path) -> _Got:
