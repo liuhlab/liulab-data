@@ -135,6 +135,31 @@ an update, copy or restore runs, the others refuse to start. If the message says
 whether the other one still runs, check with `squeue` on its cluster. Once you know it has
 ended, run the same command again with `--owner-gone`.
 
+## When a source host refuses the cluster
+
+A vocabulary whose host refuses the cluster fails each month with a `ConnectionRefusedError`.
+The failed line in the job log names the file's address. Until the host lets the cluster in,
+bring the file in by hand:
+
+1. On a machine that can reach the host, download the file from that address.
+2. Copy it to the cluster. Keep its date, as `scp -p` or `rsync -t` do: the status record
+   shows it as `source_date`.
+3. Give the file to the update with `--source <vocabulary>=<path>`, once for each such
+   vocabulary:
+
+   ```bash
+   export LABDATA_ONTOLOGIES=/path/to/ontology-store
+   sbatch scripts/ontology/update.sbatch --source chebi=/path/to/chebi.obo
+   ```
+
+The update then reads that vocabulary from the file, not from the web. It reads the release
+from the file's header and keeps a copy of the file in the new snapshot. Your file stays as it
+was. The other vocabularies update from the web as usual.
+
+`--source` takes one OBO file whose header states a `data-version`. In the table above, that
+is a vocabulary that comes from one file and has its release read from `data-version`. For
+any other, the update refuses and names why.
+
 ## Read `ontology-status.json`
 
 The file at the store root records the last update, with one row per vocabulary:

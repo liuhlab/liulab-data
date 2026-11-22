@@ -194,6 +194,19 @@ def _ontology_transport() -> Transport:
     return HttpTransport()
 
 
+def _vocab_files(pairs: list[str]) -> dict[str, Path]:
+    """Return ``--source`` values, each ``VOCAB=PATH``, as a file per vocabulary name."""
+    files: dict[str, Path] = {}
+    for pair in pairs:
+        name, _, path = pair.partition("=")
+        if not name or not path:
+            raise typer.BadParameter(f"{pair!r} is not VOCAB=PATH", param_hint="--source")
+        if name in files:
+            raise typer.BadParameter(f"{name} is given twice", param_hint="--source")
+        files[name] = Path(path)
+    return files
+
+
 def _paper_setup(root: Path | None) -> tuple[PaperStore, EntrezClient, OpenAlex]:
     """Open the paper store and its clients; a setup failure exits 1 with its message."""
     from labdata.papers import open_paper_store
@@ -566,6 +579,13 @@ def ontology_update(
     root: Path | None = typer.Option(
         None, help="Ontology store root; default: LABDATA_ONTOLOGIES, then pointer."
     ),
+    source: list[str] = typer.Option(
+        [],
+        "--source",
+        metavar="VOCAB=PATH",
+        help="Read VOCAB from the file at PATH in place of the web; the file is copied, "
+        "never changed. Repeatable.",
+    ),
     owner_gone: bool = _OWNER_GONE,
 ) -> None:
     """Bring each vocabulary's current release into the store, and make it current.
@@ -577,8 +597,11 @@ def ontology_update(
     from labdata.ontology.lifecycle import Outcome
     from labdata.ontology.update import update
 
+    sources = _vocab_files(source)
     try:
-        status = update(root, transport=_ontology_transport(), owner_gone=owner_gone)
+        status = update(
+            root, sources=sources, transport=_ontology_transport(), owner_gone=owner_gone
+        )
     except LabdataError as err:
         typer.echo(str(err), err=True)
         raise typer.Exit(1) from err
