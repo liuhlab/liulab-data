@@ -1,4 +1,4 @@
-"""All 13 vocabularies through the update over a fake web: releases, readers and lookups."""
+"""Every vocabulary through the update over a fake web: releases, readers and lookups."""
 
 from __future__ import annotations
 
@@ -84,7 +84,7 @@ def _obo(name: str, prefix: str, version: str | None) -> bytes:
     return f"format-version: 1.2\n{stated}ontology: {name}\n\n{term}".encode()
 
 
-def test_all_thirteen_update_and_each_snapshot_is_named_by_its_release(root: Path) -> None:
+def test_every_vocabulary_updates_and_each_snapshot_is_named_by_its_release(root: Path) -> None:
     purl = "https://purl.obolibrary.org/obo/{}"
     web = OntologyWeb()
     for name, (prefix, version, _) in OBO_VERSIONS.items():
@@ -97,7 +97,6 @@ def test_all_thirteen_update_and_each_snapshot_is_named_by_its_release(root: Pat
         web.files[purl.format(f"{name}.owl")] = owl.replace("hsapdv", name).encode()
     web.files[CELLOSAURUS] = (DATA / "cellosaurus.obo").read_bytes()
     web.files[CELLOSAURUS_DELETED] = (DATA / "cellosaurus_deleted_ACs.txt").read_bytes()
-    # EFO's data-version, as measured: .../releases/v3.96.0/efo.owl.
     web.files[EFO] = (DATA / "efo.obo").read_bytes()
     _serve_taxonomy(web)
 

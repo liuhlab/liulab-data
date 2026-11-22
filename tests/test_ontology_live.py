@@ -77,9 +77,7 @@ def test_every_declared_address_answers_and_states_its_release(tmp_path: Path) -
     registry = json.loads((tmp_path / "registry.jsonld").read_text(encoding="utf-8"))
     prefixes = {entry["id"]: entry.get("preferredPrefix") for entry in registry["ontologies"]}
     for vocab in VOCABULARIES:
-        # A vocabulary the registry lacks, such as EFO, is checked only if a purl serves it.
-        if vocab.reader is not ReaderKind.OBO or (
-            vocab.name not in prefixes and not vocab.url.startswith(PURL)
-        ):
-            continue
-        assert vocab.prefixes == (f"{prefixes[vocab.name]}:",), vocab.name
+        # One outside the OBO Foundry, such as EFO, has no entry; one a purl serves must have.
+        registered = vocab.name in prefixes or vocab.url.startswith(PURL)
+        if vocab.reader is ReaderKind.OBO and registered:
+            assert vocab.prefixes == (f"{prefixes.get(vocab.name)}:",), vocab.name

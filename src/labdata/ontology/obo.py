@@ -61,8 +61,8 @@ def read_obo(path: Path, vocabulary: Vocabulary, *, release: str | None = None) 
     """Read the vocabulary's own terms from an OBO file, with the release its header states.
 
     Terms whose id has none of the vocabulary's prefixes, such as imported ones, are left out.
-    An id written as an IRI, ``efo:EFO_0008896`` or ``http://.../EFO_0008896``, reads as
-    ``EFO:0008896``.
+    An id spelled with an IRI's ending, ``efo:EFO_0008896`` or ``http://.../EFO_0008896``,
+    reads as ``EFO:0008896``.
     A given ``release`` is used instead of the header's, for a file that states none. A synonym
     type named only by a number, such as ``OMO:0003004``, is stored by its name in the header.
 
@@ -99,8 +99,8 @@ class _ReadLines:
 
     fastobo then never parses a clause the store does not keep, such as an ``xref`` whose bare
     IRI holds an OBO escape, which its grammar rejects. Two kept clauses are mended as EFO
-    writes them: a bare ``!`` in a name, which fastobo reads as a comment, is escaped, and a
-    synonym's xrefs, which may hold a space, are dropped.
+    writes them: a name that starts with a bare ``!``, which fastobo reads as a comment, gets it
+    escaped, and a synonym's xrefs, which may hold a space, are dropped.
     """
 
     def __init__(self, lines: Iterable[bytes]) -> None:
@@ -117,10 +117,12 @@ class _ReadLines:
 
 
 def _mended(line: bytes) -> bytes:
+    """Return a kept line as fastobo can parse it."""
     clause = line.lstrip(b" \t")
-    if clause.startswith(b"name:") and b"!" in line:
+    if clause.startswith(b"name:"):
         tag, _, value = line.partition(b":")
-        return tag + b":" + value.replace(b"\\!", b"!").replace(b"!", b"\\!")
+        if value.lstrip(b" \t").startswith(b"!"):
+            return tag + b": \\" + value.lstrip(b" \t")
     if clause.startswith(b"synonym:") and (head := _SYNONYM_HEAD.match(line)):
         return head.group(0) + b"]\n"
     return line
