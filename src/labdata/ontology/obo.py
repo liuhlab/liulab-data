@@ -1,12 +1,13 @@
 """Read an OBO file's release from its header, and its own terms into snapshot data.
 
 The file is read frame by frame with fastobo, so a large vocabulary is never held whole as
-parsed frames; only the kept terms are.
+parsed frames; only the kept terms are. fastobo is given only the clauses the reader reads.
 """
 
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,18 @@ _TAG = "data-version:"
 # A type named only by a number, such as OMO:0003004 ("plural form"), reads by its header name;
 # a named one, such as UBERON's INCONSISTENT, whose header text is a definition, reads as is.
 _NUMBERED = re.compile(r"[A-Za-z]+:\d+")
+#: The starts of the lines fastobo is given: a frame's first line, or a clause the reader reads.
+_READ = (
+    b"[",
+    b"id:",
+    b"name:",
+    b"synonym:",
+    b"is_obsolete:",
+    b"replaced_by:",
+    b"alt_id:",
+    b"data-version:",
+    b"synonymtypedef:",
+)
 
 
 def header_version(head: bytes) -> str:
@@ -54,23 +67,52 @@ def read_obo(path: Path, vocabulary: Vocabulary, *, release: str | None = None) 
         ``data-version``.
     """
     try:
-        frames = frames_of(str(path))
-        head = list(frames.header())
-        version = next(
-            (str(c.version) for c in head if isinstance(c, header.DataVersionClause)), None
-        )
-        labels = _type_labels(head)
-        terms = [
-            _term(frame, labels)
-            for frame in frames
-            if isinstance(frame, term.TermFrame) and str(frame.id).startswith(vocabulary.prefixes)
-        ]
+        with path.open("rb") as lines:
+            frames = frames_of(_ReadLines(lines))
+            head = list(frames.header())
+            version = next(
+                (str(c.version) for c in head if isinstance(c, header.DataVersionClause)), None
+            )
+            labels = _type_labels(head)
+            terms = [
+                _term(frame, labels)
+                for frame in frames
+                if isinstance(frame, term.TermFrame)
+                and str(frame.id).startswith(vocabulary.prefixes)
+            ]
     except (SyntaxError, ValueError) as err:
-        raise OntologyError(f"{path.name} does not parse as OBO: {err}") from err
+        raise OntologyError(f"{path.name} does not parse as OBO: {_detail(err)}") from err
     if release is None and version is None:
         raise OntologyError(f"{path.name}: the OBO header states no data-version")
     stated = release if release is not None else release_of(str(version))
     return SnapshotData(vocabulary.name, stated, terms, prefixes=vocabulary.prefixes)
+
+
+class _ReadLines:
+    """The lines of an OBO file that open a frame or hold a clause the reader reads.
+
+    fastobo then never parses a clause the store does not keep, such as an ``xref`` whose bare
+    IRI holds an OBO escape, which its grammar rejects.
+    """
+
+    def __init__(self, lines: Iterable[bytes]) -> None:
+        self._lines = (line for line in lines if line.lstrip(b" \t").startswith(_READ))
+        self._held = bytearray()
+
+    def read(self, size: int) -> bytes:
+        """Return the next ``size`` bytes, or fewer at the end."""
+        while len(self._held) < size and (line := next(self._lines, None)) is not None:
+            self._held += line
+        given = bytes(self._held[:size])
+        del self._held[:size]
+        return given
+
+
+def _detail(err: Exception) -> str:
+    """Say why fastobo failed by the clause it stopped at, as its line number is not the file's."""
+    if isinstance(err, SyntaxError) and err.text:
+        return f"{err.msg} at {err.text.strip()!r}"
+    return str(err)
 
 
 def _type_labels(head: list[Any]) -> dict[str, str]:
