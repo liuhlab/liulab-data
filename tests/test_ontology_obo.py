@@ -50,3 +50,33 @@ def test_a_term_with_an_escaped_xref_iri_is_read_with_every_kept_field(tmp_path:
         ),
         SourceTerm("UBERON:0000001", "obsolete embryo", True, ("UBERON:0000922",)),
     ]
+
+
+# EFO writes a bare "!" in an imported name, which fastobo reads as a comment, and a space in a
+# synonym's xref, which its grammar rejects.
+EFO = b"""format-version: 1.2
+data-version: http://www.ebi.ac.uk/efo/releases/v3.96.0/efo.owl
+
+[Term]
+id: AfPO:0000263
+name: !Kung
+
+[Term]
+id: efo:EFO_0008913
+name: single-cell RNA sequencing
+synonym: "single-cell transcriptome sequencing" EXACT [Wikipedia:Single cell sequencing]
+"""
+
+
+def test_a_bare_bang_in_a_name_and_a_space_in_a_synonym_xref_are_read(tmp_path: Path) -> None:
+    path = tmp_path / "efo.obo"
+    path.write_bytes(EFO)
+
+    efo = read_obo(path, Vocabulary("efo", ("EFO:",)))
+    afpo = read_obo(path, Vocabulary("afpo", ("AfPO:",)))
+
+    synonym = Synonym("single-cell transcriptome sequencing", Scope.EXACT)
+    assert list(efo.terms) == [
+        SourceTerm("EFO:0008913", "single-cell RNA sequencing", synonyms=(synonym,))
+    ]
+    assert list(afpo.terms) == [SourceTerm("AfPO:0000263", "!Kung")]

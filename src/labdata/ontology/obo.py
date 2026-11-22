@@ -23,6 +23,10 @@ _TAG = "data-version:"
 # A type named only by a number, such as OMO:0003004 ("plural form"), reads by its header name;
 # a named one, such as UBERON's INCONSISTENT, whose header text is a definition, reads as is.
 _NUMBERED = re.compile(r"[A-Za-z]+:\d+")
+#: The ``<PREFIX>_<number>`` that ends an IRI-shaped id, such as ``OBA_VT0000047``.
+_LOCAL = re.compile(r"([A-Za-z][A-Za-z0-9]*)_([A-Za-z]*\d+)")
+#: A synonym clause up to the ``[`` that opens its xref list.
+_SYNONYM_HEAD = re.compile(rb'\s*synonym:\s*"(?:[^"\\]|\\.)*"[^[\n]*\[')
 #: The starts of the lines fastobo is given: a frame's first line, or a clause the reader reads.
 _READ = (
     b"[",
@@ -57,6 +61,8 @@ def read_obo(path: Path, vocabulary: Vocabulary, *, release: str | None = None) 
     """Read the vocabulary's own terms from an OBO file, with the release its header states.
 
     Terms whose id has none of the vocabulary's prefixes, such as imported ones, are left out.
+    An id written as an IRI, ``efo:EFO_0008896`` or ``http://.../EFO_0008896``, reads as
+    ``EFO:0008896``.
     A given ``release`` is used instead of the header's, for a file that states none. A synonym
     type named only by a number, such as ``OMO:0003004``, is stored by its name in the header.
 
@@ -78,7 +84,7 @@ def read_obo(path: Path, vocabulary: Vocabulary, *, release: str | None = None) 
                 _term(frame, labels)
                 for frame in frames
                 if isinstance(frame, term.TermFrame)
-                and str(frame.id).startswith(vocabulary.prefixes)
+                and _curie(frame.id).startswith(vocabulary.prefixes)
             ]
     except (SyntaxError, ValueError) as err:
         raise OntologyError(f"{path.name} does not parse as OBO: {_detail(err)}") from err
@@ -92,11 +98,13 @@ class _ReadLines:
     """The lines of an OBO file that open a frame or hold a clause the reader reads.
 
     fastobo then never parses a clause the store does not keep, such as an ``xref`` whose bare
-    IRI holds an OBO escape, which its grammar rejects.
+    IRI holds an OBO escape, which its grammar rejects. Two kept clauses are mended as EFO
+    writes them: a bare ``!`` in a name, which fastobo reads as a comment, is escaped, and a
+    synonym's xrefs, which may hold a space, are dropped.
     """
 
     def __init__(self, lines: Iterable[bytes]) -> None:
-        self._lines = (line for line in lines if line.lstrip(b" \t").startswith(_READ))
+        self._lines = (_mended(line) for line in lines if line.lstrip(b" \t").startswith(_READ))
         self._held = bytearray()
 
     def read(self, size: int) -> bytes:
@@ -108,11 +116,36 @@ class _ReadLines:
         return given
 
 
+def _mended(line: bytes) -> bytes:
+    clause = line.lstrip(b" \t")
+    if clause.startswith(b"name:") and b"!" in line:
+        tag, _, value = line.partition(b":")
+        return tag + b":" + value.replace(b"\\!", b"!").replace(b"!", b"\\!")
+    if clause.startswith(b"synonym:") and (head := _SYNONYM_HEAD.match(line)):
+        return head.group(0) + b"]\n"
+    return line
+
+
 def _detail(err: Exception) -> str:
     """Say why fastobo failed by the clause it stopped at, as its line number is not the file's."""
     if isinstance(err, SyntaxError) and err.text:
         return f"{err.msg} at {err.text.strip()!r}"
     return str(err)
+
+
+def _curie(ident: Any) -> str:
+    """Return an id, or the ``PREFIX:number`` its IRI-shaped spelling stands for."""
+    text = str(ident)
+    if "_" not in text:
+        return text
+    if "://" in text:
+        local = text.rpartition("/")[2]
+    else:
+        space, _, local = text.partition(":")
+        if not local.lower().startswith(f"{space.lower()}_"):
+            return text
+    found = _LOCAL.fullmatch(local)
+    return f"{found.group(1)}:{found.group(2)}" if found else text
 
 
 def _type_labels(head: list[Any]) -> dict[str, str]:
@@ -142,9 +175,9 @@ def _term(frame: Any, labels: dict[str, str]) -> SourceTerm:
         elif isinstance(clause, term.IsObsoleteClause):
             obsolete = bool(clause.obsolete)
         elif isinstance(clause, term.ReplacedByClause):
-            replaced_by.append(str(clause.term))
+            replaced_by.append(_curie(clause.term))
         elif isinstance(clause, term.AltIdClause):
-            alt_ids.append(str(clause.alt_id))
+            alt_ids.append(_curie(clause.alt_id))
     return SourceTerm(
-        str(frame.id), name, obsolete, tuple(replaced_by), tuple(alt_ids), tuple(synonyms)
+        _curie(frame.id), name, obsolete, tuple(replaced_by), tuple(alt_ids), tuple(synonyms)
     )

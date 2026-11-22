@@ -17,7 +17,8 @@ from labdata.exceptions import OntologyError
 #: The address of an OBO Foundry vocabulary's OBO file.
 OBO_FOUNDRY = "https://purl.obolibrary.org/obo/{name}.obo"
 
-_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+_DATE = re.compile(r"(\d{4}-\d{2}-\d{2})")
+_VERSION_PATH = re.compile(r"releases/v(\d+\.\d+\.\d+)/")
 _SAFE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 _VERSION_INFO = re.compile(r"<owl:versionInfo[^>]*>([^<]*)</owl:versionInfo>")
 
@@ -134,11 +135,17 @@ VOCABULARIES: tuple[Vocabulary, ...] = (
     # ChEBI's purl sends it on over plain HTTP; EBI serves the same file over HTTPS.
     Vocabulary("chebi", ("CHEBI:",), url=_CHEBI),
     Vocabulary("fbdv", ("FBdv:",)),
+    Vocabulary(
+        "efo", ("EFO:",), url="https://github.com/EBISPOT/efo/releases/download/current/efo.obo"
+    ),
 )
 
 
 def release_of(version: str) -> str:
-    """Return the release a version string names: its ``YYYY-MM-DD`` date, or else itself.
+    """Return the release a version string names.
+
+    That is its ``YYYY-MM-DD`` date, or else the ``X.Y.Z`` of a ``releases/vX.Y.Z/`` path,
+    or else the string itself.
 
     Raises
     ------
@@ -149,11 +156,13 @@ def release_of(version: str) -> str:
     --------
     >>> release_of("fbdv/releases/2026-11-02")
     '2026-11-02'
+    >>> release_of("http://www.ebi.ac.uk/efo/releases/v3.96.0/efo.owl")
+    '3.96.0'
     >>> release_of("257")
     '257'
     """
-    found = _DATE.search(version)
-    release = found.group(0) if found else version.strip()
+    found = _DATE.search(version) or _VERSION_PATH.search(version)
+    release = found.group(1) if found else version.strip()
     if not _SAFE.fullmatch(release):
         raise OntologyError(f"version {version!r} names no usable release")
     return release

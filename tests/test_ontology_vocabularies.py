@@ -1,4 +1,4 @@
-"""All 12 vocabularies through the update over a fake web: releases, readers and lookups."""
+"""All 13 vocabularies through the update over a fake web: releases, readers and lookups."""
 
 from __future__ import annotations
 
@@ -32,6 +32,7 @@ TAXON = "ncbitaxon-2026-11-21"
 CELLOSAURUS = "https://ftp.expasy.org/databases/cellosaurus/cellosaurus.obo"
 CELLOSAURUS_DELETED = "https://ftp.expasy.org/databases/cellosaurus/cellosaurus_deleted_ACs.txt"
 CHEBI = "https://ftp.ebi.ac.uk/pub/databases/chebi/ontology/chebi.obo"
+EFO = "https://github.com/EBISPOT/efo/releases/download/current/efo.obo"
 
 
 @pytest.fixture
@@ -83,7 +84,7 @@ def _obo(name: str, prefix: str, version: str | None) -> bytes:
     return f"format-version: 1.2\n{stated}ontology: {name}\n\n{term}".encode()
 
 
-def test_all_twelve_update_and_each_snapshot_is_named_by_its_release(root: Path) -> None:
+def test_all_thirteen_update_and_each_snapshot_is_named_by_its_release(root: Path) -> None:
     purl = "https://purl.obolibrary.org/obo/{}"
     web = OntologyWeb()
     for name, (prefix, version, _) in OBO_VERSIONS.items():
@@ -96,6 +97,8 @@ def test_all_twelve_update_and_each_snapshot_is_named_by_its_release(root: Path)
         web.files[purl.format(f"{name}.owl")] = owl.replace("hsapdv", name).encode()
     web.files[CELLOSAURUS] = (DATA / "cellosaurus.obo").read_bytes()
     web.files[CELLOSAURUS_DELETED] = (DATA / "cellosaurus_deleted_ACs.txt").read_bytes()
+    # EFO's data-version, as measured: .../releases/v3.96.0/efo.owl.
+    web.files[EFO] = (DATA / "efo.obo").read_bytes()
     _serve_taxonomy(web)
 
     status = update(root, transport=web)
@@ -106,6 +109,7 @@ def test_all_twelve_update_and_each_snapshot_is_named_by_its_release(root: Path)
         "hsapdv": "hsapdv-2025-01-23",
         "mmusdv": "mmusdv-2025-01-23",
         "cellosaurus": "cellosaurus-57.0",
+        "efo": "efo-3.96.0",
         "ncbitaxon": TAXON,
     }
     with open_ontology_store(root) as store:
@@ -235,6 +239,31 @@ def test_a_deleted_cellosaurus_id_looks_up_as_deleted(root: Path) -> None:
         "cellosaurus.obo",
         "cellosaurus_deleted_ACs.txt",
     ]
+
+
+def test_efo_spells_its_own_ids_as_iris_and_they_are_kept_and_searched_as_efo_ids(
+    root: Path,
+) -> None:
+    web = OntologyWeb(files={EFO: (DATA / "efo.obo").read_bytes()})
+
+    update(root, vocabularies=_declared("efo"), transport=web)
+
+    snapshot = "efo-3.96.0"
+    with open_ontology_store(root) as store:
+        assert store.snapshots == {"efo": snapshot}
+        assert [c.id for c in store.search("RNA-seq", "efo")][:1] == ["EFO:0008896"]
+        assert [c.id for c in store.search("ribosome profiling", "efo")][:1] == ["EFO:0008891"]
+        # An obsolete term's replacement, written as an IRI, reads as an id.
+        assert store.lookup("EFO:0000093") == Term(
+            "EFO:0000093",
+            "obsolete_B-precursor acute lymphoblastic leukemia",
+            True,
+            ("MONDO:0004947",),
+            Reason.OBSOLETE,
+            snapshot,
+        )
+        imported = "single-cell combinatorial indexing RNA sequencing assay"
+        assert "OBI:0003105" not in {c.id for c in store.search(imported, "efo")}
 
 
 def test_a_raised_table_layout_remakes_every_reader_kind_from_its_kept_files(
