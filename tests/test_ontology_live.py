@@ -22,6 +22,7 @@ from labdata.ontology.vocabularies import VOCABULARIES, ReaderKind, release_of
 pytestmark = pytest.mark.network
 
 REGISTRY = "https://obofoundry.org/registry/ontologies.jsonld"
+PURL = "https://purl.obolibrary.org/"
 
 
 class _Counted:
@@ -76,5 +77,7 @@ def test_every_declared_address_answers_and_states_its_release(tmp_path: Path) -
     registry = json.loads((tmp_path / "registry.jsonld").read_text(encoding="utf-8"))
     prefixes = {entry["id"]: entry.get("preferredPrefix") for entry in registry["ontologies"]}
     for vocab in VOCABULARIES:
-        if vocab.reader is ReaderKind.OBO:
-            assert vocab.prefixes == (f"{prefixes[vocab.name]}:",), vocab.name
+        # One outside the OBO Foundry, such as EFO, has no entry; one a purl serves must have.
+        registered = vocab.name in prefixes or vocab.url.startswith(PURL)
+        if vocab.reader is ReaderKind.OBO and registered:
+            assert vocab.prefixes == (f"{prefixes.get(vocab.name)}:",), vocab.name

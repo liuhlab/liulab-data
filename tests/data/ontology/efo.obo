@@ -1,0 +1,63 @@
+format-version: 1.2
+data-version: http://www.ebi.ac.uk/efo/releases/v3.96.0/efo.owl
+subsetdef: efo:added_for_HCA "Term added upon request from Human Cell Atlas curators."
+synonymtypedef: BRAND_NAME "BRAND NAME"
+idspace: efo http://www.ebi.ac.uk/efo/
+idspace: terms7 http://www.geneontology.org/formats/oboInOwl#http://purl.org/dc/terms/
+remark: 2026-11-11
+ontology: http://www.ebi.ac.uk/efo/efo.owl
+property_value: owl:versionInfo "3.96.0" xsd:string
+owl-axioms: Prefix(owl:=<http://www.w3.org/2002/07/owl#>)\n\n\nOntology(\nDeclaration(Class(<http://purl.obolibrary.org/obo/BFO_0000019>))\n)
+
+[Term]
+id: efo:EFO_0008896
+name: RNA-Seq
+def: "RNA-seq is a method that involves purifying RNA and making cDNA, followed by high-throughput sequencing." []
+xref: PMID:18516045
+is_a: efo:EFO_0001457 ! RNA assay
+relationship: RO:0000057 efo:EFO_0002699 ! has_participant high throughput sequencer
+property_value: IAO:0000117 "Dani Welter" xsd:string
+
+[Term]
+id: efo:EFO_0002692
+name: ChIP-seq
+xref: NCIT:C106049
+is_a: efo:EFO_0001456 ! DNA assay
+property_value: efo:SRA_label "ChIP-Seq (Direct sequencing of chromatin immunoprecipitates)" xsd:string
+
+[Term]
+id: efo:EFO_0008891
+name: Ribo-seq
+synonym: "Ribo-Seq" EXACT []
+synonym: "ribosome profiling" EXACT []
+is_a: efo:EFO_0001457 ! RNA assay
+
+[Term]
+id: efo:EFO_0008913
+name: single-cell RNA sequencing
+synonym: "scRNA-seq" EXACT []
+synonym: "single-cell RNA-seq" EXACT [PMID:29851283]
+is_a: efo:EFO_0007832 ! single cell sequencing
+
+[Term]
+id: efo:EFO_0000097
+name: obsolete_B-lymphocyte
+property_value: efo:reason_for_obsolescence "Consolidated with B cell (EFO_0000101), use B cell class instead." xsd:string
+is_obsolete: true
+replaced_by: http://www.ebi.ac.uk/efo/EFO_0000101
+
+[Term]
+id: efo:EFO_0000093
+name: obsolete_B-precursor acute lymphoblastic leukemia
+is_obsolete: true
+replaced_by: http://purl.obolibrary.org/obo/MONDO_0004947
+
+[Term]
+id: OBI:0003105
+name: single-cell combinatorial indexing RNA sequencing assay
+is_a: efo:EFO_0008913 ! single-cell RNA sequencing
+property_value: IAO:0000118 "sci-RNA-seq" xsd:string
+
+[Typedef]
+id: efo:is_executed_in
+name: is executed in

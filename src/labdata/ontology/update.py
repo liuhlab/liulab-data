@@ -307,7 +307,9 @@ def _read_kept(root: Path, vocab: Vocabulary, snapshot: str) -> SnapshotData:
 
 
 def _check_terms(root: Path, data: SnapshotData) -> None:
-    """Refuse a release holding far fewer own terms than the current snapshot."""
+    """Refuse a release holding no own terms, or far fewer than the current snapshot."""
+    if not data.terms:
+        raise OntologyError(f"release {data.release} holds 0 own terms")
     current = read_current(root).get(data.vocabulary)
     if current is None:
         return

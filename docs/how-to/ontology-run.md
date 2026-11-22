@@ -33,8 +33,10 @@ vocabulary's own terms, never an obsolete one.
 | `wbls` | worm life stages | OBO Foundry, `wbls.obo` | `data-version` | `wbls-YYYY-MM-DD` |
 | `chebi` | chemicals, such as drugs | EBI, `chebi.obo` | `data-version` | `chebi-<release number>` |
 | `fbdv` | fly developmental stages | OBO Foundry, `fbdv.obo` | `data-version` | `fbdv-YYYY-MM-DD` |
+| `efo` | assays, such as RNA-seq | EBI on GitHub, `efo.obo` | the `releases/vX.Y.Z/` path in `data-version` | `efo-X.Y.Z` |
 
 When a version names a date, as `releases/2026-11-05` does, the release is that date.
+When it holds a `releases/vX.Y.Z/` path, as EFO's does, the release is `X.Y.Z`.
 Otherwise it is the version as written, such as `257`. NCBI Taxonomy states no release, so
 its snapshot is named by the file's date. It is looked up by id only and has no search.
 
