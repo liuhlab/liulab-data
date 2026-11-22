@@ -264,6 +264,7 @@ class RateLimiter:
         self._calm_since = clock()
         self._next = 0.0
         self._lock = threading.Lock()
+        self._gate = threading.Lock()  # held through the wait; _lock stays free for halve()
         self._slots = threading.BoundedSemaphore(inflight)
 
     def lower_to(self, rate: float) -> None:
@@ -281,16 +282,22 @@ class RateLimiter:
 
     @contextmanager
     def turn(self) -> Iterator[None]:
-        """Hold an in-flight slot, wait for this call's start time, then run the call."""
+        """Hold an in-flight slot, wait for this call's start time, then run the call.
+
+        The next start counts from when this call goes, so a late wake pushes back the calls
+        behind it.
+        """
         # The slot is taken before the start time, so slots freeing at once give no burst.
         with self._slots:
-            with self._lock:
-                now = self._clock()
-                if self.rate < self.cap and now - self._calm_since >= self._quiet:
-                    self.rate = min(self.cap, self.rate * self._step)
-                    self._calm_since = now
-                start = max(now, self._next)
-                self._next = start + 1.0 / self.rate
-            if start > now:
-                _sleep(start - now)
+            with self._gate:
+                with self._lock:
+                    now = self._clock()
+                    if self.rate < self.cap and now - self._calm_since >= self._quiet:
+                        self.rate = min(self.cap, self.rate * self._step)
+                        self._calm_since = now
+                    start = max(now, self._next)
+                if start > now:
+                    _sleep(start - now)
+                with self._lock:
+                    self._next = max(start, self._clock()) + 1.0 / self.rate
             yield
