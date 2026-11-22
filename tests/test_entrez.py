@@ -16,10 +16,12 @@ import warnings
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from itertools import pairwise
 from pathlib import Path
 
 import pytest
 
+import labdata._http as http_mod
 import labdata.ncbi.entrez as entrez_mod
 from labdata._http import HttpTransport, RateLimiter
 from labdata.exceptions import EntrezError, PageNotFound
@@ -94,7 +96,6 @@ class Call:
     url: str
     params: dict[str, list[str]]
     timeout: float
-    at: float
     headers: dict[str, str]
 
 
@@ -112,7 +113,7 @@ class FakeTransport:
     @contextmanager
     def open(self, method, url, *, body, headers, timeout) -> Iterator[Reply]:
         params = urllib.parse.parse_qs(body.decode()) if body else {}
-        call = Call(method, url, params, timeout, time.monotonic(), dict(headers))
+        call = Call(method, url, params, timeout, dict(headers))
         with self._lock:
             self.calls.append(call)
             answer = self.answers.pop(0) if len(self.answers) > 1 else self.answers[0]
@@ -299,19 +300,38 @@ def test_a_503_backs_off_with_jitter_and_halves_the_rate(
     assert client._limiter.rate == 200.0
 
 
-def test_the_rate_never_exceeds_the_cap_under_concurrent_callers() -> None:
-    rate, calls = 100.0, 40
-    client = _client(Reply(_esearch("1")), rate=rate, inflight=8)
+def test_the_rate_never_exceeds_the_cap_under_concurrent_callers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rate, calls = 4.0, 40
+    waits: list[float] = []
+    monkeypatch.setattr(http_mod, "_sleep", waits.append)
+    limiter = RateLimiter(rate, 8, clock=lambda: 0.0)  # time stands still: a wait is a start
+    client = EntrezClient(CREDS, transport=FakeTransport(Reply(_esearch("1"))), limiter=limiter)
     threads = [threading.Thread(target=client.esearch, args=("gds", f"t{i}")) for i in range(calls)]
     for thread in threads:
         thread.start()
     for thread in threads:
         thread.join()
-    starts = sorted(c.at for c in _calls(client))
+    assert len(_calls(client)) == calls
+    starts = sorted([0.0, *waits])  # the first caller goes at once
     assert len(starts) == calls
-    window = 0.2
-    busiest = max(sum(1 for t in starts if s <= t < s + window) for s in starts)
-    assert busiest <= rate * window + 3  # slack for a thread that wakes late
+    assert all(b - a >= 1 / rate for a, b in pairwise(starts))
+
+
+def test_a_late_wake_pushes_back_the_calls_behind_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    now, late = [0.0], [1.0]  # the first wait overruns by 1 s, as on a loaded machine
+
+    def sleep(seconds: float) -> None:
+        now[0] += seconds + (late.pop() if late else 0.0)
+
+    monkeypatch.setattr(http_mod, "_sleep", sleep)
+    limiter = RateLimiter(4.0, 8, clock=lambda: now[0])
+    went = []
+    for _ in range(4):
+        with limiter.turn():
+            went.append(now[0])
+    assert went == [0.0, 1.25, 1.5, 1.75]
 
 
 def test_calls_in_flight_never_exceed_the_cap() -> None:
