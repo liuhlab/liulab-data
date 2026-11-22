@@ -52,6 +52,9 @@ class _Counted:
             response.read = counted
             yield response
 
+    def close(self) -> None:
+        self._web.close()
+
 
 def test_every_declared_address_answers_and_states_its_release(tmp_path: Path) -> None:
     web = _Counted()
@@ -65,8 +68,11 @@ def test_every_declared_address_answers_and_states_its_release(tmp_path: Path) -
         for url in sorted(addresses - {vocab.version_url}):
             assert fetch.read_head(url, transport=web, size=1), url
     assert max(web.given.values()) <= fetch.HEAD_BYTES
+    # Every address reached, a redirect's included, is HTTPS.
+    assert [url for url in web.given if not url.startswith("https://")] == []
 
     fetch.download(REGISTRY, tmp_path / "registry.jsonld", transport=web)
+    web.close()
     registry = json.loads((tmp_path / "registry.jsonld").read_text(encoding="utf-8"))
     prefixes = {entry["id"]: entry.get("preferredPrefix") for entry in registry["ontologies"]}
     for vocab in VOCABULARIES:

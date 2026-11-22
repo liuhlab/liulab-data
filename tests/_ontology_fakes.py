@@ -68,14 +68,16 @@ class _Reply:
 class OntologyWeb:
     """Serves ``files`` by URL; ``redirects`` send a URL on with a 302.
 
-    ``failures`` lists, per URL, statuses to answer before serving it. A URL in
-    ``no_ranges`` answers a Range request with the whole file, as a server that ignores
-    Range does. ``modified`` gives a URL's ``Last-Modified`` header.
+    ``failures`` lists, per URL, statuses to answer before serving it. A URL in ``refused``
+    refuses every connection. A URL in ``no_ranges`` answers a Range request with the whole
+    file, as a server that ignores Range does. ``modified`` gives a URL's ``Last-Modified``
+    header.
     """
 
     files: dict[str, bytes] = field(default_factory=dict)
     redirects: dict[str, str] = field(default_factory=dict)
     failures: dict[str, list[int]] = field(default_factory=dict)
+    refused: set[str] = field(default_factory=set)
     no_ranges: set[str] = field(default_factory=set)
     modified: dict[str, str] = field(default_factory=dict)
     calls: list[Call] = field(default_factory=list)
@@ -92,6 +94,8 @@ class OntologyWeb:
     ) -> Iterator[_Reply]:
         call = Call(method, url, dict(headers))
         self.calls.append(call)
+        if url in self.refused:
+            raise ConnectionRefusedError(61, "Connection refused")
         if self.failures.get(url):
             yield _Reply(call, b"busy", self.failures[url].pop(0), {})
         elif url in self.redirects:

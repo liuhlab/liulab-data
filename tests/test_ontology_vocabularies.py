@@ -31,6 +31,7 @@ TAXON_DATE = "Sat, 21 Nov 2026 16:29:20 GMT"
 TAXON = "ncbitaxon-2026-11-21"
 CELLOSAURUS = "https://ftp.expasy.org/databases/cellosaurus/cellosaurus.obo"
 CELLOSAURUS_DELETED = "https://ftp.expasy.org/databases/cellosaurus/cellosaurus_deleted_ACs.txt"
+CHEBI = "https://ftp.ebi.ac.uk/pub/databases/chebi/ontology/chebi.obo"
 
 
 @pytest.fixture
@@ -87,6 +88,8 @@ def test_all_twelve_update_and_each_snapshot_is_named_by_its_release(root: Path)
     web = OntologyWeb()
     for name, (prefix, version, _) in OBO_VERSIONS.items():
         web.files[purl.format(f"{name}.obo")] = _obo(name, prefix, version)
+    # ChEBI's purl sends it on over plain HTTP, so the update asks EBI over HTTPS.
+    web.files[CHEBI] = web.files.pop(purl.format("chebi.obo"))
     owl = (DATA / "hsapdv.owl").read_text()
     for name, prefix in (("hsapdv", "HsapDv:"), ("mmusdv", "MmusDv:")):
         web.files[purl.format(f"{name}.obo")] = _obo(name, prefix, None)
