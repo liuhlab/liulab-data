@@ -94,6 +94,7 @@ TAXON_PREFIX = "NCBITaxon:"
 
 _CELLOSAURUS = "https://ftp.expasy.org/databases/cellosaurus/"
 _DEV_STAGES = "https://purl.obolibrary.org/obo/{name}.owl"
+_CHEBI = "https://ftp.ebi.ac.uk/pub/databases/chebi/ontology/chebi.obo"
 
 #: Every vocabulary the update brings in.
 VOCABULARIES: tuple[Vocabulary, ...] = (
@@ -130,7 +131,8 @@ VOCABULARIES: tuple[Vocabulary, ...] = (
         version_url=_DEV_STAGES.format(name="mmusdv"),
     ),
     Vocabulary("wbls", ("WBls:",)),
-    Vocabulary("chebi", ("CHEBI:",)),
+    # ChEBI's purl sends it on over plain HTTP; EBI serves the same file over HTTPS.
+    Vocabulary("chebi", ("CHEBI:",), url=_CHEBI),
     Vocabulary("fbdv", ("FBdv:",)),
 )
 

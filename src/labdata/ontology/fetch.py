@@ -1,7 +1,8 @@
 """GET a vocabulary's file, or only its first bytes, through the HTTP transport seam.
 
 Both follow redirects, which the transport does not, and retry a dropped connection or a busy
-server. Every try starts again from the first address.
+server. Every try starts again from the first address. A failure names the address that failed,
+a redirect's included.
 """
 
 from __future__ import annotations
@@ -10,7 +11,8 @@ import email.utils
 import http.client
 import os
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from contextlib import AbstractContextManager
 from pathlib import Path
 
 from labdata._files import temp_beside
@@ -100,11 +102,10 @@ def _get[T](
     headers = {"User-Agent": USER_AGENT, **extra}
 
     def once() -> T:
-        target = url
+        sent = _Sent(transport)
+        following = get_following(sent, url, headers=headers, timeout=_TIMEOUT, hops=_REDIRECTS)
         try:
-            with get_following(
-                transport, url, headers=headers, timeout=_TIMEOUT, hops=_REDIRECTS
-            ) as (target, response):
+            with following as (_, response):
                 status = response.status
                 if status in (200, 206):
                     return take(response)
@@ -112,15 +113,36 @@ def _get[T](
         except TooManyRedirects as err:
             raise GaveUp(str(err)) from None
         except (OSError, ValueError, http.client.HTTPException) as err:
-            raise TryAgain(f"{type(err).__name__} from {target}") from err
+            raise TryAgain(f"{type(err).__name__} from {sent.last}") from err
         if status in RETRY_STATUSES:
-            raise TryAgain(f"HTTP {status} from {target}")
-        raise GaveUp(f"HTTP {status} from {target}")
+            raise TryAgain(f"HTTP {status} from {sent.last}")
+        raise GaveUp(f"HTTP {status} from {sent.last}")
 
     try:
         return retry(once, tries=_TRIES, cap=60.0, sleep=_sleep)
     except GaveUp as err:
         raise DownloadError(f"GET {url} failed: {err}") from None
+
+
+class _Sent:
+    """A transport that keeps the address of the last request it sent, for a failure to name."""
+
+    def __init__(self, transport: Transport) -> None:
+        self._transport = transport
+        self.last = ""
+
+    def open(
+        self,
+        method: str,
+        url: str,
+        *,
+        body: bytes | None,
+        headers: Mapping[str, str],
+        timeout: float,
+    ) -> AbstractContextManager[Response]:
+        """Note ``url``, then send the request through the wrapped transport."""
+        self.last = url
+        return self._transport.open(method, url, body=body, headers=headers, timeout=timeout)
 
 
 def _date(path: Path, modified: str | None) -> None:

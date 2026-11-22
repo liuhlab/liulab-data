@@ -237,7 +237,7 @@ def test_a_second_update_downloads_only_the_vocabulary_with_a_new_release(
     assert _downloads(both) == []
 
 
-@pytest.mark.parametrize("fault", ["download", "broken"])
+@pytest.mark.parametrize("fault", ["download", "refused", "broken"])
 def test_a_failed_vocabulary_keeps_its_snapshot_while_the_others_switch(
     root: Path, both: OntologyWeb, fault: str
 ) -> None:
@@ -246,6 +246,8 @@ def test_a_failed_vocabulary_keeps_its_snapshot_while_the_others_switch(
     new = _release(FBDV, "2026-11-02", "2026-12-01")
     if fault == "download":
         both.failures[GITHUB] = [503] * 10
+    elif fault == "refused":
+        both.refused.add(GITHUB)  # the host purl redirects to
     else:
         both.files[GITHUB] = new[: new.index(b"embryo stage")]  # cut part of the way into a line
 
@@ -254,7 +256,11 @@ def test_a_failed_vocabulary_keeps_its_snapshot_while_the_others_switch(
     assert result.exit_code == 1
     row = lifecycle.read_status(root).vocabularies["fbdv"]
     assert (row.result, row.snapshot, row.terms) == (Result.FAILED, SNAPSHOT, 4)
-    reason = "HTTP 503" if fault == "download" else "does not parse"
+    reason = {
+        "download": "HTTP 503",
+        "refused": f"ConnectionRefusedError from {GITHUB}",
+        "broken": "does not parse",
+    }[fault]
     assert row.reason is not None
     assert reason in row.reason
     assert f"fbdv: failed ({row.reason})" in result.output

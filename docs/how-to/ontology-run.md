@@ -31,7 +31,7 @@ vocabulary's own terms, never an obsolete one.
 | `hsapdv` | human developmental stages | OBO Foundry, `hsapdv.obo` | `owl:versionInfo` in `hsapdv.owl` | `hsapdv-YYYY-MM-DD` |
 | `mmusdv` | mouse developmental stages | OBO Foundry, `mmusdv.obo` | `owl:versionInfo` in `mmusdv.owl` | `mmusdv-YYYY-MM-DD` |
 | `wbls` | worm life stages | OBO Foundry, `wbls.obo` | `data-version` | `wbls-YYYY-MM-DD` |
-| `chebi` | chemicals, such as drugs | OBO Foundry, `chebi.obo` | `data-version` | `chebi-<release number>` |
+| `chebi` | chemicals, such as drugs | EBI, `chebi.obo` | `data-version` | `chebi-<release number>` |
 | `fbdv` | fly developmental stages | OBO Foundry, `fbdv.obo` | `data-version` | `fbdv-YYYY-MM-DD` |
 
 When a version names a date, as `releases/2026-11-05` does, the release is that date.
@@ -122,7 +122,7 @@ The job log ends with one line per vocabulary:
 ```text
 ncbitaxon: updated (ncbitaxon-2026-11-21)
 uberon: unchanged (uberon-2026-11-05)
-chebi: failed (GET https://purl.obolibrary.org/obo/chebi.obo failed: HTTP 503 from https://ftp.ebi.ac.uk/pub/databases/chebi/ontology/chebi.obo); keeps chebi-256
+chebi: failed (GET https://ftp.ebi.ac.uk/pub/databases/chebi/ontology/chebi.obo failed: HTTP 503 from https://ftp.ebi.ac.uk/pub/databases/chebi/ontology/chebi.obo); keeps chebi-256
 ```
 
 A vocabulary that fails keeps its current snapshot while the others update, and the job
@@ -145,7 +145,7 @@ The file at the store root records the last update, with one row per vocabulary:
   "outcome": "finalized",
   "start": "2026-11-21T16:40:02+00:00",
   "vocabularies": {
-    "chebi": {"reason": "GET https://purl.obolibrary.org/obo/chebi.obo failed: HTTP 503 from https://ftp.ebi.ac.uk/pub/databases/chebi/ontology/chebi.obo",
+    "chebi": {"reason": "GET https://ftp.ebi.ac.uk/pub/databases/chebi/ontology/chebi.obo failed: HTTP 503 from https://ftp.ebi.ac.uk/pub/databases/chebi/ontology/chebi.obo",
               "release": null, "result": "failed", "snapshot": "chebi-256", "source_date": "2026-10-01", "terms": 219034},
     "uberon": {"reason": null, "release": "2026-11-05", "result": "unchanged",
                "snapshot": "uberon-2026-11-05", "source_date": "2026-11-05", "terms": 16143}
