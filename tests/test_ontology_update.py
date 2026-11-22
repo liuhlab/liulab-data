@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from contextlib import closing
 from pathlib import Path
 
@@ -43,6 +44,8 @@ id: PATO:0000014
 name: color
 """
 HEAD = f"bytes=0-{fetch_mod.HEAD_BYTES - 1}"
+#: Every declared vocabulary, kept before a fixture declares fewer.
+DECLARED = vocab_mod.VOCABULARIES
 #: Slurm jobs by state; Slurm knows no other job.
 _JOBS = {"4242": "RUNNING", "4241": "CANCELLED"}
 
@@ -266,6 +269,71 @@ def test_a_failed_vocabulary_keeps_its_snapshot_while_the_others_switch(
     assert f"fbdv: failed ({row.reason})" in result.output
     assert read_current(root) == {"fbdv": SNAPSHOT, "pato": "pato-2026-11-15"}
     assert not paths.SNAPSHOTS.at(root, "fbdv-2026-12-01").exists()
+
+
+def test_a_source_file_on_disk_stands_in_for_its_vocabularys_download(
+    root: Path, both: OntologyWeb, tmp_path: Path
+) -> None:
+    given = tmp_path / "elsewhere" / "fbdv-copied.obo"
+    given.parent.mkdir()
+    given.write_bytes(FBDV)
+    os.utime(given, (1793606400, 1793606400))  # 2026-11-02 UTC, the download's date
+    before = given.stat()
+
+    result = CliRunner().invoke(
+        app, ["ontology", "update", "--root", str(root), "--source", f"fbdv={given}"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert not [c for c in both.calls if c.url in (PURL, GITHUB)]
+    assert _downloads(both) == [PATO_URL]
+    assert lifecycle.read_status(root).vocabularies["fbdv"] == VocabularyResult(
+        "2026-11-02", SNAPSHOT, Result.UPDATED, None, 4, "2026-11-02"
+    )
+    kept = paths.SNAPSHOTS.at(root, SNAPSHOT, paths.SOURCE_DIR, "fbdv.obo")
+    assert kept.read_bytes() == FBDV
+    assert not any(paths.DOWNLOADS.at(root).iterdir())
+    # The given file is copied, never moved or changed.
+    after = given.stat()
+    assert given.read_bytes() == FBDV
+    assert (after.st_ino, after.st_mtime, after.st_mode) == (
+        before.st_ino,
+        before.st_mtime,
+        before.st_mode,
+    )
+
+
+@pytest.mark.parametrize(
+    ("pair", "refusal"),
+    [
+        ("go=GIVEN", "no vocabulary named 'go'"),
+        ("chebi=MISSING", "chebi: no file at"),
+        ("ncbitaxon=GIVEN", "from the web (file-date)"),
+        ("hsapdv=GIVEN", "from the web (owl:versionInfo)"),
+        ("cellosaurus=GIVEN", "read from 2 files"),
+    ],
+    ids=["unknown", "missing", "file-date", "owl-version", "two-files"],
+)
+def test_a_source_the_update_cannot_take_is_refused_before_any_request(
+    root: Path,
+    web: OntologyWeb,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    pair: str,
+    refusal: str,
+) -> None:
+    monkeypatch.setattr(vocab_mod, "VOCABULARIES", DECLARED)
+    given = tmp_path / "given.obo"
+    given.write_bytes(FBDV)
+    value = pair.replace("GIVEN", str(given)).replace("MISSING", str(tmp_path / "gone.obo"))
+
+    result = CliRunner().invoke(app, ["ontology", "update", "--root", str(root), "--source", value])
+
+    assert result.exit_code == 1
+    assert refusal in result.output
+    assert web.calls == []
+    assert not paths.STATUS.at(root).exists()
+    assert given.read_bytes() == FBDV
 
 
 def test_a_release_with_far_fewer_own_terms_is_refused(root: Path, web: OntologyWeb) -> None:
