@@ -351,6 +351,19 @@ def test_a_release_with_far_fewer_own_terms_is_refused(root: Path, web: Ontology
     assert [p.name for p in paths.SNAPSHOTS.at(root).iterdir()] == [SNAPSHOT]
 
 
+def test_a_first_release_with_no_own_terms_is_refused(root: Path, both: OntologyWeb) -> None:
+    both.files[PATO_URL] = PATO.replace(b"id: PATO:", b"id: GO:")  # imported terms only
+
+    status = update(root, transport=both)
+
+    row = status.vocabularies["pato"]
+    assert (row.result, row.snapshot) == (Result.FAILED, None)
+    assert row.reason is not None
+    assert "0 own terms" in row.reason
+    assert read_current(root) == {"fbdv": SNAPSHOT}
+    assert [p.name for p in paths.SNAPSHOTS.at(root).iterdir()] == [SNAPSHOT]
+
+
 @pytest.mark.parametrize(
     "releases",
     [("2026-11-02", "2026-12-01", "2027-01-05"), ("9", "10", "11")],
