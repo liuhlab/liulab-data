@@ -65,7 +65,9 @@ Follow "Update the store" in `docs/how-to/ontology-run.md`.
 
 1. **Update.** Submit `scripts/ontology/update.sbatch` under the run plan, with
    `LABDATA_ONTOLOGIES` set. It needs no GEO/SRA build, so submit it beside the refresh. If it
-   refuses to start, see [Refusals](#refusals).
+   refuses to start, see [Refusals](#refusals). For a vocabulary whose host refuses the
+   cluster, download its file off the cluster, copy it over and pass `--source`: see "When a
+   source host refuses the cluster" in `docs/how-to/ontology-run.md`.
 2. **Status record.** `ontology-status.json` in the ontology store root: `outcome` is
    `finalized`, `end` is today, and it has one row per vocabulary declared in
    `src/labdata/ontology/vocabularies.py`. Put a table in the log entry, one row per
