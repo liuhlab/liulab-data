@@ -10,6 +10,7 @@ import json
 import os
 import re
 import sqlite3
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType, TracebackType
@@ -25,6 +26,8 @@ _WORD = re.compile(r"\w+")
 _TEXT_ROW = "x.id, t.name, x.text, x.kind, x.scope, x.synonym_type"
 #: The most texts a search ranks by shared words, which keeps it fast on the largest vocabulary.
 _RANK_CAP = 50_000
+#: The first table layout with is_a links.
+_IS_A_LAYOUT = 4
 # UNION drops a row already found, so a cycle in a source's is_a ends the walk.
 _ANCESTORS = """
 with recursive up (id) as (
@@ -86,6 +89,7 @@ class OntologyStore:
         current = read_current(root)
         self._dbs: dict[str, sqlite3.Connection] = {}
         self._lookup_only: set[str] = set()
+        self._layouts: dict[str, int] = {}
         routes: list[tuple[str, str]] = []
         try:
             for vocabulary, snapshot in sorted(current.items()):
@@ -95,6 +99,7 @@ class OntologyStore:
                 db = self._dbs[vocabulary] = tables.connect(path)
                 meta = tables.read_meta(db)
                 routes += [(prefix, vocabulary) for prefix in json.loads(meta["prefixes"])]
+                self._layouts[vocabulary] = int(meta["layout"])
                 if meta["searchable"] != "1":
                     self._lookup_only.add(vocabulary)
         except BaseException:
@@ -147,11 +152,10 @@ class OntologyStore:
         ('CHEBI:18357',)
         """
         key = _key(id)
-        for prefix, vocabulary in self._routes:
-            if key.startswith(prefix):
-                found = self._find(vocabulary, key)
-                if found is not None:
-                    return found
+        for vocabulary in self._owners(key):
+            found = self._find(vocabulary, key)
+            if found is not None:
+                return found
         return None
 
     def search(self, text: str, vocabulary: str, limit: int = 10) -> list[Candidate]:
@@ -223,6 +227,11 @@ class OntologyStore:
         frozenset of str
             Empty for an obsolete term, an unknown id, or a term with no parents.
 
+        Raises
+        ------
+        OntologyError
+            If the term's snapshot predates ``is_a`` links and has not been remade.
+
         Examples
         --------
         >>> with open_ontology_store() as store:
@@ -230,17 +239,28 @@ class OntologyStore:
         True
         """
         live = self._live(_key(id))
-        if live is None:
-            return frozenset()
-        vocabulary, term = live
-        rows = self._dbs[vocabulary].execute(_ANCESTORS, (term,)).fetchall()
-        return frozenset(row[0] for row in rows)
+        return frozenset() if live is None else self._ancestors(*live)
 
     def is_under(self, id: str | int, ancestor: str | int) -> bool:
         """Return whether a term is ``ancestor`` itself or sits under it by ``is_a``.
 
-        Alternative and merged ids answer for their live terms. An unknown or obsolete ``id``
-        is under nothing.
+        Parameters
+        ----------
+        id : str or int
+            A term id, in any form :meth:`lookup` takes.
+        ancestor : str or int
+            The id to test against; it may be another vocabulary's, such as an imported parent.
+
+        Returns
+        -------
+        bool
+            ``False`` for an unknown or obsolete ``id``. Alternative and merged ids, on either
+            side, answer for their live terms.
+
+        Raises
+        ------
+        OntologyError
+            If the term's snapshot predates ``is_a`` links and has not been remade.
 
         Examples
         --------
@@ -251,29 +271,37 @@ class OntologyStore:
         live = self._live(_key(id))
         if live is None:
             return False
+        vocabulary, term = live
         key = _key(ancestor)
         found = self._live(key)
-        target = found[1] if found is not None else key
-        return live[1] == target or target in self.ancestors(live[1])
+        target = key if found is None else found[1]
+        return term == target or target in self._ancestors(vocabulary, term)
+
+    def _ancestors(self, vocabulary: str, term: str) -> frozenset[str]:
+        if self._layouts[vocabulary] < _IS_A_LAYOUT:
+            raise OntologyError(
+                f"{self.snapshots[vocabulary]} keeps no is_a links; run `labdata ontology update`"
+                " to remake it"
+            )
+        rows = self._dbs[vocabulary].execute(_ANCESTORS, (term,)).fetchall()
+        return frozenset(row[0] for row in rows)
 
     def _live(self, key: str) -> tuple[str, str] | None:
-        # The vocabulary and live id a key names, through an alternative or merged id.
-        for prefix, vocabulary in self._routes:
-            if not key.startswith(prefix):
+        # The (vocabulary, live id) a key names, one step through an alternative or merged id.
+        for vocabulary in self._owners(key):
+            found = self._find(vocabulary, key)
+            if found is None:
                 continue
-            db = self._dbs[vocabulary]
-            row = db.execute("select obsolete from terms where id = ?", (key,)).fetchone()
-            if row is not None:
-                return None if row[0] else (vocabulary, key)
-            moved = db.execute(
-                "select live_id from retired where old_id = ? and reason in (?, ?)"
-                " and live_id is not null order by rowid",
-                (key, Reason.ALTERNATIVE.value, Reason.MERGED.value),
-            ).fetchone()
-            if moved is not None:
-                live = db.execute("select obsolete from terms where id = ?", moved).fetchone()
-                return (vocabulary, moved[0]) if live is not None and not live[0] else None
+            if found.retired in (Reason.ALTERNATIVE, Reason.MERGED) and found.replaced_by:
+                found = self._find(vocabulary, found.replaced_by[0])
+            if found is not None and found.retired is None and not found.obsolete:
+                return vocabulary, found.id
+            return None
         return None
+
+    def _owners(self, key: str) -> Iterator[str]:
+        # The vocabularies whose prefix a key starts with, longest prefix first.
+        return (vocabulary for prefix, vocabulary in self._routes if key.startswith(prefix))
 
     def _searchable(self, vocabulary: str) -> sqlite3.Connection:
         # The one gate every search passes on its vocabulary.

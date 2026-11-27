@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from labdata.ontology import build_tiny_store, open_ontology_store
 from labdata.ontology.obo import read_obo
 from labdata.ontology.tables import Scope, SourceTerm, Synonym
 from labdata.ontology.vocabularies import Vocabulary
@@ -113,3 +114,6 @@ def test_an_own_terms_is_a_parents_are_kept_with_any_prefix(tmp_path: Path) -> N
         "EFO:0009922": ("EFO:0030003",),
         "EFO:0010183": ("OBI:0000711",),
     }
+    with open_ontology_store(build_tiny_store(tmp_path / "store", [efo])) as store:
+        assert store.is_under("EFO:0009922", "EFO:0030003")
+        assert store.is_under("EFO:0010183", "OBI:0000711")

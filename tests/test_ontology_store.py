@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import shutil
+import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -20,6 +22,7 @@ from labdata.ontology import (
     Term,
     build_tiny_store,
     open_ontology_store,
+    tables,
 )
 from labdata.ontology.tables import write_snapshot
 
@@ -76,7 +79,12 @@ TAXONOMY = SnapshotData(
 
 @pytest.fixture
 def tiny(tmp_path: Path) -> Path:
-    return build_tiny_store(tmp_path / "tiny", [UBERON, CL, CHEBI, EFO, TAXONOMY])
+    return build_tiny_store(tmp_path / "tiny", [UBERON, CL, CHEBI, TAXONOMY])
+
+
+@pytest.fixture
+def efo(tmp_path: Path) -> Path:
+    return build_tiny_store(tmp_path / "efo", [EFO, TAXONOMY])
 
 
 @pytest.fixture(autouse=True)
@@ -122,7 +130,6 @@ def test_a_live_term_looks_up_with_its_name_and_snapshot(tiny: Path) -> None:
         assert store.snapshots == {
             "chebi": "chebi-257",
             "cl": "cl-2026-10-01",
-            "efo": "efo-3.96.0",
             "ncbitaxon": "ncbitaxon-2026-11-21",
             "uberon": "uberon-2026-11-05",
         }
@@ -168,8 +175,8 @@ def test_an_id_the_vocabulary_never_had_returns_none(tiny: Path) -> None:
         assert store.lookup("hippocampus") is None
 
 
-def test_ancestors_walk_every_is_a_line_and_stop_at_another_vocabulary(tiny: Path) -> None:
-    with open_ontology_store(tiny) as store:
+def test_ancestors_walk_every_is_a_line_and_stop_at_another_vocabulary(efo: Path) -> None:
+    with open_ontology_store(efo) as store:
         assert store.ancestors("EFO:0009922") == {
             "EFO:0030003",
             "EFO:0030080",
@@ -182,19 +189,31 @@ def test_ancestors_walk_every_is_a_line_and_stop_at_another_vocabulary(tiny: Pat
         assert not store.is_under("EFO:0030080", "EFO:0009922")
 
 
-def test_an_is_a_cycle_ends_and_an_alternative_id_answers_for_its_term(tiny: Path) -> None:
-    with open_ontology_store(tiny) as store:
+def test_an_is_a_cycle_ends_and_an_alternative_id_answers_for_its_term(efo: Path) -> None:
+    with open_ontology_store(efo) as store:
         assert store.ancestors("EFO:0000001") == {"EFO:0000001", "EFO:0000002"}
         assert store.ancestors("EFO:0000009") == {"EFO:0000001", "EFO:0000002"}
         assert store.is_under("EFO:0000002", "EFO:0000009")
+        assert store.is_under("EFO:0000009", "EFO:0000002")
+        assert store.is_under(9605, 9606)  # a merged taxonomy id answers for its live one
 
 
-def test_an_obsolete_unknown_or_unowned_id_is_under_nothing(tiny: Path) -> None:
-    with open_ontology_store(tiny) as store:
+def test_an_obsolete_unknown_or_unowned_id_is_under_nothing(efo: Path) -> None:
+    with open_ontology_store(efo) as store:
         for id in ("EFO:0000003", "EFO:9999999", "OBI:0000711", 9606):
             assert store.ancestors(id) == frozenset()
             assert not store.is_under(id, "EFO:0030080")
         assert not store.is_under("EFO:9999999", "EFO:9999999")
+
+
+def test_a_snapshot_with_no_is_a_links_says_to_remake_it(efo: Path) -> None:
+    path = tables.tables_path(efo, "efo-3.96.0")
+    with closing(sqlite3.connect(path)) as db:
+        db.execute("drop table is_a")
+        db.execute("update meta set value = '3' where key = 'layout'")
+        db.commit()
+    with open_ontology_store(efo) as store, pytest.raises(OntologyError, match="ontology update"):
+        store.is_under("EFO:0009922", "EFO:0030080")
 
 
 def test_an_open_store_keeps_its_pinned_snapshots_after_a_switch(tiny: Path) -> None:

@@ -269,6 +269,7 @@ def _write_tables(path: Path, data: SnapshotData, name: str) -> None:
                 _texts(sorted(data.terms, key=lambda t: t.id)),
             )
             db.executemany("insert into retired values (?, ?, ?)", _retired(data))
+            # A source may state one is_a twice, as the same parent with other qualifiers.
             db.executemany(
                 "insert or ignore into is_a values (?, ?)",
                 ((t.id, parent) for t in data.terms for parent in t.parents),

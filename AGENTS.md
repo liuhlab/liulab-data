@@ -89,7 +89,8 @@ src/labdata/
                        tables and search index, one SQLite file); update.py;
                        lifecycle.py (run lock; the status record's only writer;
                        copy and restore under the lock); copy.py (the GCS
-                       adapter); reader.py (open_ontology_store: lookup, search);
+                       adapter); reader.py (open_ontology_store: lookup, search,
+                       ancestors, is_under);
                        tiny.py (a tiny store from given terms, for tests)
 tests/               pytest suite, mirrors src; mocks the EntrezClient + subprocess seams
 conftest.py          the suite budget and the slow lane
