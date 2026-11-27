@@ -54,6 +54,7 @@ with open_ontology_store() as store:
         print(c.id, c.name, c.matched_on, c.scope, c.synonym_type)
     print(store.lookup("CHEBI:1"))
     print(store.lookup(9606).name)
+    print(store.is_under("EFO:0009922", "EFO:0010183"))
 ```
 
 ```text
@@ -63,11 +64,13 @@ UBERON:0002421 hippocampal formation synonym NARROW INCONSISTENT
 UBERON:0005384 dorsal part of hippocampus name None None
 Term(id='CHEBI:1', name=None, obsolete=False, replaced_by=('CHEBI:18357',), retired=<Reason.ALTERNATIVE: 'alternative'>, snapshot='chebi-257')
 Homo sapiens
+True
 ```
 
 The store is found from the `root` argument, then `LABDATA_ONTOLOGIES`, then the pointer that
 `labdata ontology init` saves. Whole-text matches come first: on the name, then on an exact
-synonym, then on other synonyms. Matches on shared words follow. The
+synonym, then on other synonyms. Matches on shared words follow. `is_under` asks whether a term
+sits under another by `is_a`, here a 10x kit under single cell library construction. The
 [API reference](../reference.md#labdata.ontology) gives every field.
 
 The same from the shell. A search prints the snapshot, then one tab-separated line per

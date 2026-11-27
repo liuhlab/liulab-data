@@ -25,6 +25,14 @@ _WORD = re.compile(r"\w+")
 _TEXT_ROW = "x.id, t.name, x.text, x.kind, x.scope, x.synonym_type"
 #: The most texts a search ranks by shared words, which keeps it fast on the largest vocabulary.
 _RANK_CAP = 50_000
+# UNION drops a row already found, so a cycle in a source's is_a ends the walk.
+_ANCESTORS = """
+with recursive up (id) as (
+    select parent from is_a where id = ?
+    union select a.parent from is_a a join up on a.id = up.id
+)
+select id from up
+"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,9 +146,7 @@ class OntologyStore:
         ...     store.lookup("CHEBI:1").replaced_by
         ('CHEBI:18357',)
         """
-        key = str(id).strip()
-        if key.isdigit():
-            key = f"{TAXON_PREFIX}{key}"
+        key = _key(id)
         for prefix, vocabulary in self._routes:
             if key.startswith(prefix):
                 found = self._find(vocabulary, key)
@@ -201,6 +207,74 @@ class OntologyStore:
             ranked += _shared_words(db, key, limit - len(ranked), set(whole), snapshot)
         return ranked[:limit]
 
+    def ancestors(self, id: str | int) -> frozenset[str]:
+        """Return every ``is_a`` ancestor of a term, within its vocabulary's snapshot.
+
+        An alternative or merged id answers for its live term. An ancestor may be another
+        vocabulary's id, which ends that line: its own parents are not followed.
+
+        Parameters
+        ----------
+        id : str or int
+            A term id, in any form :meth:`lookup` takes.
+
+        Returns
+        -------
+        frozenset of str
+            Empty for an obsolete term, an unknown id, or a term with no parents.
+
+        Examples
+        --------
+        >>> with open_ontology_store() as store:
+        ...     "EFO:0030003" in store.ancestors("EFO:0009922")
+        True
+        """
+        live = self._live(_key(id))
+        if live is None:
+            return frozenset()
+        vocabulary, term = live
+        rows = self._dbs[vocabulary].execute(_ANCESTORS, (term,)).fetchall()
+        return frozenset(row[0] for row in rows)
+
+    def is_under(self, id: str | int, ancestor: str | int) -> bool:
+        """Return whether a term is ``ancestor`` itself or sits under it by ``is_a``.
+
+        Alternative and merged ids answer for their live terms. An unknown or obsolete ``id``
+        is under nothing.
+
+        Examples
+        --------
+        >>> with open_ontology_store() as store:
+        ...     store.is_under("EFO:0009922", "EFO:0030003")
+        True
+        """
+        live = self._live(_key(id))
+        if live is None:
+            return False
+        key = _key(ancestor)
+        found = self._live(key)
+        target = found[1] if found is not None else key
+        return live[1] == target or target in self.ancestors(live[1])
+
+    def _live(self, key: str) -> tuple[str, str] | None:
+        # The vocabulary and live id a key names, through an alternative or merged id.
+        for prefix, vocabulary in self._routes:
+            if not key.startswith(prefix):
+                continue
+            db = self._dbs[vocabulary]
+            row = db.execute("select obsolete from terms where id = ?", (key,)).fetchone()
+            if row is not None:
+                return None if row[0] else (vocabulary, key)
+            moved = db.execute(
+                "select live_id from retired where old_id = ? and reason in (?, ?)"
+                " and live_id is not null order by rowid",
+                (key, Reason.ALTERNATIVE.value, Reason.MERGED.value),
+            ).fetchone()
+            if moved is not None:
+                live = db.execute("select obsolete from terms where id = ?", moved).fetchone()
+                return (vocabulary, moved[0]) if live is not None and not live[0] else None
+        return None
+
     def _searchable(self, vocabulary: str) -> sqlite3.Connection:
         # The one gate every search passes on its vocabulary.
         if vocabulary not in self._dbs:
@@ -224,6 +298,12 @@ class OntologyStore:
         if row is None:
             return Term(key, None, False, replaced_by, reason, snapshot)
         return Term(key, row[0], bool(row[1]), replaced_by, reason, snapshot)
+
+
+def _key(id: str | int) -> str:
+    """Return an id as a lookup routes it: a bare number is a taxonomy id."""
+    key = str(id).strip()
+    return f"{TAXON_PREFIX}{key}" if key.isdigit() else key
 
 
 def _shared_words(

@@ -48,6 +48,20 @@ CL = SnapshotData(
 CHEBI = SnapshotData(
     "chebi", "257", [SourceTerm("CHEBI:18357", "noradrenaline", alt_ids=("CHEBI:1",))]
 )
+# A real EFO shape: a kit term with two lines of ancestry, one ending at an imported OBI term.
+EFO = SnapshotData(
+    "efo",
+    "3.96.0",
+    [
+        SourceTerm("EFO:0009922", "10x 3' v3", parents=("EFO:0030003", "EFO:0010183")),
+        SourceTerm("EFO:0030003", "10x 3' transcription profiling", parents=("EFO:0030080",)),
+        SourceTerm("EFO:0030080", "10x transcription profiling"),
+        SourceTerm("EFO:0010183", "single cell library construction", parents=("OBI:0000711",)),
+        SourceTerm("EFO:0000001", "a", parents=("EFO:0000002",), alt_ids=("EFO:0000009",)),
+        SourceTerm("EFO:0000002", "b", parents=("EFO:0000001",)),
+        SourceTerm("EFO:0000003", "obsolete", obsolete=True, parents=("EFO:0030080",)),
+    ],
+)
 TAXONOMY = SnapshotData(
     "ncbitaxon",
     "2026-11-21",
@@ -62,7 +76,7 @@ TAXONOMY = SnapshotData(
 
 @pytest.fixture
 def tiny(tmp_path: Path) -> Path:
-    return build_tiny_store(tmp_path / "tiny", [UBERON, CL, CHEBI, TAXONOMY])
+    return build_tiny_store(tmp_path / "tiny", [UBERON, CL, CHEBI, EFO, TAXONOMY])
 
 
 @pytest.fixture(autouse=True)
@@ -108,6 +122,7 @@ def test_a_live_term_looks_up_with_its_name_and_snapshot(tiny: Path) -> None:
         assert store.snapshots == {
             "chebi": "chebi-257",
             "cl": "cl-2026-10-01",
+            "efo": "efo-3.96.0",
             "ncbitaxon": "ncbitaxon-2026-11-21",
             "uberon": "uberon-2026-11-05",
         }
@@ -151,6 +166,35 @@ def test_an_id_the_vocabulary_never_had_returns_none(tiny: Path) -> None:
         assert store.lookup("UBERON:9999999") is None
         assert store.lookup("CLO:0000001") is None  # a replacement no snapshot holds
         assert store.lookup("hippocampus") is None
+
+
+def test_ancestors_walk_every_is_a_line_and_stop_at_another_vocabulary(tiny: Path) -> None:
+    with open_ontology_store(tiny) as store:
+        assert store.ancestors("EFO:0009922") == {
+            "EFO:0030003",
+            "EFO:0030080",
+            "EFO:0010183",
+            "OBI:0000711",
+        }
+        assert store.is_under("EFO:0009922", "EFO:0030080")
+        assert store.is_under("EFO:0009922", "OBI:0000711")
+        assert store.is_under("EFO:0009922", "EFO:0009922")
+        assert not store.is_under("EFO:0030080", "EFO:0009922")
+
+
+def test_an_is_a_cycle_ends_and_an_alternative_id_answers_for_its_term(tiny: Path) -> None:
+    with open_ontology_store(tiny) as store:
+        assert store.ancestors("EFO:0000001") == {"EFO:0000001", "EFO:0000002"}
+        assert store.ancestors("EFO:0000009") == {"EFO:0000001", "EFO:0000002"}
+        assert store.is_under("EFO:0000002", "EFO:0000009")
+
+
+def test_an_obsolete_unknown_or_unowned_id_is_under_nothing(tiny: Path) -> None:
+    with open_ontology_store(tiny) as store:
+        for id in ("EFO:0000003", "EFO:9999999", "OBI:0000711", 9606):
+            assert store.ancestors(id) == frozenset()
+            assert not store.is_under(id, "EFO:0030080")
+        assert not store.is_under("EFO:9999999", "EFO:9999999")
 
 
 def test_an_open_store_keeps_its_pinned_snapshots_after_a_switch(tiny: Path) -> None:

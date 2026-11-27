@@ -80,3 +80,36 @@ def test_a_bare_bang_in_a_name_and_a_space_in_a_synonym_xref_are_read(tmp_path: 
         SourceTerm("EFO:0008913", "single-cell RNA sequencing", synonyms=(synonym,))
     ]
     assert list(afpo.terms) == [SourceTerm("AfPO:0000263", "!Kung")]
+
+
+# An own term's parents are kept, an imported one's own is_a is not; ids read as CURIEs.
+EFO_TREE = b"""format-version: 1.2
+data-version: http://www.ebi.ac.uk/efo/releases/v3.96.0/efo.owl
+
+[Term]
+id: EFO:0009922
+name: 10x 3' v3
+is_a: efo:EFO_0030003 ! 10x 3' transcription profiling
+
+[Term]
+id: EFO:0010183
+name: single cell library construction
+is_a: OBI:0000711 ! library preparation
+
+[Term]
+id: OBI:0000711
+name: library preparation
+is_a: BFO:0000015
+"""
+
+
+def test_an_own_terms_is_a_parents_are_kept_with_any_prefix(tmp_path: Path) -> None:
+    path = tmp_path / "efo.obo"
+    path.write_bytes(EFO_TREE)
+
+    efo = read_obo(path, Vocabulary("efo", ("EFO:",)))
+
+    assert {t.id: t.parents for t in efo.terms} == {
+        "EFO:0009922": ("EFO:0030003",),
+        "EFO:0010183": ("OBI:0000711",),
+    }
