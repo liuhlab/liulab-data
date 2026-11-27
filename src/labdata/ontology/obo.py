@@ -36,6 +36,7 @@ _READ = (
     b"is_obsolete:",
     b"replaced_by:",
     b"alt_id:",
+    b"is_a:",
     b"data-version:",
     b"synonymtypedef:",
 )
@@ -60,7 +61,8 @@ def header_version(head: bytes) -> str:
 def read_obo(path: Path, vocabulary: Vocabulary, *, release: str | None = None) -> SnapshotData:
     """Read the vocabulary's own terms from an OBO file, with the release its header states.
 
-    Terms whose id has none of the vocabulary's prefixes, such as imported ones, are left out.
+    Terms whose id has none of the vocabulary's prefixes, such as imported ones, are left out;
+    an own term's ``is_a`` parents are kept whatever their prefix.
     An id spelled with an IRI's ending, ``efo:EFO_0008896`` or ``http://.../EFO_0008896``,
     reads as ``EFO:0008896``.
     A given ``release`` is used instead of the header's, for a file that states none. A synonym
@@ -167,6 +169,7 @@ def _term(frame: Any, labels: dict[str, str]) -> SourceTerm:
     replaced_by: list[str] = []
     alt_ids: list[str] = []
     synonyms: list[Synonym] = []
+    parents: list[str] = []
     for clause in frame:
         if isinstance(clause, term.NameClause):
             name = str(clause.name)
@@ -180,6 +183,14 @@ def _term(frame: Any, labels: dict[str, str]) -> SourceTerm:
             replaced_by.append(_curie(clause.term))
         elif isinstance(clause, term.AltIdClause):
             alt_ids.append(_curie(clause.alt_id))
+        elif isinstance(clause, term.IsAClause):
+            parents.append(_curie(clause.term))
     return SourceTerm(
-        _curie(frame.id), name, obsolete, tuple(replaced_by), tuple(alt_ids), tuple(synonyms)
+        _curie(frame.id),
+        name,
+        obsolete,
+        tuple(replaced_by),
+        tuple(alt_ids),
+        tuple(synonyms),
+        tuple(parents),
     )

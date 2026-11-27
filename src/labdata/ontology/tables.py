@@ -22,7 +22,7 @@ from labdata.exceptions import OntologyError
 from labdata.ontology import paths
 
 #: The layout of the tables :func:`write_snapshot` writes; a change to them raises it.
-TABLE_LAYOUT = 3
+TABLE_LAYOUT = 4
 
 _SCHEMA = """
 create table meta (key text primary key, value text not null);
@@ -32,6 +32,7 @@ create table texts (
     scope text, synonym_type text, folded text not null
 );
 create table retired (old_id text not null, live_id text, reason text not null);
+create table is_a (id text not null, parent text not null, primary key (id, parent));
 create index texts_id on texts (id);
 create index retired_old_id on retired (old_id);
 """
@@ -97,7 +98,8 @@ class SourceTerm:
     """One term as a reader gives it.
 
     An obsolete term's ``replaced_by`` may name ids in another vocabulary. Each of
-    ``alt_ids`` becomes a retired id pointing to this term.
+    ``alt_ids`` becomes a retired id pointing to this term. ``parents`` are its ``is_a``
+    parents, which may be another vocabulary's ids.
     """
 
     id: str
@@ -106,6 +108,7 @@ class SourceTerm:
     replaced_by: tuple[str, ...] = ()
     alt_ids: tuple[str, ...] = ()
     synonyms: tuple[Synonym, ...] = ()
+    parents: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,6 +269,11 @@ def _write_tables(path: Path, data: SnapshotData, name: str) -> None:
                 _texts(sorted(data.terms, key=lambda t: t.id)),
             )
             db.executemany("insert into retired values (?, ?, ?)", _retired(data))
+            # A source may state one is_a twice, as the same parent with other qualifiers.
+            db.executemany(
+                "insert or ignore into is_a values (?, ?)",
+                ((t.id, parent) for t in data.terms for parent in t.parents),
+            )
             if data.searchable:
                 db.executescript(_INDEX)
         except sqlite3.IntegrityError as err:

@@ -10,6 +10,7 @@ import json
 import os
 import re
 import sqlite3
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType, TracebackType
@@ -25,6 +26,16 @@ _WORD = re.compile(r"\w+")
 _TEXT_ROW = "x.id, t.name, x.text, x.kind, x.scope, x.synonym_type"
 #: The most texts a search ranks by shared words, which keeps it fast on the largest vocabulary.
 _RANK_CAP = 50_000
+#: The first table layout with is_a links.
+_IS_A_LAYOUT = 4
+# UNION drops a row already found, so a cycle in a source's is_a ends the walk.
+_ANCESTORS = """
+with recursive up (id) as (
+    select parent from is_a where id = ?
+    union select a.parent from is_a a join up on a.id = up.id
+)
+select id from up
+"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +89,7 @@ class OntologyStore:
         current = read_current(root)
         self._dbs: dict[str, sqlite3.Connection] = {}
         self._lookup_only: set[str] = set()
+        self._layouts: dict[str, int] = {}
         routes: list[tuple[str, str]] = []
         try:
             for vocabulary, snapshot in sorted(current.items()):
@@ -87,6 +99,7 @@ class OntologyStore:
                 db = self._dbs[vocabulary] = tables.connect(path)
                 meta = tables.read_meta(db)
                 routes += [(prefix, vocabulary) for prefix in json.loads(meta["prefixes"])]
+                self._layouts[vocabulary] = int(meta["layout"])
                 if meta["searchable"] != "1":
                     self._lookup_only.add(vocabulary)
         except BaseException:
@@ -138,14 +151,11 @@ class OntologyStore:
         ...     store.lookup("CHEBI:1").replaced_by
         ('CHEBI:18357',)
         """
-        key = str(id).strip()
-        if key.isdigit():
-            key = f"{TAXON_PREFIX}{key}"
-        for prefix, vocabulary in self._routes:
-            if key.startswith(prefix):
-                found = self._find(vocabulary, key)
-                if found is not None:
-                    return found
+        key = _key(id)
+        for vocabulary in self._owners(key):
+            found = self._find(vocabulary, key)
+            if found is not None:
+                return found
         return None
 
     def search(self, text: str, vocabulary: str, limit: int = 10) -> list[Candidate]:
@@ -201,6 +211,98 @@ class OntologyStore:
             ranked += _shared_words(db, key, limit - len(ranked), set(whole), snapshot)
         return ranked[:limit]
 
+    def ancestors(self, id: str | int) -> frozenset[str]:
+        """Return every ``is_a`` ancestor of a term, within its vocabulary's snapshot.
+
+        An alternative or merged id answers for its live term. An ancestor may be another
+        vocabulary's id, which ends that line: its own parents are not followed.
+
+        Parameters
+        ----------
+        id : str or int
+            A term id, in any form :meth:`lookup` takes.
+
+        Returns
+        -------
+        frozenset of str
+            Empty for an obsolete term, an unknown id, or a term with no parents.
+
+        Raises
+        ------
+        OntologyError
+            If the term's snapshot predates ``is_a`` links and has not been remade.
+
+        Examples
+        --------
+        >>> with open_ontology_store() as store:
+        ...     "EFO:0030003" in store.ancestors("EFO:0009922")
+        True
+        """
+        live = self._live(_key(id))
+        return frozenset() if live is None else self._ancestors(*live)
+
+    def is_under(self, id: str | int, ancestor: str | int) -> bool:
+        """Return whether a term is ``ancestor`` itself or sits under it by ``is_a``.
+
+        Parameters
+        ----------
+        id : str or int
+            A term id, in any form :meth:`lookup` takes.
+        ancestor : str or int
+            The id to test against; it may be another vocabulary's, such as an imported parent.
+
+        Returns
+        -------
+        bool
+            ``False`` for an unknown or obsolete ``id``. Alternative and merged ids, on either
+            side, answer for their live terms.
+
+        Raises
+        ------
+        OntologyError
+            If the term's snapshot predates ``is_a`` links and has not been remade.
+
+        Examples
+        --------
+        >>> with open_ontology_store() as store:
+        ...     store.is_under("EFO:0009922", "EFO:0030003")
+        True
+        """
+        live = self._live(_key(id))
+        if live is None:
+            return False
+        vocabulary, term = live
+        key = _key(ancestor)
+        found = self._live(key)
+        target = key if found is None else found[1]
+        return term == target or target in self._ancestors(vocabulary, term)
+
+    def _ancestors(self, vocabulary: str, term: str) -> frozenset[str]:
+        if self._layouts[vocabulary] < _IS_A_LAYOUT:
+            raise OntologyError(
+                f"{self.snapshots[vocabulary]} keeps no is_a links; run `labdata ontology update`"
+                " to remake it"
+            )
+        rows = self._dbs[vocabulary].execute(_ANCESTORS, (term,)).fetchall()
+        return frozenset(row[0] for row in rows)
+
+    def _live(self, key: str) -> tuple[str, str] | None:
+        # The (vocabulary, live id) a key names, one step through an alternative or merged id.
+        for vocabulary in self._owners(key):
+            found = self._find(vocabulary, key)
+            if found is None:
+                continue
+            if found.retired in (Reason.ALTERNATIVE, Reason.MERGED) and found.replaced_by:
+                found = self._find(vocabulary, found.replaced_by[0])
+            if found is not None and found.retired is None and not found.obsolete:
+                return vocabulary, found.id
+            return None
+        return None
+
+    def _owners(self, key: str) -> Iterator[str]:
+        # The vocabularies whose prefix a key starts with, longest prefix first.
+        return (vocabulary for prefix, vocabulary in self._routes if key.startswith(prefix))
+
     def _searchable(self, vocabulary: str) -> sqlite3.Connection:
         # The one gate every search passes on its vocabulary.
         if vocabulary not in self._dbs:
@@ -224,6 +326,12 @@ class OntologyStore:
         if row is None:
             return Term(key, None, False, replaced_by, reason, snapshot)
         return Term(key, row[0], bool(row[1]), replaced_by, reason, snapshot)
+
+
+def _key(id: str | int) -> str:
+    """Return an id as a lookup routes it: a bare number is a taxonomy id."""
+    key = str(id).strip()
+    return f"{TAXON_PREFIX}{key}" if key.isdigit() else key
 
 
 def _shared_words(
