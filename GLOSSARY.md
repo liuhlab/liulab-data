@@ -20,6 +20,15 @@ never changed afterward. The store names one build as current, and readers open 
 
 _Avoid_: snapshot (a dated copy of one bulk source, which a build reads)
 
+### Snapshot
+
+A dated copy of one source, kept whole. The word has one sense per store, and the store's name
+tells them apart. In the GEO/SRA store, a snapshot is one bulk NCBI file as downloaded, which a
+build reads. In the ontology store, it is one release of one vocabulary, named by that release;
+a reader answers from each vocabulary's current one.
+
+_Avoid_: build (made from snapshots, never one), release (what an ontology snapshot is named by)
+
 ### Refresh
 
 One pass that brings the store to the sources' current state: it adds new records, replaces
@@ -148,9 +157,10 @@ _Avoid_: build lock (the lock one build, prune or copy holds while it writes)
 
 ### Maintenance run
 
-One pass of upkeep on the stores, monthly or yearly, done by one written procedure. A monthly run is
-the refresh and its light checks; a yearly run adds the heavy checks and the removal of withdrawn
-SRA records.
+One pass of upkeep on the three stores, monthly or yearly, done by one written procedure. A
+monthly run is the refresh and its light checks, the paper store's checks and the ontology
+store's update; a yearly run adds the heavy checks and the removal of withdrawn SRA records. It
+ends once all three stores are finalized.
 
 _Avoid_: refresh (one step of a monthly maintenance run, not the whole of it)
 
@@ -281,9 +291,10 @@ record.
 
 An update is finalized once GCS holds the state it made, which is when the copy record in GCS
 names that state: for the GEO/SRA store, the current build and the raw files and snapshots it
-read; for the paper store, the paper files and the tables that name them. Until then the update
-is not done, even when readers on the work disk already use it. GCS is the only source of truth
-for both stores.
+read; for the paper store, the paper files and the tables that name them; for the ontology
+store, each vocabulary's current snapshot and the one before it. Until then the update is not
+done, even when readers on the work disk already use it. GCS is the only source of truth for all
+three stores.
 
 _Avoid_: synced, done, succeeded (for an update whose copy has not worked)
 
