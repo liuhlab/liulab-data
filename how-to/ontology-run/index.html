@@ -1,0 +1,1274 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Data curation, download, and organization utilities for the Liu Lab.">
+      
+      
+      
+        <link rel="canonical" href="https://liuhlab.github.io/liulab-data/how-to/ontology-run/">
+      
+      
+        <link rel="prev" href="../papers-run/">
+      
+      
+        <link rel="next" href="../../maintenance-log/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="zensical-0.0.57">
+    
+    
+      
+        <title>Run the ontology store - liulab-data</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../../assets/stylesheets/modern/main.5da3a30f.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/modern/palette.812a03bb.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../stylesheets/diagrams.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+  
+
+
+  
+  
+
+<script id="__analytics">function __md_analytics(){function e(){dataLayer.push(arguments)}window.dataLayer=window.dataLayer||[],e("js",new Date),e("config","G-6M1CJF9WXY"),document.addEventListener("DOMContentLoaded",(function(){document.forms.search&&document.forms.search.query.addEventListener("blur",(function(){this.value&&e("event","search",{search_term:this.value})}));document$.subscribe((function(){var t=document.forms.feedback;if(void 0!==t)for(var a of t.querySelectorAll("[type=submit]"))a.addEventListener("click",(function(a){a.preventDefault();var n=document.location.pathname,d=this.getAttribute("data-md-value");e("event","feedback",{page:n,data:d}),t.firstElementChild.disabled=!0;var r=t.querySelector(".md-feedback__note [data-md-value='"+d+"']");r&&(r.hidden=!1)})),t.hidden=!1})),location$.subscribe((function(t){e("config","G-6M1CJF9WXY",{page_path:t.pathname})}))}));var t=document.createElement("script");t.async=!0,t.src="https://www.googletagmanager.com/gtag/js?id=G-6M1CJF9WXY",document.getElementById("__analytics").insertAdjacentElement("afterEnd",t)}</script>
+  
+    <script>"undefined"!=typeof __md_analytics&&__md_analytics()</script>
+  
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-label="Navigation"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#run-the-ontology-store" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="liulab-data" class="md-header__button md-logo" aria-label="liulab-data" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer" aria-label="Navigation">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            liulab-data
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Run the ontology store
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search" aria-label="Search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/liuhlab/liulab-data" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M216.5 362.5c-66-8-112.5-55.5-112.5-117 0-25 9-52 24-70-6.5-16.5-5.5-51.5 2-66 20-2.5 47 8 63 22.5 19-6 39-9 63.5-9s44.5 3 62.5 8.5c15.5-14 43-24.5 63-22 7 13.5 8 48.5 1.5 65.5 16 19 24.5 44.5 24.5 70.5 0 61.5-46.5 108-113.5 116.5 17 11 28.5 35 28.5 62.5v52c0 15 12.5 23.5 27.5 17.5C441 459.5 512 369 512 257 512 115.5 397 0 255.5 0S0 115.5 0 257c0 111 70.5 203 165.5 237.5 13.5 5 26.5-4 26.5-17.5v-40c-7 3-16 5-24 5-33 0-52.5-18-66.5-51.5-5.5-13.5-11.5-21.5-23-23-6-.5-8-3-8-6 0-6 10-10.5 20-10.5 14.5 0 27 9 40 27.5 10 14.5 20.5 21 33 21s20.5-4.5 32-16c8.5-8.5 15-16 21-21"/></svg>
+  </div>
+  <div class="md-source__repository">
+    liuhlab/liulab-data
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="liulab-data" class="md-nav__button md-logo" aria-label="liulab-data" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    liulab-data
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/liuhlab/liulab-data" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M216.5 362.5c-66-8-112.5-55.5-112.5-117 0-25 9-52 24-70-6.5-16.5-5.5-51.5 2-66 20-2.5 47 8 63 22.5 19-6 39-9 63.5-9s44.5 3 62.5 8.5c15.5-14 43-24.5 63-22 7 13.5 8 48.5 1.5 65.5 16 19 24.5 44.5 24.5 70.5 0 61.5-46.5 108-113.5 116.5 17 11 28.5 35 28.5 62.5v52c0 15 12.5 23.5 27.5 17.5C441 459.5 512 369 512 257 512 115.5 397 0 255.5 0S0 115.5 0 257c0 111 70.5 203 165.5 237.5 13.5 5 26.5-4 26.5-17.5v-40c-7 3-16 5-24 5-33 0-52.5-18-66.5-51.5-5.5-13.5-11.5-21.5-23-23-6-.5-8-3-8-6 0-6 10-10.5 20-10.5 14.5 0 27 9 40 27.5 10 14.5 20.5 21 33 21s20.5-4.5 32-16c8.5-8.5 15-16 21-21"/></svg>
+  </div>
+  <div class="md-source__repository">
+    liuhlab/liulab-data
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Home
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Tutorials
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+  Tutorials
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/understanding-geo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Understanding GEO & SRA
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/geo-series/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  GEO Series
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/tenx-bam/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  10x cellranger BAM → FASTQ
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  How-to
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+  How-to
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../store-life-cycle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  How the stores work
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../store-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Run the full download
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../store-gcs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Copy the store to GCS
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../papers-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Run the paper store
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Run the ontology store
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="././" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Run the ontology store
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-the-store-holds" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What the store holds
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#search-and-look-up-terms" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Search and look up terms
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#set-up-once" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Set up once
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#update-the-store" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Update the store
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-a-source-host-refuses-the-cluster" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        When a source host refuses the cluster
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#read-ontology-statusjson" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Read <code>ontology-status.json</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#check-the-copy" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Check the copy
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#restore-the-store-from-gcs" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Restore the store from GCS
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../maintenance-log/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Maintenance log
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API reference
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-the-store-holds" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What the store holds
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#search-and-look-up-terms" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Search and look up terms
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#set-up-once" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Set up once
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#update-the-store" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Update the store
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-a-source-host-refuses-the-cluster" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        When a source host refuses the cluster
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#read-ontology-statusjson" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Read <code>ontology-status.json</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#check-the-copy" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Check the copy
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#restore-the-store-from-gcs" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Restore the store from GCS
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+  
+    <a href="https://github.com/liuhlab/liulab-data/edit/main/docs/how-to/ontology-run.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-file-pen" viewBox="0 0 24 24"><path d="M12.659 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v9.34"/><path d="M14 2v5a1 1 0 0 0 1 1h5M10.378 12.622a1 1 0 0 1 3 3.003L8.36 20.637a2 2 0 0 1-.854.506l-2.867.837a.5.5 0 0 1-.62-.62l.836-2.869a2 2 0 0 1 .506-.853z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="run-the-ontology-store">Run the ontology store<a class="headerlink" href="#run-the-ontology-store" title="Permanent link">&para;</a></h1>
+<p>The ontology store sits beside the GEO/SRA store and the paper store. It keeps
+vocabularies: the term lists that sample labels name ids from, such as UBERON for tissues or
+Cellosaurus for cell lines. The store keeps each vocabulary as dated snapshots, one per
+release, named <code>&lt;vocabulary&gt;-&lt;release&gt;</code>, such as <code>uberon-2026-11-05</code>.</p>
+<p>The store answers two questions from files on disk, with no download:</p>
+<ul>
+<li><strong>Search</strong>: which terms of one vocabulary match a label's text, such as "hippocampus"?</li>
+<li><strong>Lookup</strong>: what term does an id name? Retired ids resolve too, such as a merged taxonomy
+  id or an old ChEBI id.</li>
+</ul>
+<p>Google Cloud Storage (GCS) holds the ontology store. One update a month, in the maintenance
+run, brings in each new release and ends with a copy to GCS.</p>
+<h2 id="what-the-store-holds">What the store holds<a class="headerlink" href="#what-the-store-holds" title="Permanent link">&para;</a></h2>
+<p>Each vocabulary keeps its current snapshot and the one before it. A search returns only the
+vocabulary's own terms, never an obsolete one.</p>
+<table>
+<thead>
+<tr>
+<th>Vocabulary</th>
+<th>Names</th>
+<th>Comes from</th>
+<th>Release read from</th>
+<th>Snapshot name</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ncbitaxon</code></td>
+<td>species and other taxa, by id only</td>
+<td>NCBI Taxonomy, <code>taxdump.tar.gz</code></td>
+<td>the file's date, from <code>Last-Modified</code></td>
+<td><code>ncbitaxon-&lt;file date&gt;</code></td>
+</tr>
+<tr>
+<td><code>uberon</code></td>
+<td>anatomy, across animals</td>
+<td>OBO Foundry, <code>uberon.obo</code></td>
+<td><code>data-version</code> in the file's header</td>
+<td><code>uberon-YYYY-MM-DD</code></td>
+</tr>
+<tr>
+<td><code>wbbt</code></td>
+<td>worm anatomy and cell types</td>
+<td>OBO Foundry, <code>wbbt.obo</code></td>
+<td><code>data-version</code></td>
+<td><code>wbbt-YYYY-MM-DD</code></td>
+</tr>
+<tr>
+<td><code>cl</code></td>
+<td>cell types</td>
+<td>OBO Foundry, <code>cl.obo</code></td>
+<td><code>data-version</code></td>
+<td><code>cl-YYYY-MM-DD</code></td>
+</tr>
+<tr>
+<td><code>cellosaurus</code></td>
+<td>cell lines</td>
+<td>Cellosaurus, <code>cellosaurus.obo</code> and its list of deleted ids</td>
+<td><code>data-version</code></td>
+<td><code>cellosaurus-&lt;release number&gt;</code></td>
+</tr>
+<tr>
+<td><code>mondo</code></td>
+<td>diseases</td>
+<td>OBO Foundry, <code>mondo.obo</code></td>
+<td><code>data-version</code></td>
+<td><code>mondo-YYYY-MM-DD</code></td>
+</tr>
+<tr>
+<td><code>pato</code></td>
+<td>qualities, such as sex</td>
+<td>OBO Foundry, <code>pato.obo</code></td>
+<td><code>data-version</code></td>
+<td><code>pato-YYYY-MM-DD</code></td>
+</tr>
+<tr>
+<td><code>hsapdv</code></td>
+<td>human developmental stages</td>
+<td>OBO Foundry, <code>hsapdv.obo</code></td>
+<td><code>owl:versionInfo</code> in <code>hsapdv.owl</code></td>
+<td><code>hsapdv-YYYY-MM-DD</code></td>
+</tr>
+<tr>
+<td><code>mmusdv</code></td>
+<td>mouse developmental stages</td>
+<td>OBO Foundry, <code>mmusdv.obo</code></td>
+<td><code>owl:versionInfo</code> in <code>mmusdv.owl</code></td>
+<td><code>mmusdv-YYYY-MM-DD</code></td>
+</tr>
+<tr>
+<td><code>wbls</code></td>
+<td>worm life stages</td>
+<td>OBO Foundry, <code>wbls.obo</code></td>
+<td><code>data-version</code></td>
+<td><code>wbls-YYYY-MM-DD</code></td>
+</tr>
+<tr>
+<td><code>chebi</code></td>
+<td>chemicals, such as drugs</td>
+<td>EBI, <code>chebi.obo</code></td>
+<td><code>data-version</code></td>
+<td><code>chebi-&lt;release number&gt;</code></td>
+</tr>
+<tr>
+<td><code>fbdv</code></td>
+<td>fly developmental stages</td>
+<td>OBO Foundry, <code>fbdv.obo</code></td>
+<td><code>data-version</code></td>
+<td><code>fbdv-YYYY-MM-DD</code></td>
+</tr>
+<tr>
+<td><code>efo</code></td>
+<td>assays, such as RNA-seq</td>
+<td>EBI on GitHub, <code>efo.obo</code></td>
+<td>the <code>releases/vX.Y.Z/</code> path in <code>data-version</code></td>
+<td><code>efo-X.Y.Z</code></td>
+</tr>
+</tbody>
+</table>
+<p>When a version names a date, as <code>releases/2026-11-05</code> does, the release is that date.
+When it holds a <code>releases/vX.Y.Z/</code> path, as EFO's does, the release is <code>X.Y.Z</code>.
+Otherwise it is the version as written, such as <code>257</code>. NCBI Taxonomy states no release, so
+its snapshot is named by the file's date. It is looked up by id only and has no search.</p>
+<h2 id="search-and-look-up-terms">Search and look up terms<a class="headerlink" href="#search-and-look-up-terms" title="Permanent link">&para;</a></h2>
+<p>Open the store once. It keeps each vocabulary's current snapshot until you close it, so an
+update that runs meanwhile changes nothing you read:</p>
+<div class="language-python highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">labdata.ontology</span><span class="w"> </span><span class="kn">import</span> <span class="n">open_ontology_store</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="k">with</span> <span class="n">open_ontology_store</span><span class="p">()</span> <span class="k">as</span> <span class="n">store</span><span class="p">:</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">store</span><span class="o">.</span><span class="n">snapshots</span><span class="p">[</span><span class="s2">&quot;uberon&quot;</span><span class="p">])</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">store</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="s2">&quot;hippocampus&quot;</span><span class="p">,</span> <span class="s2">&quot;uberon&quot;</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="mi">3</span><span class="p">):</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>        <span class="nb">print</span><span class="p">(</span><span class="n">c</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="n">c</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">c</span><span class="o">.</span><span class="n">matched_on</span><span class="p">,</span> <span class="n">c</span><span class="o">.</span><span class="n">scope</span><span class="p">,</span> <span class="n">c</span><span class="o">.</span><span class="n">synonym_type</span><span class="p">)</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">store</span><span class="o">.</span><span class="n">lookup</span><span class="p">(</span><span class="s2">&quot;CHEBI:1&quot;</span><span class="p">))</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">store</span><span class="o">.</span><span class="n">lookup</span><span class="p">(</span><span class="mi">9606</span><span class="p">)</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">store</span><span class="o">.</span><span class="n">is_under</span><span class="p">(</span><span class="s2">&quot;EFO:0009922&quot;</span><span class="p">,</span> <span class="s2">&quot;EFO:0010183&quot;</span><span class="p">))</span>
+</code></pre></div>
+<div class="language-text highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>uberon-2026-11-05
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>UBERON:0001954 Ammon&#39;s horn synonym RELATED None
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>UBERON:0002421 hippocampal formation synonym NARROW INCONSISTENT
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>UBERON:0005384 dorsal part of hippocampus name None None
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>Term(id=&#39;CHEBI:1&#39;, name=None, obsolete=False, replaced_by=(&#39;CHEBI:18357&#39;,), retired=&lt;Reason.ALTERNATIVE: &#39;alternative&#39;&gt;, snapshot=&#39;chebi-257&#39;)
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>Homo sapiens
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>True
+</code></pre></div>
+<p>The store is found from the <code>root</code> argument, then <code>LABDATA_ONTOLOGIES</code>, then the pointer that
+<code>labdata ontology init</code> saves. Whole-text matches come first: on the name, then on an exact
+synonym, then on other synonyms. Matches on shared words follow. <code>is_under</code> asks whether a term
+sits under another by <code>is_a</code>, here a 10x kit under single cell library construction. The
+<a href="../../reference/#labdata.ontology">API reference</a> gives every field.</p>
+<p>The same from the shell. A search prints the snapshot, then one tab-separated line per
+candidate: id, name, matched on, scope, synonym type and the text that matched:</p>
+<div class="language-console highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="gp">$ </span>labdata<span class="w"> </span>ontology<span class="w"> </span>search<span class="w"> </span>uberon<span class="w"> </span>hippocampus
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="go">snapshot: uberon-2026-11-05</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="go">UBERON:0001954  Ammon&#39;s horn    synonym RELATED -   hippocampus</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="go">UBERON:0002421  hippocampal formation   synonym NARROW  INCONSISTENT    hippocampus</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="go">UBERON:0005384  dorsal part of hippocampus  name    -   -   dorsal part of hippocampus</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="gp">$ </span>labdata<span class="w"> </span>ontology<span class="w"> </span>lookup<span class="w"> </span>CHEBI:1
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="go">id: CHEBI:1</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="go">retired: alternative</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="go">replaced by: CHEBI:18357</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="go">snapshot: chebi-257</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="gp">$ </span>labdata<span class="w"> </span>ontology<span class="w"> </span>lookup<span class="w"> </span><span class="m">9606</span>
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="go">id: NCBITaxon:9606</span>
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="go">name: Homo sapiens</span>
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="go">snapshot: ncbitaxon-2026-11-21</span>
+</code></pre></div>
+<h2 id="set-up-once">Set up once<a class="headerlink" href="#set-up-once" title="Permanent link">&para;</a></h2>
+<p>Make the store and save the pointer to it:</p>
+<div class="language-bash highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>labdata<span class="w"> </span>ontology<span class="w"> </span>init<span class="w"> </span>/path/to/ontology-store<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span>--copy-to<span class="w"> </span>gcs:&lt;gcs-bucket&gt;/datalake/ontology-store
+</code></pre></div>
+<p>For the copy to GCS, set up the <code>gcs</code> rclone remote and log in as
+<a href="../store-gcs/">Copy the store to GCS</a> shows. Leave out <code>--copy-to</code> to run with no copy.</p>
+<h2 id="update-the-store">Update the store<a class="headerlink" href="#update-the-store" title="Permanent link">&para;</a></h2>
+<p>The update needs internet, so run it as a Slurm job, from the repository folder on the
+cluster:</p>
+<div class="language-bash highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">LABDATA_ONTOLOGIES</span><span class="o">=</span>/path/to/ontology-store
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>sbatch<span class="w"> </span>scripts/ontology/update.sbatch
+</code></pre></div>
+<p>For each vocabulary, the update reads the release from the file's first bytes or its date,
+with no full download. It downloads only the vocabularies whose release has no snapshot yet.
+It checks the taxonomy file against NCBI's checksum, and refuses a new release that holds far
+fewer terms than the current one. Then it makes the new snapshots current, deletes snapshots
+older than the previous one, and copies the store to GCS. The first update downloads every
+vocabulary and copies the whole store.</p>
+<p>The job log ends with one line per vocabulary:</p>
+<div class="language-text highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>ncbitaxon: updated (ncbitaxon-2026-11-21)
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>uberon: unchanged (uberon-2026-11-05)
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>chebi: failed (GET https://ftp.ebi.ac.uk/pub/databases/chebi/ontology/chebi.obo failed: HTTP 503 from https://ftp.ebi.ac.uk/pub/databases/chebi/ontology/chebi.obo); keeps chebi-256
+</code></pre></div>
+<p>A vocabulary that fails keeps its current snapshot while the others update, and the job
+exits 1. Once the cause is fixed, submit it again: it downloads only what is still missing.
+The update also exits 1 when the copy to GCS is pending.</p>
+<p>On a node with internet, <code>labdata ontology update</code> runs the same update with no job. While
+an update, copy or restore runs, the others refuse to start. If the message says it cannot check
+whether the other one still runs, check with <code>squeue</code> on its cluster. Once you know it has
+ended, run the same command again with <code>--owner-gone</code>.</p>
+<h2 id="when-a-source-host-refuses-the-cluster">When a source host refuses the cluster<a class="headerlink" href="#when-a-source-host-refuses-the-cluster" title="Permanent link">&para;</a></h2>
+<p>A vocabulary whose host refuses the cluster fails each month with a <code>ConnectionRefusedError</code>.
+The failed line in the job log names the file's address. Until the host lets the cluster in,
+bring the file in by hand:</p>
+<ol>
+<li>On a machine that can reach the host, download the file from that address.</li>
+<li>Copy it to the cluster. Keep its date, as <code>scp -p</code> or <code>rsync -t</code> do: the status record
+   shows it as <code>source_date</code>.</li>
+<li>Give the file to the update with <code>--source &lt;vocabulary&gt;=&lt;path&gt;</code>, once for each such
+   vocabulary:</li>
+</ol>
+<div class="language-bash highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">LABDATA_ONTOLOGIES</span><span class="o">=</span>/path/to/ontology-store
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>sbatch<span class="w"> </span>scripts/ontology/update.sbatch<span class="w"> </span>--source<span class="w"> </span><span class="nv">chebi</span><span class="o">=</span>/path/to/chebi.obo
+</code></pre></div>
+<p>The update then reads that vocabulary from the file, not from the web. It reads the release
+from the file's header and keeps a copy of the file in the new snapshot. Your file stays as it
+was. The other vocabularies update from the web as usual.</p>
+<p><code>--source</code> takes one OBO file whose header states a <code>data-version</code>. In the table above, that
+is a vocabulary that comes from one file and has its release read from <code>data-version</code>. For
+any other, the update refuses and names why.</p>
+<h2 id="read-ontology-statusjson">Read <code>ontology-status.json</code><a class="headerlink" href="#read-ontology-statusjson" title="Permanent link">&para;</a></h2>
+<p>The file at the store root records the last update, with one row per vocabulary:</p>
+<div class="language-json highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="p">{</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span><span class="nt">&quot;copy_pending&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">  </span><span class="nt">&quot;end&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-11-21T17:02:40+00:00&quot;</span><span class="p">,</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">  </span><span class="nt">&quot;outcome&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;finalized&quot;</span><span class="p">,</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">  </span><span class="nt">&quot;start&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-11-21T16:40:02+00:00&quot;</span><span class="p">,</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">  </span><span class="nt">&quot;vocabularies&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="w">    </span><span class="nt">&quot;chebi&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;reason&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;GET https://ftp.ebi.ac.uk/pub/databases/chebi/ontology/chebi.obo failed: HTTP 503 from https://ftp.ebi.ac.uk/pub/databases/chebi/ontology/chebi.obo&quot;</span><span class="p">,</span>
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="w">              </span><span class="nt">&quot;release&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;result&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;failed&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;snapshot&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;chebi-256&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;source_date&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-10-01&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;terms&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">219034</span><span class="p">},</span>
+<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="w">    </span><span class="nt">&quot;uberon&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;reason&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;release&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-11-05&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;result&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;unchanged&quot;</span><span class="p">,</span>
+<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="w">               </span><span class="nt">&quot;snapshot&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;uberon-2026-11-05&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;source_date&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-11-05&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;terms&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">16143</span><span class="p">}</span>
+<a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="w">  </span><span class="p">}</span>
+<a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a><span class="p">}</span>
+</code></pre></div>
+<ul>
+<li><code>outcome</code> is <code>running</code>, <code>failed</code>, <code>built</code> or <code>finalized</code>. A vocabulary that fails makes it
+  <code>failed</code>. <code>finalized</code> means GCS holds the update.</li>
+<li>Each row gives the <code>release</code> checked, the <code>result</code> (<code>updated</code>, <code>unchanged</code> or <code>failed</code>,
+  with its <code>reason</code>), the current <code>snapshot</code>, its count of own terms, <code>terms</code>, and its source
+  file's date, <code>source_date</code>.</li>
+<li><code>copy_pending: true</code> means GCS is behind. Log in, then run <code>labdata ontology copy</code>. The next
+  update also copies first.</li>
+</ul>
+<h2 id="check-the-copy">Check the copy<a class="headerlink" href="#check-the-copy" title="Permanent link">&para;</a></h2>
+<p>The update copies the store to GCS at its end. It sends the new snapshots, deletes the pruned
+ones by name, then sends its copy record and <code>ontology-status.json</code> last. A copy refuses when
+it would delete more snapshots than it adds, past a small share. If the snapshots left on
+purpose, run the copy by hand with their number, such as <code>labdata ontology copy
+--accept-deletes 3</code>.</p>
+<p>The copy is current when both of these hold:</p>
+<ul>
+<li>In <code>ontology-status.json</code>, <code>outcome</code> is <code>finalized</code> and <code>copy_pending</code> is <code>false</code>.</li>
+<li>The copy record in GCS matches the one on the disk:</li>
+</ul>
+<div class="language-bash highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>pixi<span class="w"> </span>run<span class="w"> </span>rclone<span class="w"> </span>check<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$LABDATA_ONTOLOGIES</span><span class="s2">&quot;</span><span class="w"> </span>&lt;copy_to&gt;<span class="w"> </span>--max-depth<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span>--include<span class="w"> </span><span class="s2">&quot;/.copied-files.json&quot;</span>
+</code></pre></div>
+<p>It should report 0 differences and 1 matching file.</p>
+<p>Each update and each copy first checks that the disk's copy record is the one in GCS. If it
+is not, the disk is behind GCS, and the update or copy refuses and names the restore.</p>
+<h2 id="restore-the-store-from-gcs">Restore the store from GCS<a class="headerlink" href="#restore-the-store-from-gcs" title="Permanent link">&para;</a></h2>
+<p>Restore the work disk when it is new or lost, or when an update refuses because the disk is
+behind GCS. A restored disk can search at once, and holds each snapshot's source file, so it
+can rebuild its tables with no download. Downloads out of GCS cost money, so run a large
+restore only with the maintainer's yes:</p>
+<div class="language-bash highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">LABDATA_ONTOLOGIES</span><span class="o">=</span>/path/to/ontology-store
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>labdata<span class="w"> </span>ontology<span class="w"> </span>restore<span class="w"> </span>--from<span class="w"> </span>&lt;copy_to&gt;<span class="w"> </span>--accept-download
+</code></pre></div>
+<p>The restore prints how much it downloads. In a terminal it asks before more than 1 GB. A batch
+job has no terminal, so it needs <code>--accept-download</code> for that. An empty disk gets the whole
+store; a disk that fell behind gets only the files that changed.</p>
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate":null,"base":"../..","features":["navigation.sections","navigation.expand","content.code.copy","content.code.annotate","content.action.edit","toc.follow"],"search":"../../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.49251538.min.js"></script>
+      
+    
+  </body>
+</html>

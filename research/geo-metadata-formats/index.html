@@ -1,0 +1,1175 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Data curation, download, and organization utilities for the Liu Lab.">
+      
+      
+      
+        <link rel="canonical" href="https://liuhlab.github.io/liulab-data/research/geo-metadata-formats/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="zensical-0.0.57">
+    
+    
+      
+        <title>Which GEO file format carries a study's full metadata - liulab-data</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../../assets/stylesheets/modern/main.5da3a30f.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/modern/palette.812a03bb.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../stylesheets/diagrams.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+  
+
+
+  
+  
+
+<script id="__analytics">function __md_analytics(){function e(){dataLayer.push(arguments)}window.dataLayer=window.dataLayer||[],e("js",new Date),e("config","G-6M1CJF9WXY"),document.addEventListener("DOMContentLoaded",(function(){document.forms.search&&document.forms.search.query.addEventListener("blur",(function(){this.value&&e("event","search",{search_term:this.value})}));document$.subscribe((function(){var t=document.forms.feedback;if(void 0!==t)for(var a of t.querySelectorAll("[type=submit]"))a.addEventListener("click",(function(a){a.preventDefault();var n=document.location.pathname,d=this.getAttribute("data-md-value");e("event","feedback",{page:n,data:d}),t.firstElementChild.disabled=!0;var r=t.querySelector(".md-feedback__note [data-md-value='"+d+"']");r&&(r.hidden=!1)})),t.hidden=!1})),location$.subscribe((function(t){e("config","G-6M1CJF9WXY",{page_path:t.pathname})}))}));var t=document.createElement("script");t.async=!0,t.src="https://www.googletagmanager.com/gtag/js?id=G-6M1CJF9WXY",document.getElementById("__analytics").insertAdjacentElement("afterEnd",t)}</script>
+  
+    <script>"undefined"!=typeof __md_analytics&&__md_analytics()</script>
+  
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-label="Navigation"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#which-geo-file-format-carries-a-studys-full-metadata" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="liulab-data" class="md-header__button md-logo" aria-label="liulab-data" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer" aria-label="Navigation">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            liulab-data
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Which GEO file format carries a study's full metadata
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search" aria-label="Search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/liuhlab/liulab-data" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M216.5 362.5c-66-8-112.5-55.5-112.5-117 0-25 9-52 24-70-6.5-16.5-5.5-51.5 2-66 20-2.5 47 8 63 22.5 19-6 39-9 63.5-9s44.5 3 62.5 8.5c15.5-14 43-24.5 63-22 7 13.5 8 48.5 1.5 65.5 16 19 24.5 44.5 24.5 70.5 0 61.5-46.5 108-113.5 116.5 17 11 28.5 35 28.5 62.5v52c0 15 12.5 23.5 27.5 17.5C441 459.5 512 369 512 257 512 115.5 397 0 255.5 0S0 115.5 0 257c0 111 70.5 203 165.5 237.5 13.5 5 26.5-4 26.5-17.5v-40c-7 3-16 5-24 5-33 0-52.5-18-66.5-51.5-5.5-13.5-11.5-21.5-23-23-6-.5-8-3-8-6 0-6 10-10.5 20-10.5 14.5 0 27 9 40 27.5 10 14.5 20.5 21 33 21s20.5-4.5 32-16c8.5-8.5 15-16 21-21"/></svg>
+  </div>
+  <div class="md-source__repository">
+    liuhlab/liulab-data
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="liulab-data" class="md-nav__button md-logo" aria-label="liulab-data" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    liulab-data
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/liuhlab/liulab-data" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M216.5 362.5c-66-8-112.5-55.5-112.5-117 0-25 9-52 24-70-6.5-16.5-5.5-51.5 2-66 20-2.5 47 8 63 22.5 19-6 39-9 63.5-9s44.5 3 62.5 8.5c15.5-14 43-24.5 63-22 7 13.5 8 48.5 1.5 65.5 16 19 24.5 44.5 24.5 70.5 0 61.5-46.5 108-113.5 116.5 17 11 28.5 35 28.5 62.5v52c0 15 12.5 23.5 27.5 17.5C441 459.5 512 369 512 257 512 115.5 397 0 255.5 0S0 115.5 0 257c0 111 70.5 203 165.5 237.5 13.5 5 26.5-4 26.5-17.5v-40c-7 3-16 5-24 5-33 0-52.5-18-66.5-51.5-5.5-13.5-11.5-21.5-23-23-6-.5-8-3-8-6 0-6 10-10.5 20-10.5 14.5 0 27 9 40 27.5 10 14.5 20.5 21 33 21s20.5-4.5 32-16c8.5-8.5 15-16 21-21"/></svg>
+  </div>
+  <div class="md-source__repository">
+    liuhlab/liulab-data
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Home
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Tutorials
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+  Tutorials
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/understanding-geo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Understanding GEO & SRA
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/geo-series/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  GEO Series
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/tenx-bam/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  10x cellranger BAM → FASTQ
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  How-to
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+  How-to
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/store-life-cycle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  How the stores work
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/store-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Run the full download
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/store-gcs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Copy the store to GCS
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/papers-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Run the paper store
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/ontology-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Run the ontology store
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../maintenance-log/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Maintenance log
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API reference
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#verdict" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Verdict
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-ten-series" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The ten series
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#field-coverage" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Field coverage
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#parsing-cost" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Parsing cost
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#is-a-regenerated-soft-file-byte-identical" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Is a regenerated SOFT file byte-identical
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#method" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Method
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+  
+    <a href="https://github.com/liuhlab/liulab-data/edit/main/docs/research/geo-metadata-formats.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-file-pen" viewBox="0 0 24 24"><path d="M12.659 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v9.34"/><path d="M14 2v5a1 1 0 0 0 1 1h5M10.378 12.622a1 1 0 0 1 3 3.003L8.36 20.637a2 2 0 0 1-.854.506l-2.867.837a.5.5 0 0 1-.62-.62l.836-2.869a2 2 0 0 1 .506-.853z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="which-geo-file-format-carries-a-studys-full-metadata">Which GEO file format carries a study's full metadata<a class="headerlink" href="#which-geo-file-format-carries-a-studys-full-metadata" title="Permanent link">&para;</a></h1>
+<p>Measured <strong>2026-10-14</strong> on ten GEO Series (GSE). The question: of the family SOFT file, the
+MINiML XML file, the series matrix and the E-utilities <code>esummary</code>, which carries everything a
+study needs, and which is easiest to parse? A second question: is a regenerated family SOFT
+file byte-identical?</p>
+<p>Evidence classes, as in the bulk-metadata survey: <strong>measured</strong> means a fetch or a script was run
+on 2026-10-14 and the number is its output. <strong>Read</strong> means an official page says it.
+<strong>Inferred</strong> means reasoned from measured facts and not checked directly.</p>
+<h2 id="verdict">Verdict<a class="headerlink" href="#verdict" title="Permanent link">&para;</a></h2>
+<p><strong>Use the family SOFT file</strong> (<code>GSExxx_family.soft.gz</code>). It and MINiML carry the same fields, and
+on every series below their counts agree (measured). SOFT is a flat <code>!Key = value</code> line format
+that a 20-line reader parses, ships as one gzip stream with a deterministic header, and keeps
+each sample's fields together. MINiML needs a tar reader and an XML parser to say the same
+thing. The series matrix holds the same text, but it splits a study into one file per platform,
+repeats the series header in each, and lays characteristics out by position, so one row mixes
+different keys. <code>esummary</code> lacks the overall design, the contributors, every sample field and
+the SuperSeries links, so it is a change feed and an index, not a metadata source.</p>
+<p>A family SOFT file served twice is byte-identical, and a fresh render from GEO's database
+matched a two-month-old FTP file line for line (measured). Hash the <strong>decompressed</strong> text to
+detect change; the gzip bytes should also be stable, but that rests on GEO's compressor never
+changing (inferred).</p>
+<h2 id="the-ten-series">The ten series<a class="headerlink" href="#the-ten-series" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>GSE</th>
+<th>Shape</th>
+<th style="text-align: right;">Samples</th>
+<th style="text-align: right;">Platforms</th>
+<th>Species</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GSE60450</td>
+<td>bulk RNA-seq</td>
+<td style="text-align: right;">12</td>
+<td style="text-align: right;">1</td>
+<td>mouse</td>
+</tr>
+<tr>
+<td>GSE131907</td>
+<td>10x single-cell RNA-seq</td>
+<td style="text-align: right;">58</td>
+<td style="text-align: right;">1</td>
+<td>human</td>
+</tr>
+<tr>
+<td>GSE164378</td>
+<td>CITE-seq (RNA plus surface protein), two series types</td>
+<td style="text-align: right;">9</td>
+<td style="text-align: right;">1</td>
+<td>human</td>
+</tr>
+<tr>
+<td>GSE185224</td>
+<td>10x single-cell RNA-seq, intestine</td>
+<td style="text-align: right;">6</td>
+<td style="text-align: right;">1</td>
+<td>human</td>
+</tr>
+<tr>
+<td>GSE207086</td>
+<td>SuperSeries of GSE207083–GSE207085</td>
+<td style="text-align: right;">1,448</td>
+<td style="text-align: right;">2</td>
+<td>human, mouse</td>
+</tr>
+<tr>
+<td>GSE207085</td>
+<td>SubSeries of GSE207086, Smart-seq</td>
+<td style="text-align: right;">1,440</td>
+<td style="text-align: right;">1</td>
+<td>mouse</td>
+</tr>
+<tr>
+<td>GSE30352</td>
+<td>multi-species bulk RNA-seq</td>
+<td style="text-align: right;">131</td>
+<td style="text-align: right;">10</td>
+<td>10 species</td>
+</tr>
+<tr>
+<td>GSE47753</td>
+<td>ATAC-seq</td>
+<td style="text-align: right;">13</td>
+<td style="text-align: right;">1</td>
+<td>human</td>
+</tr>
+<tr>
+<td>GSE29611</td>
+<td>ENCODE ChIP-seq</td>
+<td style="text-align: right;">296</td>
+<td style="text-align: right;">3</td>
+<td>human</td>
+</tr>
+<tr>
+<td>GSE1000</td>
+<td>microarray, for contrast</td>
+<td style="text-align: right;">10</td>
+<td style="text-align: right;">1</td>
+<td>human</td>
+</tr>
+</tbody>
+</table>
+<p>All counts are measured, and all four sources agree on the sample count for every series.</p>
+<h2 id="field-coverage">Field coverage<a class="headerlink" href="#field-coverage" title="Permanent link">&para;</a></h2>
+<p>Rows are what a study needs. "Yes" means every value in the SOFT file is present in that format
+for all ten series (measured by a script that compared counts per field and, for SOFT against
+the matrix, the exact values per sample).</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Family SOFT</th>
+<th>MINiML</th>
+<th>Series matrix</th>
+<th>esummary</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Title, summary</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+</tr>
+<tr>
+<td>Overall design</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td><strong>no</strong></td>
+</tr>
+<tr>
+<td>Series type (assay class)</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes (<code>gdstype</code>)</td>
+</tr>
+<tr>
+<td>Contributors, ordered</td>
+<td>yes</td>
+<td>yes (<code>position</code> attribute)</td>
+<td>yes, repeated per platform file</td>
+<td><strong>no</strong></td>
+</tr>
+<tr>
+<td>PubMed IDs</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes, repeated per platform file</td>
+<td>yes</td>
+</tr>
+<tr>
+<td>Dates (submitted, updated)</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>release date only (<code>pdat</code>)</td>
+</tr>
+<tr>
+<td>SuperSeries / SubSeries links</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td><strong>no</strong> (<code>relations</code> empty)</td>
+</tr>
+<tr>
+<td>BioProject</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+</tr>
+<tr>
+<td>Series SRA study (SRP)</td>
+<td>when GEO lists it</td>
+<td>same</td>
+<td>same</td>
+<td>when GEO lists it (<code>extrelations</code>)</td>
+</tr>
+<tr>
+<td>Series supplementary files</td>
+<td>full URLs</td>
+<td>full URLs, typed</td>
+<td>full URLs, repeated per platform file</td>
+<td>file types only (<code>suppfile</code>)</td>
+</tr>
+<tr>
+<td>Sample title, source, organism, taxid</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td>title only (<code>samples[]</code>)</td>
+</tr>
+<tr>
+<td>Sample characteristics</td>
+<td><code>key: value</code> strings</td>
+<td><code>tag</code> attribute plus value</td>
+<td>positional rows</td>
+<td><strong>no</strong></td>
+</tr>
+<tr>
+<td>Protocols (extract, growth, treatment), data processing</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td><strong>no</strong></td>
+</tr>
+<tr>
+<td>Library strategy, source, selection; instrument</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td><strong>no</strong></td>
+</tr>
+<tr>
+<td>Sample BioSample and SRA (SRX) links</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td><strong>no</strong></td>
+</tr>
+<tr>
+<td>Sample supplementary files</td>
+<td>yes</td>
+<td>yes</td>
+<td>yes</td>
+<td><strong>no</strong></td>
+</tr>
+<tr>
+<td>Sample's other series (<code>Sample_series_id</code>)</td>
+<td>yes</td>
+<td>no field</td>
+<td><strong>no</strong></td>
+<td>no</td>
+</tr>
+<tr>
+<td>Platform title, technology</td>
+<td>yes</td>
+<td>yes</td>
+<td><strong>no</strong></td>
+<td>title only</td>
+</tr>
+</tbody>
+</table>
+<p>Details behind the cells:</p>
+<ul>
+<li><strong>SOFT against matrix (measured).</strong> After undoing the matrix's CSV quote doubling (<code>""</code> for
+  <code>"</code>), every sample field value matched SOFT exactly on all ten series, except that the matrix
+  has no <code>Sample_series_id</code>. For GSE29611 that field shows its samples also belong to GSE51334,
+  which the matrix cannot tell you.</li>
+<li><strong>SOFT against MINiML (measured).</strong> The counts of samples, platforms, series relations,
+  PubMed IDs, contributors, series and sample supplementary files, characteristics and sample
+  relations agree on every series. One exception: for the 2004 microarray series GSE1000, MINiML
+  writes a placeholder characteristic <code>none</code> per sample where SOFT writes nothing.</li>
+<li><strong>SuperSeries (measured).</strong> The family SOFT of GSE207086 holds all 1,448 samples of its three
+  SubSeries and lists <code>SuperSeries of: GSE207083/4/5</code>. It has <strong>no</strong> contributors of its own; the
+  names sit on the SubSeries. GSE207085's file says <code>SubSeries of: GSE207086</code>. In <code>esummary</code>
+  both series have <code>relations: []</code>, as the survey found for GSE207085. A crawler that wants a
+  SuperSeries's authors must follow the SubSeries links.</li>
+<li><strong>SRA links (measured).</strong> No format carries a run (SRR) or the library layout; the survey
+  already showed these come from SRA. A series-level <code>SRA:</code> relation is missing from GSE131907,
+  GSE164378, GSE207085 and GSE207086 in every format, so the sample-level <code>SRA: …term=SRX…</code>
+  relation is the reliable join key.</li>
+<li><strong>esummary (measured).</strong> Its fields are <code>accession</code>, <code>bioproject</code>, <code>entrytype</code>,
+  <code>extrelations</code>, <code>ftplink</code>, <code>gds</code>, <code>gdstype</code>, <code>geo2r</code>, <code>gpl</code>, <code>gse</code>, <code>n_samples</code>, <code>pdat</code>,
+  <code>platformtaxa</code>, <code>platformtitle</code>, <code>projects</code>, <code>ptechtype</code>, <code>pubmedids</code>, <code>relations</code>,
+  <code>samples</code>, <code>samplestaxa</code>, <code>seriestitle</code>, <code>ssinfo</code>, <code>subsetinfo</code>, <code>summary</code>, <code>suppfile</code>,
+  <code>taxon</code>, <code>title</code>, <code>uid</code> and <code>valtype</code>. One call fetched all ten records.</li>
+</ul>
+<h2 id="parsing-cost">Parsing cost<a class="headerlink" href="#parsing-cost" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Family SOFT.</strong> One gzip stream. Lines start with <code>^</code> (a new entity: <code>SERIES</code>, <code>SAMPLE</code>,
+  <code>PLATFORM</code>) or <code>!</code> (<code>Key = value</code>, repeated keys allowed). Characteristics are <code>key: value</code>
+  strings, so split on the first <code>": "</code>; the key is the submitter's free text. Microarray
+  families embed data tables between <code>!sample_table_begin</code> and <code>!sample_table_end</code> (and the
+  platform's annotation table), so the reader must skip those blocks: GSE1000's SOFT is 9.4 MB
+  compressed and 53 MB raw for ten samples (measured), against 39 KB raw for GSE60450.</li>
+<li><strong>MINiML.</strong> A <code>.tgz</code> holding <code>GSExxx_family.xml</code>; for microarray series it also holds one
+  <code>-tbl-1.txt</code> data file per sample and platform (measured on GSE1000). The XML is namespaced and
+  uses ID references (<code>Contributor-Ref</code>, <code>Platform-Ref</code>), and long text sits between newlines
+  that need stripping. It gives the characteristic key as a <code>tag</code> attribute, which saves one
+  string split; that is its only parsing advantage over SOFT. The README says SOFT and MINiML
+  "generally contain the same data" (read, <code>https://ftp.ncbi.nlm.nih.gov/geo/README.txt</code>).</li>
+<li><strong>Series matrix.</strong> One file per platform for multi-platform series (10 files for GSE30352,
+  3 for GSE29611; measured), each repeating every series line, so contributors and PubMed IDs
+  must be deduplicated (GSE30352: 180 contributor lines for 18 names). Sample fields are rows
+  with one column per sample, CSV-quoted. Characteristics rows are positional: in GSE29611, 73 of
+  76 characteristics rows mix more than one key across samples, and GSE47753 has 2 of 3
+  (measured). The reader must therefore re-key each cell from its own <code>key:</code> prefix. The matrix
+  also drops the platform section and <code>Sample_series_id</code>.</li>
+<li><strong>esummary.</strong> JSON, the easiest to parse, but too thin (see the table).</li>
+</ul>
+<h2 id="is-a-regenerated-soft-file-byte-identical">Is a regenerated SOFT file byte-identical<a class="headerlink" href="#is-a-regenerated-soft-file-byte-identical" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Two fetches, 20 s apart (measured).</strong> For all ten series the SHA-256 of the <code>.gz</code> and of
+  its decompressed text matched between fetches. The FTP <code>Last-Modified</code> dates ranged from
+  2026-08-10 to 2026-10-05, so this compares one stored file with itself; it does not exercise
+  regeneration.</li>
+<li><strong>Gzip header (measured).</strong> All ten <code>.gz</code> files have header flags 0 (no stored file name) and
+  MTIME 0. Recompressing unchanged text with the same compressor therefore yields the same
+  bytes (inferred).</li>
+<li><strong>Fresh render against the stored file (measured).</strong> GEO's on-demand SOFT view,
+  <code>https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE60450&amp;targ=all&amp;form=text&amp;view=full</code>,
+  rendered the record from the database on 2026-10-14. Two renders were byte-identical. Its
+  <code>SERIES</code> and <code>SAMPLE</code> blocks matched the FTP file written 2026-08-10 line for line, except for
+  two lines the web view adds (<code>!Series_platform_organism</code>, <code>!Series_sample_organism</code>). The
+  web view lacks the <code>^DATABASE</code> header and embeds the platform's list of every GSM on that
+  platform (205,246 lines for GPL13112), so it is not a drop-in for the FTP file.</li>
+<li><strong>What this means for refresh.</strong> For an unchanged record, GEO's renderer gives the same text
+  two months apart, so a hash of the decompressed family SOFT is a sound change detector
+  (inferred from the fresh-render match). A MINiML <code>.tgz</code> is less stable: its tar member stores
+  the regeneration time and owner (measured: <code>geoadm geo … Aug 10 02:27</code> for GSE60450), so its
+  bytes change on every regeneration even when the XML does not (inferred).</li>
+</ul>
+<h2 id="method">Method<a class="headerlink" href="#method" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Files came from <code>https://ftp.ncbi.nlm.nih.gov/geo/series/GSEnnn/GSExxx/{soft,miniml,matrix}/</code>
+  and <code>esummary.fcgi?db=gds&amp;retmode=json&amp;id=…</code> (GSE uid = 200,000,000 + the number). No API key
+  was set; about 100 requests in total, with pauses.</li>
+<li>A script parsed each format and compared per-field counts, and per-sample values for SOFT
+  against the matrix. Downloaded files are not committed.</li>
+<li>GSE2034 was dropped as the microarray example because its family SOFT is 65 MB compressed;
+  GSE1000 (9.4 MB) stands in.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+  
+  
+
+
+
+  
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate":null,"base":"../..","features":["navigation.sections","navigation.expand","content.code.copy","content.code.annotate","content.action.edit","toc.follow"],"search":"../../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.49251538.min.js"></script>
+      
+    
+  </body>
+</html>

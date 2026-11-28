@@ -1,0 +1,1128 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Data curation, download, and organization utilities for the Liu Lab.">
+      
+      
+      
+        <link rel="canonical" href="https://liuhlab.github.io/liulab-data/research/bulk-snapshot-deltas/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="zensical-0.0.57">
+    
+    
+      
+        <title>Can the bulk snapshots be renewed without a full download? - liulab-data</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../../assets/stylesheets/modern/main.5da3a30f.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/modern/palette.812a03bb.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../stylesheets/diagrams.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+  
+
+
+  
+  
+
+<script id="__analytics">function __md_analytics(){function e(){dataLayer.push(arguments)}window.dataLayer=window.dataLayer||[],e("js",new Date),e("config","G-6M1CJF9WXY"),document.addEventListener("DOMContentLoaded",(function(){document.forms.search&&document.forms.search.query.addEventListener("blur",(function(){this.value&&e("event","search",{search_term:this.value})}));document$.subscribe((function(){var t=document.forms.feedback;if(void 0!==t)for(var a of t.querySelectorAll("[type=submit]"))a.addEventListener("click",(function(a){a.preventDefault();var n=document.location.pathname,d=this.getAttribute("data-md-value");e("event","feedback",{page:n,data:d}),t.firstElementChild.disabled=!0;var r=t.querySelector(".md-feedback__note [data-md-value='"+d+"']");r&&(r.hidden=!1)})),t.hidden=!1})),location$.subscribe((function(t){e("config","G-6M1CJF9WXY",{page_path:t.pathname})}))}));var t=document.createElement("script");t.async=!0,t.src="https://www.googletagmanager.com/gtag/js?id=G-6M1CJF9WXY",document.getElementById("__analytics").insertAdjacentElement("afterEnd",t)}</script>
+  
+    <script>"undefined"!=typeof __md_analytics&&__md_analytics()</script>
+  
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-label="Navigation"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#can-the-bulk-snapshots-be-renewed-without-a-full-download" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="liulab-data" class="md-header__button md-logo" aria-label="liulab-data" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer" aria-label="Navigation">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            liulab-data
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Can the bulk snapshots be renewed without a full download?
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search" aria-label="Search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/liuhlab/liulab-data" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M216.5 362.5c-66-8-112.5-55.5-112.5-117 0-25 9-52 24-70-6.5-16.5-5.5-51.5 2-66 20-2.5 47 8 63 22.5 19-6 39-9 63.5-9s44.5 3 62.5 8.5c15.5-14 43-24.5 63-22 7 13.5 8 48.5 1.5 65.5 16 19 24.5 44.5 24.5 70.5 0 61.5-46.5 108-113.5 116.5 17 11 28.5 35 28.5 62.5v52c0 15 12.5 23.5 27.5 17.5C441 459.5 512 369 512 257 512 115.5 397 0 255.5 0S0 115.5 0 257c0 111 70.5 203 165.5 237.5 13.5 5 26.5-4 26.5-17.5v-40c-7 3-16 5-24 5-33 0-52.5-18-66.5-51.5-5.5-13.5-11.5-21.5-23-23-6-.5-8-3-8-6 0-6 10-10.5 20-10.5 14.5 0 27 9 40 27.5 10 14.5 20.5 21 33 21s20.5-4.5 32-16c8.5-8.5 15-16 21-21"/></svg>
+  </div>
+  <div class="md-source__repository">
+    liuhlab/liulab-data
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="liulab-data" class="md-nav__button md-logo" aria-label="liulab-data" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    liulab-data
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/liuhlab/liulab-data" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M216.5 362.5c-66-8-112.5-55.5-112.5-117 0-25 9-52 24-70-6.5-16.5-5.5-51.5 2-66 20-2.5 47 8 63 22.5 19-6 39-9 63.5-9s44.5 3 62.5 8.5c15.5-14 43-24.5 63-22 7 13.5 8 48.5 1.5 65.5 16 19 24.5 44.5 24.5 70.5 0 61.5-46.5 108-113.5 116.5 17 11 28.5 35 28.5 62.5v52c0 15 12.5 23.5 27.5 17.5C441 459.5 512 369 512 257 512 115.5 397 0 255.5 0S0 115.5 0 257c0 111 70.5 203 165.5 237.5 13.5 5 26.5-4 26.5-17.5v-40c-7 3-16 5-24 5-33 0-52.5-18-66.5-51.5-5.5-13.5-11.5-21.5-23-23-6-.5-8-3-8-6 0-6 10-10.5 20-10.5 14.5 0 27 9 40 27.5 10 14.5 20.5 21 33 21s20.5-4.5 32-16c8.5-8.5 15-16 21-21"/></svg>
+  </div>
+  <div class="md-source__repository">
+    liuhlab/liulab-data
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Home
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Tutorials
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+  Tutorials
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/understanding-geo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Understanding GEO & SRA
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/geo-series/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  GEO Series
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/tenx-bam/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  10x cellranger BAM → FASTQ
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  How-to
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+  How-to
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/store-life-cycle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  How the stores work
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/store-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Run the full download
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/store-gcs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Copy the store to GCS
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/papers-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Run the paper store
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/ontology-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Run the ontology store
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../maintenance-log/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Maintenance log
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API reference
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#verdict" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Verdict
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-sizes-and-what-ncbi-publishes-next-to-each-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        1. Sizes and what NCBI publishes next to each file
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-sra-what-exists-beside-sra_accessionstab" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        2. SRA: what exists beside <code>SRA_Accessions.tab</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. SRA: what exists beside SRA_Accessions.tab">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#daily-and-monthly-metadata-tarballs-srareportsmetadata" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Daily and monthly metadata tarballs (<code>sra/reports/Metadata/</code>)
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#daily-mirroring-deltas-srareportsmirroring" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Daily mirroring deltas (<code>sra/reports/Mirroring/</code>)
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-bioproject-and-biosample-through-e-utilities" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        3. BioProject and BioSample through E-utilities
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-geo-series" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        4. <code>geo-series</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-full-download-times" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        5. Full download times
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cons-and-open-points" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Cons and open points
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-was-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What was run
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+  
+    <a href="https://github.com/liuhlab/liulab-data/edit/main/docs/research/bulk-snapshot-deltas.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-file-pen" viewBox="0 0 24 24"><path d="M12.659 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v9.34"/><path d="M14 2v5a1 1 0 0 0 1 1h5M10.378 12.622a1 1 0 0 1 3 3.003L8.36 20.637a2 2 0 0 1-.854.506l-2.867.837a.5.5 0 0 1-.62-.62l.836-2.869a2 2 0 0 1 .506-.853z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="can-the-bulk-snapshots-be-renewed-without-a-full-download">Can the bulk snapshots be renewed without a full download?<a class="headerlink" href="#can-the-bulk-snapshots-be-renewed-without-a-full-download" title="Permanent link">&para;</a></h1>
+<p>Checked <strong>2026-11-06</strong> against NCBI's download site (<code>https://ftp.ncbi.nlm.nih.gov/</code>),
+E-utilities and the public SRA metadata bucket on AWS. The question: for each bulk snapshot the
+store takes (<code>scripts/bulk/download_ncbi_bulk.py</code>), does NCBI publish a daily, incremental or
+dated-delta version, how big is the full file, and should a renewal fetch the full file or a
+delta?</p>
+<p><strong>Measured</strong> means a listing, a <code>HEAD</code> request, a ranged read of the first 20 MB, or an
+E-utilities query was run on 2026-11-06 and the number is its output. <strong>Read</strong> means an
+official page or file says it. <strong>Inferred</strong> means reasoned from measured or read facts and not
+checked directly. No large file was downloaded.</p>
+<h2 id="verdict">Verdict<a class="headerlink" href="#verdict" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Snapshot</th>
+<th style="text-align: right;">Full size</th>
+<th>Delta from NCBI?</th>
+<th>Recommendation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SRA_Accessions.tab</code></td>
+<td style="text-align: right;">35.6 GB</td>
+<td>No delta in this format. A daily <code>livelist.csv.gz</code> exists, but it lacks the <code>Study</code> and <code>Experiment</code> columns the store reads</td>
+<td>Full re-download</td>
+</tr>
+<tr>
+<td><code>bioproject.xml</code></td>
+<td style="text-align: right;">4.2 GB</td>
+<td>No file delta. E-utilities has no modification date for BioProject, only registration date</td>
+<td>Full re-download</td>
+</tr>
+<tr>
+<td><code>biosample_set.xml.gz</code></td>
+<td style="text-align: right;">5.0 GB</td>
+<td>No file delta. E-utilities can list records by modification date (<code>[MDAT]</code>)</td>
+<td>Full re-download</td>
+</tr>
+<tr>
+<td><code>geo-series</code> (E-utilities dump)</td>
+<td style="text-align: right;">about 300,000 records, built by the script</td>
+<td>No file at all. E-utilities can list Series by update date (<code>[UDAT]</code>)</td>
+<td>Delta by <code>[UDAT]</code>, with a periodic full rebuild</td>
+</tr>
+<tr>
+<td>SRA metadata Parquet (S3)</td>
+<td style="text-align: right;">14.2 GB in 30 objects</td>
+<td>No. One current snapshot, replaced daily, no history</td>
+<td>Full re-download</td>
+</tr>
+</tbody>
+</table>
+<p>Only <code>geo-series</code> gains from a delta: a week of changes is about 1,000 Series, a handful of
+E-utilities requests instead of about 630 (inferred). For the four files, a full fetch is
+minutes of bandwidth on NCBI's download site, while any delta would either miss columns or
+move load onto E-utilities, which the store wants to keep light (inferred).</p>
+<h2 id="1-sizes-and-what-ncbi-publishes-next-to-each-file">1. Sizes and what NCBI publishes next to each file<a class="headerlink" href="#1-sizes-and-what-ncbi-publishes-next-to-each-file" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th style="text-align: right;">Size (bytes)</th>
+<th>Last-Modified</th>
+<th>Other files in the directory</th>
+<th>Evidence</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sra/reports/Metadata/SRA_Accessions.tab</code></td>
+<td style="text-align: right;">35,575,829,532</td>
+<td>2026-11-06 19:09 GMT</td>
+<td><code>SRA_Run_Members.tab</code> (4.3 GB); daily and monthly <code>NCBI_SRA_Metadata_*.tar.gz</code></td>
+<td>measured (<code>HEAD</code>, listing)</td>
+</tr>
+<tr>
+<td><code>bioproject/bioproject.xml</code></td>
+<td style="text-align: right;">4,175,925,142</td>
+<td>2026-11-06 17:54 GMT</td>
+<td><code>summary.txt</code> (77 MB, last changed 2025-04-08); <code>OLD_XML/core_bioproject.xml</code> (frozen 2024-02-25); schemas; README</td>
+<td>measured</td>
+</tr>
+<tr>
+<td><code>biosample/biosample_set.xml.gz</code></td>
+<td style="text-align: right;">4,977,936,060</td>
+<td>2026-11-06 18:09 GMT</td>
+<td>none: it is the only file</td>
+<td>measured</td>
+</tr>
+<tr>
+<td>S3 <code>sra-pub-metadata-us-east-1/sra/metadata/</code></td>
+<td style="text-align: right;">14,180,682,713 in 30 objects</td>
+<td>all 2026-11-06 00:39–00:41 GMT</td>
+<td>no dated prefixes; the bucket root holds only <code>sra/</code>, <code>sra_tax_analysis_tool/</code>, <code>test/</code></td>
+<td>measured (S3 listing)</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li>All three download-site files are rewritten daily (measured: today's dates; read: the
+  BioProject README says its dump and <code>summary.txt</code> are "updated daily", although <code>summary.txt</code>
+  has not changed since 2025-04-08).</li>
+<li><code>bioproject.xml.gz</code> does not exist (measured: 404). The file is served uncompressed.</li>
+<li>All three answer <code>Accept-Ranges: bytes</code> (measured), so a cut transfer resumes. They send no
+  <code>ETag</code> (measured), only <code>Last-Modified</code>.</li>
+</ul>
+<h2 id="2-sra-what-exists-beside-sra_accessionstab">2. SRA: what exists beside <code>SRA_Accessions.tab</code><a class="headerlink" href="#2-sra-what-exists-beside-sra_accessionstab" title="Permanent link">&para;</a></h2>
+<h3 id="daily-and-monthly-metadata-tarballs-srareportsmetadata">Daily and monthly metadata tarballs (<code>sra/reports/Metadata/</code>)<a class="headerlink" href="#daily-and-monthly-metadata-tarballs-srareportsmetadata" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>NCBI_SRA_Metadata_Full_YYYYMMDD.tar.gz</code> appears monthly, 13 kept, from 2025-10-17 to
+  2026-10-13, 14–17 GB each (measured, listing).</li>
+<li><code>NCBI_SRA_Metadata_YYYYMMDD.tar.gz</code> appears daily, with some gaps, back to 2025-09-30, about
+  7.0 GB each in the last month (measured, listing; 7,529,135,959 bytes for 2026-11-06).</li>
+<li>Contents (measured, first 20 MB of each, read as a tar stream): one folder per SRA
+  submission (<code>DRA…</code>, <code>ERA…</code>, <code>SRA…</code>) holding <code>submission</code>, <code>study</code>, <code>sample</code>, <code>experiment</code>
+  and <code>run</code> XML, plus a whole copy of <code>SRA_Run_Members</code> (4,267,387,363 bytes, the same size as
+  the standalone file).</li>
+<li>The daily tarball is not a one-day delta. It stays about 7.0 GB every day from 2026-10-14 to
+  2026-11-06 (measured), and its first 20 MB move forward in submission number between those
+  two days (measured: median <code>SRA2559506</code> against <code>SRA2580028</code>). It holds recently changed
+  submissions plus the full run-members table (inferred). Its exact window is not documented
+  on any NCBI page found (read, absence).</li>
+<li>Either way it is submission XML, not the <code>SRA_Accessions.tab</code> table, so it cannot patch that
+  file (inferred).</li>
+</ul>
+<h3 id="daily-mirroring-deltas-srareportsmirroring">Daily mirroring deltas (<code>sra/reports/Mirroring/</code>)<a class="headerlink" href="#daily-mirroring-deltas-srareportsmirroring" title="Permanent link">&para;</a></h3>
+<ul>
+<li>One folder per day, <code>NCBI_SRA_Mirroring_YYYYMMDD/</code>, 46 of them back to 2026-09-22, and a
+  monthly <code>_Full</code> folder (2026-10-01 and 2026-11-01) (measured, listing). The window rolls:
+  older days are removed (inferred from the 46-day span).</li>
+<li>A daily folder holds <code>livelist.csv.gz</code> (1.2 MB on 2026-11-05) and <code>meta_*_set.xml.gz</code> deltas
+  for study, sample, experiment, run and analysis (167 KB–2.3 MB each) (measured). Each <code>_Full</code>
+  <code>livelist.csv.gz</code> is 1.6 GB (measured).</li>
+<li>The 2026-11-05 <code>livelist.csv.gz</code> has 125,893 rows: 45,467 runs, 38,893 experiments, 37,879
+  samples, 2,724 analyses and 930 studies (measured). Its rows carry <code>LastUpdate</code> dates of the
+  day before, so it is a true one-day delta (measured on the first rows; inferred for all).</li>
+<li>Its columns: <code>Accession, Type, Status, Received, Published, LastUpdate, LastMetaUpdate,
+  ReplacedBy, BioSample, BioProject, Insdc</code> (measured).</li>
+<li><code>SRA_Accessions.tab</code> has <code>Accession, Submission, Status, Updated, Published, Received, Type,
+  Center, Visibility, Alias, Experiment, Sample, Study, Loaded, Spots, Bases, Md5sum, BioSample,
+  BioProject, ReplacedBy</code> (measured, first line).</li>
+<li>The store reads <code>Type</code>, <code>BioProject</code>, <code>Study</code>, <code>Experiment</code>, <code>Accession</code> and <code>Status</code> (read,
+  <code>labdata.store.fetch.experiments_under</code> and <code>labdata.store.build</code>). The livelist has no
+  <code>Study</code> or <code>Experiment</code>, so it cannot rebuild the run-to-experiment and study links (inferred).</li>
+</ul>
+<h2 id="3-bioproject-and-biosample-through-e-utilities">3. BioProject and BioSample through E-utilities<a class="headerlink" href="#3-bioproject-and-biosample-through-e-utilities" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Query</th>
+<th style="text-align: right;">Count</th>
+<th>Evidence</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>db=biosample</code>, all records</td>
+<td style="text-align: right;">60,783,656</td>
+<td>measured</td>
+</tr>
+<tr>
+<td><code>db=biosample</code>, <code>2026/10/30:2026/11/05[MDAT]</code></td>
+<td style="text-align: right;">183,265</td>
+<td>measured</td>
+</tr>
+<tr>
+<td><code>db=bioproject</code>, all records</td>
+<td style="text-align: right;">1,115,121</td>
+<td>measured</td>
+</tr>
+<tr>
+<td><code>db=bioproject</code>, <code>2026/10/30:2026/11/05[DATE]</code> (registration)</td>
+<td style="text-align: right;">2,100</td>
+<td>measured</td>
+</tr>
+<tr>
+<td><code>db=bioproject</code>, <code>[MDAT]</code> or <code>datetype=mdat</code></td>
+<td style="text-align: right;">not a field: E-utilities reads it as free text and finds nothing</td>
+<td>measured</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li><code>einfo</code> lists the date fields: BioSample has <code>PDAT</code> and <code>MDAT</code> (modification date);
+  BioProject has only <code>DATE</code> (registration date) (measured).</li>
+<li>So a BioProject delta from E-utilities catches new projects, not edits to old ones. A
+  BioSample delta is possible: about 0.3% of records change in a week (measured counts), about
+  370 <code>efetch</code> batches of 500 per week (inferred). That moves the load from one 5 GB file to
+  hundreds of E-utilities calls, which runs against the store's choice to stay gentle on NCBI
+  (inferred).</li>
+</ul>
+<h2 id="4-geo-series">4. <code>geo-series</code><a class="headerlink" href="#4-geo-series" title="Permanent link">&para;</a></h2>
+<ul>
+<li>No GEO Series dump exists on the download site; the script builds it from <code>esearch</code> and
+  <code>esummary</code> on <code>db=gds</code> (read, the script).</li>
+<li><code>gse[ETYP]</code> matches 300,226 Series (measured). A full dump is about 31 <code>esearch</code> pages of
+  10,000 and about 600 <code>esummary</code> batches of 500 (inferred from the script's batch sizes).</li>
+<li><code>einfo</code> for <code>gds</code> lists <code>PDAT</code> and <code>UDAT</code> (update date) (measured).
+  <code>gse[ETYP] AND 2026/10/30:2026/11/05[UDAT]</code> matches 996 Series; the same week by <code>[PDAT]</code>
+  matches 688 (measured).</li>
+<li>A delta: query <code>[UDAT]</code> from the last snapshot's date, <code>esummary</code> those IDs, and replace their
+  lines (inferred). It does not see Series that were withdrawn or made private, so a periodic
+  full rebuild is still needed (inferred). Whether every field change in <code>esummary</code> moves
+  <code>UDAT</code> is not checked.</li>
+</ul>
+<h2 id="5-full-download-times">5. Full download times<a class="headerlink" href="#5-full-download-times" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>SRA_Accessions.tab</code>: about 7 minutes (measured earlier on a lab node, outside this note).
+  That is about 85 MB/s.</li>
+<li>At the same rate, <code>bioproject.xml</code> and <code>biosample_set.xml.gz</code> take about 1 minute each, and
+  the Parquet snapshot about 3 minutes (inferred, not timed).</li>
+<li><code>geo-series</code>: at least 1 minute of request time at the 10 per second E-utilities limit with
+  a key; real wall time is set by server latency and was not timed here (inferred).</li>
+</ul>
+<h2 id="cons-and-open-points">Cons and open points<a class="headerlink" href="#cons-and-open-points" title="Permanent link">&para;</a></h2>
+<ul>
+<li>No NCBI page found documents the daily metadata tarball's window, the mirroring folders, or
+  how long either is kept. The facts above come from listings and partial reads.</li>
+<li>The livelist's one-day nature is checked on its first rows only.</li>
+<li>Download times other than <code>SRA_Accessions.tab</code> are extrapolated from one rate.</li>
+</ul>
+<h2 id="what-was-run">What was run<a class="headerlink" href="#what-was-run" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Directory listings and <code>HEAD</code> requests over HTTPS on the paths above.</li>
+<li>Ranged reads of the first 20 MB of three tarballs (2026-10-13 Full, 2026-10-14 and 2026-11-06
+  daily), decompressed as a stream to list tar members.</li>
+<li>One whole download of the 1.2 MB 2026-11-05 <code>livelist.csv.gz</code>, and the first line of
+  <code>SRA_Accessions.tab</code> and the <code>_Full</code> livelist by ranged read.</li>
+<li><code>esearch</code> and <code>einfo</code> on <code>biosample</code>, <code>bioproject</code> and <code>gds</code>, and an S3 <code>list-type=2</code>
+  listing of the Parquet bucket.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+  
+  
+
+
+
+  
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate":null,"base":"../..","features":["navigation.sections","navigation.expand","content.code.copy","content.code.annotate","content.action.edit","toc.follow"],"search":"../../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.49251538.min.js"></script>
+      
+    
+  </body>
+</html>

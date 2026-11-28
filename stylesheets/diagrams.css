@@ -1,0 +1,81 @@
+/* Hand-drawn SVG diagrams, inlined into the page. Each colour token keeps one meaning on every
+   figure: a domain class sets `color`, and the shapes and labels inside draw in currentColor. */
+
+[data-md-color-scheme="default"] {
+  --d-store: #1d5fae;
+  --d-paper: #9e5800;
+  --d-gcs: #12765a;
+  --d-fail: #b3362a;
+  --d-idle: #67727e;
+}
+
+[data-md-color-scheme="slate"] {
+  --d-store: #7eb1ef;
+  --d-paper: #edb062;
+  --d-gcs: #5dcca2;
+  --d-fail: #ee8a7d;
+  --d-idle: #9aa5b1;
+}
+
+.md-typeset figure.diagram,
+.md-typeset figure.diagram svg {
+  width: 100%;
+}
+
+.md-typeset figure.diagram svg {
+  height: auto;
+}
+
+.md-typeset figure.diagram figcaption {
+  max-width: none;
+}
+
+/* Domains. The key on a page uses the same classes on its words. */
+.md-typeset .d-store { color: var(--d-store); }
+.md-typeset .d-paper { color: var(--d-paper); }
+.md-typeset .d-gcs { color: var(--d-gcs); }
+.md-typeset .d-fail { color: var(--d-fail); }
+.md-typeset .d-idle { color: var(--d-idle); }
+.md-typeset .d-quiet { color: var(--md-default-fg-color--lighter); }
+
+/* Shapes */
+.diagram .d-box { fill: var(--md-default-bg-color); stroke: currentColor; stroke-width: 1.2; }
+.diagram .d-tint { fill: currentColor; fill-opacity: 0.12; stroke: currentColor; stroke-width: 1.4; }
+.diagram .d-frame { fill: currentColor; fill-opacity: 0.05; stroke: currentColor; stroke-width: 1.2; }
+.diagram .d-band { fill: var(--md-default-fg-color--lightest); }
+.diagram .d-solid { fill: currentColor; stroke: currentColor; }
+.diagram .d-edge { fill: none; stroke: currentColor; stroke-width: 1.4; }
+.diagram .d-dash { stroke-dasharray: 5 4; }
+.diagram .d-dot { fill: currentColor; }
+
+/* Text. Unclassed text is an arrow label, in its group's colour. */
+.diagram text { font-size: 11px; fill: currentColor; }
+.diagram .d-title { font-size: 12px; font-weight: 700; fill: var(--md-default-fg-color); }
+.diagram .d-note { font-size: 11px; fill: var(--md-default-fg-color--light); }
+.diagram .d-path {
+  font-family: var(--md-code-font-family);
+  font-size: 11.5px;
+  fill: var(--md-default-fg-color);
+}
+.diagram .d-head {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  fill: var(--md-default-fg-color--light);
+}
+.diagram .d-group { font-size: 12.5px; font-weight: 700; fill: currentColor; }
+.diagram .d-tier { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; fill: currentColor; }
+.diagram .d-on-fill { fill: var(--md-default-bg-color); }
+
+/* A word in a page's colour key: the word and its swatch take the domain's colour. */
+.md-typeset strong.d-key::before {
+  content: "";
+  display: inline-block;
+  width: 0.75em;
+  height: 0.75em;
+  margin-right: 0.3em;
+  border: 1.5px solid currentColor;
+  border-radius: 2px;
+  background: color-mix(in srgb, currentColor 18%, transparent);
+  vertical-align: -0.05em;
+}
